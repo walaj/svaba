@@ -72,6 +72,22 @@ inline void rcomplement(std::string &a) {
       *it = 'C';
 }
 
+  // calculate the percentage
+ template <typename T> inline int percentCalc(T numer, T denom) {
+   if (denom <= 0)
+     return 0;
+   int perc  = static_cast<int>(floor((float)numer / (float)denom * 100.0));
+   return perc;
+ }
+
+ // remove the last character from a string
+ inline string cutLastChar(string in) {
+   if (in.length() == 0)
+     return in;
+   else 
+     return in.substr(0, in.length() - 1);
+ }
+
 } // end namespace
 
 #endif

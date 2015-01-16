@@ -14,7 +14,10 @@ typedef unordered_map<string, string> FormatMap;
 typedef unordered_map<string, string> FilterMap;
 typedef unordered_map<string, string> SampleMap;
 typedef unordered_map<string, string> ContigFieldMap;
+
 typedef unordered_map<string, bool> SupportingReadsMap;
+typedef pair<string,string> FormatPair;
+typedef unordered_map<string, pair<string,string>> FormatRecordMap;
 
 void runVCF(int argc, char** argv);
 void parseVCFOptions(int argc, char** argv);
@@ -79,6 +82,7 @@ struct VCFEntry {
   //string method;
 
   unordered_map<string, string> info_fields;
+  FormatRecordMap format_fields;
 
   // output it to a string
   friend ostream& operator<<(ostream& out, const VCFEntry& v);
@@ -104,9 +108,9 @@ struct VCFEntryPair {
   string method;
   string idcommon;
 
-  SupportingReadsMap supp_reads;
-
   string overlap_partner = "";
+
+  SupportingReadsMap supp_reads;
 
   bool getOverlaps(int pad, VCFEntryPair &v);
 
@@ -115,6 +119,11 @@ struct VCFEntryPair {
   void addCommonInfoTag(string tag, string value);
 
   string toCSVString() const;
+
+  int tsplit = 0;
+  int nsplit = 0;
+  int tdisc = 0;
+  int ndisc = 0;
 
 };
 
@@ -155,5 +164,6 @@ VCFHeader mergeVCFHeaders(VCFHeader const &h1, VCFHeader const &h2);
 template<typename T> T mergeHeaderMaps(T const &m1, T const &m2);
 SupportingReadsMap ReadIDToReads(string readid);
 InfoMap mergeInfoFields(InfoMap const &m1, InfoMap const &m2);
+FormatRecordMap FormatStringToFormatRecordMap(string format, string samp1, string samp2);
 
 #endif

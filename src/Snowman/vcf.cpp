@@ -22,6 +22,7 @@ static const char *VCF_USAGE_MESSAGE =
 "  -h, --help                           Display this help and exit\n"
 "  -o, --output-vcf                     File to out the VCF to.\n"
 "  -c, --write-csv                      File to output the VCF as a comma separated file. Default: not output\n"
+  //"      --stats                          Write a simple stats file as specified.\n"
 " Optional Input\n"
 "  -i, --snowman-csv                    A csv breakpoint file (usually breakpoints.somatic.txt) that needs to be converted to VCF.\n"
   //"  -p, --pair-id-string                 A csv breakpoint file (usually breakpoints.somatic.txt) that needs to be converted to VCF.\n"
@@ -60,6 +61,8 @@ namespace opt {
 
   static bool include_nonpass = false;
   static string as_csv = "";;
+
+  static string stats = "stats.txt";
 }
 
 static const char* shortopts = "hv:p:t:n:r:b:s:d:i:o:y:m:xzc:";
@@ -372,7 +375,6 @@ VCFHeader::VCFHeader(string file) {
     if (line.size() > 0)
       if (line.at(0) != '#')
 	break;
-    cout << line << endl;
     smatch match;
     // perform the regex matching
     if (regex_search(line, match, reg_ff))
@@ -422,6 +424,7 @@ VCFEntry::VCFEntry(string line, string method) {
     reg = regex("(.*?)\t([0-9]+)\t(.*?)\t(.*?)\t(.*?)\t(.*)\t(.*?)\t(.*?)\t(.*?)\t(.*?)\t(.*?)(\t|$).*");    
   else 
     cerr << "Method not recognized: " << method << endl;
+
   smatch match;
   if (regex_search(line, match, reg)) {
     chr = GenomicRegion::chrToNumber(match[1].str());
@@ -446,27 +449,15 @@ VCFEntry::VCFEntry(string line, string method) {
   while (getline(iss, val, ';')) {
     smatch infomatch;
     if (regex_match(val, infomatch, inforeg)) {
-      if (infomatch[1].str() != "SCTG" || (infomatch[1].str() == "SCTG" && infomatch[2].str().at(0) == 'c')) // don't include discordant contigs
+
+      /* tmp hack to remove discordant "contigs" */
+      if (infomatch[1].str() != "SCTG" || (infomatch[1].str() == "SCTG" && infomatch[2].str().at(0) == 'c'))
 	info_fields[infomatch[1].str()] = infomatch[2].str();
     }
   }
 
-  // add the NALT field for snowman
-  if (method == "snowman") {
-    try {
-      info_fields["NALT"] = to_string(stoi(info_fields["TSPLIT"]) + stoi(info_fields["TDISC"]));
-      info_fields["NALT_SR"] = info_fields["TSPLIT"];
-      info_fields["NALT_RP"] = info_fields["TDISC"];
-    } catch (...) {
-      cerr << "Error caught converting to NALT in Snowman" << endl;
-      cerr << "TSPLIT " << info_fields["TSPLIT"] << endl;
-      cerr << "TDISC " << info_fields["TDISC"] << endl;
-      cerr << "   --- INFO FIELDS --- " << endl;
-      for (InfoMap::const_iterator it = info_fields.begin(); it != info_fields.end(); it++)
-	cerr << it->first << "=" << it->second << endl;
-      exit(EXIT_FAILURE);
-    }
-  }
+  // parse the FORMAT fields
+  format_fields = FormatStringToFormatRecordMap(format, samp1, samp2);
   
   // parse the ID field
   regex reg_sanger("^([0-9]+)_[0-9]+");
@@ -476,28 +467,17 @@ VCFEntry::VCFEntry(string line, string method) {
     idcommon = match_id[1];
   else if (regex_match(id, match_id, reg_dranger))
     idcommon = match_id[1];
- else
+  else
     cerr << "Warning: commond pair ID not properly parsed from ID string " << id << endl;
 
-  // if its dranger, parse the samp2 field 
-  regex reg_samp2("^([0-9]+);([0-9]+);([0-9]+);(.*)");
-  smatch samp_match;
-  if (method == "dranger") {
-    if (regex_match(samp2, samp_match, reg_samp2)) {
-      info_fields["NALT"] = samp_match[1];
-      info_fields["NALT_RP"] = samp_match[2];
-      info_fields["NALT_SR"] = samp_match[3];
-      info_fields["READ_ID"] = samp_match[4];
-    }
-  }
-  
 }
 
 // print out the VCF Entry
 std::ostream& operator<<(std::ostream& out, const VCFEntry& v) {
 
-  bool imprecise = false;
+  /* print the INFO field */
   // move to a vector to be sorted
+  bool imprecise = false;
   vector<pair<string, string> > tmpvec; // id, evertythign else
   for (InfoMap::const_iterator it = v.info_fields.begin(); it != v.info_fields.end(); it++) {
     if (it->first == "IMPRECISE")
@@ -510,9 +490,8 @@ std::ostream& operator<<(std::ostream& out, const VCFEntry& v) {
   string info;
   string equals = "=";
   for (vector<pair<string, string> >::const_iterator it = tmpvec.begin(); it != tmpvec.end(); it++)
-    if (it->first != "NALT" && it->first != "NALT_SR" && it->first != "NALT_RP" && it->first != "READ_ID")
-      if (!(it->first == "HOMSEQ" && imprecise) && !(it->first=="HOMLEN" && imprecise) && !(it->first=="INSERTION" && imprecise))// dont print some fields if imprecise
-	  info = info + it->first + ( (flag_map.count(it->first) == 0) ? "=" : "") + it->second + ";"; // dont print = for flags
+    if (!(it->first == "HOMSEQ" && imprecise) && !(it->first=="HOMLEN" && imprecise) && !(it->first=="INSERTION" && imprecise))// dont print some fields if imprecise
+      info = info + it->first + ( (flag_map.count(it->first) == 0) ? "=" : "") + it->second + ";"; // dont print = for flags
 
   // trim the last semicolon from info
   if (info.length() > 0)
@@ -534,8 +513,8 @@ VCFFile::VCFFile(string file, string tmethod) {
 
   filename = file;
   method = tmethod;
+
   //open the file
-  //ifstream inFile(file, ios::in);
   igzstream inFile(file.c_str());
   if (!inFile) {
     cerr << "Can't read file " << file << " for parsing VCF" << endl;
@@ -561,12 +540,24 @@ VCFFile::VCFFile(string file, string tmethod) {
 
   VCFEntryPairMap tmp_map;
   // populate the pairs
-  for (VCFEntryVec::const_iterator it = entries.begin(); it != entries.end(); it++) {
+  for (VCFEntryVec::iterator it = entries.begin(); it != entries.end(); it++) {
     VCFEntryPairMap::iterator ff = tmp_map.find(it->idcommon);
     if (ff == tmp_map.end()) {
+
       VCFEntryPair thispair(*it);
       thispair.method = tmethod;
       thispair.idcommon = it->idcommon;
+
+      // add the split/discordant reads
+      try {
+	thispair.tdisc  = stoi(it->format_fields["NALT_RP"].second);
+	thispair.tsplit = stoi(it->format_fields["NALT_SR"].second);
+      } catch (...) {
+	cerr << "Caught error with stoi in VCFFile(filename, method) for method " << tmethod << endl;
+	cerr << "Tumor disc "  << it->format_fields["NALT_RP"].second << endl;
+	cerr << "Tumor split " << it->format_fields["NALT_SR"].second << endl;
+	exit(EXIT_FAILURE);
+      }
       tmp_map.insert(pair<string, VCFEntryPair>(it->idcommon, thispair));
     } else {
       ff->second.e2 = *it; // add the second pair
@@ -579,7 +570,6 @@ VCFFile::VCFFile(string file, string tmethod) {
       entry_pairs.insert(pair<string, VCFEntryPair>(it->first, it->second));
   }
 
-  cout << entry_pairs.size() << endl;
 }
 
 // print out the VCFFile
@@ -639,15 +629,13 @@ VCFHeader mergeVCFHeaders(VCFHeader const &h1, VCFHeader const &h2) {
   output.filedate = (h1.filedate > h2.filedate) ? h1.filedate : h2.filedate;
   output.source = h1.source + "_" + h2.source + "__merged";
   
-  cout << "h2 map size: " << h2.infomap.size() << endl;
   output.infomap =   mergeHeaderMaps<InfoMap>(h1.infomap, h2.infomap);
   output.filtermap = mergeHeaderMaps<FilterMap>(h1.filtermap, h2.filtermap);
   output.formatmap = mergeHeaderMaps<FormatMap>(h1.formatmap, h2.formatmap);
-  output.addInfoField("SNODRA","1","String","If overlap between SnowmanSV and dRanger, specifies which was chosen. Default is dRanger");
+  output.addInfoField("CALLER","1","String","SnowmanSV/dRanger agree and SnowmanSV shown (SD) or dRanger shown (DS). Private SnowmanSV (S) or dRanger (D)");
 
   // keep only dRanger sample
   output.samplemap = (h1.source != "snowmanSV") ? h1.samplemap : h2.samplemap;
-  //output.samplemap = mergeHeaderMaps<SampleMap>(h1.samplemap, h2.samplemap);
 
   return output;
 
@@ -697,7 +685,10 @@ VCFFile mergeVCFFiles(VCFFile const &v1, VCFFile const &v2) {
   VCFEntryPairMap combined_map = v1.entry_pairs;
   combined_map.insert(v2.entry_pairs.begin(), v2.entry_pairs.end());
 
-  size_t dpass = 0, spass = 0, dpass_ovl = 0, spass_ovl = 0;
+  string ospan;
+  string dspan;
+  string sspan;
+  int ocount = 0, total = 0, sprivate = 0, dprivate = 0, dpass = 0, spass = 0, dpass_ovl = 0, spass_ovl = 0;
   for (VCFEntryPairMap::iterator it = combined_map.begin(); it != combined_map.end(); it++) {
     bool dranger_pass = it->second.method == "dranger" && it->second.e1.filter == "PASS";
     bool snowman_pass = it->second.method == "snowman" && it->second.e1.filter == "PASS";
@@ -716,24 +707,24 @@ VCFFile mergeVCFFiles(VCFFile const &v1, VCFFile const &v2) {
 	  assert(it->second.hasOverlap());
 	  dpass_ovl += ( (it->second.e1.filter == "PASS" && it->second.method == "dranger") || (jt->second.e1.filter == "PASS" && jt->second.method == "dranger") ) ? 1 : 0;
 	  spass_ovl += ( (it->second.e1.filter == "PASS" && it->second.method == "snowman") || (jt->second.e1.filter == "PASS" && jt->second.method == "snowman") ) ? 1 : 0;
+	  ospan = ospan + it->second.e1.info_fields["SPAN"] + ";";
 	  break;
 	}
       }
     }
   }
 
-  // print some statistics
-  if (opt::verbose > 0) {
-    cout << "...done with overlaps. Total overlapping pairs: " << final_map.size() << endl;
-    cout << "     dRanger total PASS: " << dpass << endl;
-    cout << "     Snowman total PASS: " << spass << endl;
-    cout << "     dRanger PASS && OVERLAP: " << dpass_ovl << endl;
-    cout << "     Snowman PASS && OVERLAP: " << spass_ovl << endl;
-  }
+  ocount = final_map.size();
 
   // store the private ones
   for (VCFEntryPairMap::iterator it = combined_map.begin(); it != combined_map.end(); it++) {
     if (!it->second.hasOverlap()) {
+      bool scaller = it->second.method == "snowman";
+      sprivate += scaller ? 1 : 0;
+      dprivate += scaller ? 0 : 1;
+      dspan = dspan + (!scaller ? (it->second.e1.info_fields["SPAN"] + ";") : "");
+      sspan = sspan + (scaller  ? (it->second.e1.info_fields["SPAN"] + ";") : "");
+      it->second.addCommonInfoTag("CALLER", scaller ? "S" : "D");
       final_map.insert(pair<string, VCFEntryPair>(it->first, it->second));
     }
   }
@@ -742,6 +733,34 @@ VCFFile mergeVCFFiles(VCFFile const &v1, VCFFile const &v2) {
   out.header = header;
   out.entry_pairs = final_map;
   out.filename = opt::outvcf;
+
+  total = final_map.size();
+  int dperc = SnowUtils::percentCalc<int>(dprivate, total);
+  int sperc = SnowUtils::percentCalc<int>(sprivate, total);
+  int operc = SnowUtils::percentCalc<int>(ocount, total);
+
+  // print some statistics
+  if (opt::verbose > 0) {
+
+    char buffer[100];
+  
+    sprintf(buffer, " [%5d] - [%4d](%2d%%) : [%4d](%2d%%) - [%4d](%d%%)", 
+	    total, ocount, operc, sprivate, sperc, dprivate, dperc);
+    cout << "     dRanger total PASS: " << dpass << endl;
+    cout << "     Snowman total PASS: " << spass << endl;
+    cout << " [TOTAL] - [OVLP](xx%) : [SPRI](xx%) - [DPRI](xx%)" << endl;
+    cout << buffer << endl;
+  }
+
+  ospan = SnowUtils::cutLastChar(ospan);
+  sspan = SnowUtils::cutLastChar(sspan);
+  dspan = SnowUtils::cutLastChar(dspan);
+
+  // write the stats file
+  ofstream out_stat;
+  out_stat.open(opt::stats);
+  out_stat << "Total,Overlaps,SnowPrivate,DranPrivate,OverlapsSpan,SnowPrivateSpans,DranPrivateSpans" << endl;
+  out_stat << total << "," << ocount << "," << sprivate << "," << dprivate << "," << ospan << "," << sspan << "," << dspan << endl;
   
   return out;
 }
@@ -752,9 +771,9 @@ bool VCFFile::write() const {
   if (opt::verbose > 0)
     cout << "...writing final VCF: " << opt::outvcf << endl;
 
-  ogzstream out(opt::outvcf.c_str());
-  //ofstream out;
-  //out.open(opt::outvcf);
+  //ogzstream out(opt::outvcf.c_str());
+  ofstream out;
+  out.open(opt::outvcf);
   out << *this;
   return true;
 
@@ -880,9 +899,9 @@ VCFFile::VCFFile(string file, char sep /* ',' */) {
       }
     }
 
-    info_fields["NALT"] = to_string(stoi(info_fields["TSPLIT"]) + stoi(info_fields["TDISC"]));
-    info_fields["NALT_RP"] = stoi(info_fields["TDISC"]);
-    info_fields["NALT_SR"] = stoi(info_fields["TSPLIT"]);
+    string nalt = to_string(stoi(info_fields["TSPLIT"]) + stoi(info_fields["TDISC"]));
+    string nalt_rp = info_fields["TDISC"];
+    string nalt_sp = info_fields["TSPLIT"];
 
     // add the info_fields
     vcf1.info_fields.insert(info_fields.begin(), info_fields.end());
@@ -912,8 +931,8 @@ VCFFile::VCFFile(string file, char sep /* ',' */) {
     std::replace( new_readid.begin(), new_readid.end(), ':', '-'); // replace all 'x' to 'y'
 
     // set the tumor NALT
-    vcf1.samp2 = info_fields["NALT"] + ":" + info_fields["TDISC"] + ":" + info_fields["TSPLIT"] + ":" + new_readid; 
-    vcf2.samp2 = info_fields["NALT"] + ":" + info_fields["TDISC"] + ":" + info_fields["TSPLIT"] + ":" + new_readid; 
+    vcf1.samp2 = nalt + ":" + nalt_rp + ":" + nalt_sp + ":" + new_readid; 
+    vcf2.samp2 = nalt + ":" + nalt_rp + ":" + nalt_sp + ":" + new_readid; 
 
     // set the normal NALT
     string normal_nalt = to_string(stoi(info_fields["NSPLIT"]) + stoi(info_fields["NDISC"]));    
@@ -997,8 +1016,6 @@ VCFFile::VCFFile(string file, char sep /* ',' */) {
     if (vcf1.chr < 24 && vcf2.chr < 24)
       entry_pairs.insert(pair<string, VCFEntryPair>(vcf1.idcommon, vpair));
 
-    //entries.push_back(vcf1);
-    //entries.push_back(vcf2);
   }
   
 }
@@ -1042,12 +1059,10 @@ template<typename T> T mergeHeaderMaps(T const &m1, T const &m2) {
 
   // merge the info maps
   for (typename T::const_iterator it = m1.begin(); it != m1.end(); it++) {
-    cout << "m1 " << it->first << endl;
     if (m2.count(it->first) > 0)
       shared_fields.insert(pair<string,string>(it->first, it->second));
   }
   for (typename T::const_iterator it = m2.begin(); it != m2.end(); it++) {
-    cout << "m2 " << it->first << endl;
     if (m1.count(it->first) > 0 && shared_fields.count(it->first) == 0)
       shared_fields.insert(pair<string,string>(it->first, it->second));
   }  
@@ -1116,38 +1131,25 @@ VCFEntryPair::VCFEntryPair(VCFEntryPair &v1, VCFEntryPair &v2) {
   VCFEntryPair dran = (v1.method == "dranger") ? v1 : v2;
   VCFEntryPair snow = (v1.method == "dranger") ? v2 : v1;
 
-  int dran_split = 0, snow_split = 0, dran_disc = 0, snow_disc = 0;
-  try {
-    dran_split = stoi(dran.e1.info_fields["NALT_SR"]);
-    snow_split = stoi(snow.e1.info_fields["NALT_SR"]);
-    
-    dran_disc = stoi(dran.e1.info_fields["NALT_RP"]);
-    snow_disc = stoi(dran.e1.info_fields["NALT_RP"]);
-  } catch (...) {
-    cerr << "Caught error with stoi in VCFEntryPair merge" << endl;
-    cerr << "dRanger disc " << dran.e1.info_fields["NALT_RP"] << endl;
-    cerr << "dRanger split " << dran.e1.info_fields["NALT_SR"] << endl;
-    cerr << "Snowman disc " << snow.e1.info_fields["NALT_RP"] << endl;
-    cerr << "Snowman split " << snow.e1.info_fields["NALT_SR"] << endl;
-    exit(EXIT_FAILURE);
-  }
-  
   // merge the info fields
   InfoMap merged_fields = mergeInfoFields(dran.e1.info_fields, snow.e1.info_fields);
 
   // dranger wins if snow+dran && BPRESLULT
-  if (dran_split > 0) {
+  if (dran.tsplit > 0) {
+
     method = "dranger";
     idcommon = dran.idcommon;
     string overlap_partner = snow.idcommon;
-    dran.addCommonInfoTag("SNODRA", "DRAN");
+    dran.addCommonInfoTag("CALLER", "DS");
     e1 = dran.e1;
     e2 = dran.e2;
-  } else if (dran_split == 0 && snow_split > 0) {
+
+  } else if (dran.tsplit == 0 && snow.tsplit > 0) {
+
     method = "snowman";
     idcommon = snow.idcommon;
-    string overlap_partner = snow.idcommon;
-    snow.addCommonInfoTag("SNODRA", "SNOW");
+    string overlap_partner = dran.idcommon;
+    snow.addCommonInfoTag("CALLER", "SD");
     e1 = snow.e1;
     e2 = snow.e2;
   }
@@ -1265,3 +1267,43 @@ string VCFEntryPair::toCSVString() const {
   return ss.str();
 }
 
+
+// turn a series of FORMAT string (identifier, samp1, samp2) into a set of string records
+FormatRecordMap FormatStringToFormatRecordMap(string format, string samp1, string samp2) {
+
+  string val;
+
+  FormatRecordMap format_fields;
+
+  // parse the FORMAT field
+  istringstream issf(format);
+  vector<string> format_names;
+  vector<FormatPair> format_vals;
+  while (getline(issf, val, ':')) {
+    format_names.push_back(val);
+  }
+  reverse(format_names.begin(), format_names.end());
+  assert(format_names.size() == 4);
+  // add the FORMAT data for samp1
+  istringstream iss1(samp1);
+  while (getline(iss1, val, ':')) {
+    FormatPair form;
+    form.first = val;
+    format_vals.push_back(form);
+  }
+  assert(format_vals.size() == 4);
+  reverse(format_vals.begin(), format_vals.end());
+  // add the FORMAT data for samp2
+  istringstream iss2(samp2);
+  while (getline(iss2, val, ':')) {
+    FormatPair form = format_vals.back();
+    format_vals.pop_back();
+    form.second = val;
+    string field_name = format_names.back();
+    format_names.pop_back();
+    format_fields.insert(pair<string,FormatPair>(field_name, form));
+  }
+
+  return format_fields;
+
+}

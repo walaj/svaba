@@ -1711,7 +1711,8 @@ void cleanR2C() {
   BamWriter writer;
 
   //get the header
-  string samheader = SVBamReader::getSamHeader(opt::tbam);
+  SamHeader sam;
+  string samheader = SVBamReader::getSamHeader(opt::tbam, sam);
 
   // get the reference data
   RefVector ref;  
@@ -1733,7 +1734,7 @@ void cleanR2C() {
   //string this_cn;
   //string this_al;
 
-  size_t count = 0;
+  int count = 0;
   int added_read_count = 0;
 
   size_t div = 500000;
@@ -1746,6 +1747,7 @@ void cleanR2C() {
     
     count++;
     if (count % div == 0) {
+      SnowUtils::percentCalc<int>(added_read_count, count);
       int perc  = static_cast<int>(floor((float)added_read_count / (float)count * 100.0));
       char buffer[100];
       int disp_count = count / 100000;
