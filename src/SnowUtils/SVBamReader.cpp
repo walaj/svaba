@@ -1,5 +1,4 @@
 #include "SVBamReader.h"
-#include "Quality.h"
 #include "unistd.h"
 #include "api/algorithms/Sort.h"
 #include <time.h> // for now
@@ -8,6 +7,13 @@
 //#define DEBUG_SVREADS 2
 
 #define MIN_READ_LENGTH
+
+// Phred score transformations
+inline int char2phred(char b) {
+  uint8_t v = b;
+  assert(v >= 33);
+  return v - 33;
+}
 
 inline std::string string_numf(int n, int len)
 {
@@ -31,7 +37,7 @@ void SVBamReader::softClip(int qualTrim, std::string &seq, std::string const &qu
  
     // get the start point (loop forward)
     while(i < (int)seq.length()) {
-        int ps = Quality::char2phred(qual[i]);
+        int ps = char2phred(qual[i]);
         if (ps >= qualTrim) {
           startpoint = i;
           break;
@@ -42,7 +48,7 @@ void SVBamReader::softClip(int qualTrim, std::string &seq, std::string const &qu
     // get the end point (loop backwards)
     i = seq.length() - 1;
     while(i >= 0) {
-        int ps = Quality::char2phred(qual[i]);
+        int ps = char2phred(qual[i]);
         if (ps >= qualTrim) {
           endpoint = i;
           break;
@@ -51,7 +57,7 @@ void SVBamReader::softClip(int qualTrim, std::string &seq, std::string const &qu
     }
 
     // check that they aren't all bad
-    if (startpoint == 0 && endpoint == (int)seq.length() - 1 && Quality::char2phred(qual[0]) < qualTrim) {
+    if (startpoint == 0 && endpoint == (int)seq.length() - 1 && char2phred(qual[0]) < qualTrim) {
       seq = "";
       tooshort = true;
       //qual = "";

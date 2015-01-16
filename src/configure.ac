@@ -164,6 +164,7 @@ AC_CONFIG_FILES([Makefile
                 SGA/GraphDiff/Makefile
                 SGA/Scaffold/Makefile
                 SGA/SGA/Makefile
+                SnowUtils/Makefile
                 Snowman/Makefile])
 
 AC_OUTPUT

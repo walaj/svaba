@@ -11,7 +11,8 @@ snowman_CPPFLAGS = \
 	-I$(top_srcdir)/SGA/Scaffold \
 	-I$(top_srcdir)/SGA/GraphDiff \
 	-I$(top_srcdir)/SGA/SGA \
-	-I$(top_srcdir)/SGA/Thirdparty
+	-I$(top_srcdir)/SGA/Thirdparty \
+	-I$(top_srcdir)/SnowUtils
 
 snowman_LDADD = \
 	$(top_builddir)/SGA/SGA/libsga.a \
@@ -24,16 +25,15 @@ snowman_LDADD = \
 	$(top_builddir)/SGA/Bigraph/libbigraph.a \
 	$(top_builddir)/SGA/Util/libutil.a \
 	$(top_builddir)/SGA/SQG/libsqg.a \
-	$(top_builddir)/SGA/Thirdparty/libthirdparty.a 
+	$(top_builddir)/SGA/Thirdparty/libthirdparty.a \
+	$(top_builddir)/SnowUtils/libsnowutils.a 
 
 
 snowman_LDFLAGS = -pthread -std=c++11
 
 snowman_SOURCES = snowman.cpp workqueue.h grabReads.h grabReads.cpp \
                 gather.h gather.cpp AlignedContig.h AlignedContig.cpp \
-	        seqan_tools.h seqan_tools.cpp \
 		kseq.h VCFRecord.h vcf.h vcf.cpp \
 		nozzle.h nozzle.cpp zfstream.h zfstream.cpp bamprocess.h bamprocess.cpp \
 		SnowmanOverlapAlgorithm.h SnowmanOverlapAlgorithm.cpp SnowmanASQG.h SnowmanASQG.cpp \
-		SnowmanAssemble.h SnowmanAssemble.cpp GenomicRegion.h GenomicRegion.cpp \
-		SVBamReader.h SVBamReader.cpp 
+		SnowmanAssemble.h SnowmanAssemble.cpp 

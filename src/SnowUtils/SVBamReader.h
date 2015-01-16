@@ -3,7 +3,6 @@
 
 #include "api/BamReader.h"
 #include "api/BamWriter.h"
-#include "Util.h"
 #include <vector>
 #include <string>
 #include "GenomicRegion.h"

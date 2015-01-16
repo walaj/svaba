@@ -601,6 +601,7 @@ GenomicRegionVector GenomicRegion::getWholeGenome() {
 }
 
 // returns the intersection between genomic region and vector
+/*
 GenomicRegionVector GenomicRegion::intersection(GenomicRegionVector &grv) {
 
   // make the interval tree from the regions
@@ -620,6 +621,7 @@ GenomicRegionVector GenomicRegion::intersection(GenomicRegionVector &grv) {
 
   return out;
 }
+*/
 
 /*slong GenomicRegion::RPtoNum(string rp) { 
   

@@ -7,7 +7,6 @@
 #include "api/BamReader.h"
 #include "api/BamWriter.h"
 #include <unordered_map>
-#include "IntervalTree.h"
 
 using namespace std;
 using namespace BamTools;
@@ -123,9 +122,9 @@ class BEDRow {
 }*/
 
 // define the interval trees
-typedef IntervalT<GenomicRegion> GenomicInterval;
-typedef vector<GenomicInterval> GenomicIntervalVector;
-typedef IntervalTTree<GenomicRegion> GenomicTree;
+//typedef IntervalT<GenomicRegion> GenomicInterval;
+//typedef vector<GenomicInteryesval> GenomicIntervalVector;
+//typedef IntervalTTree<GenomicRegion> GenomicTree;
 
 
 // define a structure for holding tumor and normal counts for
