@@ -10,7 +10,7 @@
 #include <unordered_map>
 #include <unistd.h>
 #include <time.h>
-#include "seqan_tools.h"
+#include "SnowUtils.h"
 #include "SVBamReader.h"
 
 const int MAX_CHARS_PER_LINE = 512;
@@ -159,7 +159,7 @@ bool runExtractor(int argc, char** argv) {
 	  char buffer[100];
 	  sprintf(buffer, " Checking read %27s at position %2d:%-9ds. Kept %-7d of %-7d. NM tag: %2d", a.Name.c_str(), a.RefID+1, a.Position,  keep_count, count, nm);
 	  cout << buffer << endl;
-	  cout << buffer << SnowUtils::displayRuntime(start) << endl;
+	  //cout << buffer << SnowUtils::displayRuntime(start) << endl;
 	}
 	
 	if (nm >= opt::nmlim && a.RefID < 24) {

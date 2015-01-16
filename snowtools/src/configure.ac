@@ -13,6 +13,7 @@ AC_PROG_RANLIB ## required if libraries are built in package
 # Check for headers
 AC_LANG([C++])
 AC_CHECK_HEADER([zlib.h])
+AC_SEARCH_LIBS([clock_gettime], [rt], [AC_DEFINE([HAVE_CLOCK_GETTIME], [1], [clock_getttime found])], )
 
 # Check for the bamtools library pathz
 # Bamtools has two different path formats
@@ -36,9 +37,6 @@ if test "$with_snowutils" -a -d "$with_snowutils"; then
     snowutils_include="-I$with_snowutils"
 fi
 
-AC_MSG_WARN([$snowutils_ldflags])
-AC_MSG_WARN([$snowutils_include])
-
 # Only fail on warnings when the --enable-development flag is passed into configure
 AC_ARG_ENABLE(development, AS_HELP_STRING([--enable-development],
 	[Turn on development options, like failing compilation on warnings]))
@@ -61,8 +59,6 @@ AC_SUBST(LIBS, "$LIBS -lsnowutils")
 # Make sure the bamtools headers can be found
 AC_CHECK_HEADERS([api/BamReader.h],,[AC_MSG_ERROR([The bamtools library must be installed (http://github.com/pezmaster31/bamtools). You can specify its path with the --with-bamtools=PATH option])])
 
-AC_MSG_WARN([$CPPFLAGS])
-AC_MSG_WARN([$LDFLAGS])
 # Make sure the snowutil headers can be found
 AC_CHECK_HEADERS([SnowCommon.h],,[AC_MSG_ERROR([The snowutils library must be installed. You can specify its path with the --with-snowutils=PATH option])])
 

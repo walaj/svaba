@@ -72,7 +72,7 @@ class SVBamReader {
 
   static void getRefVector(string bamfile, RefVector &ref);
 
-  static void getSamHeader(string bamfile, SamHeader &sam);
+  static string getSamHeader(string bamfile, SamHeader &sam);
 
   // deduplicate the reads by name
   static void deduplicateReads(const BamAlignmentVector &inbav, BamAlignmentVector &outbav);

@@ -1711,14 +1711,13 @@ void cleanR2C() {
   BamWriter writer;
 
   //get the header
-  SamHeader sam;
-  SVBamReader::getSamHeader(opt::tbam, sam);
+  string samheader = SVBamReader::getSamHeader(opt::tbam);
 
   // get the reference data
   RefVector ref;  
   SVBamReader::getRefVector(opt::tbam, ref);
 
-  if (!writer.Open(tmp_clean_bam, sam, ref))  
+  if (!writer.Open(tmp_clean_bam, samheader, ref))  
     cerr << "Error initializing the BAM for: " << tmp_clean_bam << endl;
 
   BamAlignment a;

@@ -730,19 +730,20 @@ void SVBamReader::getRefVector(string bamfile, RefVector &ref) {
 }
 
 // get the SamHeader from a bamfile
-void SVBamReader::getSamHeader(string bamfile, SamHeader &sam) {
+string SVBamReader::getSamHeader(string bamfile, SamHeader &sam) {
 
   BamReader read;
   if (!read.Open(bamfile)) {
     cerr << "Failed to open contig BAM to get header on bam " << bamfile << endl;
     cerr << "   Setting default of 'none'" << endl;
-    sam = SamHeader("none");
+    sam = SamHeader ("none");
     read.Close();
+    return "none";
   }
 
   sam = read.GetHeader();
   read.Close();
-  return;
+  return read.GetHeaderText();
 
 }
 
