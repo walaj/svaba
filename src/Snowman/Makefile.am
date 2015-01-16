@@ -33,7 +33,7 @@ snowman_LDFLAGS = -pthread -std=c++11
 
 snowman_SOURCES = snowman.cpp workqueue.h grabReads.h grabReads.cpp \
                 gather.h gather.cpp AlignedContig.h AlignedContig.cpp \
-		kseq.h VCFRecord.h vcf.h vcf.cpp \
+		kseq.h vcf.h vcf.cpp \
 		nozzle.h nozzle.cpp zfstream.h zfstream.cpp bamprocess.h bamprocess.cpp \
 		SnowmanOverlapAlgorithm.h SnowmanOverlapAlgorithm.cpp SnowmanASQG.h SnowmanASQG.cpp \
 		SnowmanAssemble.h SnowmanAssemble.cpp 

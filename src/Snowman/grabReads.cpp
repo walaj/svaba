@@ -1,13 +1,11 @@
 #include "SVBamReader.h"
 #include "grabReads.h"
-//#include <regex>
 #include "unistd.h"
 #include <iostream>
-//#include <fstream>
 #include <unordered_map>
 #include <time.h>
 #include <stdlib.h>
-#include "seqan_tools.h"
+#include "SnowUtils.h"
 #include "GenomicRegion.h"
 #include "api/BamWriter.h"
 #include <pthread.h>
@@ -740,7 +738,7 @@ void parseTaigaOptions(int argc, char** argv) {
   }
 
   // clean the outdir
-  opt::outdir = SnowUtils::getDirPath(opt::outdir);
+  //opt::outdir = SnowUtils::getDirPath(opt::outdir);
 
   // check file validity
   if (opt::regionFile != "x") {
@@ -817,13 +815,13 @@ void getChunkReads(const BamAlignmentVector * bav, const unsigned refID, const u
   BamAlignmentVector::const_iterator myk_next_start = bav->begin();
 
   int nextstart = pos1 + chunk - pad;
-  unsigned currend   = pos1 + chunk;       
+  int currend   = pos1 + chunk;       
   bool start_trigger = false; // only update read pointer for the first read that crosses nextstart
   while (myk < bav->end()) {
 
     std::string myk_pos_str;
     myk->GetTag("HP", myk_pos_str);
-    unsigned myk_pos = std::stoi(myk_pos_str.substr(3,myk_pos_str.length()));
+    int myk_pos = std::stoi(myk_pos_str.substr(3,myk_pos_str.length()));
     //cerr << myk_pos_str << " Unsigned: " << myk_pos << " MYK " << bav->end() - myk << endl;
 
     // update the start of the next segment
@@ -1104,7 +1102,7 @@ void matchReads2Contigs(ContigVector * contigs, BamAlignmentVector &bav, ContigV
       //OTHERWISE TRY REVERSE
       else {
 	string rstring = QB;
-	rcomplement(rstring); 
+	SnowUtils::rcomplement(rstring); 
 	posa = i->getSeq().find(rstring.substr(pad,buff)); 
 	posb = i->getSeq().find(rstring.substr(max(seqlen-buff-pad,0),buff)); 
 	hit1 = posa != string::npos;
@@ -1207,9 +1205,14 @@ void grabPairmateReads(BamAlignmentVector &bav, const GenomicRegion window) {
   for (GenomicRegionVector::const_iterator it = disc_regions.begin(); it != disc_regions.end(); it++) {
     //bool cent    = it->centromereOverlap() == 0;
     bool window_overlap = it->getOverlap(window) == 2;
-    bool black   = it->blacklistOverlap() == 0;
+    //bool black   = it->blacklistOverlap() == 0;
     double som_ratio = static_cast<double>(it->tcount) / (static_cast<double>(it->ncount) + 0.01);
-    if (som_ratio > 10 && it->tcount >= MIN_DISC_PER_CLUSTER && it->tcount <= DISC_LOOKUP_LIMIT && black && it->chr < 24 & !window_overlap)
+
+    bool som_pass = som_ratio > 10;
+    bool clust_pass = it->tcount >= MIN_DISC_PER_CLUSTER;
+    bool look_lim_pass = it->tcount <= DISC_LOOKUP_LIMIT;
+    bool chr_pass = it->chr < 24;
+    if ( som_pass && clust_pass && look_lim_pass && chr_pass && !window_overlap)
       tmp_vec.push_back(*it);
   }
   disc_regions = tmp_vec;
@@ -1732,7 +1735,7 @@ void cleanR2C() {
   //string this_al;
 
   size_t count = 0;
-  size_t added_read_count = 0;
+  int added_read_count = 0;
 
   size_t div = 500000;
 
@@ -2023,7 +2026,7 @@ void cleanDiscBam() {
   unordered_map<string, bool> rm;
   
   size_t count = 0;
-  size_t added_read_count = 0;
+  int added_read_count = 0;
 
   size_t div = 500000;
 

@@ -2,14 +2,13 @@
 
 #include <string> 
 #include <iostream>
-#include "Util.h"
 #include <getopt.h>
 #include <time.h>
 #include <sstream>
 #include <regex>
 #include "GenomicRegion.h"
 #include "faidx.h"
-#include "seqan_tools.h"
+#include "SnowUtils.h"
 #include "gzstream.h"
 
 using namespace std;

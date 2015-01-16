@@ -7,13 +7,10 @@
 #include <getopt.h>
 #include "kseq.h"
 #include "api/algorithms/Sort.h"
-//#include "Read2Contig.h"
-#include "VCFRecord.h"
 #include "GenomicRegion.h"
 #include "api/BamWriter.h"
 #include "workqueue.h"
-//#include "Util.h"
-#include "seqan_tools.h"
+#include "SnowUtils.h"
 
 
 #define MAX_TOKENS_PER_LINE 100
@@ -361,9 +358,6 @@ bool runConcat(int argc, char** argv) {
   // dump the read alignments to text file for plotting in R
   writeForRPlots(contigs_realigned);
 
-  // send the global ones to VCF
-  //convertToVCF(bp_glob, contigs_realigned); 
-
   // write contigs to BAM files
   //writeFinalBams(contigs_realigned);
 
@@ -421,7 +415,7 @@ void parseConcatOptions(int argc, char** argv) {
   }
 
   // if filename, convert to directory
-  opt::outdir    = SnowUtils::getDirPath(opt::outdir);
+  //opt::outdir    = SnowUtils::getDirPath(opt::outdir);
 
   if(opt::numThreads <= 0) {
     cout << "gather: invalid number of threads: " << opt::numThreads << "\n";
@@ -488,105 +482,6 @@ void parseConcatOptions(int argc, char** argv) {
   }
 
 }
-
-/*void convertToVCF (BPVec &bp, ContigMap *contigs) {
-
-  if (opt::verbose > 0)
-    cout << "...writing VCF file" << endl;
-
-  stringstream ss; 
-
-  // set the date
-  time_t t = time(0);   // get time now
-  struct tm * now = localtime( & t );
-  stringstream month;
-  stringstream mdate;
-  if ( (now->tm_mon+1) < 10)
-    month << "0" << now->tm_mon+1;
-  else 
-    month << now->tm_mon+1;
-  mdate << (now->tm_year + 1900) << month.str() <<  now->tm_mday;
-
-  // make the output  
-  ss << "##fileformat=VCFv4.2\n";
-  ss << "##fileDate=" << mdate.str() << "\n";
-  ss << "##source=SnowmanSV\n";
-  ss << "##reference=hg19\n";
-  //ss << "##assembly=" << opt::outdir << "/all_contigs.fa\n";
-  
-  // add the info fields
-  ss << "##INFO=<ID=SVTYPE,Number=1,Type=String,Description=\"Type of structural variant.\"\n";
-  ss << "##INFO=<ID=MATEID,Number=1,Type=String,Description=\"ID of mate breakend\">\n";
-  ss << "##INFO=<ID=HOMSEQ,Number=1,Type=String,Description=\"Sequence of base pair identical micro-homology at event breakpoints. Plus strand sequence displayed.\">\n";
-  ss << "##INFO=<ID=IMPRECISE,Number=0,Type=Flag,Description=\"Imprecise structural variation\">\n";
-  //ss << "##INFO=<ID=CIPOS,Number=2,Type=Integer,Description=\"Confidence interval around POS for imprecise variants\">\n";
-  //ss << "##INFO=<ID=CIEND,Number=2,Type=Integer,Description=\"Confidence interval around END for imprecise variants\">\n";
-  ss << "##INFO=<ID=HOMLEN,Number=1,Type=Integer,Description=\"Length of base pair identical micro-homology at event breakpoints\">\n";
-  //ss << "##INFO=<ID=REPS,Number=.,Type=String,Description=\"Repeat features that may contribute to rearrangement\">\n";
-  ss << "##INFO=<ID=NPSNO,Number=1,Type=Integer,Description=\"Number of normal panel samples with sequencing reads for this rearrangement\">\n";
-  ss << "##INFO=<ID=NPRNO,Number=1,Type=Integer,Description=\"Number of sequencing reads from normal panel samples for this rearrangement\">\n";
-  ss << "##INFO=<ID=BKDIST,Number=1,Type=Integer,Description=\"Distance between breakpoints (-1 if difference chromosomes)\">\n";
-  //ss << "##INFO=<ID=BALS,Number=.,Type=String,Description=\"IDs of complementary rearrangements involved in balanced translocations\">\n";
-  //ss << "##INFO=<ID=INVS,Number=.,Type=String,Description=\"IDs of complementary rearrangements involved in inversion events\">\n";
-  ss << "##INFO=<ID=MAPQ,Number=1,Type=Integer,Description=\"Mapping quality (BWA) of this fragment of contig\">\n";
-  ss << "##INFO=<ID=MATEMAPQ,Number=1,Type=Integer,Description=\"Mapping quality (BWA) of partner fragment of contig\">\n";
-  ss << "##INFO=<ID=NSPLIT,Number=1,Type=Integer,Description=\"Number of normal split reads on this breakend\">\n";
-  ss << "##INFO=<ID=NSPLITMATE,Number=1,Type=Integer,Description=\"Number of normal split reads on breakend mate\">\n";
-  ss << "##INFO=<ID=TSPLIT,Number=1,Type=Integer,Description=\"Number of tumor split reads on this breakend\">\n";
-  ss << "##INFO=<ID=TSPLITMATE,Number=1,Type=Integer,Description=\"Number of tumor split reads on breakend mate\">\n";
-  ss << "##INFO=<ID=TDISC,Number=1,Type=Integer,Description=\"Number of tumor discordant reads for this breakpoint\">\n";
-  ss << "##INFO=<ID=NDISC,Number=1,Type=Integer,Description=\"Number of normal discordant reads on this breakpoint\">\n";
-
-  ss << "##INFO=<ID=READS,Number=.,Type=String,Description=\"Read names of supporting reads, from the tumor BAM file\">\n";
-
-  //ss << "##FILTER=<ID=LOWSPLIT,Description=\"Fewer than 3 split reads\">\n";
-  ss << "##FILTER=<ID=NODISC,Description=\"Rearrangement was not detected independently by assembly\">\n";
-  ss << "##FILTER=<ID=LOWMAPQ,Description=\"Assembly contig has non 60/60 mapq and no discordant support\">\n";
-  ss << "##FILTER=<ID=WEAKASSEMBLY,Description=\"3 or fewer split reads and no discordant support and span > 1500bp\">\n";
-  ss << "##FILTER=<ID=WEAKDISC,Description=\"Fewer than 6 supporting discordant reads and no assembly support\">\n";
-  ss << "##FILTER=<ID=PASS,Description=\"3+ tumor split reads, 0 normal split reads, 60/60 contig MAPQ OR 3+ discordant reads or 60/60 MAPQ with 4+ split reads.\">\n";
-
-  ss << "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n";
-
-  VCFRecordVector vcf_som;
-  VCFRecordVector vcf_ger;
-  
-  // send the reads
-  unsigned id_counter = 0;
-  for (BPVec::const_iterator it = bp.begin(); it != bp.end(); it++)
-    if (it->isSomatic) {
-      id_counter++;
-      BamAlignmentVector this_reads = (*contigs)[it->cname].getBamReads();
-      VCFRecordVector tmp_vcf = it->getVCFRecord(id_counter, this_reads);
-      for (VCFRecordVector::const_iterator j = tmp_vcf.begin(); j != tmp_vcf.end(); j++)
-	vcf_som.push_back(*j);
-    } else if (it->isGermline) {
-      id_counter++;
-      BamAlignmentVector this_reads = (*contigs)[it->cname].getBamReads();
-      VCFRecordVector tmp_vcf = it->getVCFRecord(id_counter, this_reads);
-      for (VCFRecordVector::const_iterator j = tmp_vcf.begin(); j != tmp_vcf.end(); j++)
-	vcf_ger.push_back(*j);
-    }
-  ofstream out_s(opt::outdir + "/somatic.vcf");
-  ofstream out_g(opt::outdir + "/germline.vcf");
-
-  // sort it and print out the records
-  stringstream somss;
-  sort(vcf_som.begin(), vcf_som.end());
-  somss << ss.str();
-  for (VCFRecordVector::const_iterator it = vcf_som.begin(); it != vcf_som.end(); it++)
-    somss << it->record;
-  out_s << somss.str();
-
-  stringstream gerss;
-  sort(vcf_ger.begin(), vcf_ger.end());
-  gerss << ss.str();
-  for (VCFRecordVector::const_iterator it = vcf_ger.begin(); it != vcf_ger.end(); it++)
-    gerss << it->record;
-  out_g << gerss.str();
-
-}
-*/
 
 // split string, from http://stackoverflow.com/questions/236129/how-to-split-a-string-in-c
 vector<string> &csplit(const string &s, char delim, vector<string> &elems) {

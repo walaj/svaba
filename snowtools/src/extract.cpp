@@ -10,7 +10,8 @@
 #include <unordered_map>
 #include <unistd.h>
 #include <time.h>
-#include "snowUtil.h"
+#include "seqan_tools.h"
+#include "SVBamReader.h"
 
 const int MAX_CHARS_PER_LINE = 512;
 const int MAX_TOKENS_PER_LINE = 20;
@@ -122,11 +123,11 @@ bool runExtractor(int argc, char** argv) {
 
   //get the header
   SamHeader sam;
-  string header = getSamHeader(opt::inbam, sam);
+  string header = SVBamReader::getSamHeader(opt::inbam, sam);
 
   // set the reference for the BAM
   RefVector ref;  
-  getRefVector(opt::inbam, ref);
+  SVBamReader::getRefVector(opt::inbam, ref);
 
   if (!writer.Open(opt::outbam, header, ref)) {
     cerr << "Error initializing the BAM for: " << opt::outbam << endl;
@@ -158,7 +159,7 @@ bool runExtractor(int argc, char** argv) {
 	  char buffer[100];
 	  sprintf(buffer, " Checking read %27s at position %2d:%-9ds. Kept %-7d of %-7d. NM tag: %2d", a.Name.c_str(), a.RefID+1, a.Position,  keep_count, count, nm);
 	  cout << buffer << endl;
-	  //	cout << buffer << displayRuntime(start) << endl;
+	  cout << buffer << SnowUtils::displayRuntime(start) << endl;
 	}
 	
 	if (nm >= opt::nmlim && a.RefID < 24) {

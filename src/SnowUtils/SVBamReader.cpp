@@ -2,7 +2,7 @@
 #include "unistd.h"
 #include "api/algorithms/Sort.h"
 #include <time.h> // for now
-#include "seqan_tools.h"
+#include "SnowUtils.h"
 
 //#define DEBUG_SVREADS 2
 
@@ -74,7 +74,8 @@ void SVBamReader::softClip(int qualTrim, std::string &seq, std::string const &qu
     
     // assign the values
     tooshort = seq.length() < std::floor(m_mol * 1.5);
-    not_real_clip = new_clipnum < m_minclip && m_minclip != 0;
+    int int_minclip = m_minclip; // get rid of int compare warning
+    not_real_clip = new_clipnum < int_minclip && int_minclip != 0;
     
     
     //bool lowq = seq.length() < m_mol || (new_clipnum < 10); 

@@ -1,13 +1,10 @@
 #include "AlignedContig.h"
-#include "seqan_tools.h"
-#include <seqan/align.h>
-#include <seqan/graph_msa.h>
 #include <regex>
 #include "GenomicRegion.h"
 #include <unordered_map>
 #include "SVBamReader.h"
 #include "api/algorithms/Sort.h"
-#include <regex>
+#include "SnowUtils.h"
 
 using namespace seqan;
 using namespace std;
@@ -210,264 +207,11 @@ void BreakPoint::printToFile(ofstream &of, ContigMap * contigs) {
      << confidence << sep << supporting_reads << endl;
 }
 
-// print to VCF
-/*string BreakPoint::printToVCF(int split_cut, int mapq_cut, int uniq) const {
-
-  // set the qual
-  string qual = "99";
-  
-  // set the filter
-  string filter = "PASS";
-  if (min(tsplit1, tsplit2) < split_cut)
-    filter = "LOWSPLIT";
-  else if (min(mapq1, mapq2) < mapq_cut)
-    filter = "LOWMAPQ";
-  else if (span > 5000 && ((dc.tcount + dc.ncount) < 4))
-    filter = "LOWDISC";
-
-  stringstream ss;
-  // each breakend needs to have one entry
-  for (unsigned i = 1; i <= 2; i++) {
-    
-    bool first = (i==1);
-    unsigned this_cpos = first ? cpos1 : cpos2;
-    char this_strand = first ? strand1 : strand2;
-    char mate_strand = first ? strand2 : strand1;
-    int this_mapq    = first ? mapq1   : mapq2;
-    //int mate_mapq    = first ? mapq2   : mapq1;
-    unsigned this_nsplit = first ? nsplit1 : nsplit2;
-    //unsigned mate_nsplit = first ? nsplit2 : nsplit1;
-    unsigned this_tsplit = first ? tsplit1 : tsplit2;
-    //unsigned mate_tsplit = first ? tsplit2 : tsplit1;
-    int this_refid2 = first ? refID2 : refID1;
-    int this_refid1 = first ? refID1 : refID2;
-    int this_pos1 = first ? pos1 : pos2;
-    int this_pos2 = first ? pos2 : pos1;
-    
-    // set the reference
-    string reference = seq.substr(this_cpos, 1);
-
-    // set the reference
-    stringstream ttag;
-    if (insertion.compare("") != 0)
-      ttag << insertion;
-    else if (this_strand == '+')
-      ttag << reference; 
-    else if (this_strand == '-')
-      ttag << reference; 
-
-    // set the ref
-    stringstream ptag;
-    ptag << GenomicRegion::chrToString(this_refid2 + 1) << ":" << this_pos2;
-    
-    // set the alternate
-    stringstream alt;
-    if (this_strand=='+' && mate_strand=='+')
-      alt << ttag.str() << "]" << ptag.str() << "]";
-    else if (this_strand=='+' && mate_strand=='-')
-      alt << ttag.str() << "[" << ptag.str() << "[";
-    else if (this_strand=='-' && mate_strand=='+')
-      alt << "[" << ptag.str() << "[" << ttag.str();
-    else 
-      alt << "]" << ptag.str() << "]" << ttag.str();      
-
-    //set the info
-    stringstream info;
-    info << "" << "SVTYPE=BND," << "NPSNO=NA,HOMSEQ=" << homology << ",HOMLEN=" << homology.length()
-	 << ",BKDIST=" << span << ",MATEID=" << GenomicRegion::chrToString(this_refid2+1) << ",MATEPOS=" << this_pos2 
-	 << ",NSPLIT=" << this_nsplit << ",TSPLIT=" << this_tsplit 
-	 << ",MAPQ=" << this_mapq << ",TDISC=" << dc.tcount << ",NDISC=" << dc.ncount << ">";
-
-    // set the id
-    stringstream thisid;
-    thisid << uniq << "_" << i;
-    
-    // put it all together
-    string sep = "\t";
-
-    // add CHROM
-    ss << GenomicRegion::chrToString(this_refid1+1) << sep;
-    // add POS
-    ss << this_pos1 << sep;
-    // add ID
-    ss << thisid.str() << sep; 
-    // add REF
-    ss << reference << sep;
-    // add ALT
-    ss << alt.str() << sep;
-    // add QUAL
-    ss << qual << sep;
-    // add FILTER
-    ss << filter << sep;
-    // add INFO
-    ss << info.str();
-
-    // add newline
-    ss << "\n";
-    //if (i==2)
-    //  return "";    
-  }
-  return ss.str();
-}
-*/
-
-/*VCFRecordVector BreakPoint::getVCFRecord(int uniq, const BamAlignmentVector &bamreads) const {
-
-  // set the qual
-  string qual = "99";
-
-  string filter = confidence;
-  
-  // set the filter
-  //string filter = "PASS";
-  //if (min(tsplit1, tsplit2) < split_cut)
-  //  filter = "LOWSPLIT";
-  //else if (min(mapq1, mapq2) < mapq_cut)
-  //  filter = "LOWMAPQ";
-
-  VCFRecordVector out;
-
-  string supporting_reads = "";
-  unordered_map<string, bool> reads;
-  //add the discordant reads
-  for (unordered_map<string, bool>::const_iterator it = dc.qnames.begin(); it != dc.qnames.end(); it++) {
-    if (reads.find(it->first) == reads.end())
-      if (it->first.size() > 0)
-	reads.insert(pair<string, bool>(it->first.substr(1, it->first.size()-1), true));
-  }
-  //add the contig reads
-  for (BamAlignmentVector::const_iterator it = bamreads.begin(); it != bamreads.end(); it++) {
-    if (reads.find(it->Name) == reads.end() && it->Name != "")
-      reads.insert(pair<string, bool>(it->Name, true));
-  }
-
-  // print reads to a string
-  for (unordered_map<string, bool>::const_iterator it = reads.begin(); it != reads.end(); it++) 
-    supporting_reads = supporting_reads + "," + it->first;
-  if (supporting_reads.size() > 0)
-    supporting_reads = supporting_reads.substr(1, supporting_reads.size() - 1); // remove first comma
-
-  // get the supporting reads string
-  //  stringstream supp_reads;
-  //for (R2CVec::const_iterator it = r2c.begin(); it != r2c.end(); it++)
-  //  if (it->rname.at(0) == 't') // tumor only for now
-  //    supp_reads << it->a.Name << ",";
-  //string read_string = supp_reads.str().substr(0, supp_reads.str().size() - 1); // remove the last comma
-
-  stringstream ss;
-  // each breakend needs to have one entry
-  for (unsigned i = 1; i <= 2; i++) {
-    
-    bool first = (i==1);
-    unsigned this_cpos = first ? cpos1 : cpos2;
-    char this_strand = first ? strand1 : strand2;
-    char mate_strand = first ? strand2 : strand1;
-    int this_mapq    = first ? mapq1   : mapq2;
-    //int mate_mapq    = first ? mapq2   : mapq1;
-    unsigned this_nsplit = first ? nsplit1 : nsplit2;
-    //unsigned mate_nsplit = first ? nsplit2 : nsplit1;
-    unsigned this_tsplit = first ? tsplit1 : tsplit2;
-    //unsigned mate_tsplit = first ? tsplit2 : tsplit1;
-    int this_refid2 = first ? refID2 : refID1;
-    int this_refid1 = first ? refID1 : refID2;
-    string srefid1 = GenomicRegion::chrToString(this_refid1+1);
-    string srefid2 = GenomicRegion::chrToString(this_refid2+1);
-    int this_pos1 = first ? pos1 : pos2;
-    int this_pos2 = first ? pos2 : pos1;
-    
-    // set the reference
-    string reference = seq.substr(this_cpos, 1);
-
-    // set the reference
-    stringstream ttag;
-    if (insertion.compare("") != 0)
-      ttag << insertion;
-    else if (this_strand == '+')
-      ttag << reference; 
-    else if (this_strand == '-')
-      ttag << reference; 
-
-    // set the ref
-    stringstream ptag;
-    //ptag << this_refid2 + 1 << ":" << this_pos2;
-    ptag << srefid2 << ":" << this_pos2;
-    
-    // set the alternate
-    stringstream alt;
-    if (this_strand=='+' && mate_strand=='+')
-      alt << ttag.str() << "]" << ptag.str() << "]";
-    else if (this_strand=='+' && mate_strand=='-')
-      alt << ttag.str() << "[" << ptag.str() << "[";
-    else if (this_strand=='-' && mate_strand=='+')
-      alt << "[" << ptag.str() << "[" << ttag.str();
-    else 
-      alt << "]" << ptag.str() << "]" << ttag.str();      
-
-    string contigname = (cname.at(0) == 'c') ? cname : "NA";
-
-    string imprecise = (evidence == "DSCRD") ? "IMPRECISE," : "";
-    //set the info
-    stringstream info;
-    info << "" << "SVTYPE=BND," << imprecise << "HOMSEQ=" << homology << ",HOMLEN=" << homology.length()
-	 << ",INSSEQ=" << insertion << ",INSLEN=" << insertion.length() 
-         << ",EVDNC=" << evidence << ",CONTIG=" << contigname << ",NUMALIGN=" << num_align 
-	 << ",BKDIST=" << span << ",MATEID=" << srefid2 << ",MATEPOS=" << this_pos2 
-	 << ",NSPLIT=" << this_nsplit << ",TSPLIT=" << this_tsplit 
-	 << ",TDISC=" << dc.tcount << ",NDISC=" << dc.ncount 
-         << ",MAPQ=" << this_mapq << ",READS=" << supporting_reads << ">";
-
-    // set the id
-    stringstream thisid;
-    thisid << uniq << "_" << i;
-    
-    // put it all together
-    string sep = "\t";
-
-    // add CHROM
-    //    string ref_id = std::to_string(this_refid1+1);
-    //if (ref_id == "23")
-    //   ref_id = "X";
-    //if (ref_id == "24")
-    //  ref_id = "Y";
-    //if (ref_id == "24")
-    //  ref_id = "Y";
-
-    ss << srefid1 << sep;
-    // add POS
-    ss << this_pos1 << sep;
-    // add ID
-    ss << thisid.str() << sep; 
-    // add REF
-    ss << reference << sep;
-    // add ALT
-    ss << alt.str() << sep;
-    // add QUAL
-    ss << qual << sep;
-    // add FILTER
-    ss << filter << sep;
-    // add INFO
-    ss << info.str();
-    
-    // add newline
-    ss << "\n";
-
-    // keep ref in numeric coordinates for sorting
-    VCFRecord tmp_record(this_refid1+1, this_pos1, ss.str());
-    out.push_back(tmp_record);
-
-    ss.str(string());
-
-  }
-  return out;
-}*/
-
-  
 // constructor taking in a BAM record from the contig BAM
 AlignedContig::AlignedContig(const BamTools::BamAlignment align) { 
 
   m_window = GenomicRegion(align.Name);
   addAlignment(align);
-  //m_tmpalign.push_back(align);
 
 }
 
@@ -495,7 +239,7 @@ void AlignedContig::addAlignment(const BamTools::BamAlignment align) {
   if (align.QueryBases.length() > m_seq.length()) {
     m_seq = align.QueryBases;
     if (align.IsReverseStrand()) // make sure on right strand
-      rcomplement(m_seq);
+      SnowUtils::rcomplement(m_seq);
   }
     
   // find the start position
@@ -601,8 +345,6 @@ void AlignedContig::sortReads() {
   std::sort( m_bamreads.begin(), m_bamreads.end(), BamTools::Algorithms::Sort::ByTag<int32_t>("AL", BamTools::Algorithms::Sort::AscendingOrder) );
 }
 
-void AlignedContig::addRead2Contig(Read2Contig rc) { m_reads.push_back(rc); }
-
 void AlignedContig::splitCoverage() { 
   
    for (AlignVec::iterator it = m_align.begin(); it != m_align.end(); it++) {
@@ -667,7 +409,6 @@ void AlignedContig::printAlignments(ofstream &ostream) const {
 
   if (m_align.size() == 0) {
     cerr << "in printAlignments: no alignments" << endl;
-    cerr << "m_reads: " << m_reads.size() << endl;
     return;
   }
    // print the contig
@@ -840,13 +581,13 @@ void AlignedContig::getBreakPairs() {
    if (m_align.size() < 2)
      return;
 
-   int tall = getNumReads('t');
-   int nall = getNumReads('n');
+   //int tall = getNumReads('t');
+   //int nall = getNumReads('n');
 
    // walk along the ordered contig list and make the breakpoint pairs
    BreakPoint bp;
-   bp.tall = tall;
-   bp.nall = nall;
+   //bp.tall = tall;
+   //bp.nall = nall;
    bp.seq = m_seq;
    bp.num_align = m_align.size();
    bp.cname = m_align[0].align.Name;
@@ -1236,7 +977,7 @@ void AlignedContig::realignReads() {
       
       else {
 	string rstring = QB;
-	rcomplement(rstring); 
+	SnowUtils::rcomplement(rstring); 
 	posa = m_seq.find(rstring.substr(pad,buff)); 
 	posb = m_seq.find(rstring.substr(max(seqlen-buff-pad,0),buff)); 
 	hit1 = posa != string::npos;
@@ -1317,43 +1058,10 @@ void AlignedContig::realignReads() {
 string AlignedContig::printForR() const {
 
   stringstream ss;
-  for (R2CVec::const_iterator it = m_reads.begin(); it != m_reads.end(); it++) 
-    ss << it->toString() << endl;
+  //for (R2CVec::const_iterator it = m_reads.begin(); it != m_reads.end(); it++) 
+  //  ss << it->toString() << endl;
   return ss.str();
 
-}
-
-// peform SmithWaterman Alignment of a read
-double AlignedContig::SWalign(Read2Contig &r, TSequence &contig, bool revcomp) {
-  
-  int match = 4;
-  int mismatch = -2;
-  int gapopen = -4;
-  int gapextend = -2;
-
-  if (revcomp)
-    rcomplement(r.seq);
-  TSequence read = r.seq; 
-    
-  TAlign align;
-  resize(rows(align), 2); 
-  assignSource(row(align,0), contig); 
-  assignSource(row(align,1), read);
-  int score = localAlignment(align, Score<int,Simple>(match, mismatch, gapopen, gapextend));
-  r.sw_score = score;
-  
-  unsigned new_pos = clippedBeginPosition(row(align,0));
-  unsigned read_start_pos = clippedBeginPosition(row(align,1));
-  unsigned read_end_pos = clippedEndPosition(row(align, 1));
-  
-  r.pos = new_pos;
-  
-  // trim the front of the read if it falls off the front
-  int end = read_end_pos - read_start_pos;
-  if (end > 20) 
-    r.seq = r.seq.substr(read_start_pos, end);
-  
-  return score;
 }
 
 double AlignedContig::SWalign(TSequence &contig, 
@@ -1365,7 +1073,7 @@ bool revcomp, int32_t &pos, string &rseq, int32_t &score) {
   int gapextend = -2;
 
   if (revcomp)
-    rcomplement(rseq);
+    SnowUtils::rcomplement(rseq);
   TSequence read = rseq; 
     
   TAlign align;

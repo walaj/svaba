@@ -2,17 +2,22 @@
 #define ALIGNED_CONTIG
 
 #include "Util.h"
-#include "Read2Contig.h"
-#include "VCFRecord.h"
 #include "GenomicRegion.h"
-#include "seqan_tools.h"
 #include <algorithm>
 #include "SVBamReader.h"
+#include <seqan/align.h>
+#include <seqan/graph_msa.h>
 
 using namespace std;
+using namespace seqan;
 
 typedef vector<BamTools::BamAlignment> BAVec;
 typedef vector<BamTools::CigarOp> CigarOpVec;
+
+typedef std::vector<std::string> StringVec;
+typedef String<Dna5> TSequence;
+typedef Align<TSequence,ArrayGaps> TAlign; 
+
 
 class AlignedContig;
 typedef unordered_map<string, AlignedContig> ContigMap;
@@ -281,12 +286,6 @@ struct BreakPoint {
   // print to file
   void printToFile(ofstream &of, ContigMap * contigs);
 
-  // print to VCF
-  string printToVCF(int split_cut, int mapq_cut, int uniq) const;
-
-  // return VCFRecord
-  VCFRecordVector getVCFRecord(int uniq, const BamAlignmentVector &bamreads) const;
-
 };
 
 typedef vector<CAlignment> AlignVec;
@@ -330,26 +329,20 @@ class AlignedContig {
   int getMinMapq() const { return m_minmapq; }
 
   bool hasLocal() const { return m_local; }
-  R2CVec getReads() const { return  m_reads; }
 
-  //
-  int getNumReads() const { return m_reads.size(); };
-
-  int getNumReads(const char type) const { 
+  /*int getNumReads(const char type) const { 
     int countr = 0;
     for (R2CVec::const_iterator it = m_reads.begin(); it != m_reads.end(); it++) 
       if (it->rname.at(0) == type)
 	countr++;
     return countr; 
-  };
+    };*/
 
   // sort the read2contigs
   void sortReads();
 
   // make work function for getting PER-ALIGNMENT breaks from BWA-MEM
   void setBreaks(CAlignment &align);
-
-  void addRead2Contig(Read2Contig rc);
 
   void splitCoverage();
 
@@ -467,7 +460,6 @@ class AlignedContig {
 
   void settleContigs();
 
-  double SWalign(Read2Contig &r, TSequence &contig, bool revcomp);
   double SWalign(TSequence &contig, bool revcomp, int32_t &pos, string &rseq, int32_t &score);
 
   string getSequence() const { return m_align[0].align.QueryBases; }
@@ -475,7 +467,6 @@ class AlignedContig {
  private:
 
   AlignVec m_align_second;
-  R2CVec m_reads;
 
   bool m_local = false;
   bool m_somatic = false;
