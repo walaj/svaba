@@ -25,7 +25,7 @@ static const char *VCF_USAGE_MESSAGE =
   //"      --stats                          Write a simple stats file as specified.\n"
 " Optional Input\n"
 "  -i, --snowman-csv                    A csv breakpoint file (usually breakpoints.somatic.txt) that needs to be converted to VCF.\n"
-  //"  -p, --pair-id-string                 A csv breakpoint file (usually breakpoints.somatic.txt) that needs to be converted to VCF.\n"
+"  -p, --id-string                      String specifying the analysis ID to be used as part of ID common.\n"
 "  -t, --tumor-bam-string               Tumor BAM\n"
 "  -n, --normal-bam-string              Normal BAM\n"
 "  -s, --snowman-vcf                    A VCF produced from SnowmanSV.\n"
@@ -52,7 +52,7 @@ namespace opt {
   static string csv = "";
   static string normal = "normal";
   static string tumor = "tumor";
-  static string pairid = "";
+  static string analysis_id = "";
 
   static string ref_index = REFHG19;
 
@@ -76,7 +76,7 @@ static const struct option longopts[] = {
   { "snowman-vcf",             required_argument, NULL, 's' },
   { "delly-vcf",               required_argument, NULL, 'd' },
   { "brass-vcf",               required_argument, NULL, 'b' },
-  { "pair-id-string",          required_argument, NULL, 'p' },
+  { "id-string",               required_argument, NULL, 'p' },
   { "padding",                 required_argument, NULL, 'y' },
   { "output-vcf",              required_argument, NULL, 'o' },
   { "old-snowman",              no_argument, NULL, 'x'},
@@ -111,7 +111,7 @@ void runVCF(int argc, char** argv) {
     cout << "   Snowman CSV:       " << opt::csv << endl;
     cout << "-- Output VCF:        " << opt::outvcf << endl;
     cout << "-- Annotation strings:" << endl;
-    cout << "   Pair ID:           " << opt::pairid << endl;
+    cout << "   Analysis ID        " << opt::analysis_id << endl;
     cout << "   Tumor:             " << opt::tumor << endl;
     cout << "   Normal:            " << opt::normal << endl;
     cout << "-- Other options:     " << endl;
@@ -177,7 +177,7 @@ void parseVCFOptions(int argc, char** argv) {
   for (char c; (c = getopt_long(argc, argv, shortopts, longopts, NULL)) != -1;) {
     istringstream arg(optarg != NULL ? optarg : "");
     switch (c) {
-    case 'p': arg >> opt::pairid; break;
+    case 'p': arg >> opt::analysis_id; break;
     case 'h': die = true; break;
     case 't': arg >> opt::tumor; break;
     case 'n': arg >> opt::normal; break;
@@ -460,12 +460,10 @@ VCFEntry::VCFEntry(string line, string method) {
   format_fields = FormatStringToFormatRecordMap(format, samp1, samp2);
   
   // parse the ID field
-  regex reg_sanger("^([0-9]+)_[0-9]+");
-  regex reg_dranger("(.*?):[1-2]$");
+  //regex reg_sanger("^([0-9]+)_[0-9]+");
+  regex reg_id("(.*?):[1-2]$");
   smatch match_id;
-  if (regex_match(id, match_id, reg_sanger))
-    idcommon = match_id[1];
-  else if (regex_match(id, match_id, reg_dranger))
+  if (regex_match(id, match_id, reg_id))
     idcommon = match_id[1];
   else
     cerr << "Warning: commond pair ID not properly parsed from ID string " << id << endl;
@@ -579,16 +577,23 @@ std::ostream& operator<<(std::ostream& out, const VCFFile& v) {
 
   VCFEntryVec tmpvec;
   size_t id_counter = 0;
+
   // put the pair maps into a vector
   for (VCFEntryPairMap::const_iterator it = v.entry_pairs.begin(); it != v.entry_pairs.end(); it++) {
+
+    // renumber the ids
     id_counter++;
     VCFEntryPair tmppair = it->second;
-    if (opt::dranger != "" && opt::snowman != "") { // snowman + dranger merge. clean the IDs
-      tmppair.e1.idcommon = to_string(id_counter);
-      tmppair.e2.idcommon = to_string(id_counter);
-      tmppair.e1.id = tmppair.e1.idcommon + "_1";
-      tmppair.e2.id = tmppair.e2.idcommon + "_2";
+    if (opt::dranger != "" && opt::snowman != "") {
+
+      tmppair.e1.idcommon = to_string(id_counter) + opt::analysis_id;
+      tmppair.e2.idcommon = to_string(id_counter) + opt::analysis_id;
+      tmppair.e1.id = tmppair.e1.idcommon + ":1";
+      tmppair.e2.id = tmppair.e2.idcommon + ":2";
+      tmppair.e1.info_fields["MATEID"] = tmppair.e2.id;
+      tmppair.e2.info_fields["MATEID"] = tmppair.e1.id;
     }
+
     tmpvec.push_back(tmppair.e1);
     tmpvec.push_back(tmppair.e2);
   }
@@ -650,31 +655,6 @@ VCFFile mergeVCFFiles(VCFFile const &v1, VCFFile const &v2) {
   // merge the VCFHeaders
   VCFHeader header = mergeVCFHeaders(v1.header, v2.header);
 
-  // list of ids that survive
-  /*
-  unordered_map<string, bool> merge;
-
-  // make the combine pairs vector
-  BPMap both_map;
-  for (BPMap::const_iterator it = v1.pairs.begin(); it != v1.pairs.end(); it++) {
-    BreakPoint bp = it->second;
-    bp.pairid = "1";
-    both_map.insert(pair<string, BreakPoint>(bp.idcommon, bp));
-  }
-  for (BPMap::const_iterator it = v2.pairs.begin(); it != v2.pairs.end(); it++) {
-    BreakPoint bp = it->second;
-    bp.pairid = "2";
-    both_map.insert(pair<string, BreakPoint>(bp.idcommon, bp));
-  }
-  */
-
-  // make the combine Entry vector
-  //VCFEntryVec combined_entry = v1.entries;
-  //combined_entry.insert(v2.entries.begin(), v2.entries.end());
-
-  //VCFEntryVec final_entry_vec;
-  /////////////////////////////
- 
   if (opt::verbose > 0)
     cout << "...merging VCF entries" << endl;
 
@@ -798,6 +778,9 @@ VCFFile::VCFFile(string file, char sep /* ',' */) {
     exit(EXIT_FAILURE);
     }*/
 
+
+  string sample_id_tum = opt::analysis_id;
+  string sample_id_norm= opt::analysis_id + "N";
   // make the VCFHeader
   header.filedate = "";
   header.source = "snowmanSV";
@@ -807,9 +790,9 @@ VCFFile::VCFFile(string file, char sep /* ',' */) {
   header.addFilterField("WEAKASSEMBLY","4 or fewer split reads and no discordant support and span > 1500bp");
   header.addFilterField("WEAKDISC","Fewer than 6 supporting discordant reads and no assembly support");
   header.addFilterField("PASS", "3+ tumor split reads, 0 normal split reads, 60/60 contig MAPQ OR 3+ discordant reads or 60/60 MAPQ with 4+ split reads");
-  header.addSampleField(opt::normal);
-  header.addSampleField(opt::tumor);
-  header.colnames = header.colnames + "\t" + opt::normal + "\t" + opt::tumor;
+  header.addSampleField(sample_id_norm);
+  header.addSampleField(sample_id_tum);
+  header.colnames = header.colnames + "\t" + sample_id_norm + "\t" + sample_id_tum;
 
   // set the time string
   time_t t = time(0);   // get time now
@@ -835,6 +818,7 @@ VCFFile::VCFFile(string file, char sep /* ',' */) {
   header.addInfoField("TSPLIT","1","Integer","Number of split reads from the tumor BAM");
   header.addInfoField("TDISC","1","Integer","Number of discordant read pairs from the tumor BAM");
   header.addInfoField("NDISC","1","Integer","Number of discordant read pairs from the normal BAM");
+  header.addInfoField("MATEID","1","String","ID of mate breakends");
 
   header.addFormatField("READ_ID",".","String","ALT supporting Read IDs");
   header.addFormatField("NALT_SR","1","Integer","Number of ALT support Split Reads");           
@@ -857,10 +841,12 @@ VCFFile::VCFFile(string file, char sep /* ',' */) {
 
     VCFEntry vcf1;
     VCFEntry vcf2;
-    vcf1.id = to_string(line_counter) + "_1";
-    vcf2.id = to_string(line_counter) + "_2";
-    vcf1.idcommon = to_string(line_counter);
-    vcf2.idcommon = to_string(line_counter);
+    vcf1.idcommon = to_string(line_counter) + ":" + opt::analysis_id;
+    vcf2.idcommon = to_string(line_counter) + ":" + opt::analysis_id;
+    vcf1.id = vcf1.idcommon + ":1";
+    vcf2.id = vcf2.idcommon + ":2";
+    vcf1.info_fields["MATEID"] = vcf2.id;
+    vcf2.info_fields["MATEID"] = vcf1.id;
 
     string strand1;
     string strand2;
