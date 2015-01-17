@@ -7,6 +7,7 @@
 #include <string>
 #include "GenomicRegion.h"
 #include <unordered_map>
+#include "BamQC.h"
 
 #include "api/api_global.h"
 #include "api/BamAlignment.h"
@@ -95,7 +96,7 @@ class SVBamReader {
   
   size_t discordantCount(GenomicRegion const &gr1, GenomicRegion const &gr2, int span);
 
-  bool preprocessBam(BamTools::BamWriter &writer);
+  bool preprocessBam(BamTools::BamWriter &writer, BamQC &qc, bool qc_only);
 
   int perclimit = 30;
 

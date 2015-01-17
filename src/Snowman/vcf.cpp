@@ -121,6 +121,14 @@ void runVCF(int argc, char** argv) {
     cout << "   Write as CSV:      " << opt::as_csv << endl;
     cout << endl;
   }
+
+  // if dranger only exists, move it over and stop
+  if (opt::snowman == "" && opt::dranger != "") {
+    cerr << "Warning: SnowmanSV VCF does not exist. Copying input dRanger VCF to output" << endl;
+    string runthis = "cp " + opt::dranger + " " + opt::outvcf;
+    system(runthis.c_str());
+    return;
+  } 
   
   // load the reference genome
   if (opt::csv != "") {
@@ -539,7 +547,8 @@ VCFFile::VCFFile(string file, string tmethod) {
   VCFEntryPairMap tmp_map;
   // populate the pairs
   for (VCFEntryVec::iterator it = entries.begin(); it != entries.end(); it++) {
-    VCFEntryPairMap::iterator ff = tmp_map.find(it->idcommon);
+    string entry_pair_key = it->idcommon + tmethod;
+    VCFEntryPairMap::iterator ff = tmp_map.find(entry_pair_key);
     if (ff == tmp_map.end()) {
 
       VCFEntryPair thispair(*it);
@@ -556,7 +565,7 @@ VCFFile::VCFFile(string file, string tmethod) {
 	cerr << "Tumor split " << it->format_fields["NALT_SR"].second << endl;
 	exit(EXIT_FAILURE);
       }
-      tmp_map.insert(pair<string, VCFEntryPair>(it->idcommon, thispair));
+      tmp_map.insert(pair<string, VCFEntryPair>(entry_pair_key, thispair));
     } else {
       ff->second.e2 = *it; // add the second pair
     }
@@ -586,8 +595,8 @@ std::ostream& operator<<(std::ostream& out, const VCFFile& v) {
     VCFEntryPair tmppair = it->second;
     if (opt::dranger != "" && opt::snowman != "") {
 
-      tmppair.e1.idcommon = to_string(id_counter) + opt::analysis_id;
-      tmppair.e2.idcommon = to_string(id_counter) + opt::analysis_id;
+      tmppair.e1.idcommon = to_string(id_counter) + ":" + opt::analysis_id;
+      tmppair.e2.idcommon = to_string(id_counter) + ":" + opt::analysis_id;
       tmppair.e1.id = tmppair.e1.idcommon + ":1";
       tmppair.e2.id = tmppair.e2.idcommon + ":2";
       tmppair.e1.info_fields["MATEID"] = tmppair.e2.id;
@@ -848,6 +857,9 @@ VCFFile::VCFFile(string file, char sep /* ',' */) {
     vcf1.info_fields["MATEID"] = vcf2.id;
     vcf2.info_fields["MATEID"] = vcf1.id;
 
+    vcf1.info_fields["SVTYPE"] = "BND";
+    vcf2.info_fields["SVTYPE"] = "BND";
+
     string strand1;
     string strand2;
     
@@ -971,6 +983,15 @@ VCFFile::VCFFile(string file, char sep /* ',' */) {
     int mapq2 = stoi(vcf1.info_fields["MATEMAPQ"]);
     bool asdisc = vcf1.info_fields["EVDNC"] == "ASDIS";
     int span = stoi(vcf1.info_fields["SPAN"]);
+
+    if (span < 500 && span > 0) { // weird bug fix
+      vcf1.info_fields["TDISC"] = "0";
+      vcf2.info_fields["TDISC"] = "0";
+      tdisc = 0;
+      vcf1.info_fields["EVDNC"] == "ASSMB";
+      vcf2.info_fields["EVDNC"] == "ASSMB";
+    }
+
     if (tsplit <= 4 && vcf1.info_fields["EVDNC"] == "ASSMB") {
       vcf1.filter = "WEAKASSEMBLY";
       vcf2.filter = "WEAKASSEMBLY";
@@ -978,11 +999,15 @@ VCFFile::VCFFile(string file, char sep /* ',' */) {
 	       (span < 1000 && vcf1.info_fields["NUMPARTS"] == "2" && (vcf1.info_fields["HOMSEQ"].length() > 8 || vcf1.info_fields["INSERTION"].length() > 8) ) ) {
       vcf1.filter = "LOWMAPQ";
       vcf2.filter = "LOWMAPQ";
-    } else if ((vcf1.info_fields["EVDNC"] == "DSCRD") && (mapq1 <= 55 || tdisc < 8)) {
+    } else if ((vcf1.info_fields["EVDNC"] == "DSCRD") && ((mapq1 <= 40 && tdisc < 8) || (mapq1 <= 30 && tdisc < 12)) ) {
       vcf1.filter = "WEAKDISC";
       vcf2.filter = "WEAKDISC";
-    } 
+    } else if ( vcf1.info_fields["EVDNC"] == "ASDIS" && tdisc < 3 && tsplit < 3 ) {
+      vcf1.filter = "WEAKASSEMBLY";
+      vcf2.filter = "WEAKASSEMBLY";
+    }
     
+
     // reject all "DSCRD"
     if (vcf1.info_fields["EVDNC"] == "DSCRD") {
       vcf1.filter = "NOASSMB";
@@ -990,7 +1015,7 @@ VCFFile::VCFFile(string file, char sep /* ',' */) {
     }
 
     // reject anything with too big of homoseq
-    if (vcf1.info_fields["HOMSEQ"].length() > 8) {
+    if (vcf1.info_fields["HOMSEQ"].length() > 9) {
       vcf1.filter = "LOWMAPQ";
       vcf2.filter = "LOWMAPQ";
     }

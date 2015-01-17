@@ -36,4 +36,4 @@ snowman_SOURCES = snowman.cpp workqueue.h grabReads.h grabReads.cpp \
 		kseq.h vcf.h vcf.cpp \
 		nozzle.h nozzle.cpp zfstream.h zfstream.cpp bamprocess.h bamprocess.cpp \
 		SnowmanOverlapAlgorithm.h SnowmanOverlapAlgorithm.cpp SnowmanASQG.h SnowmanASQG.cpp \
-		SnowmanAssemble.h SnowmanAssemble.cpp 
+		SnowmanAssemble.h SnowmanAssemble.cpp BreakPoint.cpp

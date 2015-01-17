@@ -1074,9 +1074,9 @@ void writeBreakFiles(BPVec &fine, BPVec &glob) {
   // send global to files
   for (BPVec::iterator it = glob.begin(); it != glob.end(); it++) {
     if (it->isSomatic)
-      it->printToFile(os_som, contigs_realigned);
+      it->printToFile(os_som, (*contigs_realigned)[it->cname].m_bamreads);
     if (it->isGermline)  // must have 2 split, 1 normal
-      it->printToFile(os_ger, contigs_realigned);
+      it->printToFile(os_ger, (*contigs_realigned)[it->cname].m_bamreads);
   }
 
   //send complex global to files

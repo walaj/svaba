@@ -791,7 +791,7 @@ size_t SVBamReader::discordantCount(GenomicRegion const &gr1, GenomicRegion cons
 
 }
 
-bool SVBamReader::preprocessBam(BamTools::BamWriter &writer) {
+bool SVBamReader::preprocessBam(BamTools::BamWriter &writer, BamQC &qc, bool qc_only) {
 
   // setup a map of reads to make sure we aren't duplicating
   if (!m_reader.Open(m_bam)) {
@@ -823,7 +823,8 @@ bool SVBamReader::preprocessBam(BamTools::BamWriter &writer) {
   BamTools::BamAlignment a;
 
   // loop through the reads
-  while (m_reader.GetNextAlignmentCore(a)) {
+  while (m_reader.GetNextAlignment(a)) {
+
     total++;
 
     // get the number of soft-clipped bases BEFORE TRIMMING
@@ -853,54 +854,106 @@ bool SVBamReader::preprocessBam(BamTools::BamWriter &writer) {
     bool clip  = clipnum >= m_minclip || m_minclip == 0;
     mapqr = mapqr && supp;
 
-    if ( (discr || unmap || clip) && (mapqr || discr)  && a.Length >= 60) {
+    //    if ( (discr || unmap || clip) && (mapqr || discr)  && a.Length >= 60) {
+    
+    //a.BuildCharData(); //populate the rest of the string data
+    // clip bases with low optical quality
+    std::string trimmed_bases = a.QueryBases;
+    std::string trimmed_quals = a.Qualities;
+    bool tooshort = false;
+    bool not_real_clip = false;
+    int startpoint;
+    int endpoint;
+    
+    softClip(m_qualthresh, trimmed_bases, trimmed_quals, clipnum, tooshort, not_real_clip, startpoint, endpoint);
+    
+    // check that there are no N bases
+    bool npass = passNtest(a.QueryBases);
+    
+    // get the number of matches
+    uint32_t nm;
+    if (a.GetTag("NM", nm)) {} else { nm = 0; }
+    bool nmpass = nm <= m_nmlim;
 
-      a.BuildCharData(); //populate the rest of the string data
-      // clip bases with low optical quality
-      std::string trimmed_bases = a.QueryBases;
-      std::string trimmed_quals = a.Qualities;
-      bool tooshort = false;
-      bool not_real_clip = false;
-      int startpoint;
-      int endpoint;
+    // get the AS tag
+    uint32_t as;
+    if (a.GetTag("AS", as)) {} else { as = 0; }
+    // get the XP tag
+    uint32_t xp;
+    if (a.GetTag("XP", as)) {} else { xp = 0; }
 
-      softClip(m_qualthresh, trimmed_bases, trimmed_quals, clipnum, tooshort, not_real_clip, startpoint, endpoint);
-      
-      // check that there are no N bases
-      bool npass = passNtest(a.QueryBases);
-
-      // get the number of matches
-      uint32_t nm;
-      if (a.GetTag("NM", nm)) {} else { nm = 0; }
-      bool nmpass = nm <= m_nmlim;
-      
-      // make sure raw clip is sufficient, plus processed
-      bool clipp = (!not_real_clip && !tooshort && clip) || m_minclip == 0;
-
-      //      if ( (discr || unmap || clipp) && mapqr && !tooshort && npass && nmpass ) {
-      if ( discr || unmap || (clipp && npass && nmpass) ) {
-	//size_t readlen = a.Length;
-	//if (trimmed_bases.length() != readlen) {
-	if (!a.AddTag("SS", "i", startpoint)) {
-	  cerr << "Can't add SS Tag" << endl;
-	  exit(EXIT_FAILURE);
-	}
-	a.AddTag("SE", "i", endpoint);
-	  //}
-	a.RemoveTag("MD");
-	a.RemoveTag("RD");
-	a.RemoveTag("SA");
-	a.RemoveTag("AS");
-	a.RemoveTag("XS");
-	//a.RemoveTag("RG");
-        a.Qualities = "";
-	writer.SaveAlignment(a);
-	counter++;
-      }
+    // make sure raw clip is sufficient, plus processed
+    bool clipp = (!not_real_clip && !tooshort && clip) || m_minclip == 0;
+    
+    // get the mean phred quality
+    size_t i = 0;
+    int phred = 0;
+    while(i < (int)a.Qualities.length()) {
+        phred += char2phred(a.Qualities[i]);
+	i++;
     }
+    if (a.Qualities.length() > 0)
+      phred = static_cast<int>(floor(static_cast<float>(phred) / a.Qualities.length()));
 
+    // build the qc
+    try {
+      string rgroup;
+      if (!a.GetTag("RG",rgroup))
+	cerr << "Failed to read rgroup" << endl;
+
+      int this_isize = abs(a.InsertSize);
+      this_isize = (a.MateRefID != a.RefID || this_isize > 2000) ? 2000 : this_isize;
+
+      assert(this_isize <= 2000 && this_isize >= 0);
+      assert(a.MapQuality <= 60 && a.MapQuality >= 0);
+      assert(clipnum <= 101 && clipnum  >= 0);
+      assert(as <= 101 && as  >= 0);
+      assert(xp <= 101 && xp  >= 0);
+      assert(a.Length <= 101 && a.Length  >= 0);
+      assert(phred <= 60 && phred  >= 0);
+      assert(nm <= 101 && nm >= 0);
+
+      qc.map[rgroup].nm[nm]++;
+      qc.map[rgroup].mapq[a.MapQuality]++;
+      qc.map[rgroup].isize[this_isize]++;
+      qc.map[rgroup].xp[xp]++;
+      qc.map[rgroup].len[a.Length]++;
+      qc.map[rgroup].as[as]++;
+      qc.map[rgroup].clip[clipnum]++;
+      qc.map[rgroup].phred[phred]++;
+      qc.map[rgroup].num_reads++;
+      if (!a.IsMapped())
+	qc.map[rgroup].unmap++;
+      if (a.IsFailedQC()) 
+	qc.map[rgroup].qcfail++;
+      if (a.IsDuplicate())
+	qc.map[rgroup].duplicate++;
+      if (!a.IsPrimaryAlignment())
+	qc.map[rgroup].supp++;
+    } catch (...) {
+      cerr << "Failed at adding to QC" << endl;
+      cerr << "Readgroup " << "NM " << nm << " mapq " << a.MapQuality << " xp " << xp << " len " << a.Length <<
+	" as " << as << " phred " << phred << endl;
+    }
+    bool save_read = discr || unmap || (clipp && npass && nmpass);
+    if ( save_read && !qc_only ) {
+      //if (!a.AddTag("SS", "i", startpoint)) {
+      //	cerr << "Can't add SS Tag" << endl;
+      //	exit(EXIT_FAILURE);
+      //}
+      //a.AddTag("SE", "i", endpoint);
+      //a.RemoveTag("MD");
+      //a.RemoveTag("RD");
+      //a.RemoveTag("SA");
+      //a.RemoveTag("AS");
+      //a.RemoveTag("XS");
+      //a.RemoveTag("RG");
+      //a.Qualities = "";
+      writer.SaveAlignment(a);
+      counter++;
+    }
   }
-
+  
   return true;
 
 }

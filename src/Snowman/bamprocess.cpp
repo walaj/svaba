@@ -7,6 +7,7 @@
 #include "api/BamReader.h"
 #include "api/BamWriter.h"
 #include "SVBamReader.h"
+#include "BamQC.h"
 
 using namespace std;
 using namespace BamTools;
@@ -20,6 +21,7 @@ static const char *PREP_USAGE_MESSAGE =
 "  -h, --help                           Display this help and exit\n"
 "  -i, --input-bam                      BAM file to preprocess\n"
 "  -o, --output-bam                     File to write final BAM to\n"
+"  -q, --qc-only                        Loop through the BAM, but only to make the QC file\n"
 " Read Filters\n"
 "  -w, --min-mapq                       Minimum mapping quality a read must have to be included. Default 0\n"
 "  -n  --nm-limit                       Skip reads that have more than nm mismatches (NM tag). Default: 5\n"
@@ -29,6 +31,7 @@ static const char *PREP_USAGE_MESSAGE =
 "\n";
 
 namespace opt {
+
   static string bam;
   static string out;
   static int isize = 800;
@@ -44,9 +47,10 @@ namespace opt {
   static int nmlim = 5;
   static int perc_limit = 30;
   
+  static bool qc_only = false;
 }
 
-static const char* shortopts = "hv:i:o:w:n:p:s:";
+static const char* shortopts = "hvq:i:o:w:n:p:s:";
 static const struct option longopts[] = {
   { "help",                       no_argument, NULL, 'h' },
   { "verbose",                    required_argument, NULL, 'v' },
@@ -56,6 +60,7 @@ static const struct option longopts[] = {
   { "nm-limit",                 required_argument, NULL, 'n' },
   { "perc-limit",                 required_argument, NULL, 'p' },
   { "isize",                 required_argument, NULL, 's' },
+  { "qc-only",                 no_argument, NULL, 'q' },
   { NULL, 0, NULL, 0 }
 };
 
@@ -81,7 +86,7 @@ void runPrep(int argc, char** argv) {
 
   // open the BAM Reader
   BamReader reader;
-  if (!reader.Open(opt::bam)) {
+  if (!reader.Open(opt::bam) && !opt::qc_only) {
     cerr << "Could not open BAM: " << opt::bam << endl;
     exit(EXIT_FAILURE);
   }
@@ -89,12 +94,14 @@ void runPrep(int argc, char** argv) {
   // get the BAM header
   RefVector ref;
   SamHeader sam;
-  SVBamReader::getRefVector(opt::bam, ref);
-  SVBamReader::getSamHeader(opt::bam, sam);
+  if (!opt::qc_only) {
+    SVBamReader::getRefVector(opt::bam, ref);
+    SVBamReader::getSamHeader(opt::bam, sam);
+  }
 
   // open the BAM Writer
   BamWriter writer;
-  if (!writer.Open(opt::out, sam, ref)) {
+  if (!writer.Open(opt::out, sam, ref) && !opt::qc_only) {
     cerr << "Could not open output BAM: " << opt::out << endl;
     exit(EXIT_FAILURE);
   }
@@ -102,6 +109,8 @@ void runPrep(int argc, char** argv) {
   BamAlignment a;
 
   GenomicRegion gr(0, 10000, 100000);
+
+  BamQC qc;
 
   SVBamReader sv_reader(opt::bam, "", opt::isize, opt::mapq, opt::qualthresh, opt::minOverlap, opt::skip_supp, opt::min_clip, opt::verbose);
   sv_reader.perclimit = opt::perc_limit;
@@ -111,6 +120,10 @@ void runPrep(int argc, char** argv) {
   }
 
   GenomicRegionVector grv = GenomicRegion::non_centromeres;
+  
+  //debug 
+  //grv.clear();
+  //grv.push_back(GenomicRegion(1,1000000,4000000));
 
   for (auto it = grv.begin(); it != grv.end(); it++) {
     if (!sv_reader.setBamRegion(*it)) {
@@ -119,23 +132,30 @@ void runPrep(int argc, char** argv) {
     }
     if (opt::verbose > 0)
       cout << "Running region: "  << (*it) << endl;
-    sv_reader.preprocessBam(writer);
+    sv_reader.preprocessBam(writer, qc, opt::qc_only);
   }
 
-  writer.Close();
+  if (!opt::qc_only)
+    writer.Close();
 
   // index it
-  if (!reader.Open(opt::out)) {
+  if (!reader.Open(opt::out) && !opt::qc_only) {
     cerr << "Cant read output BAM" << endl;
     exit(EXIT_FAILURE);
   }
 
   // create the index file. The input bam should be sorted.                                                                                                                                                                                   
-  if (!reader.CreateIndex()) {                                                                                                                                                                                                          
+  if (!reader.CreateIndex() && !opt::qc_only) {                                                                                                                                                                                                          
     cerr << "Failed to created index for "  << opt::out << endl;
     cerr << " This can happen if the input bam is not sorted. Use samtools sort inbam.bam inbam.sort; samtools index inbam.sort.bam" << endl;
     exit(EXIT_FAILURE);
   }
+
+  // write out the stats
+  ofstream stats_out;
+  stats_out.open("qcreport.txt");
+  stats_out << qc;
+  
 }
 
 void parsePrepOptions(int argc, char** argv) {
@@ -156,8 +176,12 @@ void parsePrepOptions(int argc, char** argv) {
     case 'n': arg >> opt::nmlim; break;
     case 'p': arg >> opt::perc_limit; break;
     case 's': arg >> opt::isize; break;
+    case 'q': opt::qc_only = true; break;
     }
   }
+
+  // dont stop the run for bad bams for quality checking only
+  opt::perc_limit = opt::qc_only ? 101 : opt::perc_limit;
 
   // something went wrong, kill
   if (die) {

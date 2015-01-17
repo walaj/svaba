@@ -5,144 +5,18 @@
 #include "GenomicRegion.h"
 #include <algorithm>
 #include "SVBamReader.h"
-#include <seqan/align.h>
-#include <seqan/graph_msa.h>
+#include "BreakPoint.h"
+#include "AuxUtils.h"
 
 using namespace std;
-using namespace seqan;
 
 typedef vector<BamTools::BamAlignment> BAVec;
 typedef vector<BamTools::CigarOp> CigarOpVec;
 
 typedef std::vector<std::string> StringVec;
-typedef String<Dna5> TSequence;
-typedef Align<TSequence,ArrayGaps> TAlign; 
-
 
 class AlignedContig;
 typedef unordered_map<string, AlignedContig> ContigMap;
-
-struct SBlat {
-
-  // constructor that takes a line from a BLAT hit
-  SBlat(string input) {
-    
-    string s_match, s_mismatch, s_repmatch, s_Ns, s_Qgap_count, s_Qgap_bases, 
-      s_Tgap_count, s_Tgap_bases, s_strand, query_name, s_query_size, s_query_start,
-      s_query_end, hit_name, s_hit_size, s_hit_start, s_hit_end, s_blockCount, s_blockSizes;
-
-    istringstream iss(input);
-
-    if (!(iss >> s_match >> s_mismatch >> s_repmatch >> s_Ns >> s_Qgap_count >>
-	  s_Qgap_bases >> s_Tgap_count >> s_Tgap_bases >> s_strand >> query_name >>
-	  s_query_size >> s_query_start >> s_query_end >> hit_name >> s_hit_size >> 
-	  s_hit_start >> s_hit_end >> s_blockCount >> s_blockSizes))
-      cerr << "Error in making SBlat object" << endl; 
-
-    match = stoi(s_match);
-    mismatch = stoi(s_mismatch);
-    repmatch = stoi(s_repmatch);
-    Ns = stoi(s_Ns);
-    Qgap_count = stoi(s_Qgap_count);	  
-    Qgap_bases = stoi(s_Qgap_bases);
-    Tgap_count = stoi(s_Tgap_count);
-    Tgap_bases = stoi(s_Tgap_bases);
-    query_size = stoi(s_query_size);
-    query_start = stoi(s_query_start);
-    query_end   = stoi(s_query_end);
-    hit_size = stoi(s_hit_size);
-    hit_start = stoi(s_hit_start);
-    hit_end = stoi(s_hit_end);
-    blockCount = stoi(s_blockCount);
-    blockSizes = stoi(s_blockSizes);
-  }
-
-  int match, mismatch, repmatch, Ns, Qgap_count, Qgap_bases, Tgap_count, Tgap_bases;
-  char strand;
-  string query_name;
-  int query_size, query_start, query_end;
-  string hit_name;
-  int hit_size, hit_start, hit_end;
-  int blockCount, blockSizes; 
-
-  // define how these are to be sorted. Sort by biggest match first
-  bool operator < (const SBlat& b) const { return (match > b.match); }
-
-};
-
-typedef vector<SBlat> SBlatVec;
-
-struct RepeatMasker {
-
-  RepeatMasker(string input) {
-
-    string s_sw, s_perc_div, s_perc_del, s_perc_ins, s_contig, 
-      s_query_begin, s_query_end, s_query_left, dum, s_repeat_class, s_repeat_name, 
-      s_repeat_begin, s_repeat_end, s_repeat_left, s_id, dum2;
-
-    istringstream iss(input);
-    if (!(iss >> s_sw >> s_perc_div >> s_perc_del >> s_perc_ins >> s_contig >> s_query_begin 
-	  >> s_query_end >> s_query_left >> dum >> s_repeat_name >> s_repeat_class >> 
-	  s_repeat_begin >> s_repeat_end >> s_repeat_left >> s_id)) 
-      cerr << "Error in making RepeatMasker object" << endl; 
-
-    sw = stoi(s_sw);
-    perc_div = stod(s_perc_div);
-    perc_del = stod(s_perc_del);
-    perc_ins = stod(s_perc_ins);
-    query_begin = stoi(s_query_begin);
-    query_end = stoi(s_query_end);
-    contig = s_contig;
-    repeat_class = s_repeat_class;
-    repeat_name = s_repeat_name;
-    
-  }
-
-  //RepeatMasker(int tsw, string tcontig, string trep_name, string trep_class, 
-  //	       double tdiv, double tdel, double tins, int beg, int end) :
-  // sw(tsw), contig(tcontig), repeat_name(trep_name), repeat_class(trep_class), perc_div(tdiv), perc_del(tdel), perc_ins(tins), 
-  // query_begin(beg), query_end(end) {}
-
-  int sw;
-  string contig;
-  string repeat_name;
-  string repeat_class;
-  
-  double perc_div;
-  double perc_del;
-  double perc_ins;
-  
-  int query_begin;
-  int query_end;
-
-  // define how these are to be sorted. Sort by biggest sw first
-  bool operator < (const RepeatMasker& rep) const { return (sw > rep.sw); }
-
-  // print it out
-  string toString() {
-    stringstream ss;
-    ss << "SW: " << sw << " Contig: " << contig << " RepeatName: " << repeat_name << 
-      " RepeatClass: " << repeat_class << " %Div: " << perc_div << " %Del: " << perc_del << 
-      " %Ins: " << perc_ins << " QueryBegin: " << query_begin << " QueryEnd: " << query_end;
-    return ss.str();
-  }
-
-};
-
-typedef vector<RepeatMasker> RepeatMaskerVec;
-
-/*struct Window {
-
-  Window(int trefID, int tpos1, int tpos2) : refID(trefID), pos1(tpos1), pos2(tpos2) {}
-  Window() {};
-  ~Window() {}
-  int refID;
-  int pos1;
-  int pos2;
-
-  string toString() const;
-
-  };*/
 
 struct CAlignment {
 
@@ -171,7 +45,6 @@ struct CAlignment {
 
 };
 
-
 // define a way to order the contigs by start
 struct AlignmentOrdering {
   inline bool operator() (const CAlignment& struct1, const CAlignment& struct2) {
@@ -179,118 +52,7 @@ struct AlignmentOrdering {
   }
 };
 
-struct BreakPoint {
-
-  bool isBest = false; // marked for best breakpoint when mulitple are redundant
- 
-  size_t disco_tum = 0;
-  size_t disco_norm = 0;
-
-  string idcommon = "";
-  string pairid = "";
-  
-  bool discovar = false;
-
-  DiscordantCluster dc;
-
-  unsigned pos1;
-  unsigned pos2;
-
-  unsigned cpos1;  
-  unsigned cpos2;
-
-  unsigned refID1;
-  unsigned refID2;
-
-  string seq;
-
-  string cname;
-
-  string insertion;
-  string homology;
-
-  string id1;
-  string id2;
-  int matchlen1 = 0;
-  int matchlen2 = 0;
-  
-  char strand1;
-  char strand2;
-
-  bool isSomatic = false;
-  bool isGermline = false;
-
-  unsigned mapq1; 
-  unsigned mapq2; 
-
-  unsigned tsplit1 = 0;
-  unsigned tsplit2 = 0;
-
-  unsigned nsplit1 = 0;
-  unsigned nsplit2 = 0;
-
-  size_t nsplit = 0;
-  size_t tsplit = 0;
-
-  unsigned tall = 0;
-  unsigned nall = 0; 
-
-  int nm1 = 0;
-  int nm2 = 0;
-
-  unsigned num_dups = 0;
-   
-  //Window window;
-  GenomicRegion window;
-
-  int span;
-
-  unsigned num_align = 0;
-
-  bool part_of_local = false;
-
-  bool local1 = false;
-  bool local2 = false;
-
-  string evidence = "";
-  string confidence = "";
-
-  BreakPoint(DiscordantCluster tdc);
-  BreakPoint() {}
-
-  static string BreakPointHeader();
-
-  string toString() const; 
- 
-  bool sameBreak(BreakPoint &bp) const;
-
-  void order();
-
-  // return whether a bp is good to move on
-  bool isGoodSomatic(int mapq, size_t tsplit_cutoff, size_t nsplit_cutoff) const;
-
-  bool hasDiscordant() const;
-
-  // return whether a bp is good to move on
-  bool isGoodGermline(int mapq, size_t allsplit) const;
-
-  // define how to sort these 
-  bool operator < (const BreakPoint& bp) const { 
-    return bp.refID1 > refID1 || 
-       (bp.refID1 == refID1 && bp.pos1 > pos1) || // low pos is first
-       (bp.refID1 == refID1 && bp.pos1 == pos1 && bp.pos2 == pos2 && nsplit1 > bp.nsplit1) || // if same, check nsplit
-       (bp.refID1 == refID1 && bp.pos1 == pos1 && bp.pos2 == pos2 && nsplit1 == bp.nsplit1 && tsplit1 > bp.tsplit1); // if also same, check tsplit
-  }
-  friend ostream& operator<<(std::ostream& out, const BreakPoint& bp) { out << bp.toString(); return out; }
-
-  // print to file
-  void printToFile(ofstream &of, ContigMap * contigs);
-
-};
-
 typedef vector<CAlignment> AlignVec;
-typedef vector<BreakPoint> BPVec;
-typedef unordered_map<string, BreakPoint> BPMap;
 
 class AlignedContig {
 
@@ -460,8 +222,6 @@ class AlignedContig {
 
   void settleContigs();
 
-  double SWalign(TSequence &contig, bool revcomp, int32_t &pos, string &rseq, int32_t &score);
-
   string getSequence() const { return m_align[0].align.QueryBases; }
   
  private:
@@ -489,8 +249,6 @@ class AlignedContig {
   vector<DiscordantCluster> m_dc;
 
 };
-
-
 
 #endif
 
