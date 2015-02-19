@@ -3,10 +3,9 @@
 
 #include <vector>
 #include <string>
-//#include "GenomicRegion.h"
 #include "api/BamReader.h"
 #include <unordered_map>
-//#include "SVBamReader.h"
+#include "EncodedString.h"
 
 using namespace std;
 
@@ -49,9 +48,11 @@ class Contig {
 
   string getID() const { return m_name; }
 
-  string getSeq() const { return m_seq; }
+  string getSeq() const { return m_seq.toString(); }
 
   void addRead(BamTools::BamAlignment read, const int align, bool isInContig);
+
+  void addRead(BamTools::BamAlignment read) { m_bamalignments.push_back(read); }
 
   vector<BamTools::BamAlignment> getBamAlignments() const { return m_bamalignments; }
 
@@ -88,7 +89,8 @@ class Contig {
  
  private: 
    string m_name;
-   string m_seq;
+   //string m_seq;
+   DNAEncodedString m_seq;
    vector<BamTools::BamAlignment> m_bamalignments;
    int m_contig_read_count = 0; // count of reads that actually built contig
 

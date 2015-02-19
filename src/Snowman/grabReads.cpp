@@ -14,6 +14,14 @@
 #include "SnowmanOverlapAlgorithm.h"
 #include "SnowmanASQG.h"
 #include "Util.h"
+#include "faidx.h"
+#include "SeqanTools.h"
+#include "BWAWrapper.h"
+
+#include <signal.h>
+
+#include "EncodedString.h"
+#include "AlignedContig.h"
 
 #define LEARN_SAMPLE 100000
 #define INTER_CHR_COV 5
@@ -42,14 +50,31 @@ const int MAX_CHARS_PER_LINE = 512;
 const int MAX_TOKENS_PER_LINE = 20;
 const char* const DELIMITER = ",";
 
-static pthread_mutex_t snow_lock;
-static ContigVector * cont_total;
-static int out_count = 0;
-static BamAlignmentVector * reads_all;
-static BamAlignmentVector * disc_vec;
+static int read_counter = 0;
+static int contig_counter = 0;
+static int discordant_counter = 0;
 
-namespace opt
-{
+static pthread_mutex_t snow_lock;
+//static AlignedContigVec * cont_total;
+
+//static EncodedBAVector * reads_all_encoded;
+static BamWriter * r2c_writer;
+//static BamWriter * bam_writer;
+static BamWriter * disc_writer;
+
+static BamReader * treader_for_convert;
+
+static ofstream * all_align_stream;
+static ofstream * os_allbps; 
+static ofstream * contigs_sam;
+
+//bwa
+static bwaidx_t *idx;
+
+namespace opt {
+
+  static string rules;
+
   static unsigned verbose = 1;
   static unsigned numThreads = 1;
   static unsigned minOverlap = 35;
@@ -180,14 +205,12 @@ static const char *RUN_USAGE_MESSAGE =
 "  -p, --threads                        Use NUM threads to run snowman. Default: 1\n"
 "      --sort-memory                    Memory (in Mb) used to run \"samtools sort\". *Not* a global mem limit. Default: 4096\n"
 "  -g, --reference-genome               Path to indexed reference genome to be used by BWA-MEM. Default is Broad hg19 (/seq/reference/...)\n"
-  //"      --memory-goal                    Set the chunk-size to aim for this max-memory. Not guarenteed. Default: 4096\n"
   //"      --learn                          Learn the best parameters to use (-m, -l, -c, -i)\n"
 "  Required input\n"
 "  -t, --tumor-bam                      Tumor BAM file\n"
 "  Optional input\n"                       
 "  -n, --normal-bam                     Normal BAM file\n"
 "  -m, --min-overlap                    Minimum read overlap, an SGA parameter. Default: 0.4* readlength\n"
-  //"  -s, --sleep-delay                    Delay (in seconds) between starting processes to avoid BAM IO stampede. Default: 0\n"
   //"  -c, --chunk-size                     Size of region to read-in at once. Lower numbers require less memory, but more I/O. Default: 50e6\n"
 "  -l, --length-cutoff                  Minimum length of the contig (discared otherwwise). Default: 1.5*readlength\n"
 "  -r, --region-file                    Set a region txt file. Format: one region per line, Ex: 1,10000000,11000000\n"
@@ -212,29 +235,44 @@ static const char *RUN_USAGE_MESSAGE =
 "      --min-clip                       Minimum number of clipped reads to included in assembly\n"
 "      --min-read-cov                   Minimum number of reads required to build a valid contig\n"
 "  Assembly params\n"
-  //"      --write-asqg                     Output an ASQG graph file for each 5000bp window. Default: false\n"
+"      --write-asqg                     Output an ASQG graph file for each 5000bp window. Default: false\n"
 "  -e, --error-overlap                  What is the error tolerance on read overlaps. Default: 0.05\n"
 "\n";
 
 static struct timespec start;
+//static faidx_t * findex;
+
+//char *bwa_pg;
+
+// handle a ctrl C
+void my_handler(int s){
+
+  printf("Caught signal %d. Closing BAMs and ofstreams\n",s);
+  r2c_writer->Close();
+  disc_writer->Close();
+
+  all_align_stream->close();
+  os_allbps->close(); 
+  contigs_sam->close();
+
+  exit(1); 
+
+}
+
 
 bool runTaiga(int argc, char** argv) {
 
+  // start the interrupt handler
+  struct sigaction sigIntHandler;
+  sigIntHandler.sa_handler = my_handler;
+  sigemptyset(&sigIntHandler.sa_mask);
+  sigIntHandler.sa_flags = 0;
+
+  sigaction(SIGINT, &sigIntHandler, NULL);
+
   if (argc != 1000) // 1000 is a dummy to make re-call of runTaiga easier for contig bam
     parseTaigaOptions(argc, argv);
-
-  //create marker file to let know started, terminate if already made
-  /*std::stringstream odir;
-  odir << opt::outdir << "/started.txt";
-  if (existTest(odir.str()) && !opt::contig_bam) {
-    std::cerr << "Snowman already started. Terminating...\n";
-    return true;
-  }
-  std::ofstream marker(odir.str(), ios::out);
-  marker << "Snowman started";
-  marker.close();
-  */
-
+ 
   // learn the parameters
   if (opt::learn_params)
     learnParameters();
@@ -290,6 +328,74 @@ bool runTaiga(int argc, char** argv) {
     cout << "Output directory: " << opt::outdir     << endl;
     cout << "RUNNING DISCORDANT CLUSTERING ONLY" << endl;
   }
+ 
+  //get the header from the tumor bam file
+  SamHeader sam;
+  string samheader = SVBamReader::getSamHeader(opt::tbam, sam);
+
+  // get the reference data
+  RefVector ref;  
+  SVBamReader::getRefVector(opt::tbam, ref);
+
+  r2c_writer = new BamWriter();
+  //  bam_writer = new BamWriter();
+  disc_writer =new BamWriter();
+
+  BamReader br;
+  br.Open(opt::tbam);
+  string sam_header = br.GetHeaderText();
+
+  
+  //debug
+  // TODO remove the SO:coordinate because will be wrong.
+
+  // set the r2c writer
+  if (!r2c_writer->Open("r2c.bam", sam_header, ref)) {
+    cerr << "Could not open the r2c.bam for reading." << endl;
+    exit(EXIT_FAILURE);
+  }
+  
+  
+
+  // set the bam writer
+  //  if (!bam_writer->Open(opt::outdir + "/contigs.bam", "", br.GetReferenceData()/*samheader, ref*/)) {
+  // cerr << "Could not open the contigs.bam for reading." << endl;
+  //  exit(EXIT_FAILURE);
+  // }
+
+
+  //debug
+  //cout << samheader << endl;
+  //bam_writer->Close();
+  //exit(1);
+
+  // set the discordant writer
+  if (!disc_writer->Open(opt::outdir + "/discordant.bam", samheader, ref)) {
+    cerr << "Could not open the discordant.bam for writing." << endl;
+   exit(EXIT_FAILURE);
+  }
+
+  // make the folder for ascii plots
+  //std::string dir = "mkdir -p " + opt::outdir + "/alignments";
+  //std::system(dir.c_str());
+  
+  // setup the ASCII plots
+  //ofstream som_align_stream(opt::outdir + "/alignments/alignments.somatic.txt", ios::out);
+  //ofstream ger_align_stream(opt::outdir + "/alignments/alignments.germline.txt", ios::out);
+  all_align_stream = new ofstream(opt::outdir + "alignments.all.txt", ios::out);
+  os_allbps = new ofstream(opt::outdir + "allbps.txt", ios::out);
+  contigs_sam = new ofstream(opt::outdir + "contigs.sam", ios::out);
+  
+
+  (*contigs_sam) << sam_header;
+
+  if (opt::verbose > 0)
+    cout << "Loading the reference BWT index file for: "  << opt::refgenome << endl;
+  idx = bwa_idx_load(opt::refgenome.c_str(), BWA_IDX_ALL);
+  if (idx == NULL) {
+    std::cerr << "Could not load the reference: " << opt::refgenome << endl;
+    exit(EXIT_FAILURE);
+  }
 
   // Create the queue and consumer (worker) threads
   wqueue<TaigaWorkItem*>  queue;
@@ -314,146 +420,32 @@ bool runTaiga(int argc, char** argv) {
       cout << "Per Thread Regions: " << it->toStringOffset() << endl;
 
   // global contig vector and reads vector
-  cont_total = new ContigVector();
-  reads_all  = new BamAlignmentVector();
-  disc_vec   = new BamAlignmentVector();
+  //cont_total = new AlignedContigVec();
+  //reads_all_encoded  = new EncodedBAVector();
+  //disc_map = new DMap();
 
   if (pthread_mutex_init(&snow_lock, NULL) != 0) {
       printf("\n mutex init failed\n");
       return false;
   }
 
+  // initialize the reader for converting chromosomes
+  treader_for_convert = new BamReader();
+  treader_for_convert->Open(opt::tbam);
+
   // send the jobs
   unsigned count = 0;
   for (GenomicRegionVector::const_iterator it = regions_torun.begin(); it != regions_torun.end(); it++) {
     count++;
-    ContigVector  * cont_out = new ContigVector();
-    TaigaWorkItem * item     = new TaigaWorkItem(it->chr, it->pos1, it->pos2, count, cont_out);
+    AlignedContigVec  * cont_out = new AlignedContigVec();
+    DMap * disc_out = new DMap();
+    TaigaWorkItem * item     = new TaigaWorkItem(it->chr, it->pos1, it->pos2, count, cont_out, disc_out);
     queue.add(item);
   }
 
   // wait for the threads to finish
   for (unsigned i = 0; i < opt::numThreads; i++) 
     threadqueue[i]->join();
-
-  // dump final contigs and reads
-  clearMemWriteData();
-
-  delete reads_all;
-  delete cont_total;
-
-  num_jobs = out_count;
-
-  if (opt::verbose > 0)  
-    cout << endl << "All threads done, merging temp files" << endl;
-
-  if (num_jobs == 0) {
-    cerr << "No regions run. Something went wrong..." << endl;
-    exit(EXIT_FAILURE);
-  }
-
-  // merge the contig fasta files
-  stringstream ss;
-  if (opt::contig_bam) 
-    ss << "cat " << opt::outdir << "/*contig_tmp.fa > " << opt::outdir << "/all_contigs_bootstrap.fa";
-  else
-    ss << "cat " << opt::outdir << "/*tmp.fa > " << opt::outdir << "/all_contigs.fa";    
-  if (!opt::disc_cluster_only) {
-    if (opt::verbose > 1)
-      cout << ss.str() << endl;
-    system(ss.str().c_str());
-  }
-
-  // remove the tmp fasta files
-  stringstream rms;
-  if (opt::contig_bam)
-    rms << " rm -f " << opt::outdir << "/*contig_tmp.fa";
-  else
-    rms << " rm -f " << opt::outdir << "/*tmp.fa";    
-  if (!opt::debug && !opt::disc_cluster_only)
-    system(rms.str().c_str());
-
-  // dedupe the contigs
-  stringstream cmd_dedup;
-  if (opt::contig_bam)
-    cmd_dedup << "cd " << opt::outdir << "; " << SGAPATH << " index -t " << to_string(opt::numThreads) << " all_contigs_bootstrap.fa; " << 
-      SGAPATH << " rmdup -t " << to_string(opt::numThreads) << " -e 0.01 all_contigs_bootstrap.fa; mv all_contigs_bootstrap.rmdup.fa all_contigs_bootstrap.fa; rm *bwt *sai *dups.fa";
-  //else
-  //  cmd_dedup << "cd " << opt::outdir << "; " << SGAPATH << " index -t " << to_string(opt::numThreads) << " all_contigs.fa; " << 
-  //    SGAPATH << " rmdup -t " << to_string(opt::numThreads) << " -e 0.01 all_contigs.fa; mv all_contigs.rmdup.fa all_contigs.fa; rm *bwt *sai all_contigs.rmdup.dups.fa;";
-  if (!opt::disc_cluster_only) {
-    system(cmd_dedup.str().c_str());
-    cout << cmd_dedup.str() << endl;
-  }
-
-  // merge the r2c BAM files
-  sleep(2);
-  stringstream bam_merge, disc_merge;
-  if (!opt::disc_cluster_only && opt::verbose > 0)
-    cout << "Number of tmp bam files to merge: " << num_jobs << endl;
-
-  string rmstring, drmstring;
-  if (opt::debug) {
-    rmstring = "";
-    drmstring = "";
-  } else if (!opt::contig_bam && !opt::no_r2c) {
-    rmstring = " rm " + opt::outdir + "/*reads2contig.bam;" ;
-    drmstring= " rm " + opt::outdir + "/*dreads.bam;" ;
-  } else if (!opt::contig_bam) {
-    drmstring= " rm " + opt::outdir + "/*dreads.bam;" ;
-  }
-
-  if (num_jobs == 1) {
-    bam_merge << "cd " << opt::outdir << "; mv r0_reads2contig.bam r2c_tmp.bam;";
-    disc_merge<< "cd " << opt::outdir << "; mv r0_dreads.bam discordant_tmp.bam;";
-  }
-  else {
-    bam_merge << "time samtools merge -f " << opt::outdir << "/r2c_tmp.bam " << opt::outdir << "/*reads2contig.bam;" << rmstring; 
-    disc_merge<< "time samtools merge -f " << opt::outdir << "/discordant_tmp.bam " << opt::outdir << "/*dreads.bam;" << drmstring; 
-  }
-
-  // deal with discordant
-  if (opt::verbose > 0 && !opt::contig_bam)
-    cout << disc_merge.str() << endl;
-  if (!opt::contig_bam)
-    system(disc_merge.str().c_str());
-
-  // deal with r2c
-  bool run_r2c = !opt::contig_bam && !opt::no_r2c && !opt::disc_cluster_only;
-  if (opt::verbose > 0 && run_r2c)
-    cout << bam_merge.str() << endl;
-  if (run_r2c)
-    system(bam_merge.str().c_str());
-  
-  // peform the alignment of the contigs to the genome
-  if (!opt::disc_cluster_only)
-    runBWA();
-
-  // clean up the r2c bam
-  if (run_r2c) 
-    cleanR2C();
-
-  //clean up the discordant bam
-  if (!opt::contig_bam) 
-    cleanDiscBam();
-
-  // re-run snowman on contigs
-  if (!opt::contig_bam && !opt::disc_cluster_only) {
-    opt::contig_bam = true;
-    opt::tbam = opt::outdir + "/all_bwa.bam";
-    opt::nbam = "";
-    opt::regionFile = "x";
-    opt::verbose = 0;
-    opt::contig_write_limit = 500000;
-    runTaiga(1000, argv);
-  }
-  
-  // set the ending marker
-  stringstream odir2;
-  odir2 << opt::outdir << "/ended.txt";
-  ofstream marker2(odir2.str(), ios::out);
-  marker2 << "Snowman ended";
-  marker2.close();
 
   // display the run time
   struct timespec finish;
@@ -472,7 +464,7 @@ bool runTaiga(int argc, char** argv) {
 }
 
 //TODO turn to const
-int runAll(BamAlignmentVector &bavd, string name, ContigVector * cont_out)
+int runAll(BamAlignmentVector &bavd, string name, AlignedContigVec * cont_out, DMap * disc_out)
 {
   // parse name to get genomic region
   GenomicRegion gr(name);
@@ -486,8 +478,8 @@ int runAll(BamAlignmentVector &bavd, string name, ContigVector * cont_out)
 
   // grab discordant read sequences, figure out how to deal with it
   if (!opt::contig_bam)
-    handleDiscordant(bavd, name, gr);
-  if ( bavd.size() == 0)
+    handleDiscordant(bavd, name, gr,disc_out);
+  if ( bavd.size() == 0 )
     return 0;
 
   // de-duplicate the reads by readname and position
@@ -508,13 +500,11 @@ int runAll(BamAlignmentVector &bavd, string name, ContigVector * cont_out)
   // make the reads tables
   ReadTable pRT;
   if (opt::contig_bam || opt::normal_assemble)
-    BamAlignmentVectorToReadTable(bav, pRT);
-  //    pRT = ReadTable(bav);
+    //BamAlignmentVectorToReadTable(bav, pRT);
+      pRT = ReadTable(bav);
   else 
-    BamAlignmentVectorToReadTable(bavd_tum, pRT);    
-  //    pRT = ReadTable(bavd_tum);
-  //pRT = opt::normal_assemble ? bav : bavd_tum;
-
+    //BamAlignmentVectorToReadTable(bavd_tum, pRT);    
+      pRT = ReadTable(bavd_tum);
 
   ContigVector contigs;
   // do the assembly
@@ -523,28 +513,46 @@ int runAll(BamAlignmentVector &bavd, string name, ContigVector * cont_out)
 
   ReadTable pRTc;
   if (!opt::contig_bam) {
-    //pRTc = ReadTable(contigs1);
-    ContigsToReadTable(contigs, pRT);
+    pRTc = ReadTable(contigs1);
+    //ContigsToReadTable(contigs, pRT);
     doAssembly(&pRTc, name, contigs, 1);
   }
 
-  // do the matching of reads to contigs. Keep only contigs with good support
+  //filter contigs with BWA-MEM
+  BWAWrapper wrap;
+  BWAReadVec bwarv;
+  SamRecordVec samv;
+
   if (!opt::contig_bam) {
-    matchReads2Contigs(&contigs, bav, cont_out);
-  } else {
-    for (ContigVector::const_iterator it = contigs1.begin(); it != contigs1.end(); it++)
-      cont_out->push_back(*it);
+    for (auto it = contigs.begin(); it != contigs.end(); it++) 
+      bwarv.push_back(BWARead(it->getID(), it->getSeq()));
+    wrap.addSequences(bwarv, idx, samv);
+
   }
+
+  // make aligned contigs
+  for (auto it = samv.begin(); it != samv.end(); it++) {
+    AlignedContig ac(it->record, treader_for_convert);
+    if (ac.m_align.size() > 1 && ac.getMinMapq() >= 10 && ac.getMaxMapq() >= 40) { 
+      ac.alignReadsToContigs(bav);
+      //ac.sortReads();
+      ac.splitCoverage();
+      ac.getBreakPairs();
+      if (ac.maxSplit() > 1)
+	cont_out->push_back(ac);
+    }
+  }
+
   return 0;
+
 }
 
-bool grabReads(int refID, int pos1, int pos2, ContigVector * cont_out) {
+bool grabReads(int refID, int pos1, int pos2, AlignedContigVec * cont_out, DMap * bav_disc) {
  
   //  SeqRecordVector tsrv, nsrv;
   BamAlignmentVector tbav, nbav;
 
   ////// TUMOR
-  // open the reads0
   std::clock_t startr;
   startr = std::clock();
 
@@ -572,12 +580,12 @@ bool grabReads(int refID, int pos1, int pos2, ContigVector * cont_out) {
       return false;
     }
   }
-  unsigned num_t_reads = tbav.size();
+  int num_t_reads = tbav.size();
   double svbam_time_tumor = (std::clock() - startr) / (double)(CLOCKS_PER_SEC / 1000);
 
   ////// NORMAL
   // open the reads
-  unsigned num_n_reads = 0;
+  int num_n_reads = 0;
   startr = std::clock();
   if (opt::nbam.length() > 0) {
     SVBamReader n_reader(opt::nbam, "n", opt::isize, opt::mapq, opt::qualthresh, opt::minOverlap, opt::skip_supp, opt::skip_r2, 
@@ -608,45 +616,125 @@ bool grabReads(int refID, int pos1, int pos2, ContigVector * cont_out) {
 
   // Divide up the reads and send them to the assembler
   startr = std::clock();
-  chunkReadsForAssembly(refID, pos1, LITTLECHUNK, WINDOW_PAD, cont_out, &tbav, &nbav);
+  // TODO make safe in case normal has differnt refids than tumor
+  chunkReadsForAssembly(refID, pos1, LITTLECHUNK, WINDOW_PAD, cont_out, &tbav, &nbav, bav_disc);
   double assembly_time = (std::clock() - startr) / (double)(CLOCKS_PER_SEC / 1000);
 
   // create and open the .tmp.fa file for contigs
   startr = std::clock();
 
   // push reads and sort them
-  BamAlignmentVector this_reads, reads_reduced;
-  for (ContigVector::iterator it = cont_out->begin(); it != cont_out->end(); it++) {
-    BamAlignmentVector tmpvec = it->getBamAlignments();
-    for (BamAlignmentVector::iterator jt = tmpvec.begin(); jt != tmpvec.end(); jt++) {
+  EncodedBAVector this_reads;
+  for (AlignedContigVec::iterator it = cont_out->begin(); it != cont_out->end(); it++) {
+    //    BamAlignmentVector tmpvec = it->getBamAlignments();
+    for (BamAlignmentVector::iterator jt = it->m_bamreads.begin(); jt != it->m_bamreads.end(); jt++) {
       //jt->AddTag("CN", "Z", it->getID());
-      this_reads.push_back(*jt);
+      EncodedBA eba;
+      eba.a = (*jt);
+      eba.a.QueryBases = "";
+      //eba.a.Qualities = "";
+      eba.a.RemoveTag("TS");
+      eba.s = DNAEncodedString(jt->QueryBases);
+      this_reads.push_back(eba);
     }
   }
-
   // sort by read name
   ReadMap reads_map; 
   combineR2C(this_reads, reads_map);
 
+  // combine discordant reads with breaks
+  combineContigsWithDiscordantClusters(bav_disc, cont_out);
+
+  // get the breakpoints
+  BPVec bp_glob;
+  for (auto it = cont_out->begin(); it != cont_out->end(); it++) 
+    bp_glob.push_back(it->getGlobalBreak());
+
+  // add discordant reads
+  addDiscordantPairsBreakpoints(bp_glob, bav_disc);
+
+  //set as somatic or not
+  for (auto it = bp_glob.begin(); it != bp_glob.end(); it++) {
+    if (it->isGoodSomatic(30, 3, 0))
+      it->isSomatic = true;
+    else if (it->isGoodGermline(30, 3))
+      it->isGermline = true;
+  }
+    
   ////////////////////////////////////
   // MUTEX LOCKED
   ////////////////////////////////////
   // write to the global contig out
   pthread_mutex_lock(&snow_lock);  
 
+  // send all bps to file
+  stringstream out_allbps; out_allbps << opt::outdir << "/allbps.txt";
+  for (BPVec::const_iterator it = bp_glob.begin(); it != bp_glob.end(); it++) 
+    (*os_allbps) << it->toString() << endl;
+
+  // send all alignments to ASCII plot
+  for (auto it = cont_out->begin(); it != cont_out->end(); it++) 
+    (*all_align_stream) << it->printAlignments() << endl;
+
   // add these reads to final reads structure
   if (!opt::contig_bam && !opt::no_r2c)
-    for (ReadMap::const_iterator it = reads_map.begin(); it != reads_map.end(); it++)
-      reads_all->push_back(it->second);
+    for (ReadMap::iterator it = reads_map.begin(); it != reads_map.end(); it++) {
+      //write the BAM immediately
+      //cout << "writing read "  << endl;
+      it->second.a.QueryBases = it->second.s.toString();
 
-  // add contigs to final structure
-  for (ContigVector::iterator it = cont_out->begin(); it != cont_out->end(); it++) {
-    it->clearReads();
-    cont_total->push_back(*it);
+
+      string cn;
+      int32_t al;
+      int32_t sw;
+      it->second.a.GetTag("CN", cn);
+      it->second.a.GetTag("AL", al);
+      it->second.a.GetTag("SW", sw);
+      stringstream cig;
+      for (auto& cc : it->second.a.CigarData) {
+	cig << cc.Length << cc.Type;
+      }
+
+      r2c_writer->SaveAlignment(it->second.a);
+      read_counter++;
+    }
+
+  /*
+  // write the contigs
+  /*  for (auto it = cont_out->begin(); it != cont_out->end(); it++) {
+    for (auto jt = it->m_align.begin(); jt != it->m_align.end(); jt++) {
+      //      cout << jt->align.RefID + ":" << jt->align.Position << endl;
+      if (!bam_writer->SaveAlignment(jt->align))
+	cerr << "Bam alignment not saved" << endl;
+    }
+  }
+  */
+
+  //debug
+  for (AlignedContigVec::const_iterator jj = cont_out->begin(); jj != cont_out->end(); jj++) {
+    contig_counter++;
+    for (auto& a : jj->m_align) {
+      stringstream cig;
+      for (auto& cc : a.align.CigarData) {
+	cig << cc.Length << cc.Type;
+      }
+
+      assert(a.align.QueryBases.length() == a.align.Qualities.length());
+      
+      (*contigs_sam) << a.align.Name << "\t" << a.align.AlignmentFlag << "\t" << treader_for_convert->GetReferenceData()[a.align.RefID].RefName << 
+	"\t" << a.align.Position << "\t" << a.align.MapQuality << "\t" << cig.str() << "\t" << 
+	"*" << "\t" << "0" << "\t" << 0 << "\t" << a.align.QueryBases << "\t" << a.align.Qualities << endl;
+    }
   }
 
-  if (cont_total->size() > opt::contig_write_limit) 
-    clearMemWriteData();
+  // write the discordant reads
+  for (auto it = bav_disc->begin(); it != bav_disc->end(); it++) {
+    for (auto jt = it->second.reads.begin(); jt != it->second.reads.end(); jt++) {
+      discordant_counter++;
+     if (!disc_writer->SaveAlignment(*jt))
+  	cerr << "Discordant alignment not saved" << endl;
+   }
+  }
 
   pthread_mutex_unlock(&snow_lock);
   /////////////////////////////////////
@@ -655,6 +743,7 @@ bool grabReads(int refID, int pos1, int pos2, ContigVector * cont_out) {
   
   // delete the contig 
   delete cont_out;
+  delete bav_disc;
 
   // display the run time
   double write_time = (std::clock() - startr) / (double)(CLOCKS_PER_SEC / 1000);
@@ -673,12 +762,15 @@ bool grabReads(int refID, int pos1, int pos2, ContigVector * cont_out) {
     int tumor_time  = static_cast<int>(floor(svbam_time_tumor /total_time * 100.0));
     int normal_time = static_cast<int>(floor(svbam_time_normal/total_time * 100.0));
     int assem_time  = static_cast<int>(floor(assembly_time    /total_time * 100.0));
-    int w_time      = static_cast<int>(floor(write_time       /total_time * 100.0));
+    //    int w_time      = static_cast<int>(floor(write_time       /total_time * 100.0));
     string print1 = SnowUtils::AddCommas<int>(pos1);
     string print2 = SnowUtils::AddCommas<int>(pos2);
-    sprintf (buffer, "Ran chr%2d:%11s-%11s T: %5d N: %5d -- Tumor: %2d%% Normal: %2d%% Assembly: %2d%% Write: %2d%% -- CPU: %dm%ds Wall: %dm%ds", 
-	     refID+1,print1.c_str(),print2.c_str(),num_t_reads,num_n_reads, 
-	     tumor_time, normal_time, assem_time, w_time, 
+    sprintf (buffer, "Ran chr%2d:%11s-%11s T: %5d(%2d%%) N: %5d(%2d%%) ASBL: %2d%% #Contigs: %6d #Reads: %6d #Disc: %6d-- CPU: %dm%ds Wall: %dm%ds", 
+	     refID+1,print1.c_str(),print2.c_str(),num_t_reads,tumor_time,
+	     num_n_reads, normal_time, 
+	     assem_time,
+	     contig_counter, read_counter, discordant_counter,
+	     //static_cast<int>(reads_all_encoded->size()),
 	     static_cast<int>(floor( static_cast<double>(t) /60.0)), t % 60,
 	     min, sec);
     printf ("%s\n",buffer);
@@ -771,7 +863,8 @@ void parseTaigaOptions(int argc, char** argv) {
 
 // Divide up the reads and send them to the assembler
 void chunkReadsForAssembly(const int refID, const int pos1, const int chunk, const int pad, 
-			   ContigVector * cont_out, BamAlignmentVector * tbav, BamAlignmentVector *nbav) {
+			   AlignedContigVec * cont_out, BamAlignmentVector * tbav, BamAlignmentVector *nbav,
+			   DMap * disc_out) {
 
   IterPairMap tmap, nmap;
   // return vectors of iterators that points to positions for chunks
@@ -798,7 +891,7 @@ void chunkReadsForAssembly(const int refID, const int pos1, const int chunk, con
 
      bool fvec_pass = fvec.size() < opt::skip && fvec.size() >= 3;
      if ( fvec_pass || (opt::contig_bam && fvec.size() > 0)) 
-       runAll(fvec, *it, cont_out);
+       runAll(fvec, *it, cont_out, disc_out);
      else if (opt::verbose > 1)
        cout << "Too many/few reads at: " << *it << " with " << fvec.size() << " reads\n";
   }
@@ -872,137 +965,6 @@ void getChunkReads(const BamAlignmentVector * bav, const unsigned refID, const u
 
 }
 
-
-// Parse the region file specified by the -r flag. Must be comma delimited
-bool parseRegionFile(GenomicRegionVector &gr) {
-
-  ifstream fin;
-  fin.open(opt::regionFile); // open a file
-  if (!fin.good()) 
-    return false; // exit if file not found
-
-  // establish valid chr to run on
-  unordered_map<string, int> VALID_CHR;
-  for (unsigned i = 0; i < CHR_NAME_NUM.size(); i++)
-    VALID_CHR.insert(pair<string, int>(CHR_NAME_NUM[i], 0));
-
-  /*
-  // open the optionally zipped region file in BED format
-  gzifstream stream(opt::regionFile.c_str());
-  if (!stream.is_open()) {
-    std::cerr << "ERROR: Cannot open " + opt::regionFile << std::endl;
-    exit(EXIT_FAILURE);
-  }
-
-  // parse the BED file
-  BEDRow row;
-  while (stream >> row) {
-    cout << "BEDROW " << row.gr << endl;
-  }
-  */
-
-  // read each line of the file
-  while (!fin.eof()) {
-
-    // read an entire line into memory
-    char buf[MAX_CHARS_PER_LINE];
-    fin.getline(buf, MAX_CHARS_PER_LINE);
-  
-    // parse the line into blank-delimited tokens
-    int n = 0; // a for-loop index
-  
-    // array to store memory addresses of the tokens in buf
-    const char* token[MAX_TOKENS_PER_LINE] = {}; // initialize to 0
-  
-    // parse the line
-    token[0] = strtok(buf, DELIMITER); // first token
-    if (token[0]) // zero if line is blank
-      for (n = 1; n < MAX_TOKENS_PER_LINE; n++) {
-        token[n] = strtok(0, DELIMITER); // subsequent tokens
-  	if (!token[n]) 
-	  break; // no more tokens
-       }
-  	
-    // loop through the lines
-    for (int i = 0; i < n; i += 3) {
-	string mchr  = token[i];
-  	string mpos1 = token[i+1];
-  	string mpos2 = token[i+2];
-
-  	// deal with x and y
-  	bool isx = mchr.compare("X")==0;
-  	bool isy = mchr.compare("Y")==0;
-	mchr = isx ? "23" : mchr;
-	mchr = isy ? "24" : mchr;
-
-  	string error = "";
-  	bool valid_chr = VALID_CHR.find(mchr) != VALID_CHR.end();
-  	if (!valid_chr)
-  	  error = "Invalid chromosome";
-
-  	// create the genomic region
-  	GenomicRegion this_gr;
-  	try {
-  	  this_gr.chr = atoi(mchr.c_str())-1;
-  	  this_gr.pos1 = min(atoi(mpos1.c_str()), CHR_LEN[this_gr.chr]);
-  	  this_gr.pos2 = min(atoi(mpos2.c_str()), CHR_LEN[this_gr.chr]);
-  	} catch (...) {
-  	  cerr << "Caught error with parsing region file for region " << mchr << ":" << mpos1 << "-" << mpos2 << endl;
-  	}
-
-  	// deteremine if this region overlaps with a centromere
-  	int overlap_result = 0;
-	if (!opt::ignore_skip_cent) {
-	  overlap_result = this_gr.centromereOverlap();
-	  if (overlap_result != 0) 
-	    error = (overlap_result == 1) ? "Partial overlap with centromere" : "Full overlap with centromere";
-	}
-  	    
-  	// keep only those regions that are valid
-  	if (valid_chr && overlap_result != 2) 
-  	  gr.push_back(this_gr);
-
-  	// print out if verbose
-	if (opt::verbose > 0 && error.length() > 0) 
-  	  cout << "   " << this_gr.toStringOffset() << " " << error << endl;
-
-    } // end i+=3 for
-  } // end while
-
-  return true;
-  
-}
-
-// fill the worker queue with Taiga jobs tiling the whole genome
-/*int sendWholeGenomeJobs(wqueue<TaigaWorkItem*>  &mqueue) {
-
-  int threadchunk = opt::chunk;
-  int jj = 1; 
-  int endr = threadchunk;
-  int startr = 1;
-  int refr = 0;
-  int num_jobs = 0;
-  
-  while (refr <= 23) { 
-    while (endr <= CHR_LEN[refr] && startr < CHR_LEN[refr]) {
-      jj++;
-      num_jobs++;
-      ContigVector * cont_out = new ContigVector();
-      TaigaWorkItem * item = new TaigaWorkItem(opt::tbam, opt::nbam, refr, startr, endr, jj, cont_out);
-      mqueue.add(item);
-      endr = min(CHR_LEN[refr], (jj+1)*threadchunk);
-      startr = min(CHR_LEN[refr], 1 + jj*threadchunk);
-      sleep(opt::sleepDelay);
-    }
-    refr++;
-    startr = 1;
-    endr = min(threadchunk, CHR_LEN[refr]);
-    jj = 1;
-  }
-
-  return num_jobs;
-  }*/
-
 // just get a count of how many jobs to run. Useful for limiting threads
 // also set the regions
 int countJobs(GenomicRegionVector &file_regions, GenomicRegionVector &run_regions) {
@@ -1010,7 +972,7 @@ int countJobs(GenomicRegionVector &file_regions, GenomicRegionVector &run_region
   // open the region file if it exists
   bool rgfile = opt::regionFile.compare("x") != 0;
   if (rgfile) 
-    parseRegionFile(file_regions);
+    file_regions = GenomicRegion::regionFileToGRV(opt::regionFile, 0);
   else if (!opt::ignore_skip_cent)
     file_regions = GenomicRegion::non_centromeres; // from GenomicRegion.cpp
   else
@@ -1037,20 +999,19 @@ int countJobs(GenomicRegionVector &file_regions, GenomicRegionVector &run_region
 
       do {
         GenomicRegion grr(file_regions[jj].chr, startr, endr);
-	run_regions.push_back(grr);
+		run_regions.push_back(grr);
 
-	if (endr == file_regions[jj].pos2)
-	  stoploop = true;
+		if (endr == file_regions[jj].pos2)
+	  		stoploop = true;
 
-	kk++;
+		kk++;
         endr   = min(file_regions[jj].pos2, (kk+1)*threadchunk + file_regions[jj].pos1 + thispad);
         startr = min(file_regions[jj].pos2,  kk*threadchunk + file_regions[jj].pos1);
-
 
       } while (!stoploop);
 
     } else { // region size is below chunk
-	run_regions.push_back(file_regions[jj]);
+		run_regions.push_back(file_regions[jj]);
     }
     jj++;
     kk = 0;
@@ -1061,102 +1022,8 @@ int countJobs(GenomicRegionVector &file_regions, GenomicRegionVector &run_region
 
 }
 
-// contigs hold all the contigs for this window
-// bav holds all the reads for this window
-// cont_out holds all final contigs across windows
-void matchReads2Contigs(ContigVector * contigs, BamAlignmentVector &bav, ContigVector  * cont_out) {
-
-  if (opt::no_r2c) {
-    for (ContigVector::iterator i = contigs->begin(); i != contigs->end(); i++) 
-      cont_out->push_back(*i);
-    return;
-  }
-  
-  // MATCHING BY FIND
-  int buff = 12;
-  int pad = 10;
-
-  for (ContigVector::iterator i = contigs->begin(); i != contigs->end(); i++) {
-    StringMap name_map;
-    for (BamAlignmentVector::iterator j = bav.begin(); j != bav.end(); j++) {
-
-      string QB;
-      
-      if (!j->GetTag("TS", QB))
-	QB = j->QueryBases;
-      int seqlen = QB.length();
-      size_t posa = i->getSeq().find(QB.substr(pad, buff)); // try first part of read
-      size_t posb = i->getSeq().find(QB.substr(max(seqlen-buff-pad,0),buff)); // try second part of read
-      bool hit1 = posa != string::npos;
-      bool hit2 = posb != string::npos;
-      string read_name;
-      j->GetTag("JW", read_name);
-
-      // PROCEED IF ALIGNS TO FORWARD
-      if (hit1 || hit2) {
-	int tpos = posa - pad;
-	i->addRead(*j, std::max(tpos, 0), true);
-	name_map.insert(pair<string, unsigned>(read_name, 0));
-      }
-
-      //OTHERWISE TRY REVERSE
-      else {
-	string rstring = QB;
-	SnowUtils::rcomplement(rstring); 
-	posa = i->getSeq().find(rstring.substr(pad,buff)); 
-	posb = i->getSeq().find(rstring.substr(max(seqlen-buff-pad,0),buff)); 
-	hit1 = posa != string::npos;
-	hit2 = posb != string::npos;
-
-	if (hit1 || hit2) {
-	  int tpos = posa - pad;
-	  //j->EditTag("TS", "Z", rstring); // edit the tag to be reverseComplemented
-	  i->addRead(*j, std::max(tpos, 0), true);
-	  name_map.insert(pair<string, unsigned>(read_name, 0));
-	}
-      }
-      ////////////////////////////
-    } // end read loop
-
-    // add the alignment if there are 3+ tumor reads that made contig
-    if (i->getContigTumorReadCount() >= opt::min_read_cov) { 
-
-      // add pairmates if not already included
-      for  (BamAlignmentVector::const_iterator it = bav.begin(); it != bav.end(); it++) {
-	string tmp1, tmp2; 
-	it->GetTag("JW", tmp1);
-	it->GetTag("J2", tmp2);
-	
-	bool readInContig1 = name_map.find(tmp1) != name_map.end();
-	bool readInContig2 = name_map.find(tmp2) != name_map.end();
-	if (!readInContig1 && readInContig2) { //JW not in but J2 is, proceed
-	  i->addRead(*it, -1, false);
-	}
-      }
-      
-      // clean the tags
-      i->clearFinalTags();
-      
-      cont_out->push_back(*i); 
-    }
-    
-#ifdef DEBUG_GRABREADS
-    // debug
-    if (i->getID().compare("contig_1:15001-20001_25") == 0 || true) {
-      std::cout << i->getID() << std::endl;
-      i->printBamAlignments();
-     }
-#endif
-
-    // print verbose message
-    if (opt::verbose > 2) 
-	cerr << "Contig Size: " << i->getSeq().length() << " Read Support: " << i->getReadCount() << endl;
-
-  } // end contig loop
-}
-
 // grab the pairmate reads
-void grabPairmateReads(BamAlignmentVector &bav, const GenomicRegion window) {
+void grabPairmateReads(BamAlignmentVector &bav, const GenomicRegion window, DMap * bav_disc) {
 
   // get count of discordant reads
   size_t disc_countr = 0;
@@ -1180,21 +1047,6 @@ void grabPairmateReads(BamAlignmentVector &bav, const GenomicRegion window) {
   clusterReads(bav, disc_regions, rmap, '-', '-');
   clusterReads(bav, disc_regions, rmap, '+', '-');
   clusterReads(bav, disc_regions, rmap, '-', '+');
-
-  //debug 
-  /*
-  for (RMap::const_iterator it = rmap.begin(); it != rmap.end(); it++)
-    cerr << "rmap: " << it->first << " " << it->second << endl;
-  for (BamAlignmentVector::const_iterator it = bav.begin(); it != bav.end(); it++)
-    if (it->Name == "D0ENMACXX111207:3:2303:3581:23759")
-      cout << "BAV look: " << it->RefID+1 << ":" << it->Position << "--" << it->MateRefID+1 << ":" << it->MatePosition << " window: " << window << endl;
-  for (BamAlignmentVector::const_iterator it = bav_disc_keep_fwd.begin(); it != bav_disc_keep_fwd.end(); it++)
-    if (it->Name == "D0ENMACXX111207:3:2303:3581:23759")
-      cout << "BAV look FWD: " << it->RefID+1 << ":" << it->Position << "--" << it->MateRefID+1 << ":" << it->MatePosition << " window: " << window << endl;
-  for (BamAlignmentVector::const_iterator it = bav_disc_keep_rev.begin(); it != bav_disc_keep_rev.end(); it++)
-    if (it->Name == "D0ENMACXX111207:3:2303:3581:23759")
-      cout << "BAV REV look: " << it->RefID+1 << ":" << it->Position << "--" << it->MateRefID+1 << ":" << it->MatePosition << " window: " << window << endl;
-  */
 
   if (opt::verbose > 2)
     for (GenomicRegionVector::const_iterator it = disc_regions.begin(); it != disc_regions.end(); it++)
@@ -1301,19 +1153,16 @@ void grabPairmateReads(BamAlignmentVector &bav, const GenomicRegion window) {
 	ba.RemoveTag("PG");
 	ba.RemoveTag("AM");
 
-	tmp_disc.push_back(ba);
+	DMap::iterator gg = bav_disc->find(ff->second);
+	if (gg == bav_disc->end()) { // make a new one
+	  DiscordantCluster dcc(ff->second);
+	  dcc.reads.push_back(ba);
+	  (*bav_disc)[ff->second] = DiscordantCluster(ff->second);
+	} else {
+	  gg->second.reads.push_back(ba);
+	}
       }
-
   }
-
-  // add discordant clusters to the global
-  //MUTEX LOCK
-  pthread_mutex_lock(&snow_lock);  
-  for (BamAlignmentVector::const_iterator it = tmp_disc.begin(); it != tmp_disc.end(); it++) {
-    disc_vec->push_back(*it);
-  }
-  pthread_mutex_unlock(&snow_lock);
-  //MUTEX UNLOCKED
 
   return;
 
@@ -1460,28 +1309,16 @@ void doAssembly(ReadTable *pRT, string name, ContigVector &contigs, int pass) {
 }
 
 // combine reads across different 
-void combineR2C(BamAlignmentVector &read_in, ReadMap &read_out) {
+void combineR2C(EncodedBAVector &read_in, ReadMap &read_out) {
 
   // try with a hash table
-  for (BamAlignmentVector::const_iterator it = read_in.begin(); it != read_in.end(); it++) {
+  for (EncodedBAVector::const_iterator it = read_in.begin(); it != read_in.end(); it++) {
     string jw;
-    jw = it->Name + to_string(it->AlignmentFlag);
-    //it->GetTag("JW", jw);
+    jw = it->a.Name + to_string(it->a.AlignmentFlag);
     ReadMap::iterator ff = read_out.find(jw);
     if (ff == read_out.end()) {
-      read_out.insert(pair<string, BamAlignment>(jw, *it));
-    } else {
-      /*string currcn, curral;
-      ff->second.GetTag("CN", currcn);
-      ff->second.GetTag("AL", curral);
-      string newcn, newal;
-      it->GetTag("CN", newcn);
-      it->GetTag("AL", newal);
-      currcn = currcn + "x" + newcn;
-      curral = curral + "x" + newal;
-      ff->second.EditTag("CN", "Z", currcn);
-      ff->second.EditTag("AL", "Z", curral);*/
-    }
+      read_out.insert(pair<string, EncodedBA>(jw, *it));
+    } 
   }
     
   return;
@@ -1639,61 +1476,6 @@ void _learn_params(BamReader &reader, vector<double> &mapq_result, vector<double
   return;
 }
 
-
-void runBWA() {
-
-  string allbwa, infasta;
-  if (opt::contig_bam)
-    allbwa = opt::outdir + "/all_bwa_bootstrap.bam";
-  else
-    allbwa = opt::outdir + "/all_bwa.bam";    
-  
-  if (opt::contig_bam)
-    infasta = opt::outdir + "/all_contigs_bootstrap.fa";
-  else
-    infasta = opt::outdir + "/all_contigs.fa";
-  /*if (existTest(allbwa)) {
-    if (opt::verbose > 0) {
-      cout << "Already found all_bwa.bam, skipping BWA: " << allbwa << endl;
-    }
-    return;
-  }*/
-  
-  string cmd = "bwa mem -t " + to_string(opt::numThreads) + " " + opt::refgenome + " " + infasta +
-    " > " + opt::outdir + "/all_bwa_tmp.sam";
-  if (opt::verbose > 0)
-    cout << cmd << endl;
-  system(cmd.c_str());
-
-  // make BAM file from this
-  cmd = "samtools view " + opt::outdir + "/all_bwa_tmp.sam -Sb -h > " + opt::outdir + "/all_bwa_tmp.bam";
-  system(cmd.c_str());
-  if (opt::verbose > 0)
-    cout << cmd << endl;
-
-  // sort the bam
-  string allbwa_noext = allbwa;
-  cmd = "samtools sort -m " + to_string(opt::memory) + "M " + opt::outdir + "/all_bwa_tmp.bam " + allbwa_noext.erase(allbwa_noext.length() - 4, 4);
-  system(cmd.c_str());
-  if (opt::verbose > 0)
-    cout << cmd << endl;
-
-  // index the bam
-  cmd = "samtools index " + allbwa;
-  system(cmd.c_str());
-  if (opt::verbose > 0)
-    cout << cmd << endl;
-
-  // remove the SAM file and tmp bam
-  cmd =  "rm " + opt::outdir + "/all_bwa_tmp.sam " + opt::outdir + "/all_bwa_tmp.bam " + infasta; 
-  if (!opt::debug) {
-    if (opt::verbose > 0)
-      cout << cmd << endl;
-    system(cmd.c_str());
-  }
-
-}
-
 void cleanR2C() {
 
   BamReader reader;
@@ -1723,16 +1505,6 @@ void cleanR2C() {
 
   BamAlignment a;
   unordered_map<string, bool> rm;
-  
-  //BamAlignment curr_align, a;
-  //reader.GetNextAlignment(curr_align);
-  
-  //string curr_cn, curr_al;
-  //a.GetTag("CN", curr_cn);
-  //a.GetTag("AL", curr_al);
-
-  //string this_cn;
-  //string this_al;
 
   int count = 0;
   int added_read_count = 0;
@@ -1741,8 +1513,8 @@ void cleanR2C() {
 
   if (opt::verbose > 0)
     cout << "...processing reads for cleaning" << endl;
+    
   // loop through and write
-
   while (reader.GetNextAlignment(a)) {
     
     count++;
@@ -1766,45 +1538,6 @@ void cleanR2C() {
       added_read_count++;
     }
 
-    /*   
-    if (a.AlignmentFlag == curr_align.AlignmentFlag && a.Name.compare(curr_align.Name)==0) {
-      a.GetTag("CN", this_cn);
-      a.GetTag("AL", this_al);
-      
-      curr_cn = curr_cn + "x" + this_cn;
-      curr_al = curr_al + "x" + this_al;
-    } else {
-      
-      // update the old one
-      curr_align.EditTag("CN", "Z", curr_cn);
-      curr_align.EditTag("AL", "Z", curr_al);
-
-      // clean up
-      if (opt::clear_tags) {
-	curr_align.RemoveTag("J2");
-	curr_align.RemoveTag("HP");
-	curr_align.RemoveTag("Q2");
-	curr_align.RemoveTag("NM");
-	curr_align.RemoveTag("R2");
-	curr_align.RemoveTag("AS"); 
-	curr_align.RemoveTag("SA");
-	curr_align.RemoveTag("MD");
-	curr_align.RemoveTag("XM");
-	curr_align.RemoveTag("XS");
-	curr_align.RemoveTag("OQ");
-	curr_align.RemoveTag("RP");
-      }
-
-      writer.SaveAlignment(curr_align);
-
-      // make the next one
-      curr_align = a;
-      a.GetTag("CN", curr_cn);
-      a.GetTag("AL", curr_al);
-
-      added_read_count++;
-    }
-    */
   }
 
   writer.Close();
@@ -1837,67 +1570,17 @@ void cleanR2C() {
 
 }
 
-void writeContigFasta(ContigVector *ct) {
-
-  ofstream ostream;
-  string ofile;
-  if (opt::contig_bam)
-    ofile = opt::outdir + "/" + "contigs_" + to_string(out_count) + ".contig_tmp.fa";
-  else 
-    ofile = opt::outdir + "/" + "contigs_" + to_string(out_count) + ".tmp.fa";
-  ostream.open(ofile);
-  
-  // write the contigs to the .tmp.fa file
-  for(ContigVector::const_iterator it = ct->begin(); it != ct->end(); ++it) {
-    ostream << ">" << it->getID() << "\n";
-    ostream << it->getSeq() << "\n";
-  }
-  ostream.close();
-}
-
-// grab the reads from the contig struct and write to BAM file
-void writeReadsBam(BamAlignmentVector * reads) {
-
-  // do a final combine of R2C reads before writing
-  ReadMap readm;
-  combineR2C(*reads, readm);
-
-  // set the reference for the BAM
-  RefVector ref;  
-  for (int i = 0; i < 25; i++) {
-    RefData rf(CHR_NAME[i], CHR_LEN[i]);
-    ref.push_back(rf);      
-  }
-  
-  // open the BAM for writing
-  SamHeader sam("none");
-  string outbam  = opt::outdir + "/" + "r" + to_string(out_count) + "_reads2contig.bam";
-  if (opt::verbose > 1)
-    cout << "Writing the read2contig BAM: " << outbam << endl;
-  BamWriter writer;
-  if (!writer.Open(outbam, sam, ref))  
-    cerr << "Error initializing the BAM for: " << outbam << endl;
-  
-  // write the alignments to the BAM
-  for (ReadMap::const_iterator it = readm.begin(); it != readm.end(); it++) 
-    if (it->second.RefID < 25 && it->second.MateRefID < 25) { // dont write reads that arent on standard chr, for now
-      writer.SaveAlignment(it->second);
-    }
-  
-  writer.Close();
-}
-
 // given a set of reads, output structure that has either all the mate sequence,
 // none of the discordant reads, or empty, depending on strictness of discordant 
 // assembly options
-void handleDiscordant(BamAlignmentVector &bavd, string name, GenomicRegion gr) {
+void handleDiscordant(BamAlignmentVector &bavd, string name, GenomicRegion gr, DMap * bav_disc) {
 
   // grab pairmate region readsdd
   if (!opt::skip_disc && opt::isize > 0) {
 
     // grab the pairmate sequences from the BAM
     unsigned orig_reads = bavd.size();
-    grabPairmateReads(bavd, gr);
+    grabPairmateReads(bavd, gr, bav_disc);
     unsigned post_reads = bavd.size();
     if (post_reads != orig_reads && opt::verbose > 1)
       cout << " -- Disc add " << orig_reads << " to " << post_reads << " at " << name << endl;
@@ -1929,74 +1612,6 @@ void handleDiscordant(BamAlignmentVector &bavd, string name, GenomicRegion gr) {
 
 
 }
-
-// limit of contigs in memory hit, so clear data
-void clearMemWriteData() {
-
-  if (opt::verbose > 0) 
-    cout << "Writing tmp fasta + bam, contig count: " << cont_total->size() << endl;
-  
-  // writing the contigs to a fasta
-  if (cont_total->size() > 0)
-    writeContigFasta(cont_total);
-  
-  // write the reads to a BAM
-  if (reads_all->size() > 0 && !opt::contig_bam && !opt::no_r2c)
-    writeReadsBam(reads_all);
-  
-  // write the disc_reads to a BAM
-  if (disc_vec->size() > 0 && !opt::contig_bam)
-    writeDiscBam(disc_vec);
-
-  out_count++;
-  cont_total->clear();
-  reads_all->clear();
-  disc_vec->clear();
-  
-}
-
-
-/*void addDiscCluster(BamAlignment a1, BamAlignment a2, size_t cluster) {
-
-  DiscordantPair dp(a1, a2, cluster);
-  pthread_mutex_lock(&snow_lock);  
-  disc_vec->push_back(dp);
-  pthread_mutex_unlock(&snow_lock);
-
-}*/
-
-
-void writeDiscBam(BamAlignmentVector * disc) {
-
-  // do a final combine of R2C reads before writing
-  //ReadMap readm;
-  //combineR2C(*reads, readm);
-
-  // set the reference for the BAM
-  RefVector ref;  
-  for (int i = 0; i < 25; i++) {
-    RefData rf(CHR_NAME[i], CHR_LEN[i]);
-    ref.push_back(rf);      
-  }
-  
-  // open the BAM for writing
-  SamHeader sam("none");
-  string outbam  = opt::outdir + "/" + "r" + to_string(out_count) + "_dreads.bam";
-  if (opt::verbose > 1)
-    cout << "Writing the discordant BAM: " << outbam << endl;
-  BamWriter writer;
-  if (!writer.Open(outbam, sam, ref))  
-    cerr << "Error initializing the BAM for: " << outbam << endl;
-  
-  // write the alignments to the BAM
-  for (BamAlignmentVector::const_iterator it = disc->begin(); it != disc->end(); it++) 
-    if (it->RefID < 25 && it->MateRefID < 25) { // dont write reads that arent on standard chr, for now
-      writer.SaveAlignment(*it);
-    }
-  
-  writer.Close();
-}
-
 
 void cleanDiscBam() {
 
@@ -2205,8 +1820,7 @@ void clusterReads(BamAlignmentVector &bav, GenomicRegionVector &grv, RMap &rmap,
   return;
 }
 
-void finalizeCluster(GenomicRegionVector &grv, RMap &rmap, int pos, GenomicRegion anc, GenomicRegion par,
-		     int dtcount, int dncount) {
+void finalizeCluster(GenomicRegionVector &grv, RMap &rmap, int pos, GenomicRegion anc, GenomicRegion par, int dtcount, int dncount) {
 
   if (grv.size() == 0)
     return;
@@ -2218,12 +1832,12 @@ void finalizeCluster(GenomicRegionVector &grv, RMap &rmap, int pos, GenomicRegio
   }
 
   // back sure the mapq is sufficient
-  double mean_mapq = accumulate(grv.back().mapq.begin(), grv.back().mapq.end(), 0.0) / grv.back().mapq.size();
-  if (mean_mapq < 5) {
+  //double mean_mapq = accumulate(grv.back().mapq.begin(), grv.back().mapq.end(), 0.0) / grv.back().mapq.size();
+  //if (mean_mapq < 5) {
     //cerr << "...discarding due to low mapq " << mean_mapq << endl;
-    grv.pop_back();
-    return;
-  }
+  //  grv.pop_back();
+  //  return;
+  // }
     
   // regions that are too big are probably false positives, skip
   if (abs(grv.back().width()) > 3000) {
@@ -2253,190 +1867,66 @@ void finalizeCluster(GenomicRegionVector &grv, RMap &rmap, int pos, GenomicRegio
 
 }
 
-/*
-void SGAassemble(stringstream &asqg_stream, int minOverlap, int cutoff, string prefix, ContigVector &contigs) {
+//
+void combineContigsWithDiscordantClusters(DMap * dmap, AlignedContigVec * cont_out) {
 
-  Bigraph* pGraph = SGUtil::loadASQG(asqg_stream, minOverlap, true, opt::maxEdges);
-
-  // this is the SGA default
-  pGraph->setExactMode(true);
-
-  // remove containments from graph
-  SGContainRemoveVisitor containVisit;
-  while(pGraph->hasContainment())
-    pGraph->visit(containVisit);
-
-  // Compact together unbranched chains of vertices
-  pGraph->simplify();
-
-  // do the bubble popping
-  if(opt::numBubbleRounds > 0) {
-    double maxBubbleDivergence = 0.05f;
-    double maxBubbleGapDivergence = 0.01f;
-    int maxIndelLength = 20;    
-
-    SGSmoothingVisitor smoothingVisit(opt::outVariantsFile, maxBubbleGapDivergence, maxBubbleDivergence, maxIndelLength);
-    int numSmooth = opt::numBubbleRounds;
-    while(numSmooth-- > 0)
-      pGraph->visit(smoothingVisit);
-    pGraph->simplify();
-  }
+  int padr = 400; 
+  size_t count = 0;
   
-  pGraph->renameVertices(prefix);
+  for (auto it = cont_out->begin(); it != cont_out->end(); it++) {
+    count++;
 
-  // extract the contigs
-  SGVisitorContig av;
-  pGraph->visit(av);
-
-  // push onto final structure
-  ContigVector tmp = av.m_ct;
-  for (ContigVector::const_iterator it = tmp.begin(); it != tmp.end(); it++) {
-    if (it->getLength() >= cutoff) 
-      contigs.push_back(*it);
-  }
-  
-  delete pGraph;
-
-}
-
-// load the ASQG from a stringstream
-Bigraph* loadASQG(stringstream& pReader, const unsigned int minOverlap, bool allowContainments = false, size_t maxEdges = -1) {
-  
-  // Initialize graph
-  Bigraph* pGraph = new Bigraph;
-
-  int stage = 0;
-  int line = 0;
-  string recordLine;
-  while(getline(pReader, recordLine))
-    {
-      ASQG::RecordType rt = ASQG::getRecordType(recordLine);
-      switch(rt)
-        {
-	case ASQG::RT_HEADER:
-	  {
-	    if(stage != 0)
-	      {
-		std::cerr << "Error: Unexpected header record found at line " << line << "\n";
-		exit(EXIT_FAILURE);
-	      }
-	    
-	    ASQG::HeaderRecord headerRecord(recordLine);
-	    const SQG::IntTag& overlapTag = headerRecord.getOverlapTag();
-	    if(overlapTag.isInitialized())
-	      pGraph->setMinOverlap(overlapTag.get());
-	    else
-	      pGraph->setMinOverlap(0);
-	    
-	    const SQG::FloatTag& errorRateTag = headerRecord.getErrorRateTag();
-	    if(errorRateTag.isInitialized())
-	      pGraph->setErrorRate(errorRateTag.get());
-	    
-	    const SQG::IntTag& containmentTag = headerRecord.getContainmentTag();
-	    if(containmentTag.isInitialized())
-	      pGraph->setContainmentFlag(containmentTag.get());
-	    else
-	      pGraph->setContainmentFlag(true); // conservatively assume containments are present
-	    
-	    const SQG::IntTag& transitiveTag = headerRecord.getTransitiveTag();
-	    if(!transitiveTag.isInitialized())
-	      {
-		std::cerr << "Warning: ASQG does not have transitive tag\n";
-		pGraph->setTransitiveFlag(true);
-	      }
-	    else
-	      {
-		pGraph->setTransitiveFlag(transitiveTag.get());
-	      }
-	    
-	    break;
-	  }
-	case ASQG::RT_VERTEX:
-	  {
-	    // progress the stage if we are done the header
-	    if(stage == 0)
-	      stage = 1;
-	    
-	    if(stage != 1)
-	      {
-		std::cerr << "Error: Unexpected vertex record found at line " << line << "\n";
-		exit(EXIT_FAILURE);
-	      }
-	    
-	    ASQG::VertexRecord vertexRecord(recordLine);
-	    const SQG::IntTag& ssTag = vertexRecord.getSubstringTag();
-	    
-	    //                Vertex* pVertex = new(pGraph->getVertexAllocator()) Vertex(vertexRecord.getID(), vertexRecord.getSeq());
-	    Vertex* pVertex = new Vertex(vertexRecord.getID(), vertexRecord.getSeq());
-	    if(ssTag.isInitialized() && ssTag.get() == 1)
-	      {
-		// Vertex is a substring of some other vertex, mark it as contained
-		pVertex->setContained(true);
-		pGraph->setContainmentFlag(true);
-	      }
-	    pGraph->addVertex(pVertex);
-	    break;
-	  }
-	case ASQG::RT_EDGE:
-	  {
-	    if(stage == 1)
-	      stage = 2;
-	    
-	    if(stage != 2)
-	      {
-		std::cerr << "Error: Unexpected edge record found at line " << line << "\n";
-		exit(EXIT_FAILURE);
-	      }
-	    
-	    ASQG::EdgeRecord edgeRecord(recordLine);
-	    const Overlap& ovr = edgeRecord.getOverlap();
-	    
-	    // Add the edge to the graph
-	    if(ovr.match.getMinOverlapLength() >= (int)minOverlap)
-	      SGAlgorithms::createEdgesFromOverlap(pGraph, ovr, allowContainments, maxEdges);
-	    break;
-	  }
-        }
-      ++line;
-    }
-  
-  // Completely delete the edges for all nodes that were marked as super-repetitive in the graph
-  SGSuperRepeatVisitor superRepeatVisitor;
-  pGraph->visit(superRepeatVisitor);
-  
-  // Remove any duplicate edges
-  SGDuplicateVisitor dupVisit;
-  pGraph->visit(dupVisit);
-  
-  return pGraph;
-  
-}
-*/
-
-void ContigsToReadTable(const ContigVector &contigs, ReadTable &pRT) {
-  
-  //idx = 0;
-  for (ContigVector::const_iterator it = contigs.begin(); it != contigs.end(); it++) {
-    SeqItem si;
-    si.seq = it->getSeq();
-    si.id = it->getID();
-    pRT.addRead(si);
-  }
-}
-
-void BamAlignmentVectorToReadTable(const BamAlignmentVector &bav, ReadTable &pRT) {
-  //idx = 0;
-  //  m_pIndex = NULL; // not built by default
-  for(BamAlignmentVector::const_iterator i = bav.begin(); i != bav.end(); i++) { 
-    SeqItem si;
-    i->GetTag("JW", si.id);
-    //si.id = i->Name;
-    //si.seq = i->QueryBases;
-    std::string seqr;
+    // check the global break
+    GenomicRegion bp1(it->m_farbreak.refID1, it->m_farbreak.pos1, it->m_farbreak.pos1);
+    bp1.pad(padr);
+    GenomicRegion bp2(it->m_farbreak.refID2, it->m_farbreak.pos2, it->m_farbreak.pos2);
+    bp2.pad(padr);
+ 
+    for (DMap::iterator kt = dmap->begin(); kt != dmap->end(); kt++) {
     
-    if (!i->GetTag("TS", seqr))
-      seqr = i->QueryBases;
-    si.seq = seqr;
-    pRT.addRead(si); //m_table.push_back(si);
+      bool bp1reg1 = bp1.getOverlap(kt->second.reg1) != 0;
+      bool bp2reg2 = bp2.getOverlap(kt->second.reg2) != 0;
+      
+      //debug
+      bool bp1reg2 = bp1.getOverlap(kt->second.reg2) != 0;
+      bool bp2reg1 = bp2.getOverlap(kt->second.reg1) != 0;
+
+      bool pass = bp1reg1 && bp2reg2;
+
+      //debug
+      pass = pass || (bp2reg1 && bp1reg2);
+
+      if (pass) {
+		it->addDiscordantCluster(kt->second); // add disc cluster to contig
+
+		cout << "FOUND AN OVERLAP ON CONTIG " << it->getContigName() << endl;
+		// check that we haven't already added a cluster
+		kt->second.contig = it->getContigName(); // add contig to disc cluster
+		if (it->m_farbreak.dc.reg1.pos1 == 0) {
+		  it->m_farbreak.dc = kt->second; // add cluster to global breakpoints
+		} else if (it->m_farbreak.dc.ncount < kt->second.ncount) { // choose one with normal support
+		  it->m_farbreak.dc = kt->second;
+		} else if (it->m_farbreak.dc.tcount < kt->second.tcount) { // choose one with more tumor support
+		  it->m_farbreak.dc = kt->second;
+		}
+      }
+      
+    }
+  }
+}
+
+
+// transfer discordant pairs not mapped to a split break 
+void addDiscordantPairsBreakpoints(BPVec &bp, DMap * dmap) {
+
+  if (opt::verbose > 0)
+    cout << "...transfering discordant clusters to breakpoints structure" << endl;
+
+  for (DMap::const_iterator it = dmap->begin(); it != dmap->end(); it++) {
+    if (it->second.contig == "") { // this discordant cluster isn't already associated with a break
+      cout << "ADDING DISC"  << endl;
+      BreakPoint tmpbp(it->second);
+      bp.push_back(tmpbp);
+    }
   }
 }

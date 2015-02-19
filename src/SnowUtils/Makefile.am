@@ -1,7 +1,12 @@
 noinst_LIBRARIES = libsnowutils.a
 
+libsnowutils_a_CPPFLAGS = \
+	-I$(top_srcdir)/SGA/Thirdparty \
+	-I$(top_srcdir)/ThirdParty \
+	-I$(top_srcdir)/SGA/Util
+
 libsnowutils_a_SOURCES = \
-	SVBamReader.cpp \
 	GenomicRegion.cpp \
-	SeqanTools.cpp \
-	SnowUtils.h BamQC.cpp AuxUtils.cpp
+	SeqanTools.cpp IntervalTree.h \
+	SnowUtils.cpp AuxUtils.cpp \
+	MiniRules.cpp SnowGlobal.h VariantBamReader.cpp DiscordantCluster.cpp ATuple.h

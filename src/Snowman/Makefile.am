@@ -12,7 +12,9 @@ snowman_CPPFLAGS = \
 	-I$(top_srcdir)/SGA/GraphDiff \
 	-I$(top_srcdir)/SGA/SGA \
 	-I$(top_srcdir)/SGA/Thirdparty \
-	-I$(top_srcdir)/SnowUtils
+	-I$(top_srcdir)/SnowUtils \
+	-I$(top_srcdir)/BWA \
+	-I$(top_srcdir)/ThirdParty
 
 snowman_LDADD = \
 	$(top_builddir)/SGA/SGA/libsga.a \
@@ -26,14 +28,15 @@ snowman_LDADD = \
 	$(top_builddir)/SGA/Util/libutil.a \
 	$(top_builddir)/SGA/SQG/libsqg.a \
 	$(top_builddir)/SGA/Thirdparty/libthirdparty.a \
-	$(top_builddir)/SnowUtils/libsnowutils.a 
-
+	$(top_builddir)/SnowUtils/libsnowutils.a \
+	$(top_builddir)/BWA/libbwawrapper.a \
+	$(top_builddir)/ThirdParty/libahocorasick.a
 
 snowman_LDFLAGS = -pthread -std=c++11
 
-snowman_SOURCES = snowman.cpp workqueue.h grabReads.h grabReads.cpp \
+snowman_SOURCES = snowman.cpp workqueue.h \
                 gather.h gather.cpp AlignedContig.h AlignedContig.cpp \
 		kseq.h vcf.h vcf.cpp \
-		nozzle.h nozzle.cpp zfstream.h zfstream.cpp bamprocess.h bamprocess.cpp \
+		nozzle.h nozzle.cpp zfstream.h zfstream.cpp \
 		SnowmanOverlapAlgorithm.h SnowmanOverlapAlgorithm.cpp SnowmanASQG.h SnowmanASQG.cpp \
-		SnowmanAssemble.h SnowmanAssemble.cpp BreakPoint.cpp
+		SnowmanAssemble.h SnowmanAssemble.cpp BreakPoint.cpp run.cpp BamAndReads.cpp MinRead.h AlignedContig2.cpp

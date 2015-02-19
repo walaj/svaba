@@ -18,7 +18,6 @@ std::vector<int> SnowUtils::GetIntTag(const BamAlignmentUP& a, const std::string
     try { out.push_back(stoi(tmp)); } catch (...) { std::cerr << "Failed to read tag " << tag << " for value " << tmp << std::endl; std::exit(EXIT_FAILURE); }
   }
 
-  cout << "tag " << tag << " val " << tmp << endl;  
   assert(out.size());
   return out;
   

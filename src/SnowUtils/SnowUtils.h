@@ -5,6 +5,12 @@
 #include <time.h>
 #include <ctime>
 #include <vector>
+#include "GenomicRegion.h"
+#include "api/BamReader.h"
+#include "api/BamWriter.h"
+#include <memory>
+
+typedef std::shared_ptr<BamTools::BamAlignment> BamAlignmentUP;
 
 namespace SnowUtils {
 
@@ -81,12 +87,47 @@ inline void rcomplement(std::string &a) {
  }
 
  // remove the last character from a string
- inline string cutLastChar(string in) {
+ inline std::string cutLastChar(std::string in) {
    if (in.length() == 0)
      return in;
    else 
      return in.substr(0, in.length() - 1);
  }
+
+ // remove substrings from a string
+ inline std::string scrubString(std::string toscrub, std::string toremove) {
+   std::string::size_type i = toscrub.find(toremove);
+   while (i != std::string::npos) {
+     toscrub.erase(i, toremove.length());
+     i = toscrub.find(toremove);
+   }
+   return toscrub;
+ }
+
+ // get a file name + extension
+ // https://www.safaribooksonline.com/library/view/c-cookbook/0596007612/ch10s16.html
+ inline std::string getFileName(const std::string& s) {
+
+   char sep = '/';
+
+   #ifdef _WIN32
+     sep = '\\';
+   #endif
+
+   size_t i = s.rfind(sep, s.length());
+   if (i != std::string::npos && ( (i+1) < s.length()) ) {
+     return(s.substr(i+1, s.length()));
+   }
+
+   return(s);
+ }
+
+ // get a string or int tag that might be separted by "x"
+ std::vector<std::string> GetStringTag(const BamAlignmentUP& a, const std::string tag);
+ std::vector<int> GetIntTag(const BamAlignmentUP& a, const std::string tag);
+
+ // add a tag, and if its already there separate by "x"
+ void SmartAddTag(BamAlignmentUP &a, const std::string tag, const std::string val);
 
 } // end namespace
 

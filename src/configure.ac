@@ -36,7 +36,27 @@ AC_ARG_WITH(bamtools, AS_HELP_STRING([--with-bamtools=PATH],
 if test "$with_bamtools" -a -d "$with_bamtools"; then
     bamtools_ldflags="-Wl,-rpath,$with_bamtools/lib -L$with_bamtools/lib -Wl,-rpath,$with_bamtools/lib/bamtools -L$with_bamtools/lib/bamtools"
     bamtools_include="-I$with_bamtools/include -I$with_bamtools/include/bamtools"
+else
+    bamt=/broad/software/free/Linux/redhat_5_x86_64/pkgs/pezmaster31_bamtools-6708a21
+    bamtools_ldflags="-Wl,-rpath,$bamt/lib -L$bamt/lib -Wl,-rpath,$bamt/lib/bamtools -L$bamt/lib/bamtools"
+    bamtools_include="-I$bamt/include -I$bamt/include/bamtools"
 fi
+
+AC_ARG_WITH(boost, AS_HELP_STRING([--with-boost=PATH],
+	[specify directory containing the Boost library ()]))
+
+if test "$with_boost" -a -d "$with_boost"; then
+    boost_ldflags="-Wl,-rpath,$with_boost/lib -L$with_boost/lib"
+    boost_include="-I$with_boost/include"
+else
+    bamt=/broad/software/free/Linux/redhat_5_x86_64/pkgs/pezmaster31_bamtools-6708a21
+    boostr=/broad/software/free/Linux/redhat_5_x86_64/pkgs/boost_1.54.0
+    bamtools_ldflags="-Wl,-rpath,$boostr/lib -L$boostr/lib"
+    bamtools_include="-I$boostr/include"
+fi
+
+
+/broad/software/free/Linux/redhat_5_x86_64/pkgs/boost_1.54.0/lib64
 
 # Check for the seqan library paths
 AC_ARG_WITH(seqan, AS_HELP_STRING([--with-seqan=PATH],
@@ -44,6 +64,8 @@ AC_ARG_WITH(seqan, AS_HELP_STRING([--with-seqan=PATH],
 
 if test "$with_seqan" -a -d "$with_seqan"; then
     seqan_include="-I$with_seqan/include"
+else 
+    seqan_include="-I/xchip/gistic/Jeremiah/seqan-trunk/core/include"
 fi
 
 # Check for the hts library paths
@@ -53,6 +75,23 @@ AC_ARG_WITH(htslib, AS_HELP_STRING([--with-htslib=PATH],
 if test "$with_htslib" -a -d "$with_htslib"; then
     htslib_include="-I$with_htslib/htslib"
     htslib_ldflags="-Wl,-rpath,$with_htslib -L$with_htslib"
+else
+    htslib=/xchip/gistic/Jeremiah/htslib-1.1	
+    htslib_include="-I$htslib/htslib"
+    htslib_ldflags="-Wl,-rpath,$htslib -L$htslib"
+fi
+
+# Check for the bwa library paths
+AC_ARG_WITH(bwalib, AS_HELP_STRING([--with-bwalib=PATH],
+	[specify directory containing the Heng Li's bwalib)]))
+
+if test "$with_bwalib" -a -d "$with_bwalib"; then
+    bwalib_include="-I$with_bwalib"
+    bwalib_ldflags="-Wl,-rpath,$with_bwalib -L$with_bwalib"
+else
+    bwap=/xchip/gistic/Jeremiah/software/bwa
+    bwalib_include="-I$bwap"
+    bwalib_ldflags="-Wl,-rpath,$bwap -L$bwap"
 fi
 
 # Support for tcmalloc/jemalloc/hoard
@@ -85,12 +124,14 @@ if test "$with_jemalloc" -a -d "$with_jemalloc"; then
     enable_jemalloc=1
 fi
 
-# Check for the google sparse hash
+# Check for the google sparse hash. If not provided, make default for Broad
 AC_ARG_WITH(sparsehash, AS_HELP_STRING([--with-sparsehash=PATH],
 	[specify directory containing the google sparsehash headers http://code.google.com/p/google-sparsehash/)]))
 
 if test "$with_sparsehash" -a -d "$with_sparsehash"; then
     sparsehash_include="-I$with_sparsehash/include"
+else
+    sparsehash_include="-I/xchip/gistic/Jeremiah/sparsehash-2.0.2/include"
 fi
 
 # Warn that multithreading is not available on macosx, since it does not implement unnamed semaphores
@@ -113,11 +154,11 @@ fi
 AC_SUBST(AM_CXXFLAGS, "-g -Wall -Wextra $fail_on_warning -Wno-unknown-pragmas -std=c++11")
 AC_SUBST(CXXFLAGS, "-O3")
 AC_SUBST(CFLAGS, "-O3")
-AC_SUBST(CPPFLAGS, "$CPPFLAGS $openmp_cppflags $sparsehash_include $bamtools_include $seqan_include $htlib_include")
-AC_SUBST(LDFLAGS, "$openmp_cppflags $external_malloc_ldflags $bamtools_ldflags $htslib_ldflags $LDFLAGS")
+AC_SUBST(CPPFLAGS, "$CPPFLAGS $openmp_cppflags $sparsehash_include $bamtools_include $seqan_include $htlib_include $bwalib_include")
+AC_SUBST(LDFLAGS, "$openmp_cppflags $external_malloc_ldflags $bamtools_ldflags $htslib_ldflags $bwalib_ldflags $LDFLAGS")
 
 # We always need to specify to link in bamtools
-AC_SUBST(LIBS, "$LIBS -lbamtools -lhts")
+AC_SUBST(LIBS, "$LIBS -lbamtools -lhts -lbwa")
 
 #
 if test "$enable_hoard"; then
@@ -133,6 +174,7 @@ if test "$enable_jemalloc"; then
 fi
 
 # Ensure the sparse hash is available
+AC_MSG_NOTICE($sparsehash_include)
 AC_CHECK_HEADERS([google/sparse_hash_set],,[AC_MSG_ERROR([google sparse hash library is required: http://code.google.com/p/google-sparsehash/])])
 
 # Check for hash table headers
@@ -144,6 +186,11 @@ AC_CHECK_HEADERS([ \
 
 # Make sure the bamtools headers can be found
 AC_CHECK_HEADERS([api/BamReader.h],,[AC_MSG_ERROR([The bamtools library must be installed (http://github.com/pezmaster31/bamtools). You can specify its path with the --with-bamtools=PATH option])])
+
+AC_CHECK_HEADERS([boost/algorithm/string.hpp],,[AC_MSG_ERROR([The Boost library must be installed (). You can specify its path with the --with-boost=PATH option])])
+
+# Make sure the bamtools headers can be found
+AC_CHECK_HEADERS([bwa.h],,[AC_MSG_ERROR([The BWA library must be installed. You can specify its path with the --with-bwa=PATH option])])
 
 # Make sure the seqan headers can be found
 AC_CHECK_HEADERS([seqan/basic.h],,[AC_MSG_ERROR([The seqan library must be installed (http://trac.seqan.de). You can specify its path with the --with-seqan=PATH option])])
@@ -165,6 +212,7 @@ AC_CONFIG_FILES([Makefile
                 SGA/Scaffold/Makefile
                 SGA/SGA/Makefile
                 SnowUtils/Makefile
+		BWA/Makefile
                 Snowman/Makefile])
 
 AC_OUTPUT

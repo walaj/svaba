@@ -22,7 +22,7 @@ static const unordered_map<string,bool> valid =
   {"isize", true},
   {"clip",  true},
   {"phred", true},
-  {"len",   true},
+  {"length",   true},
   {"nm",    true},
   {"mapq",  true},
   {"all",   true},
@@ -33,10 +33,10 @@ static const unordered_map<string,bool> valid =
   {"ic", true},
   {"discordant", true},
   {"seq", true},
-  {"nbases", true}
-  
+  {"nbases", true},
+  {"ins", true},
+  {"del", true}
 };
-
 
 
 bool MiniRules::isValid(BamAlignment &a) {
@@ -175,8 +175,8 @@ MiniRulesCollection::MiniRulesCollection(string file) {
     if (!line_comment && !line_empty) {
 
       // check that it doesn't have too many rules on it
-      if (count(line.begin(), line.end(), '@') != 1) {
-	cerr << "ERROR: Every line must start with region@ or rule@, and only one region/rule per line" << endl;
+      if (count(line.begin(), line.end(), '@') > 1) {
+	cerr << "ERROR: Every line must start with region@, global@ or specify a rule, and only one region/rule per line" << endl;
 	cerr << "  If separating lines in -r flag, separate with %. If in file, use \\n" << endl;
 	cerr << "  Offending line: " << line << endl;
 	exit(EXIT_FAILURE);
@@ -434,6 +434,8 @@ void AbstractRule::parseRuleLine(string line) {
   clip.parseRuleLine(noname);
   phred.parseRuleLine(noname);
   nbases.parseRuleLine(noname);
+  ins.parseRuleLine(noname);
+  del.parseRuleLine(noname);
   nm.parseRuleLine(noname);
 
   // parse the line for flag rules (also checks syntax)
@@ -462,8 +464,6 @@ void Range::parseRuleLine(string line) {
     regex areg(a_reg_str);
     
     smatch match;
-    //if (regex_search(val, match, nreg)) {
-      //setNone();
     if (regex_search(val, match, areg)) {
       setEvery();
     } else if (regex_search(val, match, ireg)) {
@@ -516,6 +516,25 @@ bool AbstractRule::isValid(BamAlignment &a) {
   if (!fr.isValid(a))
     return false;
 
+  // check the CIGAR
+  if (!ins.isEvery() || !del.isEvery()) {
+    int imin = 1000; int imax = -1;
+    int dmin = 1000; int dmax = -1;
+    for (auto& i : a.CigarData) {
+      if (i.Type == 'I') {
+	imin = (i.Length < imin) ? i.Length : imin;
+	imax = (i.Length > imax) ? i.Length : imax;
+      } else if (i.Type == 'D') {
+	dmin = (i.Length < dmin) ? i.Length : dmin;
+	dmax = (i.Length > dmax) ? i.Length : dmax;
+      }
+    }
+    if (ins.isValid(imax))
+      return false;
+    if (del.isValid(dmax))
+      return false;
+  }
+  
   // if we dont need to because everything is pass, just just pass it
   bool need_to_continue = !nm.isEvery() || !clip.isEvery() || !len.isEvery() || !nbases.isEvery();
   if (!need_to_continue)
@@ -558,6 +577,9 @@ bool AbstractRule::isValid(BamAlignment &a) {
     new_len = trimmed_bases.length();
     new_clipnum = max(0, static_cast<int>(clipnum - (a.Length - new_len)));
     
+    if (new_len == 0)
+      return false;
+
     // check the N
     if (!nbases.isEvery()) {
       size_t n = count(trimmed_bases.begin(), trimmed_bases.end(), 'N');
@@ -582,7 +604,7 @@ bool AbstractRule::isValid(BamAlignment &a) {
   if (!clip.isValid(new_clipnum))
     return false;
 
-  if (atm) {
+  if (atm_file.length()) {
     bool m = ahomatch(a.QueryBases);
     if ( (!m && !atm_inv) || (m && atm_inv) )
       return false;
@@ -673,7 +695,7 @@ ostream& operator<<(ostream &out, const AbstractRule &ar) {
     if (!ar.mapq.isEvery())
       out << "mapq:" << ar.mapq << " -- " ;
     if (!ar.len.isEvery())
-      out << "len:" << ar.len << " -- ";
+      out << "length:" << ar.len << " -- ";
     if (!ar.clip.isEvery())
       out << "clip:" << ar.clip << " -- ";
     if (!ar.phred.isEvery())
@@ -682,7 +704,12 @@ ostream& operator<<(ostream &out, const AbstractRule &ar) {
       out << "nm:" << ar.nm << " -- ";
     if (!ar.nbases.isEvery())
       out << "nbases:" << ar.nbases << " -- ";
-    if (ar.atm)
+    if (!ar.ins.isEvery())
+      out << "ins:" << ar.ins << " -- ";
+    if (!ar.del.isEvery())
+      out << "del:" << ar.del << " -- ";
+
+    if (ar.atm_file != "")
       out << "matching on " << ar.atm_count << " subsequences from file " << ar.atm_file << " -- ";
     out << ar.fr;
   }

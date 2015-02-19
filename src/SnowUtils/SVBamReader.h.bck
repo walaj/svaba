@@ -14,17 +14,31 @@
 #include "api/BamReader.h"
 #include "api/BamMultiReader.h"
 #include "api/algorithms/Sort.h"
+#include "EncodedString.h"
+#include "MiniRules.h"
 
 using namespace std;
 using namespace BamTools;
 
 typedef vector<BamTools::BamAlignment> BamAlignmentVector;
 
+struct EncodedBA {
+  
+  BamAlignment a;
+  DNAEncodedString s;
+
+};
+typedef vector<EncodedBA> EncodedBAVector;
+
+
 class SVBamReader {
 
  public:
 
   bool clipOnly = false;
+  int min_length = 50;
+  bool exclude_n = true;
+  bool no_pileup_check = false;
   
   SVBamReader() {}
 
@@ -33,9 +47,12 @@ class SVBamReader {
 	      const bool skip_supp = false, const bool skip_r2 = false, 
 	      const int minclip = 10, const unsigned verbose = 1) 
     : m_bam(filename), m_prefix(prefix), m_isize(isize), m_mapq(mapq), m_qualthresh(qualthresh), 
-    m_mol(mol), m_skip_supp(skip_supp), m_skip_r2(skip_r2), m_minclip(minclip), m_verbose(verbose) {}
+    m_mol(mol), m_skip_supp(skip_supp), m_skip_r2(skip_r2), m_minclip(minclip), m_verbose(verbose) { }
 
-  ~SVBamReader() { }
+    ~SVBamReader() { }
+
+  SVBamReader(string filename, string prefix, MiniRulesCollection* mr, unsigned verbose = 1) : 
+    m_bam(filename), m_prefix(prefix), m_mr(mr), m_verbose(verbose) {}
 
   SVBamReader(const string filename, const string prefix, const int isize = 2000, 
 	      const unsigned mapq = 30, const unsigned verbose = 1)
@@ -84,6 +101,7 @@ class SVBamReader {
   // deduplicate the reads by position (deals with reads which are not correctly marked as duplicates)
   static void deduplicateReadsPos(const BamAlignmentVector &inbav, BamAlignmentVector &outbav);
   
+  static void qualityTrimRead(int qualThresh, string &seq, string &qual);
   static unsigned getClipCount(BamTools::BamAlignment a);
   
   bool bamToBAVecCluster(BamAlignmentVector &bav);
@@ -99,7 +117,7 @@ class SVBamReader {
   bool preprocessBam(BamTools::BamWriter &writer, BamQC &qc, bool qc_only);
 
   int perclimit = 30;
-
+  
  private:
 
   string m_bam;
@@ -116,7 +134,9 @@ class SVBamReader {
   //unsigned m_region[4];
   GenomicRegion m_region;
   size_t m_minclip = 10;
-  size_t m_verbose;
+  size_t m_verbose = 1;
+
+  MiniRulesCollection * m_mr;
   
   //keep track of what is happening
   unsigned disc_num = 0;

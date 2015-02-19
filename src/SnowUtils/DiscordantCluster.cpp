@@ -38,6 +38,10 @@ DiscordantCluster::DiscordantCluster(BamAlignmentUPVector &this_reads, BamAlignm
 
   assert(reads.size() == mates.size());
   assert(reads.size() > 0);
+
+  // set the mapq
+  reads_mapq = getMeanMapq(false);
+  mates_mapq = getMeanMapq(true);
   
   // set the regions
   reg1 = GenomicRegion(-1,500000000,-1); // read region
@@ -82,12 +86,35 @@ void DiscordantCluster::addMateReads(BamAlignmentUPVector &bav) {
 
 }
 
-double DiscordantCluster::getMeanMapq() const {
+double DiscordantCluster::getMeanMapq(bool mate) const {
   double mean = 0;
-  if (mapq.size() > 0)
-    mean = accumulate(mapq.begin(), mapq.end(), 0.0) / mapq.size();
+  vector<int> tmapq;
+  if (mate) {
+    for (auto& i : mates)
+      tmapq.push_back(i.second->MapQuality);
+  } else {
+    for (auto& i : reads)
+      tmapq.push_back(i.second->MapQuality);
+  }
+
+  if (tmapq.size() > 0)
+    mean = accumulate(tmapq.begin(), tmapq.end(), 0.0) / tmapq.size();
   return mean;
 }
+
+double DiscordantCluster::getMeanMapq() const {
+  double mean = 0;
+  vector<int> tmapq;
+  for (auto& i : mates)
+    tmapq.push_back(i.second->MapQuality);
+  for (auto& i : reads)
+    tmapq.push_back(i.second->MapQuality);
+
+  if (tmapq.size() > 0)
+    mean = accumulate(tmapq.begin(), tmapq.end(), 0.0) / tmapq.size();
+  return mean;
+}
+
 
 /*
 DiscordantCluster::DiscordantCluster(string tcluster) {
@@ -117,19 +144,20 @@ string DiscordantCluster::toRegionString() const {
 std::ostream& operator<<(std::ostream& out, const DiscordantCluster& dc) {
   
   out << dc.toRegionString() << " Tcount: " << dc.tcount << 
-    " Ncount: "  << dc.ncount;
-  out << endl;
-  for (auto& i : dc.reads) {
+    " Ncount: "  << dc.ncount << " Mean MAPQ: " 
+      << dc.reads_mapq << " Mean Mate MAPQ: " << dc.mates_mapq;
+  /*for (auto& i : dc.reads) {
     string tmp;
     i.second->GetTag("SR",tmp);
     out << "   " << i.second->RefID << ":" << i.second->Position << (i.second->IsReverseStrand() ? "(-)" : "(+)") << " - " << i.second->MateRefID << ":" << i.second->MatePosition <<  (i.second->IsMateReverseStrand() ? "(-)" : "(+)") << " " << tmp << endl;
-  }
+    }*/
   return out;
 }
 
 
 // define how to print to file
 string DiscordantCluster::toFileString() const { 
+  /*
   string sep = ",";
   stringstream ss;
 
@@ -143,6 +171,7 @@ string DiscordantCluster::toFileString() const {
     reg2.chr+1 << sep << pos2 << sep << reg2.strand << sep <<
     tcount << sep << ncount << sep << contig << sep << meanmapq;
   return ss.str(); 
+  */
 }
 
 // define how to sort theses

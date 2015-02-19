@@ -195,13 +195,15 @@ class AbstractRule {
   Range phred = {-1, -1, true, "phred"};
   Range nm = {-1, -1, true, "nm"};
   Range nbases = {-1,-1,true, "nbases"};
+  Range ins = {-1,-1,true, "ins"};
+  Range del = {-1,-1,true, "del"};
   unordered_map<string,bool> orientation;
 
   AC_AUTOMATA_t * atm;
   string atm_file;
   bool atm_inv = false;
   size_t atm_count = 0;
-
+  
   bool none = false;
   // set to true if you want a read to belong to the region if its mate does
   //bool mate = false; 

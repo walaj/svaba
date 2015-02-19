@@ -15,7 +15,7 @@ if (is.null(opt$input))
 
 if (!file.exists(opt$input)) {
   print(print_help(parseobj))
-  stop(paste("Input file does not exist", opt$input ". Must supply path to valid qcreport.txt file (generated from snowman preprocess or snowman run"))
+  stop(paste("Input file does not exist", opt$input, ". Must supply path to valid qcreport.txt file (generated from snowman preprocess or snowman run"))
 }
 
 print(opt)

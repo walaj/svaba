@@ -446,6 +446,10 @@ VCFEntry::VCFEntry(string line, string method) {
     format = match[9].str();
     samp1 = match[10].str();
     samp2 = match[11].str();
+
+    // scrub the chr from alt
+    alt = SnowUtils::scrubString(alt, "chr");
+
   } else {
     cerr << "VCF line " << line << " not matched" << endl;
   }
@@ -769,7 +773,7 @@ bool VCFFile::write() const {
 }
 
 // create a VCFFile from a SNOWMANCSV
-VCFFile::VCFFile(string file, char sep /* ',' */) {
+VCFFile::VCFFile(string file, char sep /* '\t' */) {
 
   //open the file
   ifstream infile(file, ios::in);
@@ -841,6 +845,9 @@ VCFFile::VCFFile(string file, char sep /* ',' */) {
   header.addInfoField("INSERTION","1","String","Sequence insertion at the breakpoint.");
   header.addInfoField("SPAN","1","Integer","Distance between the breakpoints. -1 for interchromosomal");
 
+  // keep track of exact positions to keep from duplicating
+  unordered_map<string,bool> double_check;
+
   // read it in line by line
   getline(infile, line, '\n'); // skip first line
   size_t line_counter = 0;
@@ -872,13 +879,13 @@ VCFFile::VCFFile(string file, char sep /* ',' */) {
     while (getline(iss, val, sep)) {
       val_counter++;
       switch (val_counter) {
-      case 1 : info_fields["EVDNC"] = val; if (val=="DSCRD") info_fields["IMPRECISE"] = ""; break;
-      case 2 : vcf1.chr = GenomicRegion::chrToNumber(val); break;
-      case 3 : vcf1.pos = stoi(val); break;
-      case 4 : strand1 = val; break;
-      case 5 : vcf2.chr = GenomicRegion::chrToNumber(val); break;
-      case 6 : vcf2.pos = stoi(val); break;
-      case 7 : strand2 = val; break;
+      case 1 : vcf1.chr = GenomicRegion::chrToNumber(val); break;
+      case 2 : vcf1.pos = stoi(val); break;
+      case 3 : strand1 = val; break;
+      case 4 : vcf2.chr = GenomicRegion::chrToNumber(val); break;
+      case 5 : vcf2.pos = stoi(val); break;
+      case 6 : strand2 = val; break;
+      case 7: info_fields["SPAN"] = val; break;
       case 8 : vcf1.info_fields["MAPQ"] = val; vcf2.info_fields["MATEMAPQ"] = val; break;
       case 9 : vcf2.info_fields["MAPQ"] = val; vcf1.info_fields["MATEMAPQ"] = val; break;
       case 10: info_fields["NSPLIT"] = val; break;
@@ -888,14 +895,21 @@ VCFFile::VCFFile(string file, char sep /* ',' */) {
       case 14: info_fields["HOMSEQ"] = val; break;
       case 15: info_fields["INSERTION"] = val; break;
       case 16: info_fields["SCTG"] = val; break;
-      case 17: info_fields["SPAN"] = val; break;
+
 	//case 18: info_fields["NUMDUPS"] = val; break;
-      case 19: info_fields["NUMPARTS"] = val; break;
-      case 20: vcf1.filter = val; vcf2.filter = val; break;
-      case 21: readid = val; break;
-      case 22: info_fields["JABBACN "] = val; break;
+      case 17: info_fields["NUMPARTS"] = val; break;
+      case 18: vcf1.filter = val; vcf2.filter = val; break; // CONFIDENCE
+      case 19: info_fields["EVDNC"] = val; if (val=="DSCRD") info_fields["IMPRECISE"] = ""; break;
+      case 20: readid = val; break;
+      case 21: info_fields["JABBACN"] = val; break;
       }
     }
+
+    // fix the x
+    if (info_fields["HOMSEQ"] == "x")
+      info_fields["HOMSEQ"] = "";
+    if (info_fields["INSERTION"] == "x")
+      info_fields["INSERTION"] = "";
 
     string nalt = to_string(stoi(info_fields["TSPLIT"]) + stoi(info_fields["TDISC"]));
     string nalt_rp = info_fields["TDISC"];
@@ -940,8 +954,10 @@ VCFFile::VCFFile(string file, char sep /* ',' */) {
     // grab the reference sequence
     GenomicRegion gr1(vcf1.chr, vcf1.pos, vcf1.pos);
     GenomicRegion gr2(vcf2.chr, vcf2.pos, vcf2.pos);
-    vcf1.ref = getRefSequence(gr1);
-    vcf2.ref = getRefSequence(gr2);
+    if (vcf1.chr < 24 && vcf2.chr < 24) { // TODO FIX 
+      vcf1.ref = getRefSequence(gr1);
+      vcf2.ref = getRefSequence(gr2);
+    }
 
     // set the reference position for making ALT tag
     stringstream ptag1, ptag2;
@@ -976,12 +992,13 @@ VCFFile::VCFFile(string file, char sep /* ',' */) {
     vcf1.alt = alt1.str();
     vcf2.alt = alt2.str();
 
+    /*
     // do additional filtering
     int tsplit = stoi(vcf1.info_fields["TSPLIT"]);
     int tdisc = stoi(vcf1.info_fields["TDISC"]);
     int mapq1 = stoi(vcf1.info_fields["MAPQ"]);
     int mapq2 = stoi(vcf1.info_fields["MATEMAPQ"]);
-    bool asdisc = vcf1.info_fields["EVDNC"] == "ASDIS";
+    //bool asdisc = vcf1.info_fields["EVDNC"] == "ASDIS";
     int span = stoi(vcf1.info_fields["SPAN"]);
 
     if (span < 500 && span > 0) { // weird bug fix
@@ -1019,13 +1036,22 @@ VCFFile::VCFFile(string file, char sep /* ',' */) {
       vcf1.filter = "LOWMAPQ";
       vcf2.filter = "LOWMAPQ";
     }
+    */
 
     VCFEntryPair vpair(vcf1, vcf2);
     vpair.supp_reads = ReadIDToReads(readid);
     // add the supporting reads
 
-    if (vcf1.chr < 24 && vcf2.chr < 24)
-      entry_pairs.insert(pair<string, VCFEntryPair>(vcf1.idcommon, vpair));
+    // double check that it's not doubled. Bug with doubled events
+    string dc = to_string(vcf1.chr)+"_"+to_string(vcf1.pos)+"_"+strand1+
+                to_string(vcf2.chr)+"_"+to_string(vcf2.pos)+"_"+strand2;
+    if (double_check.count(dc) > 0) { // already found, don't continue with this entry
+      //cerr << "found double with " << dc << endl;
+    } else {
+      if (vcf1.chr < 24 && vcf2.chr < 24)
+	entry_pairs.insert(pair<string, VCFEntryPair>(vcf1.idcommon, vpair));
+      double_check[dc] = true;
+    }
 
   }
   
@@ -1041,7 +1067,7 @@ string getRefSequence(const GenomicRegion &gr) {
   if (seq) {
     return string(seq);
   } else {
-    cout << "Failed to get reference sequence at " << gr << endl;
+    //cout << "Failed to get reference sequence at " << gr << endl;
     return "LOAD_FAIL";
   }
 
@@ -1192,7 +1218,7 @@ InfoMap mergeInfoFields(InfoMap const &m1, InfoMap const &m2) {
   }  
   */
     
-    return shared_fields;
+  return shared_fields;
 }
 
 // write the VCF as a csv file
