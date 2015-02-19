@@ -9,6 +9,8 @@
 #include "api/BamReader.h"
 #include "Read2Contig.h"
 #include "GenomicRegion.h"
+#include "DiscordantCluster.h"
+#include "ATuple.h"
 
 using namespace std; 
 

@@ -20,7 +20,9 @@ struct DiscordantCluster {
   unordered_map<string, bool> qnames; // TODO get rid of it
   unordered_map<string, BamAlignmentUP> reads;
   unordered_map<string, BamAlignmentUP> mates;
-  vector<int> mapq;
+  double reads_mapq; 
+  double mates_mapq;
+  vector<int> mapq; // TODO remoe
   string contig = "";
 
   GenomicRegion reg1;
@@ -39,8 +41,9 @@ struct DiscordantCluster {
   void addMateReads(BamAlignmentUPVector &bav);
 
   // return the mean mapping quality for this cluster
+  double getMeanMapq(bool mate) const;
+  
   double getMeanMapq() const;
-
   string toRegionString() const;
 
   // add the read names supporting this cluster

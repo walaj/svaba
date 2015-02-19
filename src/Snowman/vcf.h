@@ -139,7 +139,7 @@ struct VCFFile {
   VCFFile(string file, string tmethod);
 
   // create a VCFFile from a csv
-  VCFFile(string file, char sep= ',');
+  VCFFile(string file, char sep= '\t');
 
   string filename;
   string method;

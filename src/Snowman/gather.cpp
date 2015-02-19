@@ -186,7 +186,7 @@ void debugContig(string contig, const ContigMap * map, string msg) {
       cout << "CONTIG FOUND HERE AT " << msg << endl;
       if (msg == "contigs_final") {
 	ofstream os_allbps("/home/unix/jwala/test.txt", ios::out);
-	it->second.printAlignments(os_allbps);
+	os_allbps << it->second.printAlignments();
       }
     }
   }
@@ -259,8 +259,8 @@ bool runConcat(int argc, char** argv) {
   realignThreadReads(contigs_read_in);
 
   // write to a r2c_matched BAM file
-  if (!opt::skip_realign && !opt::discovar_acount_rule && !opt::no_r2c_matched)
-    writeR2CmatchedBAM(contigs_realigned);
+  //if (!opt::skip_realign && !opt::discovar_acount_rule && !opt::no_r2c_matched)
+  //  writeR2CmatchedBAM(contigs_realigned);
 
   // add discordant clusters to contigs
   if (opt::discordant_bam != "")
@@ -315,7 +315,7 @@ bool runConcat(int argc, char** argv) {
 
   // add discordant pairs to breakpoints
   if (opt::discordant_bam != "") {
-    addDiscordantPairsBreakpoints(bp_glob);
+    //addDiscordantPairsBreakpoints(bp_glob);
     //addDiscordantPairsBreakpoints(bp_fine);
   }
 
@@ -501,7 +501,7 @@ vector<string> csplit(const string &s, char delim) {
 }
  
 // mark duplicates in vector
-void markDuplicates(BPVec &bp) {
+/*void markDuplicates(BPVec &bp) {
   unsigned jj = 1;
   unsigned it = 0;
   while (it < bp.size()) {
@@ -517,13 +517,14 @@ void markDuplicates(BPVec &bp) {
     jj = 1;
     it++;
   }
-}
+  }*/
 
+/*
 void removeDuplicates(BPVec &in, BPVec &out) {
   for (unsigned it = 0; it < in.size(); it++)  // was -1
     if (in[it].isBest)
       out.push_back(in[it]);
-}
+      }*/
 
 void readContigBAM(ContigMap * contigs) {
 
@@ -626,9 +627,9 @@ void readContigBAM(ContigMap * contigs) {
 	//bool add_alignment = maxr >= 30 && ( (minr >= 30 && nmmax < 100000) || mapq.size() > 2);
 	bool add_alignment = minr >= opt::min_mapq && maxr >= opt::max_mapq && a.Length >= opt::min_length;
 	if (add_alignment) {
-	  AlignedContig ac(a);
-	  ac.addBams(opt::tumor_bam, opt::normal_bam, opt::panel_bam, opt::r2c_bam);
-	  contigs->insert(pair<string, AlignedContig>(a.Name, ac));
+	  //AlignedContig ac(a);
+	  //ac.addBams(opt::tumor_bam, opt::normal_bam, opt::panel_bam, opt::r2c_bam);
+	  //contigs->insert(pair<string, AlignedContig>(a.Name, ac));
 	}
       } else {
 	ff->second.addAlignment(a);
@@ -943,11 +944,11 @@ void writeContigs(const ContigMap *contigs) {
 
   //get the header
   SamHeader sam;
-  SVBamReader::getSamHeader(opt::contig_bam, sam);
+  //SVBamReader::getSamHeader(opt::contig_bam, sam);
 
   // get the reference data
   RefVector ref;  
-  SVBamReader::getRefVector(opt::contig_bam, ref);
+  //SVBamReader::getRefVector(opt::contig_bam, ref);
 
   string contigs_outbam = opt::outdir + "/contigs_multi.bam";
   if (!contigs_writer.Open(contigs_outbam, sam, ref)) {
@@ -1005,11 +1006,11 @@ void writeAsciiPlots(const ContigMap *contigs) {
   for (ContigMap::const_iterator i = contigs->begin(); i != contigs->end(); i++) {
     //i->second.printAlignments(all_align_stream);
     if (i->second.isSomatic())
-      i->second.printAlignments(som_align_stream);
+      som_align_stream << i->second.printAlignments();
     else if (i->second.isGermline())
-      i->second.printAlignments(ger_align_stream);
+      ger_align_stream <<  i->second.printAlignments();
     else 
-      i->second.printAlignments(all_align_stream);
+      all_align_stream << i->second.printAlignments();
   }
 }
 
@@ -1072,12 +1073,12 @@ void writeBreakFiles(BPVec &fine, BPVec &glob) {
   */
 
   // send global to files
-  for (BPVec::iterator it = glob.begin(); it != glob.end(); it++) {
+  /*for (BPVec::iterator it = glob.begin(); it != glob.end(); it++) {
     if (it->isSomatic)
       it->printToFile(os_som, (*contigs_realigned)[it->cname].m_bamreads);
     if (it->isGermline)  // must have 2 split, 1 normal
       it->printToFile(os_ger, (*contigs_realigned)[it->cname].m_bamreads);
-  }
+      }*/
 
   //send complex global to files
   /*for (BPVec::const_iterator it = glob.begin(); it != glob.end(); it++) {
@@ -1271,7 +1272,7 @@ bool runUpdater(ContigMap *contigs) {
       }
     }
 
-    i->second.updateBreakpointData(opt::skip_realign, opt::no_r2c_matched);
+    ///    i->second.updateBreakpointData(opt::skip_realign, opt::no_r2c_matched);
     
   }
 
@@ -1558,7 +1559,8 @@ void readDiscordantBam() {
 	ff->second.addRead(nam.str()); 
 	ff->second.mapq.push_back(a.MapQuality);      
       } else {
-	DiscordantCluster dl(dc);
+	//DiscordantCluster dl(dc);
+	DiscordantCluster dl;
 	
 	//debug
 	if (abs(dl.reg1.width()) < 3000 && abs(dl.reg2.width()) < 3000) {
@@ -1656,7 +1658,7 @@ void writeContigFasta(ContigMap * contigs) {
 // write a BAM file containing the original reads, annotated with
 // SW (smith-waterman score), CN (contig), AL (alignment position)
 // for all of the contigs with double/triple mappings.
-void writeR2CmatchedBAM(ContigMap * contigs) {
+/*void writeR2CmatchedBAM(ContigMap * contigs) {
 
   if (opt::verbose > 0)
     cout << "...writing the r2c_matched bam file" << endl;
@@ -1692,11 +1694,11 @@ void writeR2CmatchedBAM(ContigMap * contigs) {
     cout << cmd << endl;
   system(cmd.c_str());
 }
-
+*/
 
 // calls the isSomatic function and sets the somatic/germkline flags for contigs and breakpoints
 void setBreakSomaticGermline(BPVec &bpvec) {
-  
+  /*  
   cout << "bpvec size setBreakSomaticGermline: " << bpvec.size() << endl;
 
   if (opt::discovar_acount_rule) {
@@ -1719,7 +1721,8 @@ void setBreakSomaticGermline(BPVec &bpvec) {
       }
     } 
   } else {
-
+  */
+    /*
     SVBamReader nreader(opt::normal_bam);
     if (opt::normal_bam != "")
       nreader.findBamIndex();
@@ -1754,8 +1757,10 @@ void setBreakSomaticGermline(BPVec &bpvec) {
 	  ff->second.setGermline(true);
 	it->isGermline = true;
       }
-    } 
-  }
+    }
+    */
+  /* }
+    
     
   // debug double-check
   size_t scount = 0;
@@ -1778,12 +1783,12 @@ void setBreakSomaticGermline(BPVec &bpvec) {
       gcount++;
   }
   cout << "Contigs somatic count: " << scount << " Germline count: " << gcount << endl;
-
+  */
 }
 
 //
 void combineContigsWithDiscordantClusters() {
-
+  /*
   if (opt::verbose > 0)
     cout << "...combining discordant clusters with " << contigs_realigned->size() << " contigs" << endl;
 
@@ -1845,6 +1850,7 @@ void combineContigsWithDiscordantClusters() {
     }
   }
 
+  */
     /*    if (it->second.m_breaks.size() > 1)
       for (BPVec::iterator jt = it->second.m_breaks.begin(); jt != it->second.m_breaks.end(); jt++) {
 	
@@ -1884,8 +1890,8 @@ void combineContigsWithDiscordantClusters() {
 	
 
   // fill in the contig info for the big one
-  for (DMap::const_iterator it = smalldmap.begin(); it != smalldmap.end(); it++)
-    (*dmap)[it->first].contig = it->second.contig;
+  //  for (DMap::const_iterator it = smalldmap.begin(); it != smalldmap.end(); it++)
+  //  (*dmap)[it->first].contig = it->second.contig;
 
 }
 

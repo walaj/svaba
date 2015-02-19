@@ -7,7 +7,7 @@
 
   print('...loading libraries')
   RLIBDIR = '/xchip/gistic/Jeremiah/R/x86_64-unknown-linux-gnu-library/3.1/'
-  GIT.HOME = '/home/unix/jwala/GIT/'
+  GIT.HOME = '/xchip/gistic/Jeremiah/GIT/'
   ISVA.HOME = paste(Sys.getenv('GIT_HOME'),  '/isva/', sep = "");
   .libPaths(c(.libPaths(), RLIBDIR))
   suppressMessages(suppressWarnings(require(methods, quietly=TRUE)))
@@ -16,15 +16,19 @@
   suppressMessages(suppressWarnings(require(Rsamtools, quietly=TRUE)))
   suppressMessages(suppressWarnings(require(Matrix, quietly=TRUE)))
   suppressMessages(suppressWarnings(require(bitops, quietly=TRUE)))
+    suppressMessages(suppressWarnings(require(GenomicAlignments, quietly=TRUE)))
     
-  source('/home/unix/jwala/GIT/isva/sigUtils.R')
-  source('/home/unix/jwala/GIT/isva/gChain.R')
+  #source(file.path(GIT.HOME,"isva", "sigUtils.R"))
+  source(file.path("/home/unix/jwala/GIT","isva", "sigUtils.R"))
+  source(file.path(GIT.HOME,"isva", "gChain.R"))
+  source(file.path(GIT.HOME,"isva", "grUtils.R"))
+  source(file.path(GIT.HOME,"isva", "trackData.R"))  
   suppressMessages(suppressWarnings(require(Rsamtools, quietly=TRUE)))
   suppressMessages(suppressWarnings(require(RColorBrewer, quietly=TRUE)))
   suppressMessages(suppressWarnings(require(Nozzle.R1, quietly=TRUE)))
   suppressMessages(suppressWarnings(require(BSgenome.Hsapiens.UCSC.hg19, quietly=TRUE)))
-  source('/home/unix/jwala/GIT/isva/grUtils.R')
-  source('/home/unix/jwala/GIT/isva/trackData.R')
+  #source('/home/unix/jwala/GIT/isva/grUtils.R')
+  #source('/home/unix/jwala/GIT/isva/trackData.R')
 
 }
 
@@ -38,16 +42,32 @@ file.name = function(paths)
 # load the breakpoint files
 ###
 .loadBreakpoints <- function(opt) {
+
+  ## test
+  fp <- file.path("/xchip/gistic/Jeremiah/Projects/SnowmanWithIndel_140218","bps.txt.gz")
+  tab = read.table(gzfile(fp), header=T, sep='\t', stringsAsFactors=FALSE)
+  tab$reads = ""
+
+  gr <- GRanges(c(tab$chr1, tab$chr2), IRanges(c(tab$pos1,tab$pos2), width=1)) #, strand=ifelse(c(tab$strand1, tab$strand2)=='+', 1,-1))
+  strand(gr) = c(tab$strand1, tab$strand2)
+  grl <- split(gr, tab$contig)
+
+  ## debug
+  tabr = table(tab$contig)
+  grl = grl[names(grl) %in% names(tabr[tabr==1])]
+  mcols(grl) = tab[tab$contig %in% names(tabr[tabr==1]), ]
+
+  return(list(som=grl, ger=GRangesList()))
   
   ## load the breakpoints
-  breakpoints.somatic.file = file.path(opt$indir, 'breakpoints', 'breakpoints.somatic.txt')
-  print(paste('Loading the breakpoints:', breakpoints.somatic.file))
-  grl.sno <- sig.load.snow(breakpoints.somatic.file)[[1]]
+  #breakpoints.somatic.file = file.path(opt$indir, 'breakpoints', 'breakpoints.somatic.txt')
+  #print(paste('Loading the breakpoints:', breakpoints.somatic.file))
+  #grl.sno <- sig.load.snow(breakpoints.somatic.file)[[1]]
   
-  breakpoints.germline.file = file.path(opt$indir, 'breakpoints', 'breakpoints.germline.txt')
-  print(paste('Loading the breakpoints:', breakpoints.germline.file))
-  grl.sno.g <- sig.load.snow(breakpoints.germline.file)[[1]]
-  return(list(som=grl.sno, ger=grl.sno.g))
+  #breakpoints.germline.file = file.path(opt$indir, 'breakpoints', 'breakpoints.germline.txt')
+  #print(paste('Loading the breakpoints:', breakpoints.germline.file))
+  #grl.sno.g <- sig.load.snow(breakpoints.germline.file)[[1]]
+  #return(list(som=grl.sno, ger=grl.sno.g))
 }
 
 ###
@@ -140,7 +160,7 @@ file.name = function(paths)
 .getContigs <- function(opt) {
   
   ## read in the contigs
-  snow.contigs <- file.path(opt$indir, 'contigs_final.bam')
+  snow.contigs <- file.path(opt$indir, 'contigs.bam')
   if (!file.exists(snow.contigs))
     snow.contigs <- file.path(opt$indir, 'all_bwa.bam')
   if (!file.exists(snow.contigs))
@@ -148,7 +168,7 @@ file.name = function(paths)
   print(paste('...importing contigs from:', snow.contigs))
   gr.contigs <- import.snowman.contigs(snow.contigs, paste(snow.contigs, "bai", sep='.')) 
 
-  uniq = unique(mcols(grl.sno$som)$cname)
+  uniq = unique(mcols(grl.sno$som)$contig)
   if (opt$germline)
     uniq = unique(mcols(grl.sno$ger)$cname)
   gr.contigs <- gr.contigs[gr.contigs$qname %in% uniq] ## keep only contigs in somatic breaks
@@ -166,21 +186,35 @@ file.name = function(paths)
 .getReads <- function(opt) {
   
   ## read in the reads
-  snow.reads <- file.path(opt$indir, 'plots/readsForR_som.txt')
-  if (opt$germline)
-      snow.reads <- file.path(opt$indir, 'plots/readsForR_ger.txt')
-  if (!file.exists(snow.reads))
-    stop(paste('Cannot find', snow.reads))
-  print(paste('`...importing reads from:', snow.reads))
-  gr.reads   <- import.snowman.reads(snow.reads)
+  #snow.reads <- file.path(opt$indir, 'plots/readsForR_som.txt')
+  #if (opt$germline)
+  #    snow.reads <- file.path(opt$indir, 'plots/readsForR_ger.txt')
+  #if (!file.exists(snow.reads))
+  #  stop(paste('Cannot find', snow.reads))
+  #print(paste('`...importing reads from:', snow.reads))
+  #gr.reads   <- import.snowman.reads(snow.reads)
 
-  gr.reads$tn = substring(gr.reads$rname, 1,1)
-  gr.reads$rqname = gsub("[a-z]+[0-9]+_?(.*)", "\\1", gr.reads$rname)
-  gr.reads$rheader = gsub("[^_]+($)", "\\1", gr.reads$rname)
-  gr.reads$rqname = substring(gr.reads$rname, nchar(gr.reads$rheader)+1, nchar(gr.reads$rname))
-  gr.reads$flag = as.numeric(gsub("[a-z]+([0-9]+)_?(.*)", "\\1", gr.reads$rheader))
+  bam = file.path(opt$indir, "r2c_clean.bam")
+  bami = file.path(opt$indir, "r2c_clean.bam.bai")
+  gr.reads = read.bam(bam, bami=bami, tag=c("AL", "SW", "CN", "SR", "TS"), pairs.grl=FALSE)
+  #gr.reads$tn = substring(gr.reads$rname, 1,1)
+  #gr.reads$rqname = gsub("[a-z]+[0-9]+_?(.*)", "\\1", gr.reads$rname)
+  #gr.reads$rheader = gsub("[^_]+($)", "\\1", gr.reads$rname)
+  #gr.reads$rqname = substring(gr.reads$rname, nchar(gr.reads$rheader)+1, nchar(gr.reads$rname))
+  #gr.reads$flag = as.numeric(gsub("[a-z]+([0-9]+)_?(.*)", "\\1", gr.reads$rheader))
+  gr.reads <- gr.reads[!is.na(gr.reads$AL) & !is.na(gr.reads$CN) & !is.na(gr.reads$SR)]
+  al <- unlist(strsplit(gr.reads$AL, "x"))
+  cn <- unlist(strsplit(gr.reads$CN, "x"))
+  len <- sapply(strsplit(gr.reads$AL, "x"), length)
+  seq <- rep(gr.reads$TS, len)
+  seq[is.na(seq)] = gr.reads$seq[is.na(seq)]
+
+  #ix = !is.na(as.integer(al)) ##debug
+  grr <- GRanges(seqnames=cn, IRanges(as.integer(al), width=nchar(seq)), seq=seq)
+  grr$cigar = paste(nchar(seq), "M", sep="")
+  grr$rname = rep(gr.reads$qname, len)
   
-  return(gr.reads)
+  return(grr)
 }
 
 ###
@@ -201,7 +235,7 @@ file.name = function(paths)
   cseq.set <- DNAStringSet(gr.contigs.this$seq[ix])
   names(cseq.set) <- gr.contigs.this$qname[ix]
   ix <- !duplicated(gr.reads.this$rname)
-  rseq.set <- DNAStringSet(gr.reads.this$sequence[ix])
+  rseq.set <- DNAStringSet(gr.reads.this$seq[ix])
   names(rseq.set) <- gr.reads.this$rname[ix]
   
   grl.contig.seq <- seq2grl(cseq.set) ## max because of hard clipping issue
@@ -286,19 +320,19 @@ file.name = function(paths)
   gr.reads.this$border <- 'black'
   
   ## isolate discordant read pairs
-  tab <- table(gr.reads.this$rqname)
-  gr.reads.this$col[gr.reads.this$rqname %in% names(tab[tab==2])] <- 'blue'
+  tab <- table(gr.reads.this$rname)
+  gr.reads.this$col[gr.reads.this$rname %in% names(tab[tab==2])] <- 'blue'
 
   ## isolate the unmapped reads
   gr.reads.this$border[bitAnd(gr.reads.this$flag, 4) != 0] <- 'red'
 
   ## make the new reads struct
-  grr <- GRanges(gr.reads.this$rname, IRanges(1, nchar(gr.reads.this$sequence)))
+  grr <- GRanges(gr.reads.this$rname, IRanges(1, nchar(gr.reads.this$seq)))
   grr$col <- gr.reads.this$col
   grr$border <- gr.reads.this$border
-  grr$rqname <- gr.reads.this$rqname
+  grr$rname <- gr.reads.this$rname
 
-  grl.grr <- split(grr, grr$rqname)
+  grl.grr <- split(grr, grr$rname)
   reads2genome <- lift(r2g_t, grl.grr)
   
   tdo <- trackData(reads2genome, labels.suppress=TRUE)
@@ -333,6 +367,8 @@ opt$germline = grepl("t|T", opt$germline)
 ## load the breakpoints
 grl.sno = .loadBreakpoints(opt)
 
+##debug
+grl.sno$ger = grl.sno$som
 # Phase 1: create report elements
 r <- newReport( "SnowmanSV -- Structural variation detection by genome-wide local assembly" )
 r <- .initializeReport(r)
@@ -341,7 +377,7 @@ r <- .initializeReport(r)
 r <- .overviewFigure(grl.sno, opt, r)
 
 ## add the contig N50 figure
-r <- .getN50(opt, r)
+#r <- .getN50(opt, r)
 
 ## make the circos figures
 r <- .makeCircos(grl.sno, opt, r)
@@ -349,6 +385,7 @@ r <- .makeCircos(grl.sno, opt, r)
 ## grab the contigs and reads
 gr.contigs <- .getContigs(opt)
 gr.reads   <- .getReads(opt)
+gr.reads <- gr.reads[as.logical(seqnames(gr.reads) %in% gr.contigs$qname)]
 gr.contigs <- gr.contigs[gr.contigs$qname %in% unique(as.character(seqnames(gr.reads)))]
 
 ## make the trackData
@@ -356,7 +393,7 @@ suppressWarnings(cgc <- cgChain(gr.contigs, sn=gr.contigs$qname))
 suppressWarnings(pac <- cgChain(gr.reads, sn=gr.reads$rname))
 suppressWarnings(r2g <- gMultiply(cgc, pac, pintersect=TRUE))
 
-tdr <- track.refgene()
+suppressWarnings(tdr <- track.refgene())
 
 ## loop through and run
 nams <- unique(gr.contigs$qname)
@@ -379,11 +416,11 @@ out <- mclapply(seq_along(nams), function(x) {
   gr.reads.this <- gr.reads[sn == nams[x]]
 
   ## get the sequences track data
-  tds <- .getTrackData(cgc, r2g, gr.contigs.this, gr.reads.this)
+  tds <- suppressWarnings(.getTrackData(cgc, r2g, gr.contigs.this, gr.reads.this))
   tds <- c(tds, tdr)
 
   ## get the alignment track data
-  tda <- .getTrackDataAlign(cgc, r2g, gr.contigs.this, gr.reads.this)
+  tda <- suppressWarnings(.getTrackDataAlign(cgc, r2g, gr.contigs.this, gr.reads.this))
   
   ## set the window
   win <- streduce(gr.contigs.this)
@@ -398,8 +435,7 @@ out <- mclapply(seq_along(nams), function(x) {
   dev.off()
 
   
-  ## make the alignment plot
-  
+  ## make the alignment plot  
   mc <- mcols(grl_this)
   mc <- mc[mc$cname == nams[x],] 
   

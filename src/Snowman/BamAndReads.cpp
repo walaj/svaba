@@ -4,6 +4,9 @@
 using namespace std;
 
 #define BUFF 500
+// values above this are discarded
+#define MATE_LOOKUP_LIM 20
+
 
 // divide the larger BAM chunk into smaller reigons for smaller assemblies
 void BamAndReads::divideIntoRegions() {
@@ -176,7 +179,7 @@ void BamAndReads::calculateMateRegions() {
 
     // make a growing list all partner regions
     for (auto& q : i->partner_windows) {
-      if (q.width() > (BUFF * 2+1)) // BUFF * 2 + 1 is width if only one read
+      if (q.width() > (BUFF * 2+1)) // BUFF * 2 + 1 is width if only one read. 
       grv.push_back(q);
     }
   }
@@ -209,15 +212,14 @@ void BamAndReads::readMateBam() {
       exit(EXIT_FAILURE);
     }
     BamAlignmentVector reads;
-    _read_bam(reads, 10000); // dont read more than 5000 reads
+    _read_bam(reads, 3000); // dont read more than 3000 reads
     
     //debug
     if (verbose > 1)
       cout << "mate reads size " << reads.size() << " on region " << i << endl;
 
     for (auto& r : reads) 
-      //if (r.MapQuality > 0)
-	addMateRead(r);
+      addMateRead(r);
   }
 
   // end the timer
@@ -278,7 +280,9 @@ void BamAndReads::_read_bam(BamAlignmentVector &reads, int limit) {
     if ( pass_rule_and_dup ) {
 
       // keep track of pile
-      if (a.MapQuality == 0) 
+      int32_t nm; 
+      if (!a.GetTag("NM", nm)) nm = 0;
+      if (a.MapQuality == 0 || nm >= 4) 
 	pileup++;
 
       // clear it out
@@ -298,17 +302,33 @@ void BamAndReads::_read_bam(BamAlignmentVector &reads, int limit) {
       // deal with bam buff
       if (bam_buffer.size() >= buffer_lim) {
 
+	// check if it has too many discordant reads in different directions
+	GenomicRegionVector grv_tmp;
+	for (auto& it : bam_buffer) {
+	  if (it.IsMateMapped() && it.IsMapped())
+	    grv_tmp.push_back(GenomicRegion(it.MateRefID, it.MatePosition - 5000, it.MatePosition + 5000));
+	  grv_tmp = GenomicRegion::mergeOverlappingIntervals(grv_tmp);
+	}
+	  
 	// check if bad region
 	int buf_width = bam_buffer.back().Position - bam_buffer[0].Position;
 	if (pileup >= buffer_lim * 0.8 && buf_width <= 40) {
-	  for (auto& it : bam_buffer)
+	  /*	  for (auto& it : bam_buffer)
 	    if (it.MapQuality > 0) 
 	      reads.push_back(move(it));
+	  */
 		//      addRead(it);
-	  if (verbose > 2)
+	  if (verbose > 4)
 	    cout << "Detected mapq 0 pileup of " << pileup << " at " << a.RefID+1 << ":" << bam_buffer[0].Position << "-" << bam_buffer.back().Position << endl;
-	} 
-	// it's OK or its in full region
+	} else if (grv_tmp.size() >= MATE_LOOKUP_LIM) {
+	  if (verbose > 4) {
+	    cout << "Detected bad discordant pileup with " << grv_tmp.size() << " regions at " << a.RefID+1 << ":" << bam_buffer[0].Position << "-" << bam_buffer.back().Position << endl;
+	    for (auto &y : grv_tmp)
+	      cout << "      " << y << endl;
+	  }
+	  // its bad, skip the whole thing
+	}
+	// it's OK 
 	else {
 	  for (auto& it : bam_buffer) 
 	    reads.push_back(move(it));

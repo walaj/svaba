@@ -17,7 +17,7 @@ typedef Align<TSequence,ArrayGaps> TAlign;
 
 namespace SeqanTools {
   
-  double SWalign(TSequence &ref,int32_t &pos, string &rseq, int32_t &score, bool revcomp = false);
+  double SWalign(TSequence &ref,int32_t &pos, string &rseq, int32_t &score, int cutoff, bool revcomp = false);
 
 }
 

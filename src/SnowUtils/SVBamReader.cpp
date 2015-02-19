@@ -3,6 +3,9 @@
 #include "api/algorithms/Sort.h"
 #include <time.h> // for now
 #include "SnowUtils.h"
+#include <set>
+
+#include "ClusterReads.h"
 
 //#define DEBUG_SVREADS 2
 
@@ -60,6 +63,8 @@ void SVBamReader::softClip(int qualTrim, std::string &seq, std::string const &qu
     if (startpoint == 0 && endpoint == (int)seq.length() - 1 && char2phred(qual[0]) < qualTrim) {
       seq = "";
       tooshort = true;
+      startpoint = 0;
+      endpoint = -1;
       //qual = "";
       return;
     }
@@ -87,6 +92,73 @@ void SVBamReader::softClip(int qualTrim, std::string &seq, std::string const &qu
     //  return true;
     //}
 }
+
+// Perform a soft-clipping of the sequence by removing low quality bases from the
+// 3' end using Heng Li's algorithm from bwa
+void SVBamReader::qualityTrimRead(int qualTrim, std::string &seq, std::string &qual) {
+
+    assert(seq.size() == qual.size());
+
+    int endpoint = -1; //seq.length();
+    int startpoint = 0;
+    int i = 0; 
+ 
+    // get the start point (loop forward)
+    while(i < (int)seq.length()) {
+        int ps = char2phred(qual[i]);
+        if (ps >= qualTrim) {
+          startpoint = i;
+          break;
+	}
+	i++;
+    }
+
+    // get the end point (loop backwards)
+    i = seq.length() - 1;
+    while(i >= 0) {
+        int ps = char2phred(qual[i]);
+        if (ps >= qualTrim) {
+          endpoint = i + 1; // endpoint is one past edge
+          break;
+	}
+	i--;
+    }
+    // check that they aren't all bad
+    if (startpoint == 0 && endpoint == -1) {
+      seq = "";
+      qual = "";
+      //tooshort = true;
+      //startpoint = 0;
+      //endpoint = -1;
+      //qual = "";
+      return;
+    }
+
+    int readlen = seq.length();
+
+    // Clip the read
+    seq =   seq.substr(startpoint, endpoint);
+    qual = qual.substr(startpoint, endpoint);
+    return;
+    
+    //int new_clipnum = clipnum - (readlen - seq.length() - 1);
+    
+    // assign the values
+    //tooshort = seq.length() < std::floor(m_mol * 1.5);
+    //int int_minclip = m_minclip; // get rid of int compare warning
+    //not_real_clip = new_clipnum < int_minclip && int_minclip != 0;
+    
+    
+    //bool lowq = seq.length() < m_mol || (new_clipnum < 10); 
+    //std::cout << "NEW CLIP: " << new_clipnum << " SEQLENGTH: " << seq.length() << std::endl;
+    //if (lowq) { // num clipped that aren't removed must be bigger than 10
+    //  low_qual++;
+    //  return false; // don't include read
+    //} else {
+    //  return true;
+    //}
+}
+
 
 bool SVBamReader::bamToBAVec(BamAlignmentVector &bav) { 
 
@@ -122,6 +194,7 @@ bool SVBamReader::bamToBAVec(BamAlignmentVector &bav) {
   while (m_reader.GetNextAlignmentCore(a)) {
  
     total_reads++;
+
     // get the number of soft-clipped bases BEFORE TRIMMING
     unsigned clipnum = getClipCount(a);
     
@@ -131,13 +204,14 @@ bool SVBamReader::bamToBAVec(BamAlignmentVector &bav) {
     bool discr = (m_isize > 0) && (std::abs(a.InsertSize) > m_isize || a.RefID != a.MateRefID); 
     discr = discr && !clipOnly;
     //discr = discr || single_align;
-    bool mapqr = (a.MapQuality >= m_mapq || unmap) && !a.IsFailedQC() && !a.IsDuplicate();
+    bool mapqr = (a.MapQuality >= m_mapq  || unmap) && !a.IsFailedQC() && !a.IsDuplicate();
     bool supp  = a.IsPrimaryAlignment() || !m_skip_supp; // if m_skip_supp is true, only keep primary alignments
     mapqr = mapqr && supp;
 
     if ( (discr || unmap || (clipnum >= m_minclip || m_minclip == 0)) && mapqr ) {
 
       a.BuildCharData(); //populate the rest of the string data
+
       // clip bases with low optical quality
       std::string trimmed_bases = a.QueryBases;
       std::string trimmed_quals = a.Qualities;
@@ -145,8 +219,21 @@ bool SVBamReader::bamToBAVec(BamAlignmentVector &bav) {
       bool not_real_clip = false;
       int startpoint;
       int endpoint;
-      softClip(m_qualthresh, trimmed_bases, trimmed_quals, clipnum, tooshort, not_real_clip, startpoint, endpoint);
       
+      // only need to clip if SE and SA tags not there
+      int32_t se, ss;
+      if (!a.GetTag("SS", ss) || !a.GetTag("SE", se)) {
+	softClip(m_qualthresh, trimmed_bases, trimmed_quals, clipnum, tooshort, not_real_clip, startpoint, endpoint);
+	a.AddTag("SS","i",ss);
+	a.AddTag("SE","i",se);
+	//a.Qualities = "";
+      } else {
+	startpoint = ss;
+	endpoint = se;
+	trimmed_bases = a.QueryBases.substr(ss, se - ss + 1);
+	tooshort = (se - ss) < 60; 
+      }
+	
       // check that there are no N bases
       bool npass = passNtest(a.QueryBases);
       
@@ -426,103 +513,6 @@ bool SVBamReader::GetR2Read(BamTools::BamAlignment const &a, std::string const &
 
 }
 
-/*
-bool SVBamReader::bamToBAVecCluster(BamAlignmentVector &bav) { 
-
-  // setup a map of reads to make sure we aren't duplicating
-  //std::unordered_map<std::string, int> name_map;
-  if (!m_reader.Open(m_bam)) {
-    std::cerr << "FAILED TO OPEN BAM: " << m_bam << std::endl;
-    std::cerr << m_bam << std::endl;
-    return false;
-  }
-
-  if (m_bai.length() == 0) {
-    std::cerr << "BAM index not set. Run reader.findBamIndex()" << endl;
-    return false;
-  }
-
-  if (!m_reader.OpenIndex(m_bai)) {
-    if (!m_reader.OpenIndex(m_bam_bai)) {
-      std::cerr << "FAILED TO OPEN INDEX: " << m_bam_bai << endl;
-      return false;
-    }
-  }
-
-  if (!m_reader.SetRegion(m_region[0], m_region[1], m_region[2], m_region[3])) {
-    std::cerr << "FAILED TO SET REGION\n"; 
-    return false;
-  }
-
-  unsigned counter = 0;
-
-  BamTools::BamAlignment a;
-
-  // loop through the reads
-  while (m_reader.GetNextAlignmentCore(a)) {
- 
-    total_reads++;
-
-    bool discr = (m_isize > 0) && (std::abs(a.InsertSize) > m_isize || a.RefID != a.MateRefID); 
-    bool mapqr = (a.MapQuality >= m_mapq) && !a.IsFailedQC() && !a.IsDuplicate();
-    bool supp  = a.IsPrimaryAlignment() || !m_skip_supp; // if m_skip_supp is true, only keep primary alignments
-    mapqr = mapqr && supp;
-
-    if ( discr && mapqr )   {
-
-      a.BuildCharData(); //populate the rest of the string data
-
-      // get the number of matches
-      int nm;
-      if (a.GetTag("NM", nm)) {} else { nm = 0; }
-
-      // add a tag for position of pairmate
-      uint32_t val = GenomicRegion::convertPos(a.MateRefID, a.MatePosition);
-      a.AddTag("RP", "I", val);
-      
-      // want to index by position of anchor read
-      std::string hp = string_numf(a.RefID, 2) + "_" + string_numf(a.Position, 9);
-      a.AddTag("HP", "Z", hp);
-      
-      //set the prefix for this read name 
-      std::ostringstream s_first;
-
-      s_first << m_prefix << a.AlignmentFlag << "_" << a.Name;
-      a.AddTag("JW", "Z", s_first.str());
-	
-      used_num++;
-      a.RemoveTag("Q2"); 
-      a.RemoveTag("R2"); 
-      a.RemoveTag("XM"); 
-      a.RemoveTag("SA"); 
-      a.RemoveTag("XS"); 
-      a.RemoveTag("RG"); 
-      a.RemoveTag("AS"); 
-      a.RemoveTag("XS");
-      //a.Qualities=""; // extreme
-      //a.QueryBases = ""; // extreme	
-      bav.push_back(a);
-      counter++;
-
-      if (counter > limit) { // hit the read limit
-	bav.clear();
-	cout << "Limit of " << limit << " hit on region: " << 
-	  m_region[0]+1 << ":" << m_region[1] << "-" << m_region[3] << 
-	  " in " << m_bam << endl;
-	return false;
-      }
-      
-    }
-  } // end while
-	
-  // ensure that it is sorted by HP
-  std::sort( bav.begin(), bav.end(), BamTools::Algorithms::Sort::ByTag<std::string>("HP", BamTools::Algorithms::Sort::AscendingOrder) );
-  
-  return true;
-    
-}
-*/
-
 bool SVBamReader::contigBamToBAVec(BamAlignmentVector &bav) {
   
     // setup a map of reads to make sure we aren't duplicating
@@ -625,35 +615,27 @@ bool SVBamReader::IsTumorRead(const BamAlignment &a) {
 }
 
 // remove duplicate reads by name and alignment flag
-// pay attention to IR flag (for R2 reads) so that you preferentially add
-// real reads before adding R2 created reads
 void SVBamReader::deduplicateReads(const BamAlignmentVector &inbav, BamAlignmentVector &outbav) {
   
   unordered_map<string, bool> name_map;
-  BamAlignmentVector r2vec;
+  unordered_map<string, bool> seq_map;
+
 
   for (BamAlignmentVector::const_iterator it = inbav.begin(); it != inbav.end(); it++) {
-    
-    string uname = it->Name + "_" + to_string(it->IsFirstMate());
-    bool not_found = name_map.find(uname) == name_map.end();
-    bool isR2 = it->HasTag("IR");
 
-    if (not_found && !isR2) {  // its not already added and is not R2. Definitely add
+    // deduplicate by query-bases / position
+    string sname = to_string(it->RefID) + "_" + to_string(it->Position) + "_" + to_string(it->MateRefID) + "_" + to_string(it->MatePosition) + it->QueryBases;    
+    // deduplicate by Name
+    string uname = it->Name + "_" + to_string(it->IsFirstMate());
+
+    // its not already add, insert
+    if (name_map.count(uname) == 1 && seq_map.count(sname) == 1) {  
       name_map.insert(pair<string, int>(uname, true));
+      seq_map.insert(pair<string, int>(sname, true));
       outbav.push_back(*it);
-    } else if (not_found && isR2) { // is new read, but is R2. Wait until done to see if should add
-      r2vec.push_back(*it);
-    } // else it is a total dupe, don't addd
-  }
-  
-  // loop through the R2s and see what is not added
-  for (BamAlignmentVector::const_iterator it = r2vec.begin(); it != r2vec.end(); it++) {
-    string uname = it->Name + "_" + to_string(it->IsFirstMate());
-    bool not_found = (name_map.find(uname) == name_map.end());
-    if (not_found)
-      outbav.push_back(*it);
-  }
+    } 
 
+  }
 }
 
 // clean out the tags
@@ -669,7 +651,7 @@ void SVBamReader::deduplicateReadsPos(const BamAlignmentVector &inbav, BamAlignm
   unordered_map<string, int> name_map;
   for (BamAlignmentVector::const_iterator it = inbav.begin(); it != inbav.end(); it++) {
     
-    string uname = to_string(it->RefID) + "_" + to_string(it->Position) + "_" + to_string(it->MateRefID) + "_" + to_string(it->MatePosition);
+    string uname = to_string(it->RefID) + "_" + to_string(it->Position) + "_" + to_string(it->MateRefID) + "_" + to_string(it->MatePosition) + it->QueryBases;
     
     if (name_map.find(uname) == name_map.end()) {  // its not already added
       name_map.insert(pair<string, int>(uname, 0));
@@ -741,9 +723,12 @@ string SVBamReader::getSamHeader(string bamfile, SamHeader &sam) {
     return "none";
   }
 
+
   sam = read.GetHeader();
+
+  string out = read.GetHeaderText();
   read.Close();
-  return read.GetHeaderText();
+  return out;
 
 }
 
@@ -817,36 +802,170 @@ bool SVBamReader::preprocessBam(BamTools::BamWriter &writer, BamQC &qc, bool qc_
     return false;
   }
  
-  int counter = 0;
+  int keep_counter = 0;
   int total = 0;
+  int keep_counter_MAIN = 0;
+  int total_MAIN = 0;
 
+  int mapq0_keep_counter = 0;
+  int discordant_keep_counter = 0;
+  int n_keep_counter = 0;
+  int clipped_keep_counter = 0;
+
+  int mapq0_counter = 0;
+  int discordant_counter = 0;
+  int n_counter = 0;
+  int clipped_counter = 0;
+
+  int pileup = 0;
+  
   BamTools::BamAlignment a;
 
+  BamAlignmentVector bam_buffer;
+  vector<int> mapq_buffer;
+
+  /*
+  GenomicIntervalTree tree;
+  bool havetree = true;
+  if (grm.count(m_region.chr) == 1)
+    tree = grm[m_region.chr];
+  else
+    havetree = false;
+  */
+
+  // start the full keep check
+  /*
+  GenomicRegionVector::iterator gt;
+  if (grv_fullkeep.size() > 0) {
+    gt = grv_fullkeep.begin();
+    while (gt->getOverlap(m_region) == 0)
+      gt++;
+  }
+  */
+
   // loop through the reads
+  //bool in_full_region = false;
+  //bool grv_blank = grv_fullkeep.size() == 0;
+
   while (m_reader.GetNextAlignment(a)) {
 
-    total++;
+    //bool old_full_region = in_full_region;
+    //GenomicRegion region_old;
+    //if (grv_fullkeep.size() > 0)
+    //  region_old = (*gt);
 
-    // get the number of soft-clipped bases BEFORE TRIMMING
-    unsigned clipnum = getClipCount(a);
-    
-    if (m_verbose > 0 && total % 1000000 == 0) {
+    // check if we need to move the reigon pointer, and if in region
+    /*
+    if (gt != grv_fullkeep.end() && !grv_blank) { // it's not at the end
+      if (a.Position > gt->pos2) { // we are beyond the region
+	in_full_region = false;
+	gt++;
+
+	if (gt->chr != m_region.chr)
+	  gt = grv_fullkeep.end();
+      } else if (a.Position >= gt->pos1) {
+	in_full_region = true;
+      }
+    }
+    */
+    /*
+    // check that we just left a full region. if so, processes buffer 
+    if (old_full_region && !in_full_region && grv_fullkeep.size() > 0) {
+      // transfer mini-buffer to region-buffer
+      bav_full_region.insert(bav_full_region.begin(), bam_buffer.begin(), bam_buffer.end());
+
+      // loop and find pairs that are weird or doubled and set to keep
+      set<string> name_set;
+      //unordered_map<string, size_t> name_map;
+      for (auto read : bav_full_region) {
+	int32_t wp;
+	if (read.GetTag("WP",wp))
+	  name_set.insert(a.Name);
+      }
+
+      // loop through and actually write the keepers
+      size_t keep_region_count = 0;
+      int32_t wr;
+      for (auto read : bav_full_region) {
+	if (name_set.count(read.Name) == 1 || read.GetTag("WR", wr)) {
+	  writer.SaveAlignment(read);
+	  keep_region_count++;
+	}
+      }
+
+      //
+      if (m_verbose > 1) 
+	cout << "Processed keep-all " << region_old << " with read count: " << region_old.tcount << " keeping " << keep_region_count << " weird / region-paired reads" << endl;
+
+
+      // clear the buffers
+      bav_full_region.clear();
+      bam_buffer.clear();
+      pileup = 0;
+    }
+
+    */
+
+    //if (in_full_region)
+    //  gt->tcount++;
+
+    total++;
+    total_MAIN++;
+        
+    if (m_verbose > 0 && total % 500000 == 0) {
+
       char buffer[100];
-      int perc  = static_cast<int>(floor((float)counter / (float)total * 100.0));
+      int perc  = SnowUtils::percentCalc<int>(keep_counter_MAIN, total_MAIN); 
       string posstring = SnowUtils::AddCommas<int>(a.Position);
-      sprintf (buffer, "Reading read %11s at position %2s:%-11s. Kept %11s (%2d%%)",  SnowUtils::AddCommas<int>(total).c_str(), GenomicRegion::chrToString(a.RefID).c_str(), posstring.c_str(),  SnowUtils::AddCommas<int>(counter).c_str(), perc);
+      sprintf (buffer, "Reading read %11s at position %2s:%-11s. Kept %11s (%2d%%) [running count across whole BAM]",  SnowUtils::AddCommas<int>(total_MAIN).c_str(), GenomicRegion::chrToString(a.RefID).c_str(), posstring.c_str(),  SnowUtils::AddCommas<int>(keep_counter_MAIN).c_str(), perc);
       printf ("%s\n",buffer);
+      char buffer2[100];
+      sprintf(buffer2, "   Filter (%% of kept)  -- Reads with N (%2d%%), Mapq0 (%2d%%), Discordant (%2d%%), Clipped (%2d%%)", 
+	      SnowUtils::percentCalc<int>(n_keep_counter, keep_counter), 
+	      SnowUtils::percentCalc<int>(mapq0_keep_counter, keep_counter), 
+	      SnowUtils::percentCalc<int>(discordant_keep_counter, keep_counter), 
+	      SnowUtils::percentCalc<int>(clipped_keep_counter, keep_counter));
+      char buffer3[100];
+      sprintf(buffer3, "   Filter (%% of total) -- Reads with N (%2d%%), Mapq0 (%2d%%), Discordant (%2d%%), Clipped (%2d%%)", 
+	      SnowUtils::percentCalc<int>(n_counter, total), 
+	      SnowUtils::percentCalc<int>(mapq0_counter, total), 
+	      SnowUtils::percentCalc<int>(discordant_counter, total), 
+	      SnowUtils::percentCalc<int>(clipped_counter, total));
+      if (m_verbose > 1) {
+	printf("%s\n", buffer2);
+	printf("%s\n", buffer3);
+      }
+
+      // zero the counters
+      mapq0_keep_counter = 0;
+      discordant_keep_counter = 0;
+      n_keep_counter = 0;
+      clipped_keep_counter = 0;
+      
+      mapq0_counter = 0;
+      discordant_counter = 0;
+      n_counter = 0;
+      clipped_counter = 0;
+      keep_counter = 0;
+      total = 0;
 
       // kill if seen 50m reads, and it's looking bad
       if (perc >= perclimit && total > 25000000) { 
-	cerr << "This is a a really bad BAM after checking out 50m+ reads. Killing job. Percent weird reads: " << perc << " is above limit of " << perclimit << endl;
+	cerr << "This is a a really bad BAM after checking out 25m+ reads. Killing job. Percent weird reads: " << perc << " is above limit of " << perclimit << endl;
 	cerr << "Reading in region" << m_region << endl;
 	exit(EXIT_FAILURE);
       }
     }
-      
+    string rule_pass = m_mr->isValid(a);
+    //    bool in_full_region = m_mr->isValid(a);
+    
+    /*
+    // get the number of soft-clipped bases BEFORE TRIMMING
+    unsigned clipnum = getClipCount(a);
+  
     // get some other info about the alignment before filling string fields
     //bool single_align = a.MateRefID == -1;
+    m_skip_supp = true;
     bool unmap = !a.IsMapped() || !a.IsMateMapped();
     bool discr = (m_isize > 0) && (std::abs(a.InsertSize) > m_isize || a.RefID != a.MateRefID); 
     bool mapqr = (a.MapQuality >= m_mapq || unmap) && !a.IsFailedQC() && !a.IsDuplicate();
@@ -854,10 +973,17 @@ bool SVBamReader::preprocessBam(BamTools::BamWriter &writer, BamQC &qc, bool qc_
     bool clip  = clipnum >= m_minclip || m_minclip == 0;
     mapqr = mapqr && supp;
 
+    // FR read
+    bool FR_f = !a.IsReverseStrand() && (a.Position < a.MatePosition) && (a.RefID == a.MateRefID) &&  a.IsMateReverseStrand();
+    bool FR_r =  a.IsReverseStrand() && (a.Position > a.MatePosition) && (a.RefID == a.MateRefID) && !a.IsMateReverseStrand();
+    bool FR = FR_f || FR_r;
+    discr = discr || !FR;
+
     //    if ( (discr || unmap || clip) && (mapqr || discr)  && a.Length >= 60) {
     
     //a.BuildCharData(); //populate the rest of the string data
     // clip bases with low optical quality
+
     std::string trimmed_bases = a.QueryBases;
     std::string trimmed_quals = a.Qualities;
     bool tooshort = false;
@@ -866,7 +992,7 @@ bool SVBamReader::preprocessBam(BamTools::BamWriter &writer, BamQC &qc, bool qc_
     int endpoint;
     
     softClip(m_qualthresh, trimmed_bases, trimmed_quals, clipnum, tooshort, not_real_clip, startpoint, endpoint);
-    
+    //cout << startpoint << " " << endpoint << " too short " << tooshort << endl;
     // check that there are no N bases
     bool npass = passNtest(a.QueryBases);
     
@@ -883,17 +1009,28 @@ bool SVBamReader::preprocessBam(BamTools::BamWriter &writer, BamQC &qc, bool qc_
     if (a.GetTag("XP", as)) {} else { xp = 0; }
 
     // make sure raw clip is sufficient, plus processed
-    bool clipp = (!not_real_clip && !tooshort && clip) || m_minclip == 0;
+    bool clipp = (clip && !not_real_clip) || m_minclip == 0;
+
+    // make sure the read is long enough
+    bool lenpass = (endpoint - startpoint + 1) >= min_length;
+
+    bool hardclip = false;
+    // remove hard clips
+    for (auto cig : a.CigarData)
+      if (cig.Type == 'H')
+	hardclip = true;
     
     // get the mean phred quality
     size_t i = 0;
     int phred = 0;
-    while(i < (int)a.Qualities.length()) {
+    while(i < a.Qualities.length()) {
         phred += char2phred(a.Qualities[i]);
 	i++;
     }
     if (a.Qualities.length() > 0)
       phred = static_cast<int>(floor(static_cast<float>(phred) / a.Qualities.length()));
+
+    */
 
     // build the qc
     try {
@@ -901,26 +1038,26 @@ bool SVBamReader::preprocessBam(BamTools::BamWriter &writer, BamQC &qc, bool qc_
       if (!a.GetTag("RG",rgroup))
 	cerr << "Failed to read rgroup" << endl;
 
-      int this_isize = abs(a.InsertSize);
+      int this_isize = a.InsertSize;
       this_isize = (a.MateRefID != a.RefID || this_isize > 2000) ? 2000 : this_isize;
 
-      assert(this_isize <= 2000 && this_isize >= 0);
-      assert(a.MapQuality <= 60 && a.MapQuality >= 0);
-      assert(clipnum <= 101 && clipnum  >= 0);
-      assert(as <= 101 && as  >= 0);
-      assert(xp <= 101 && xp  >= 0);
+      assert(a.MapQuality <= 60);
+      //assert(clipnum <= 101);
+      //assert(as <= 101);
+      //assert(xp <= 101);
       assert(a.Length <= 101 && a.Length  >= 0);
-      assert(phred <= 60 && phred  >= 0);
-      assert(nm <= 101 && nm >= 0);
+      //assert(phred <= 60 && phred  >= 0);
+      //assert(nm <= 101);
 
-      qc.map[rgroup].nm[nm]++;
+      //qc.map[rgroup].nm[nm]++;
       qc.map[rgroup].mapq[a.MapQuality]++;
-      qc.map[rgroup].isize[this_isize]++;
-      qc.map[rgroup].xp[xp]++;
-      qc.map[rgroup].len[a.Length]++;
-      qc.map[rgroup].as[as]++;
-      qc.map[rgroup].clip[clipnum]++;
-      qc.map[rgroup].phred[phred]++;
+      //if (a.InsertSize > 0 && a.IsPaired() && (FR_f || FR_r) ) // only count "proper" reads
+	//qc.map[rgroup].isize[this_isize]++;
+      //qc.map[rgroup].xp[xp]++;
+      //qc.map[rgroup].len[a.Length]++;
+      //qc.map[rgroup].as[as]++;
+      //qc.map[rgroup].clip[clipnum]++;
+      //qc.map[rgroup].phred[phred]++;
       qc.map[rgroup].num_reads++;
       if (!a.IsMapped())
 	qc.map[rgroup].unmap++;
@@ -932,11 +1069,50 @@ bool SVBamReader::preprocessBam(BamTools::BamWriter &writer, BamQC &qc, bool qc_
 	qc.map[rgroup].supp++;
     } catch (...) {
       cerr << "Failed at adding to QC" << endl;
-      cerr << "Readgroup " << "NM " << nm << " mapq " << a.MapQuality << " xp " << xp << " len " << a.Length <<
-	" as " << as << " phred " << phred << endl;
+      //cerr << "Readgroup " << "NM " << nm << " mapq " << a.MapQuality << " xp " << xp << " len " << a.Length <<
+      //	" as " << as << " phred " << phred << endl;
     }
-    bool save_read = discr || unmap || (clipp && npass && nmpass);
-    if ( save_read && !qc_only ) {
+
+    // counter
+    //mapq0_counter += (a.MapQuality == 0 ) ? 1 : 0; 
+    //n_counter += npass ? 0 : 1;
+    //clipped_counter += clip ? 1 : 0;
+    //discordant_counter += discr ? 1 : 0;
+
+    //bool qual_read = (npass || !exclude_n) && nmpass && lenpass && !hardclip;
+    //bool save_read = (discr && !hardclip) || (unmap && qual_read) || (clipp && qual_read);
+
+    // check if read or pair is in full region
+    /*
+    bool in_full_region = false;
+    if (a.RefID == m_region.chr && a.MateRefID == m_region.chr && havetree) {
+      GenomicIntervalVector grv;
+      tree.findOverlapping(a.Position, a.Position + a.Length, grv);
+      tree.findOverlapping(a.MatePosition, a.MatePosition + a.Length, grv);
+      
+      if (grv.size() > 0) {
+	in_full_region = true;
+	a.AddTag("WR", "i", 0);
+      }
+      
+    }
+    */
+
+    //bool save_read = true;
+    if ( rule_pass != "" && !qc_only ) {
+
+      mapq0_keep_counter += (a.MapQuality == 0 ) ? 1 : 0; 
+      //n_keep_counter += npass ? 0 : 1;
+      //clipped_keep_counter += clipp ? 1 : 0; // count AFTER filtering
+      //discordant_keep_counter += discr ? 1 : 0;
+
+      // keep track of pile
+      if (a.MapQuality == 0) 
+	pileup++;
+
+      // add a tag to say which rule it pass
+      a.AddTag("RL","i",rule_pass);
+
       //if (!a.AddTag("SS", "i", startpoint)) {
       //	cerr << "Can't add SS Tag" << endl;
       //	exit(EXIT_FAILURE);
@@ -949,10 +1125,83 @@ bool SVBamReader::preprocessBam(BamTools::BamWriter &writer, BamQC &qc, bool qc_
       //a.RemoveTag("XS");
       //a.RemoveTag("RG");
       //a.Qualities = "";
-      writer.SaveAlignment(a);
-      counter++;
+      //writer.SaveAlignment(a);
+
+      // add a weird tag
+      //if (save_read)
+      //	a.AddTag("WR", "i", 0);
+      
+      bam_buffer.push_back(a);
+      keep_counter++;
+      keep_counter_MAIN++;
+      
+      int buffer_lim = 100;
+      // deal with bam buff
+      if (bam_buffer.size() >= buffer_lim/* && !in_full_region*/) {
+	// check if bad region
+	int32_t wr;
+	if (pileup >= buffer_lim * 0.8 && (bam_buffer.back().Position - bam_buffer[0].Position <= 40)) {
+	  for (auto it = bam_buffer.begin(); it != bam_buffer.end(); it++) 
+	    if (it->MapQuality > 0)
+	      writer.SaveAlignment(*it);
+	  if (m_verbose > 2)
+	    cout << "Detected mapq 0 pileup of " << pileup << " at " << a.RefID+1 << ":" << bam_buffer[0].Position << "-" << bam_buffer.back().Position << endl;
+	} 
+	// it's OK or its in full region
+	else if (bam_buffer.size() >= buffer_lim) {
+	  for (auto it = bam_buffer.begin(); it != bam_buffer.end(); it++) 
+	    writer.SaveAlignment(*it);
+	}
+
+	// further filter on clusters
+	//GenomicRegionVector clusters;
+	//typedef unordered_map<string, string> RMap;
+	//RMap clustered_reads;
+	//ClusterReads::clusterReads(bam_buffer, clusters, clustered_reads,
+	//			   "BB", m_isize, 1000);
+	
+	//debug
+	//for (auto cc : clusters)
+	//  cout << "cluster "<< cc.cluster << " count: " << cc.ncount << endl;
+	
+	bam_buffer.clear();
+	pileup = 0;
+
+      } // end buffer check
+      
+    } // end save read checking
+
+  } // end read while loop
+
+  // write the final buffer
+  for (auto it = bam_buffer.begin(); it != bam_buffer.end(); it++)
+    writer.SaveAlignment(*it);
+  
+  // print the final message
+  if (m_verbose > 0) {
+    char buffer[100];
+    int perc  = SnowUtils::percentCalc<int>(keep_counter_MAIN, total_MAIN); 
+    string posstring = SnowUtils::AddCommas<int>(a.Position);
+    //sprintf (buffer, "Finished region at %20s. Kept %11s (%2d%%) [running count across whole BAM]",  m_region.toStringOffset().c_str(), SnowUtils::AddCommas<int>(keep_counter_MAIN).c_str(), perc);
+    printf ("%s\n",buffer);
+    char buffer2[100];
+    sprintf(buffer2, "   Filter (%% of kept)  -- Reads with N (%2d%%), Mapq0 (%2d%%), Discordant (%2d%%), Clipped (%2d%%)", 
+	    SnowUtils::percentCalc<int>(n_keep_counter, keep_counter), 
+	    SnowUtils::percentCalc<int>(mapq0_keep_counter, keep_counter), 
+	    SnowUtils::percentCalc<int>(discordant_keep_counter, keep_counter), 
+	    SnowUtils::percentCalc<int>(clipped_keep_counter, keep_counter));
+    char buffer3[100];
+    sprintf(buffer3, "   Filter (%% of total) -- Reads with N (%2d%%), Mapq0 (%2d%%), Discordant (%2d%%), Clipped (%2d%%)", 
+	    SnowUtils::percentCalc<int>(n_counter, total), 
+	    SnowUtils::percentCalc<int>(mapq0_counter, total), 
+	    SnowUtils::percentCalc<int>(discordant_counter, total), 
+	    SnowUtils::percentCalc<int>(clipped_counter, total));
+    if (m_verbose > 1) {
+      printf("%s\n", buffer2);
+      printf("%s\n", buffer3);
     }
   }
+  
   
   return true;
 

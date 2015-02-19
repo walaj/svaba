@@ -23,14 +23,14 @@ shome=/home/unix/jwala/GIT/isva/Snowman
 
 #include <string>
 #include <iostream>
-#include "grabReads.h"
+#include "run.h"
 #include "gather.h"
 #include "vcf.h"
 //#include "prep_pon.h"
 #include <vector>
 //#include "clean.h"
 #include "nozzle.h"
-#include "bamprocess.h"
+//#include "bamprocess.h"
 //#include "cluster.h"
 
 #define PROGRAM_BIN "snowman"
@@ -63,10 +63,10 @@ int main(int argc, char** argv)
     if (command == "help" || command == "--help") {
       std::cerr << SNOWMAN_USAGE_MESSAGE;
       return 0;
-    } else if (command == "preprocess") {
-      runPrep(argc-1, argv+1);
+      //} else if (command == "preprocess") {
+      //runPrep(argc-1, argv+1);
     } else if (command == "run") {
-      runTaiga(argc -1, argv + 1);
+      runSnowman(argc -1, argv + 1);
     } else if (command == "gather") {
       runConcat(argc-1, argv+1);
     } else if (command == "nozzle") {

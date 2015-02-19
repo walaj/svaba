@@ -1,8 +1,7 @@
-#ifndef GRAB_READS_H
-#define GRAB_READS_H
+#ifndef SNOWMAN_RUN_H
+#define SNOWMAN_RUN_H
 
 #include <string>
-#include <iostream>
 #include "SGACommon.h"
 #include "OverlapCommon.h"
 #include "ReadTable.h"
@@ -12,100 +11,40 @@
 #include "contigs.h"
 #include "api/algorithms/Sort.h"
 #include "GenomicRegion.h"
-//#include "SVBamReader.h"
 #include "AlignedContig.h"
-#include "VariantBamReader.h"
 #include "DiscordantCluster.h"
 #include "BamAndReads.h"
-#include "EncodedString.h"
+#include <time.h>
 
 using namespace std;
 using namespace BamTools;
 
-struct EncodedBA {
-  
-  BamAlignment a;
-  DNAEncodedString s;
-
-};
-typedef vector<EncodedBA> EncodedBAVector;
-
-
-//typedef unordered_map<string, EncodedBA> ReadMap;
 typedef unordered_map<string, BamAlignmentUP> ReadMap;
-typedef unordered_map<string, string> RMap;
-typedef pair<BamAlignmentUP, string> ReadAndCluster;
-typedef unordered_map<BamAlignmentUP, string> ReadAndClusterMap;
-typedef unordered_map<string, DiscordantCluster> ClusterMap; // tumor / normal
+typedef unordered_map<string, unique_ptr<BamAndReads> > BARMap;
 
-typedef vector<BamAlignment*> BamAlignmentVectorP;
-
-typedef unordered_map<string, BamAndReads> BARMap;
-
-struct IterPair {
-  IterPair(BamAlignmentVector::const_iterator s, BamAlignmentVector::const_iterator e) : start(s), end(e) {}
-  IterPair() {}
-  ~IterPair() {}
-  BamAlignmentVector::const_iterator start;
-  BamAlignmentVector::const_iterator end;  
-  size_t size() const { return end - start; }
-};
-
-typedef map<std::string, IterPair> IterPairMap;
-typedef vector<std::string> StringVec;
-
-//int runAll(vector<IterPair>& ivec, string name, AlignedContigVec * cont_out, DMap * dmap, BamAlignmentVectorAncParPairVector &vec);
-void addDiscordantPairsBreakpoints(BPVec &bp, DMap * dmap);
-//void clusterReads(BamAlignmentVector &bav, GenomicRegionVector &grv, RMap &rmap, char anchor_strand, char partner_strand);
-void clusterReads(BamAlignmentUPVector &bav, ReadMap &discordant_reads, GenomicRegionVector &grv, char anchor_strand, char partner_strand);
-void finalizeCluster(GenomicRegionVector &grv, BamAlignmentUPVector &reads_buffer, 
-       ReadMap &disc_reads, int pos, GenomicRegion anc, GenomicRegion par, 
-		     int dtcount, int dncount);
+void initializeFiles();
+void addDiscordantPairsBreakpoints(BPVec &bp, DMap& dmap);
 GenomicRegionVector calculateClusters(BamAlignmentUPVector &bav);
 DMap clusterDiscordantReads(BamAlignmentUPVector &bav);
-bool grabReads(int refID, int pos1, int pos2, AlignedContigVec * cont_out);
-//void SGAassemble(stringstream &asqg_stream, int minOverlap, int cutoff, string prefix, ContigVector &contigs);
+bool grabReads(int refID, int pos1, int pos2);
 bool runSnowman(int argc, char** argv);
 void parseRunOptions(int argc, char** argv);
-void writeR2C(bool makeIndex = false);
-bool _cluster(vector<BamAlignmentUPVector> &main, BamAlignmentUPVector &buff, pair<int,int> &last_info, pair<int, int> this_info, BamAlignmentUP &a);
-
-
-//bool read_lt_mate(BamAlignmentUP &a) {
-//  return ( (a->RefID < a->MateRefID) || ((a->RefID == a->MateRefID) && (a->Position < a->MatePosition)) );
-//}
-
-//void chunkReadsForAssembly(const int refID, const int pos1, const int chunk, const int pad, 
-//			   AlignedContigVec * cont_out, BamAlignmentVector * tbav, BamAlignmentVector * nbav,
-//			   DMap * dmap);
-//void addDiscCluster(BamTools::BamAlignment a1, BamTools::BamAlignment a2, size_t cluster);
-//bool parseRegionFile(GenomicRegionVector &gr);
-//void getChunkReads(const BamAlignmentVector * srv, const unsigned refID, const unsigned pos1, const unsigned chunk, const unsigned pad, IterPairMap &mmap);
-//void deduplicateReadsPos(const BamAlignmentVector &inbav, BamAlignmentVector &outbav);
-//void matchReads2Contigs(ContigVector * contigs, BamAlignmentVector &bav, ContigVector * cont_out);
+void writeR2C(ReadMap &r2c);
+bool _cluster(vector<BamAlignmentUPVector> &cvec, BamAlignmentUPVector &clust, BamAlignmentUP &a, bool mate);
+void _convertToDiscordantCluster(DMap &dd, vector<BamAlignmentUPVector> cvec, BamAlignmentUPVector &bav);
 void doAssembly(ReadTable *pRT, std::string name, ContigVector &contigs, int pass);
-//void combineR2C(EncodedBAVector &read_in, ReadMap &read_out);
-//void grabPairmateReads(vector<IterPair>& ivec, const GenomicRegion window, DMap * dmap, BamAlignmentVectorAncParPairVector &vec);
 int countJobs(GenomicRegionVector &file_regions, GenomicRegionVector &run_regions);
-//void learnParameters();
-//void _learn_params(BamTools::BamReader &reader, vector<double> &mapq_result, vector<double> &isize_result,
-//		   double &inter_cov, double &clip_cov, GenomicRegion &gr, int &readlen);
-//void writeDiscBam(BamAlignmentVector * disc);
-//void runBWA();
 bool isDiscordant(const BamAlignmentUP &a, bool ancrev, bool parrev);
 bool isTumorRead(const BamAlignmentUP &a);
-void cleanR2C();
 void cleanR2CBam();
-//void cleanDiscBam();
-//void writeContigFasta(AlignedContigVec *ct);
-//void writeReadsBam(AlignedContigVec *ct); // deprecated
-//void writeReadsBam(EncodedBAVector *reads);
-//void handleDiscordant(BamAlignmentVector &bavd, string name, GenomicRegion gr, DMap * dmap);
-//void clearMemWriteData();
-//void ContigsToReadTable(const ContigVector &contigs, ReadTable &pRT);
-//void BamAlignmentVectorToReadTable(const BamAlignmentVector &bav, ReadTable &pRT);
-void combineContigsWithDiscordantClusters(DMap this_dmap, AlignedContigVec * cont_out);
+void combineContigsWithDiscordantClusters(DMap &dm, AlignedContigVec &contigs);
 
+/** @brief p-thread work item that calls Snowman on a small region
+
+    Detailed description follows here.
+    @author X. XYZ, DESY
+    @date March 2008
+*/
 class SnowmanWorkItem {
 
 private:
@@ -113,12 +52,10 @@ private:
   int m_pos1;
   int m_pos2;
   int m_number;
-  AlignedContigVec * m_cont;
-  DMap * m_disc;
    
 public:
-  SnowmanWorkItem(int refid, int start, int end, int number, AlignedContigVec * cont_out)  
-    : m_refid(refid), m_pos1(start), m_pos2(end), m_number(number), m_cont(cont_out){}
+  SnowmanWorkItem(int refid, int start, int end, int number)  
+    : m_refid(refid), m_pos1(start), m_pos2(end), m_number(number) {}
   ~SnowmanWorkItem() {}
  
   int getNumber() { return m_number; }
@@ -126,8 +63,7 @@ public:
   int getPos1() { return m_pos1; }
   int getPos2() { return m_pos2; }
 
-  bool run() { return grabReads(m_refid, m_pos1, m_pos2, m_cont); }
-  AlignedContigVec* output() { return m_cont; }
+  bool run() { return grabReads(m_refid, m_pos1, m_pos2); }
 
 };
 
@@ -250,6 +186,58 @@ struct ByReadAndMatePosition : public AlignmentSortBase {
   // data members
   private:
   const Algorithms::Sort::Order m_order;
+};
+
+// make a structure to store timing opt
+struct SnowTimer {
+
+  SnowTimer() {
+    s = {"r", "m", "as", "bw", "cl", "wr", "sw"};
+    for (auto& i : s)
+      times[i] = 0;
+    curr_clock = clock();
+  }
+
+  unordered_map<string, double> times;
+  vector<string> s;
+
+  clock_t curr_clock;
+
+  void stop(string part) { 
+    times[part] += (clock() - curr_clock); 
+    curr_clock = clock();
+  }
+  void start() { curr_clock = clock(); }
+
+  // print it
+  friend ostream& operator<<(ostream &out, const SnowTimer st) {
+
+    double total_time = 0;
+    for (auto& i : st.times)
+      total_time += i.second;
+    if (total_time == 0)
+      return out;
+
+    char buffer[140];
+    
+    auto itr = st.times.find("r");
+    auto itm = st.times.find("m");
+    auto itc = st.times.find("cl");
+    auto ita = st.times.find("as");
+    auto itb = st.times.find("bw");
+    auto its = st.times.find("sw");
+
+    sprintf (buffer, "R: %2d%% M: %2d%% D: %2d%% A: %2d%% B: %2d%% S: %2d%%", 
+	     SnowUtils::percentCalc<double>(itr->second, total_time),
+	     SnowUtils::percentCalc<double>(itm->second, total_time),
+	     SnowUtils::percentCalc<double>(itc->second, total_time),
+	     SnowUtils::percentCalc<double>(ita->second, total_time),
+	     SnowUtils::percentCalc<double>(itb->second, total_time),
+	     SnowUtils::percentCalc<double>(its->second, total_time));
+    out << string(buffer);
+    return out;
+  }
+
 };
 
 

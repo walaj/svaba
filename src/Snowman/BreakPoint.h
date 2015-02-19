@@ -5,33 +5,47 @@
 #include <string>
 #include <unordered_map>
 #include "GenomicRegion.h"
+#include "DiscordantCluster.h"
+#include "api/BamReader.h"
+#include "api/BamWriter.h"
+#include <memory>
+
+using namespace std;
 
 struct BreakPoint;
 typedef vector<BreakPoint> BPVec;
-typedef unordered_map<string, BreakPoint> BPMap;
+//typedef unordered_map<string, BreakPoint> BPMap;
+//typedef shared_ptr<BamAlignment> BamAlignmentUP;
+//typedef vector<BamAlignmentUP> BamAlignmentUPVector;
 
 struct BreakPoint {
 
-  bool isBest = false; // marked for best breakpoint when mulitple are redundant
- 
+  static string header() { return "chr1\tpos1\tstrand1\tchr2\tpos2\tstrand2\tspan\tmapq1\tmapq2\tnsplit\ttsplit\tndisc\ttdisc\thomology\tinsertion\tcontig\tnumalign\tconfidence\tevidence\treads"; }
+
+  // Discovar information
   size_t disco_tum = 0;
   size_t disco_norm = 0;
-
-  //string idcommon = "";
-  //string pairid = "";
-  
   bool discovar = false;
+  
+  // reads spanning this breakpoint
+  BamAlignmentUPVector reads;
 
+  // discordant reads supporting this aseembly bp
   DiscordantCluster dc;
 
-  unsigned pos1;
-  unsigned pos2;
+  // breakpoints on the reference
+  GenomicRegion gr1;
+  GenomicRegion gr2;
 
-  unsigned cpos1;  
-  unsigned cpos2;
 
-  unsigned refID1;
-  unsigned refID2;
+  //unsigned pos1 = 0;
+  //unsigned pos2 = 0;
+
+  unsigned cpos1 = 0;  
+  unsigned cpos2 = 0;
+
+  //unsigned refID1 = 0;
+  //unsigned refID2 = 0;
 
   string seq;
 
@@ -45,14 +59,14 @@ struct BreakPoint {
   int matchlen1 = 0;
   int matchlen2 = 0;
   
-  char strand1;
-  char strand2;
+  //char strand1;
+  //char strand2;
 
   bool isSomatic = false;
   bool isGermline = false;
 
-  unsigned mapq1; 
-  unsigned mapq2; 
+  //unsigned mapq1; 
+  //unsigned mapq2; 
 
   unsigned tsplit1 = 0;
   unsigned tsplit2 = 0;
@@ -66,8 +80,8 @@ struct BreakPoint {
   unsigned tall = 0;
   unsigned nall = 0; 
 
-  int nm1 = 0;
-  int nm2 = 0;
+  //int nm1 = 0;
+  //int nm2 = 0;
 
   unsigned num_dups = 0;
    
@@ -87,7 +101,10 @@ struct BreakPoint {
   string confidence = "";
 
   BreakPoint(DiscordantCluster tdc);
-  BreakPoint() {}
+  BreakPoint() {
+    gr1.pos1 = 0;
+    gr2.pos1 = 0;
+  }
 
   static string BreakPointHeader();
 
@@ -97,9 +114,13 @@ struct BreakPoint {
 
   void order();
 
+  bool isEmpty() const { return (gr1.pos1 == 0 && gr2.pos1 == 0); }
+
   // return whether a bp is good to move on
   bool isGoodSomatic(int mapq, size_t tsplit_cutoff, size_t nsplit_cutoff) const;
 
+  string toFileString();
+  
   bool hasDiscordant() const;
 
   // return whether a bp is good to move on
@@ -107,10 +128,10 @@ struct BreakPoint {
 
   // define how to sort these 
   bool operator < (const BreakPoint& bp) const { 
-    return bp.refID1 > refID1 || 
-       (bp.refID1 == refID1 && bp.pos1 > pos1) || // low pos is first
-       (bp.refID1 == refID1 && bp.pos1 == pos1 && bp.pos2 == pos2 && nsplit1 > bp.nsplit1) || // if same, check nsplit
-       (bp.refID1 == refID1 && bp.pos1 == pos1 && bp.pos2 == pos2 && nsplit1 == bp.nsplit1 && tsplit1 > bp.tsplit1); // if also same, check tsplit
+    return (gr1 < bp.gr1); // || (gr1 == gr2 && nsplit1 > bp.nsplit1)
+    //(bp.gr1.ref == refID1 && bp.pos1 > pos1) || // low pos is first
+      //  (bp.refID1 == refID1 && bp.pos1 == pos1 && bp.pos2 == pos2 && nsplit1 > bp.nsplit1) || // if same, check nsplit
+      // (bp.refID1 == refID1 && bp.pos1 == pos1 && bp.pos2 == pos2 && nsplit1 == bp.nsplit1 && tsplit1 > bp.tsplit1); // if also same, check tsplit
   }
   friend ostream& operator<<(std::ostream& out, const BreakPoint& bp) { out << bp.toString(); return out; }
 

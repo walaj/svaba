@@ -25,90 +25,6 @@ ReadTable::ReadTable(std::string filename, uint32_t reader_flags)
     }
 }
 
-// JEREMIAH
-/*ReadTable::ReadTable(std::string* seq, std::string * id, int length)
-{
-    m_pIndex = NULL; // not built by default
-    for (int i = 0; i < length; i++) {
-      SeqItem r;
-      r.id = id[i];
-      std::cout << id[i] << "\n";
-      r.seq = seq[i];
-      m_table.push_back(r);
-    }
-    }*/
-
-// JEREMIAH
-ReadTable::ReadTable(SeqRecordVector srv)
-{
-    idx = 0;
-    m_pIndex = NULL; // not built by default
-    for(std::vector<SeqRecord>::size_type i = 0; i != srv.size(); i++) {
-      m_table.push_back(srv[i].toSeqItem());
-    }
-}
-
-// JEREMIAH
-ReadTable::ReadTable(const ContigVector &contigs)
-{
-    idx = 0;
-    m_pIndex = NULL; // not built by default
-    for (ContigVector::const_iterator it = contigs.begin(); it != contigs.end(); it++) {
-      SeqItem si;
-      si.seq = it->getSeq();
-      si.id = it->getID();
-      m_table.push_back(si);
-    }
-
-}
-
-// JEREMIAH
-ReadTable::ReadTable(const BamAlignmentVector &bav)
-{
-    idx = 0;
-    m_pIndex = NULL; // not built by default
-    for(BamAlignmentVector::const_iterator i = bav.begin(); i != bav.end(); i++) { 
-      SeqItem si;
-      if (!i->GetTag("SR", si.id)) {
-	cout << "Expecting SR tag (unique read name)" << endl;
-	exit(EXIT_FAILURE);
-      }
-      //si.id = i->Name;
-      //si.seq = i->QueryBases;
-      std::string seqr;
-
-      if (!i->GetTag("TS", seqr))
-	seqr = i->QueryBases;
-      si.seq = seqr;
-      assert(seqr.length());
-      m_table.push_back(si);
-    }
-}
-
-// JEREMIAH
-ReadTable::ReadTable(const BamAlignmentUPVector &bav)
-{
-    idx = 0;
-    m_pIndex = NULL; // not built by default
-    for (auto &i : bav) {
-      //for(BamAlignmentUPVector::const_iterator i = bav.begin(); i != bav.end(); i++) { 
-      SeqItem si;
-      if(!i->GetTag("SR", si.id)) {
-	cerr << "ERROR: expecting SR tag for reads" << endl;
-	exit(EXIT_FAILURE);
-      } 
-
-      std::string seqr;
-
-      // if quality trimmed bases not found, go with original
-      if (!i->GetTag("TS", seqr))
-	seqr = i->QueryBases;
-      si.seq = seqr;
-      assert(seqr.length());
-      m_table.push_back(si);
-    }
-}
-
 // 
 ReadTable::~ReadTable()
 {
@@ -162,7 +78,7 @@ const SeqItem& ReadTable::getRead(size_t idx) const
     return m_table[idx];
 }
 
-// Jeremiah
+// JEREMIAH
 bool ReadTable::getRead(SeqItem &si)
 {
   if (idx >= m_table.size())

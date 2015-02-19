@@ -11,32 +11,16 @@
 
 #include "Util.h"
 #include "SeqReader.h"
-#include "contigs.h"
 #include <map>
-#include "api/BamReader.h"
-#include "api/BamWriter.h"
-#include <memory>
-
-using namespace std;
-using namespace BamTools;
 
 typedef std::vector<SeqItem> ReadVector;
 typedef std::map<std::string, SeqItem*> ReadIndex;
-typedef std::vector<BamTools::BamAlignment> BamAlignmentVector;
-typedef std::vector<BamTools::BamAlignment*> BamAlignmentVectorP;
-typedef shared_ptr<BamAlignment> BamAlignmentUP;
-typedef vector<BamAlignmentUP> BamAlignmentUPVector;
 
 class ReadTable
 {
     public:
-        //
-        ReadTable() : m_pIndex(NULL) {}
-	  //ReadTable(std::string* seq, std::string * id, int length);
-	ReadTable(SeqRecordVector srv);
-	ReadTable(const BamAlignmentVector &bav);
-	ReadTable(const BamAlignmentUPVector &bav);
-	ReadTable(const vector<Contig> &contigs);
+        //JEREMIAH (added idx(0))
+        ReadTable() : idx(0), m_pIndex(NULL) {}
         ReadTable(std::string filename, uint32_t reader_flags = 0);
         ~ReadTable();
 
