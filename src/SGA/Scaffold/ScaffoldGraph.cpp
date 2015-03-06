@@ -12,7 +12,7 @@
 
 ScaffoldGraph::ScaffoldGraph()
 {
-    m_vertices.set_deleted_key("");
+  //m_vertices.set_deleted_key(""); // JEREMIAH
 }
 
 //

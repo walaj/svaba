@@ -9,8 +9,12 @@
 #include "SnowmanOverlapAlgorithm.h"
 #include "SnowmanASQG.h"
 #include "faidx.h"
-#include "BWAWrapper.h"
 #include "gzstream.h"
+#include "vcf.h"
+#include <cstdio>
+
+// need for SeqItem
+#include "Util.h"
 
 #include <signal.h>
 #include <memory>
@@ -34,6 +38,8 @@ static int contig_counter = 0;
 static int discordant_counter = 0;
 static pthread_mutex_t snow_lock;
 
+static size_t interupt_counter = 0;
+
 // output writers
 static BamWriter * r2c_writer;
 static ogzstream * all_align_stream;
@@ -46,7 +52,7 @@ static ogzstream * all_disc_stream;
 static BamReader * treader_for_convert;
 
 // bwa index
-static bwaidx_t *idx;
+//static unique_ptr<bwaidx_t> idx;
 
 // detected at least one contig
 static bool hashits = false;
@@ -72,9 +78,12 @@ namespace opt {
     static string outVariantsFile = ""; // dummy
   }
 
+  static int32_t readlen;
+
   // parameters for filtering reads
-  static string rules;
   static int isize = 800;
+  //static string rules = "global@nbases[0,0];!nm[7,1000]!hardclip;!supplementary;!duplicate;!qcfail;phred[4,100];length[50,300]%region@WG%discordant[0,800];mapq[1,100]%mapq[1,1000];clip[5,100]%ins[1,1000]%del[1,1000]";
+  static string rules = "global@nbases[0,0];!hardclip;!supplementary;!duplicate;!qcfail;phred[4,100];%region@WG%discordant[0,800];mapq[1,100]%mapq[1,1000];clip[5,100]%ins[1,1000]%del[1,1000]";
 
   static int chunk = 1000000;
 
@@ -85,6 +94,11 @@ namespace opt {
   // data
   static BamMap bam;
   static string refgenome = REFHG19;  
+  static string analysis_id = "no_id";
+
+
+  //subsample
+  float subsample = 1.0;
 
   // regions to run
   static std::string regionFile = "x";
@@ -100,10 +114,11 @@ enum {
   OPT_DISC_CLUSTER_ONLY
 };
 
-static const char* shortopts = "ht:n:p:v:r:g:r:e:g:k:c:";
+static const char* shortopts = "ht:n:p:v:r:g:r:e:g:k:c:a:";
 static const struct option longopts[] = {
   { "help",                    no_argument, NULL, 'h' },
   { "tumor-bam",               required_argument, NULL, 't' },
+  { "analysis-id",             required_argument, NULL, 'a' },
   { "normal-bam",              required_argument, NULL, 'n' },
   { "threads",                 required_argument, NULL, 'p' },
   { "chunk-size",              required_argument, NULL, 'c' },
@@ -125,10 +140,12 @@ static const char *RUN_USAGE_MESSAGE =
 "  -h, --help                           Display this help and exit\n"
 "  -p, --threads                        Use NUM threads to run snowman. Default: 1\n"
 "  -g, --reference-genome               Path to indexed reference genome to be used by BWA-MEM. Default is Broad hg19 (/seq/reference/...)\n"
+"  -a, --analysis-id                    Optionally add a unique identifier for the output files.\n"
 "  Required input\n"
 "  -t, --tumor-bam                      Tumor BAM file\n"
 "  Optional input\n"                       
 "  -n, --normal-bam                     Normal BAM file\n"
+"  -r, --rules                          VariantBam style rules string to determine which reads to do assembly on. See documentation for default.\n"
 "  -m, --min-overlap                    Minimum read overlap, an SGA parameter. Default: 0.4* readlength\n"
 "  -k, --region-file                    Set a region txt file. Format: one region per line, Ex: 1,10000000,11000000\n"
 "      --disc-cluster-only              Only run the discordant read clustering module, skip assembly. Default: off\n"
@@ -145,6 +162,10 @@ static MiniRulesCollection * mr;
 // handle a ctrl C
 void my_handler(int s){
 
+  interupt_counter++;
+  if (interupt_counter > 2)
+    exit(EXIT_FAILURE);
+
   if (s > 0)
     printf("\nCaught signal %d. Closing BAMs and ofstreams\n",s);
 
@@ -154,7 +175,13 @@ void my_handler(int s){
 
     r2c_writer->Close();
 
-    cleanR2CBam();
+    if (read_counter < 2000000) {
+      //cleanR2CBam();
+      string oldf = "r2c_clean.bam";
+      string newf = "r2c.bam";
+      rename(oldf.c_str(), newf.c_str());
+    }
+    
 
     all_align_stream->close();
     all_disc_stream->close();
@@ -162,9 +189,25 @@ void my_handler(int s){
     contigs_sam->close();
 
     // convert SAM to BAM
-    string cmd = "samtools view contigs.sam -h -Sb > contigs.tmp.bam; samtools sort contigs.tmp.bam contigs; rm contigs.tmp.bam; samtools index contigs.bam";
+    string cmd = "samtools view contigs.sam -h -Sb > contigs.tmp.bam; samtools sort contigs.tmp.bam contigs; rm contigs.tmp.bam; samtools index contigs.bam; rm contigs.sam";
     cout << cmd << endl;
     system(cmd.c_str());
+
+    // make the VCF file
+    if (opt::verbose)
+      cout << "...making the VCF files" << endl;
+
+    VCFFile snowvcf("bps.txt.gz", opt::refgenome.c_str(), '\t', opt::analysis_id);
+    ogzstream out;
+    out.open("vars.vcf.gz", ios::out);
+    out << snowvcf;
+
+    // write the indel one
+    string basename = opt::analysis_id + ".broad-snowman.DATECODE.";
+    snowvcf.writeIndels(basename);
+    snowvcf.writeSVs(basename);
+
+
   } else {
     cout << "%%%%%%%%%%%%%%%%%%%%" << endl; 
     cout << "NO VARIANTS DETECTED" << endl;
@@ -179,7 +222,47 @@ void my_handler(int s){
     cout << "Snowman stopped due to signal interrupt, but successfully wrote output files"<< endl;
   SnowUtils::displayRuntime(start);
   cout << endl;
-  exit(1); 
+  if (s > 0)
+    exit(EXIT_FAILURE); 
+  else 
+    exit(EXIT_SUCCESS);
+
+}
+
+void sendThreads(GenomicRegionVector &regions_torun) {
+
+  // load the index reference genome onto the heap
+  if (opt::verbose > 0)
+    cout << "Loading the reference BWT index file for: "  << opt::refgenome << endl;
+
+  unique_ptr<bwaidx_t> idx = unique_ptr<bwaidx_t>(bwa_idx_load(opt::refgenome.c_str(), BWA_IDX_ALL));
+  if (idx == NULL) {
+    std::cerr << "Could not load the reference: " << opt::refgenome << endl;
+    exit(EXIT_FAILURE);
+  }
+
+  // Create the queue and consumer (worker) threads
+  wqueue<SnowmanWorkItem*>  queue;
+  vector<ConsumerThread<SnowmanWorkItem>*> threadqueue;
+  for (unsigned i = 0; i < opt::numThreads; i++) {
+    ConsumerThread<SnowmanWorkItem>* threadr = new ConsumerThread<SnowmanWorkItem>(queue, opt::verbose > 0);
+    threadr->start();
+    threadqueue.push_back(threadr);
+  }
+
+  // send the jobs
+  unsigned count = 0;
+  for (GenomicRegionVector::const_iterator it = regions_torun.begin(); it != regions_torun.end(); it++) {
+    count++;
+    SnowmanWorkItem * item     = new SnowmanWorkItem(it->chr, it->pos1, it->pos2, count, &idx);
+    queue.add(item);
+  }
+
+  // wait for the threads to finish
+    for (unsigned i = 0; i < opt::numThreads; i++) 
+    threadqueue[i]->join();
+
+    bwa_idx_destroy(idx.release());
 
 }
 
@@ -203,6 +286,9 @@ bool runSnowman(int argc, char** argv) {
     exit(EXIT_FAILURE);
   }
 
+  // learn some parameters
+  learnParameters();
+
   // parse the region file, count number of jobs
   GenomicRegionVector file_regions, regions_torun;
   int num_jobs = countJobs(file_regions, regions_torun); 
@@ -213,6 +299,7 @@ bool runSnowman(int argc, char** argv) {
   if (opt::verbose > 0) {
     cout << "Num threads:         " << opt::numThreads << endl;
     cout << "Assembly error rate: " << opt::assemb::error_rate << endl;
+    cout << "Read length: " << opt::readlen << endl;
   }
 
   if (opt::disc_cluster_only) 
@@ -224,31 +311,30 @@ bool runSnowman(int argc, char** argv) {
   }
 
   // set the MiniRules
-  mr = new MiniRulesCollection("global@nbases[0,0];!hardclip;!supplementary;!duplicate;!qcfail;phred[4,100];length[50,300]%region@WG%discordant[0,800]%clip[5,100]%ins[1,1000]%del[1,1000]");
+  mr = new MiniRulesCollection(opt::rules);
   if (opt::verbose > 0)
     cout << *mr;
-
-  // load the index reference genome onto the heap
-  if (opt::verbose > 0)
-    cout << "Loading the reference BWT index file for: "  << opt::refgenome << endl;
-  idx = bwa_idx_load(opt::refgenome.c_str(), BWA_IDX_ALL);
-  if (idx == NULL) {
-    std::cerr << "Could not load the reference: " << opt::refgenome << endl;
-    exit(EXIT_FAILURE);
-  }
 
   // write the tumor header to the contigs SAM file
   contigs_all = new ogzstream("contigs_all.sam.gz", ios::out);
   (*contigs_all) << treader_for_convert->GetHeaderText();
 
-  // Create the queue and consumer (worker) threads
-  wqueue<SnowmanWorkItem*>  queue;
-  vector<ConsumerThread<SnowmanWorkItem>*> threadqueue;
-  for (unsigned i = 0; i < opt::numThreads; i++) {
-    ConsumerThread<SnowmanWorkItem>* threadr = new ConsumerThread<SnowmanWorkItem>(queue, opt::verbose > 0);
-    threadr->start();
-    threadqueue.push_back(threadr);
+  initializeFiles();
+
+  // open a mutex
+  if (pthread_mutex_init(&snow_lock, NULL) != 0) {
+      printf("\n mutex init failed\n");
+      return false;
   }
+
+  // Create the queue and consumer (worker) threads
+//   wqueue<SnowmanWorkItem*>  queue;
+//   vector<ConsumerThread<SnowmanWorkItem>*> threadqueue;
+//   for (unsigned i = 0; i < opt::numThreads; i++) {
+//     ConsumerThread<SnowmanWorkItem>* threadr = new ConsumerThread<SnowmanWorkItem>(queue, opt::verbose > 0);
+//     threadr->start();
+//     threadqueue.push_back(threadr);
+//   }
 
   // start the timer
   clock_gettime(CLOCK_MONOTONIC, &start);
@@ -264,31 +350,12 @@ bool runSnowman(int argc, char** argv) {
     }
   }  
 
-  // open a mutex
-  if (pthread_mutex_init(&snow_lock, NULL) != 0) {
-      printf("\n mutex init failed\n");
-      return false;
-  }
-
-  // send the jobs
-  unsigned count = 0;
-  for (GenomicRegionVector::const_iterator it = regions_torun.begin(); it != regions_torun.end(); it++) {
-    count++;
-    SnowmanWorkItem * item     = new SnowmanWorkItem(it->chr, it->pos1, it->pos2, count);
-    queue.add(item);
-  }
-
-  // wait for the threads to finish
-  for (unsigned i = 0; i < opt::numThreads; i++) 
-    threadqueue[i]->join();
-
-  // delete the index from memory
-  free(idx);
-
+  sendThreads(regions_torun);
+  
   // close the BAMs
   my_handler(0);
 
-  // display the run time
+
   if (opt::verbose > 0) {
     SnowUtils::displayRuntime(start);
     cout << endl;
@@ -298,7 +365,7 @@ bool runSnowman(int argc, char** argv) {
 
 }
 
-bool grabReads(int refID, int pos1, int pos2) {
+bool grabReads(int refID, int pos1, int pos2, unique_ptr<bwaidx_t>* idx) {
 
   // place to store the contigs that are made and their read alignments
   AlignedContigVec alc;
@@ -309,7 +376,6 @@ bool grabReads(int refID, int pos1, int pos2) {
   // count the number of reads
   int num_n_reads = 0, num_t_reads = 0;
   SnowTimer st;
-
 
   unique_ptr<BARMap> bar(new BARMap);
 
@@ -334,11 +400,6 @@ bool grabReads(int refID, int pos1, int pos2) {
     // grab the reads and assign them to assembly regions
     (*bar)[bam.first]->readBam();
 
-    // grab the mate region reads
-#ifdef MATES
-    (*bar)[bam.first]->calculateMateRegions();
-#endif
-
     // add the times
     assert(bam.second.length() > 0);
     if (bam.second.at(0) == 'n') {
@@ -347,11 +408,52 @@ bool grabReads(int refID, int pos1, int pos2) {
       num_t_reads += (*bar)[bam.first]->unique_reads;
     }
   }
+
+  // make the master blacklist
+  GenomicRegionVector master_black;
+  for (auto& bam : opt::bam) {      
+    master_black.insert(master_black.end(), (*bar)[bam.first]->blacklist.begin(), (*bar)[bam.first]->blacklist.end());
+  }
+  master_black = GenomicRegion::mergeOverlappingIntervals(master_black);
+  GenomicIntervalTreeMap black_tree = GenomicRegion::createTreeMap(master_black);
+
+  //debug
+  for (auto& g : master_black)
+    cout << "BLACKLIST " << g << endl;
+  
+  // loop through and remove reads from blacklist
+  if (master_black.size())
+  for (auto& bam : opt::bam) {
+    (*bar)[bam.first]->removeBlacklist(black_tree);
+    }
+
+
+  for (auto& bam : opt::bam) {
+    // grab the mate region reads
+#ifdef MATES
+    (*bar)[bam.first]->calculateMateRegions();
+#endif
+  }
+
   st.stop("r");
+
+  // make master normal cigarmap
+  CigarMap cigmap_n, cigmap_t;
+  for (auto& bam : opt::bam) {
+    if (bam.second.at(0) == 'n') {
+      for (auto& c : (*bar)[bam.first]->cigmap)
+	cigmap_n[c.first] += c.second;
+    } else if (bam.second.at(0) == 't') {
+      for (auto& c : (*bar)[bam.first]->cigmap)
+	cigmap_t[c.first] += c.second;
+    }
+  }
+    
 
 #ifdef MATES
 
   // merge the mate regions
+  /*
   GenomicRegionVector mate_normal, mate_tumor;
   for (auto& bam : opt::bam) {
     if (bam.second.at(0) == 't')
@@ -362,6 +464,7 @@ bool grabReads(int refID, int pos1, int pos2) {
   mate_normal = GenomicRegion::mergeOverlappingIntervals(mate_normal);
   mate_tumor = GenomicRegion::mergeOverlappingIntervals(mate_tumor);
   size_t mate_region_size = 0;
+
   // check if the tumor overlaps 
   GenomicRegionVector mate_final;
   for (auto& t : mate_tumor) {
@@ -377,13 +480,19 @@ bool grabReads(int refID, int pos1, int pos2) {
       mate_region_size += t.width();
     }
   }
+  */
 
+  GenomicRegionVector mate_comb;
+  for (auto& bam : opt::bam) 
+    mate_comb.insert(mate_comb.begin(), (*bar)[bam.first]->mate_regions.begin(), (*bar)[bam.first]->mate_regions.end());
+  GenomicRegionVector mate_final = GenomicRegion::mergeOverlappingIntervals(checkReadsMateRegions(mate_comb, bar));
+  
   // print it out
   if (opt::verbose > 1) {
-    cout << "Mate regions(" << mate_final.size() << ") covering width of " << SnowUtils::AddCommas<size_t>(mate_region_size) << endl;
+    cout << "Mate regions(" << mate_final.size() << ")" << endl;
     if (opt::verbose > 2)
       for (auto &i : mate_final)
-	cout << "    " << i << " width " << i.width() << endl;
+	cout << "    " << i << " width " << i.width() << " tcount " << i.tcount << " ncount " << i.ncount << endl;
   }
 
   // grab the mate reads
@@ -407,17 +516,27 @@ bool grabReads(int refID, int pos1, int pos2) {
   // do the discordant read clustering. Put all reads in one vector,
   // and dedupe doubles
   unordered_map<string,bool> dd;
-  BamAlignmentUPVector reads_fdisc;
+
+
+  ReadVec reads_fdisc;
   for (auto& bam : opt::bam) {
     for (auto& v : (*bar)[bam.first]->arvec)
       for (auto& r : v->reads) {
 	string tmp;
-	r->GetTag("SR",tmp);
+	r_get_Z_tag(r, "SR", tmp);
 	if (dd.count(tmp) == 0) 
 	  reads_fdisc.push_back(r);
 	dd[tmp] = true;
       }
   }
+
+  //debug
+  /*BamWriter writ;
+  writ.Open("tmp.bam", treader_for_convert->GetHeaderText(), treader_for_convert->GetReferenceData());
+  for (auto& r : reads_fdisc)
+    writ.SaveAlignment(*r);
+  writ.Close();
+  */
 
   // cluster the discordant reads
   DMap this_disc = clusterDiscordantReads(reads_fdisc);
@@ -436,12 +555,13 @@ bool grabReads(int refID, int pos1, int pos2) {
     // If not, program crashes in SGA
     unordered_map<string, bool> dupe_check; 
     
-    BamAlignmentUPVector bav_join;
+    ReadVec bav_join;
     for (auto& bam : *bar) {
       if (bam.second->arvec[i]->reads.size() > 0)
 	for (auto& read : bam.second->arvec[i]->reads) {
 	  string tmp;
-	  read->GetTag("SR", tmp);
+	  r_get_Z_tag(read, "SR", tmp);
+	  //read->GetTag("SR", tmp);
 	  if (dupe_check.count(tmp) == 1)
 	    ;//cerr << "Unexpected duplicate: " << read->RefID << ":" << read->Position << " mate: " << read->MateRefID << ":" << read->MatePosition << " sr: " << tmp << endl;
 	  else {
@@ -453,8 +573,22 @@ bool grabReads(int refID, int pos1, int pos2) {
 
     // make the reads tables
     ReadTable pRT;
-    pRT = ReadTable(bav_join);
-    
+    for (auto& i : bav_join) {
+      SeqItem si;
+      string sr, seq = "";
+      r_get_SR(i, sr);
+      r_get_trimmed_seq(i, seq); 
+      assert(sr.length());
+      assert(seq.length());
+      r_get_trimmed_seq(i, seq);
+
+      si.id = sr;
+      si.seq = seq;
+      if (seq.length() > 40)
+	pRT.addRead(si);
+    }
+    //cout << pRT << endl;
+
     ContigVector contigs;
     ContigVector contigs1;
     ContigVector contigs0;
@@ -469,14 +603,20 @@ bool grabReads(int refID, int pos1, int pos2) {
       // do the first round (on raw reads)
       doAssembly(&pRT, name, contigs0, 0);
 
-      // do the second round (on assembled contigs)
-      ReadTable pRTc0(contigs0);
-      doAssembly(&pRTc0, name, contigs1, 1);      
+      for (size_t yy = 1; yy != 2; yy++) {
 
-      // do the third round of assembly (on assembled-assembled contigs)
-      ReadTable pRTc(contigs1);
-      doAssembly(&pRTc, name, contigs, 1);
+	// do the second round (on assembled contigs)
+	ReadTable pRTc0(contigs0);
+	contigs.clear();
+	doAssembly(&pRTc0, name, contigs, yy);      
+	contigs0 = contigs;
+      }
+      
+      // de-dupe assemblies
       st.stop("as");
+
+      if (opt::verbose > 2)
+	cout << "Doing BWA alignment on: " << name << " with " << contigs.size() << " contigs" << endl;
       
       // peform alignment of contigs to reference with BWA-MEM
       BWAWrapper wrap;
@@ -485,28 +625,48 @@ bool grabReads(int refID, int pos1, int pos2) {
       for (auto& i : contigs) 
 	bwarv.push_back(BWARead(i.getID(), i.getSeq()));
       wrap.addSequences(bwarv, idx, samv);
-      st.stop("bw");
 
       // make aligned contigs from SAM records
-      for (auto it = samv.begin(); it != samv.end(); it++) {
-	AlignedContig ac(it->record, treader_for_convert, grv_small[i]);
-	if (/*ac.m_align.size() > 1*/ ac.hasVariant() && ac.getMinMapq() >= 10 && ac.getMaxMapq() >= 40) { 
-	  ac.alignReadsToContigs(bav_join);
-	  if (ac.m_align.size() > 1) {
-	    ac.splitCoverage();
-	    ac.getBreakPairs();
-	  } else {
-	    ac.splitIndelCoverage();
+
+      size_t new_alc_start = alc.size();
+      for (auto& r : samv) 
+	alc.push_back(AlignedContig(r.record, treader_for_convert, grv_small[i]));
+
+      st.stop("bw");     
+      // dedupe
+      /*
+      for (auto& ac : alc) {
+	for (auto cc : alc) { 
+	  if (ac.m_farbreak == cc.m_farbreak) {
+	    if (!ac.isBetter(cc))
+	      ac.skip = true;
 	  }
-	  if (ac.maxSplit() > 0 || true) // must have > 0 split to continue
-	    alc.push_back(ac);
-	} else {
-	  alc.push_back(ac);
+	}
+      }
+      */
+
+      //debug
+      //      for (auto& ac : alc) 
+      //	cout << ac.skip << endl;
+
+      for (size_t i = new_alc_start; i < alc.size(); i++) {
+	if (!alc[i].skip && alc[i].hasVariant() && alc[i].getMinMapq() >= 10 && alc[i].getMaxMapq() >= 40) { 
+
+	  if (alc[i].m_align.size() > 1) { //debug
+	    alc[i].alignReadsToContigs(bav_join, false);
+	    alc[i].splitCoverage();
+	    alc[i].getBreakPairs();
+	  } else {
+	    alc[i].alignReadsToContigs(bav_join, true);
+	    alc[i].splitIndelCoverage();
+	    alc[i].indelCigarMatches(cigmap_n, cigmap_t);
+	  }
 	}
       }
       st.stop("sw");
     } // end bav_join.size() > 1
   } // end the assembly regions loop
+
 
   // combine discordant reads with breaks
   combineContigsWithDiscordantClusters(this_disc, alc);
@@ -515,18 +675,12 @@ bool grabReads(int refID, int pos1, int pos2) {
   // get the breakpoints
   BPVec bp_glob;
   for (auto& i : alc)
-    if (i.m_bamreads.size())
+    if (i.m_bamreads.size() && !i.skip)
       bp_glob.push_back(i.getGlobalBreak());
 
   // add discordant reads
   addDiscordantPairsBreakpoints(bp_glob, this_disc);
     
-  ////////////////////////////////////
-  // MUTEX LOCKED
-  ////////////////////////////////////
-  // write to the global contig out
-  pthread_mutex_lock(&snow_lock);  
-
 #ifdef MATES
   // add the clusters to the map
   //for (auto& i : this_disc)
@@ -537,75 +691,63 @@ bool grabReads(int refID, int pos1, int pos2) {
   // store the reads in a map of read2contig alignment
   // TODO fancy combine
   for (auto& it : alc) 
-    for (auto& r : it.m_bamreads) 
-      this_r2c[to_string(r->AlignmentFlag) + r->Name] = r;
+    if (!it.skip)
+      for (auto& r : it.m_bamreads) 
+	this_r2c[to_string(r_flag(r)) + r_qname(r)] = r;
 #ifdef MATES
   // add in the reads from the discordant
   for (auto& i : this_disc) { 
     if (i.second.reads_mapq >= 10 && i.second.mates_mapq >= 10) {
       for (auto& r : i.second.reads)
-	this_r2c[to_string(r.second->AlignmentFlag) + r.second->Name] = r.second;
+	this_r2c[to_string(r_flag(r.second)) + r_qname(r.second)] = r.second;
       for (auto& r : i.second.mates)
-	this_r2c[to_string(r.second->AlignmentFlag) + r.second->Name] = r.second;
+	this_r2c[to_string(r_flag(r.second)) + r_qname(r.second)] = r.second;
     }
   }
 #endif
   read_counter += this_r2c.size();
-
-  bool hasvariant  = false;
+						
+  if (!hashits)
   for (auto& i : alc)
-    if (i.m_bamreads.size()) {
-      hasvariant = true;
+    if (i.m_bamreads.size() && !i.skip) {
+      hashits = true;
       break;
     }
-      
-  if (!hashits && hasvariant) 
-    initializeFiles();
-
+    
+  ////////////////////////////////////
+  // MUTEX LOCKED
+  ////////////////////////////////////
+  // write to the global contig out
+  pthread_mutex_lock(&snow_lock);  
+  
   // write the r2c
-  writeR2C(this_r2c);
+  //writeR2C(this_r2c);
 
   // send all bps to file
   for (auto& i : bp_glob)
-    (*os_allbps) << i.toFileString() << endl;
+    if (i.hasMinimal())
+      (*os_allbps) << i.toFileString() << endl;
 
   // send all alignments to ASCII plot
   for (auto& i : alc) 
-    if (i.m_bamreads.size())
+    if (i.m_bamreads.size() && !i.skip && i.hasVariant())
       (*all_align_stream) << i.printAlignments() << endl;
 
   // send all discordant clusters to txt
   for (auto &i : this_disc)
     if (i.second.reads_mapq >= 10 && i.second.mates_mapq >= 10)
-      (*all_disc_stream) << i.second << endl;
+      (*all_disc_stream) << i.second.toFileString() << endl;
 
   // send all the variant contigs to a sam file
   for (auto& i : alc) {
-    if (i.m_bamreads.size()) {
-      contig_counter++;
-      (*contigs_sam) << i.samrecord;
-    }
-    (*contigs_all) << i.samrecord;
-  }
-  
-  /*    for (auto& a : i.m_align) {
-      stringstream cig;
-      for (auto& cc : a.align.CigarData) {
-	cig << cc.Length << cc.Type;
+    if (!i.skip) {
+      if (i.m_bamreads.size()) {
+	contig_counter++;
+	(*contigs_sam) << i.samrecord;
       }
-      
-      assert(a.align.QueryBases.length() == a.align.Qualities.length());
-      
-      (*contigs_sam) << a.align.Name << "\t" << a.align.AlignmentFlag << "\t" << treader_for_convert->GetReferenceData()[a.align.RefID].RefName << 
-	"\t" << a.align.Position << "\t" << a.align.MapQuality << "\t" << cig.str() << "\t" << 
-	"*" << "\t" << "0" << "\t" << 0 << "\t" << a.align.QueryBases << "\t" << a.align.Qualities << endl;
-	}*/
-
-  pthread_mutex_unlock(&snow_lock);
-  /////////////////////////////////////
-  // MUTEX UNLOCKED
-  /////////////////////////////////////
-  
+      (*contigs_all) << i.samrecord;
+    }
+  }
   st.stop("wr");
 
   // display the run time
@@ -621,6 +763,12 @@ bool grabReads(int refID, int pos1, int pos2) {
     SnowUtils::displayRuntime(start);
     cout << endl;
   }
+
+
+  pthread_mutex_unlock(&snow_lock);
+  /////////////////////////////////////
+  // MUTEX UNLOCKED
+  /////////////////////////////////////
  
  return true;
 }
@@ -637,6 +785,7 @@ void parseRunOptions(int argc, char** argv) {
     istringstream arg(optarg != NULL ? optarg : "");
     switch (c) {
       case 'p': arg >> opt::numThreads; break;
+      case 'a': arg >> opt::analysis_id; break;
       case 'h': die = true; break;
       case 'c': 
 	tmp = "";
@@ -662,6 +811,7 @@ void parseRunOptions(int argc, char** argv) {
       case 'k': arg >> opt::regionFile; break;
       case 'e': arg >> opt::assemb::error_rate; break;
       case 'g': arg >> opt::refgenome; break;
+      case 'r': arg >> opt::rules; break;
       case OPT_DISC_CLUSTER_ONLY: opt::disc_cluster_only = true; break;
     }
   }
@@ -712,8 +862,10 @@ int countJobs(GenomicRegionVector &file_regions, GenomicRegionVector &run_region
   //  file_regions = GenomicRegion::non_centromeres; // from GenomicRegion.cpp
   else {
     RefVector ref = treader_for_convert->GetReferenceData();
+    size_t dumcount = 0;
     for (auto& i : ref) {
-      file_regions.push_back(GenomicRegion(treader_for_convert->GetReferenceID(i.RefName), 1, i.RefLength));
+      if (++dumcount <= 25) // go up through mitochondria
+	file_regions.push_back(GenomicRegion(treader_for_convert->GetReferenceID(i.RefName), 1, i.RefLength));
     }
   //  file_regions = GenomicRegion::getWholeGenome();
   }
@@ -774,12 +926,12 @@ void doAssembly(ReadTable *pRT, string name, ContigVector &contigs, int pass) {
     return;
 
   // forward
-  SuffixArray* pSAf = new SuffixArray(pRT, 1, false); //1 is num threads. false is isReverse
+  SuffixArray* pSAf = new SuffixArray(pRT, 1, false); //1 is num threads. false is silent/no
   RLBWT *pBWT= new RLBWT(pSAf, pRT);
 
   // reverse
   pRT->reverseAll();
-  SuffixArray * pSAr = new SuffixArray(pRT, 1, true); //1 is num threads. false is isReverse
+  SuffixArray * pSAr = new SuffixArray(pRT, 1, false);
   RLBWT *pRBWT = new RLBWT(pSAr, pRT);
   pRT->reverseAll();
 
@@ -818,6 +970,7 @@ void doAssembly(ReadTable *pRT, string name, ContigVector &contigs, int pass) {
 
   size_t workid = 0;
   SeqItem si;
+
   while (pRT->getRead(si)) {
     SeqRecord read;
     read.id = si.id;
@@ -833,6 +986,7 @@ void doAssembly(ReadTable *pRT, string name, ContigVector &contigs, int pass) {
 
     workid++;
   }
+
   string line;
   bool bIsSelfCompare = true;
   ReadInfoTable* pQueryRIT = new ReadInfoTable(pRT);
@@ -881,7 +1035,7 @@ void doAssembly(ReadTable *pRT, string name, ContigVector &contigs, int pass) {
     assemble(asqg_stream, min_overlap, opt::assemb::maxEdges, opt::assemb::bExact, 
 	     opt::assemb::trimLengthThreshold, opt::assemb::bPerformTR, opt::assemb::bValidate, opt::assemb::numTrimRounds, 
 	     opt::assemb::resolveSmallRepeatLen, opt::assemb::numBubbleRounds, opt::assemb::gap_divergence, 
-	     opt::assemb::divergence, opt::assemb::maxIndelLength, 102 /*cutoff*/, name, contigs);
+	     opt::assemb::divergence, opt::assemb::maxIndelLength, opt::readlen+1 /*cutoff*/, name + "_", contigs);
 
     delete pQueryRIT;
     asqg_stream.str("");
@@ -917,50 +1071,50 @@ void combineContigsWithDiscordantClusters(DMap &dm, AlignedContigVec &contigs) {
   size_t count = 0;
   
   for (auto& i : contigs) {
-    if (i.m_bamreads.size()) {
-    count++;
-
-    // check the global break
-    GenomicRegion bp1 = i.m_farbreak.gr1; 
-    bp1.pad(padr);
-    GenomicRegion bp2 = i.m_farbreak.gr2; 
-    bp2.pad(padr);
- 
-    for (auto &kt : dm) { 
-    
-      bool bp1reg1 = bp1.getOverlap(kt.second.reg1) != 0;
-      bool bp2reg2 = bp2.getOverlap(kt.second.reg2) != 0;
+    if (i.m_bamreads.size() && i.m_align.size() > 1 && !i.skip) {
+      count++;
       
-      //debug
-      bool bp1reg2 = bp1.getOverlap(kt.second.reg2) != 0;
-      bool bp2reg1 = bp2.getOverlap(kt.second.reg1) != 0;
-
-      // TODO have discordant reads support non global breakpoints
-
-      //debug
-      //cout << bp1 << " " << bp2 << " bp1reg1: " << bp1reg1 << " bp1reg2: " << bp1reg2 << 
-      //	" bp2reg1: " << bp2reg1 << " bp2reg2: " << bp2reg2 << " kt.second.reg1 " << kt.second.reg1 << " kt.second.reg2 " <<  kt.second.reg2 << endl;
-
-      bool pass = bp1reg1 && bp2reg2;
-
-      //debug
-      pass = pass || (bp2reg1 && bp1reg2);
-
-      if (pass) {
-	i.addDiscordantCluster(kt.second); // add disc cluster to contig
+      // check the global break
+      GenomicRegion bp1 = i.m_farbreak.gr1; 
+      bp1.pad(padr);
+      GenomicRegion bp2 = i.m_farbreak.gr2; 
+      bp2.pad(padr);
+      
+      for (auto &kt : dm) { 
 	
-	// check that we haven't already added a cluster
-	kt.second.contig = i.getContigName(); // add contig to disc cluster
-	if (i.m_farbreak.dc.reg1.pos1 == 0) {
-	  i.m_farbreak.dc = kt.second; // add cluster to global breakpoints
-	} else if (i.m_farbreak.dc.ncount < kt.second.ncount) { // choose one with normal support
-	  i.m_farbreak.dc = kt.second;
-	} else if (i.m_farbreak.dc.tcount < kt.second.tcount) { // choose one with more tumor support
-	  i.m_farbreak.dc = kt.second;
+	bool bp1reg1 = bp1.getOverlap(kt.second.reg1) != 0;
+	bool bp2reg2 = bp2.getOverlap(kt.second.reg2) != 0;
+	
+	//debug
+	bool bp1reg2 = bp1.getOverlap(kt.second.reg2) != 0;
+	bool bp2reg1 = bp2.getOverlap(kt.second.reg1) != 0;
+	
+	// TODO have discordant reads support non global breakpoints
+	
+	//debug
+	//cout << bp1 << " " << bp2 << " bp1reg1: " << bp1reg1 << " bp1reg2: " << bp1reg2 << 
+	//	" bp2reg1: " << bp2reg1 << " bp2reg2: " << bp2reg2 << " kt.second.reg1 " << kt.second.reg1 << " kt.second.reg2 " <<  kt.second.reg2 << endl;
+	
+	bool pass = bp1reg1 && bp2reg2;
+	
+	//debug
+	pass = pass || (bp2reg1 && bp1reg2);
+	
+	if (pass) {
+	  i.addDiscordantCluster(kt.second); // add disc cluster to contig
+	  
+	  // check that we haven't already added a cluster
+	  kt.second.contig = i.getContigName(); // add contig to disc cluster
+	  if (i.m_farbreak.dc.reg1.pos1 == 0) {
+	    i.m_farbreak.dc = kt.second; // add cluster to global breakpoints
+	  } else if (i.m_farbreak.dc.ncount < kt.second.ncount) { // choose one with normal support
+	    i.m_farbreak.dc = kt.second;
+	  } else if (i.m_farbreak.dc.tcount < kt.second.tcount) { // choose one with more tumor support
+	    i.m_farbreak.dc = kt.second;
+	  }
 	}
+	
       }
-      
-    }
     }
   }
 }
@@ -970,7 +1124,6 @@ void addDiscordantPairsBreakpoints(BPVec &bp, DMap &dmap) {
 
   if (opt::verbose > 1)
     cout << "...transfering discordant clusters to breakpoints structure" << endl;
-
   for (auto& i : dmap) { 
     if (i.second.contig == "" && (i.second.tcount+i.second.ncount) > 1) { // this discordant cluster isn't already associated with a break
       BreakPoint tmpbp(i.second);
@@ -988,15 +1141,14 @@ void addDiscordantPairsBreakpoints(BPVec &bp, DMap &dmap) {
  *
  * @param  r2c Map of the reads to write
  */
+/*
 void writeR2C(ReadMap &r2c) {
 
   if (r2c.size() == 0)
     return; 
 
-  assert(hashits);
-
   // sort by position
-  BamAlignmentUPVector r2c_vec;
+  ReadVec r2c_vec;
   for (auto& r : r2c)
     r2c_vec.push_back(r.second);
   sort(r2c_vec.begin(), r2c_vec.end(), ByReadPosition());
@@ -1007,30 +1159,35 @@ void writeR2C(ReadMap &r2c) {
   }
 
 }
+*/
 
 // cluster the discordant reads
-DMap clusterDiscordantReads(BamAlignmentUPVector &bav) {
+DMap clusterDiscordantReads(ReadVec &bav) {
 
   // remove any reads that are not present twice
   unordered_map<string, int> tmp_map;
   for (auto& i : bav)
-    if (tmp_map.count(i->Name) ==0)
-      tmp_map[i->Name] = 1;
+    if (tmp_map.count(r_qname(i)) ==0)
+      tmp_map[r_qname(i)] = 1;
     else
-      tmp_map[i->Name]++;
-  BamAlignmentUPVector bav_dd;
+      tmp_map[r_qname(i)]++;
+  ReadVec bav_dd;
   for (auto&i : bav)
-    if (tmp_map[i->Name] == 2)
+    if (tmp_map[r_qname(i)] == 2)
       bav_dd.push_back(i);
 
   // sort by position
   sort(bav_dd.begin(), bav_dd.end(), ByReadPosition());
 
+  //debug
+  //for (auto& i : bav_dd)
+  //  cout << r_id(i) << ":" << r_pos(i) << endl;
+
   // clear the tmp map. Now we want to use it to store if we already clustered read
   tmp_map.clear();
 
-  vector<BamAlignmentUPVector> fwd, rev, fwdfwd, revrev, fwdrev, revfwd;
-  BamAlignmentUPVector this_fwd, this_rev;
+  vector<ReadVec> fwd, rev, fwdfwd, revrev, fwdrev, revfwd;
+  ReadVec this_fwd, this_rev;
 
   pair<int, int> fwd_info, rev_info; // refid, pos
   fwd_info = {-1,-1};
@@ -1038,10 +1195,10 @@ DMap clusterDiscordantReads(BamAlignmentUPVector &bav) {
 
   // cluster in the READ direction
   for (auto& i : bav_dd) {
-    if (i->IsMapped() && i->IsMateMapped() && abs(i->InsertSize) >= opt::isize && tmp_map.count(i->Name) == 0) {
-      tmp_map[i->Name] = 0;
+    if (r_is_pmapped(i) && abs(r_isize(i)) >= opt::isize && tmp_map.count(r_qname(i)) == 0) {
+      tmp_map[r_qname(i)] = 0;
       // forward clustering
-      if (!i->IsReverseStrand()) 
+      if (!r_is_rstrand(i)) 
 	_cluster(fwd, this_fwd, i, false);
       // reverse clustering 
       else 
@@ -1063,7 +1220,7 @@ DMap clusterDiscordantReads(BamAlignmentUPVector &bav) {
     sort(v.begin(), v.end(), ByMatePosition());
     for (auto& i : v) {
       // forward clustering
-      if (!i->IsMateReverseStrand()) 
+      if (!r_is_mrstrand(i)) 
 	_cluster(fwdfwd, this_fwd, i, true);
       // reverse clustering 
       else 
@@ -1084,7 +1241,7 @@ DMap clusterDiscordantReads(BamAlignmentUPVector &bav) {
     // sort by mate position to prepare for second clustering
     sort(v.begin(), v.end(), ByMatePosition());
     for (auto& i : v) {
-      if (!i->IsMateReverseStrand()) 
+      if (!r_is_mrstrand(i) )
 	_cluster(revfwd, this_fwd, i, true);
       // reverse clustering 
       else 
@@ -1114,15 +1271,10 @@ DMap clusterDiscordantReads(BamAlignmentUPVector &bav) {
 }
 
 // is this a read from a tumor
-bool isTumorRead(const BamAlignmentUP &a) {
+bool isTumorRead(const Read &a) {
 
   string tmp;
-  if (!a->GetTag("SR", tmp)) {
-    cerr << "Failed to read SR tag in isTumorRead" << endl;
-    exit(EXIT_FAILURE);
-  }
-  
-  assert(tmp.length() > 0);
+  r_get_SR(a, tmp);
   return tmp.at(0) == 't';
 
 
@@ -1140,23 +1292,23 @@ bool isTumorRead(const BamAlignmentUP &a) {
  * @param mate Flag to specify if we should cluster on mate position instead of read position
  * @return Description of the return value
  */
-bool _cluster(vector<BamAlignmentUPVector> &cvec, BamAlignmentUPVector &clust, BamAlignmentUP &a, bool mate) {
+bool _cluster(vector<ReadVec> &cvec, ReadVec &clust, Read &a, bool mate) {
 
   // get the position of the previous read. If none, we're starting a new one so make a dummy
   pair<int,int> last_info;
   if (clust.size() == 0)
     last_info = {-1, -1};
   else if (mate)
-    last_info = {clust.back()->MateRefID, clust.back()->MatePosition};
+    last_info = {r_mid(clust.back()), r_mpos(clust.back())};
   else
-    last_info = {clust.back()->RefID, clust.back()->Position};
+    last_info = {r_id(clust.back()), r_pos(clust.back())};
 
   // get the position of the current read
   pair<int,int> this_info;
   if (mate)
-    this_info = {a->MateRefID, a->MatePosition};
+    this_info = {r_mid(a), r_mpos(a)};
   else 
-    this_info = {a->RefID, a->Position};
+    this_info = {r_id(a), r_pos(a)};
 
   // check if this read is close enough to the last
   if ( (this_info.first == last_info.first) && (this_info.second - last_info.second) <= DISC_PAD ) {
@@ -1180,6 +1332,59 @@ bool _cluster(vector<BamAlignmentUPVector> &cvec, BamAlignmentUPVector &clust, B
 }
 
 /**
+ * Cluster reads by alignment position 
+ * 
+ * Checks whether a read belongs to a cluster. If so, adds it. If not, ends
+ * and stores cluster, adds a new one.
+ *
+ * @param cvec Stores the vector of clusters, which themselves are vectors of read pointers
+ * @param clust The current cluster that is being added to
+ * @param a Read to add to cluster
+ * @param mate Flag to specify if we should cluster on mate position instead of read position
+ * @return Description of the return value
+ */
+/*
+bool _cluster(vector<bam1_v> &cvec, bam1_v &clust, bam1_t *b, bool mate) {
+
+  // get the position of the previous read. If none, we're starting a new one so make a dummy
+  pair<int,int> last_info;
+  if (clust.size() == 0)
+    last_info = {-1, -1};
+  else if (mate)
+    last_info = {clust.back()->core.mtid, clust.back()->core.mtid};
+  else
+    last_info = {clust.back()->core.tid, clust.back()->core.pos};
+
+  // get the position of the current read
+  pair<int,int> this_info;
+  if (mate)
+    this_info = {b->core.mtid, b->core.mpos};
+  else 
+    this_info = {b->core.tid, b->core.pos};
+
+  // check if this read is close enough to the last
+  if ( (this_info.first == last_info.first) && (this_info.second - last_info.second) <= DISC_PAD ) {
+    clust.push_back(b);
+    last_info = this_info;
+    return true;
+  // read does not belong to cluster. close this cluster and add to cvec
+  } else {
+
+    // if enough supporting reads, add as a cluster
+    if (clust.size() >= MIN_PER_CLUST) 
+      cvec.push_back(clust);
+
+    // clear this cluster and start a new one
+    clust.clear();
+    clust.push_back(a);
+
+    return false;
+  }
+
+}
+*/
+
+/**
  * Remove / combine duplicate reads in read support BAM.
  *
  * To save memory, the supporting read BAM is written on-the-fly.
@@ -1188,6 +1393,7 @@ bool _cluster(vector<BamAlignmentUPVector> &cvec, BamAlignmentUPVector &clust, B
  * the AL, CN, SW and DC tags with an 'x' separation. Writes the 
  * r2c_clean.bam file.
  */
+/*
 void cleanR2CBam() {
 
   if (opt::verbose)
@@ -1207,15 +1413,15 @@ void cleanR2CBam() {
     return;
   }
 
-  unordered_map<string, BamAlignmentUP> map;
-  BamAlignmentUPVector vec;
+  unordered_map<string, Read> map;
+  ReadVec vec;
 
   BamAlignment a;
   while (br.GetNextAlignment(a)) {
     string tmp;
     a.GetTag("SR",tmp);
     if (map.count(tmp) == 0) {
-      BamAlignmentUP b(new BamAlignment(a));
+      Read b(new BamAlignment(a));
       map[tmp] = b;
     } else {
       
@@ -1255,24 +1461,34 @@ void cleanR2CBam() {
   system(cmd.c_str());
 
 }
+*/
+// convert a cluster of reads into a new DiscordantCluster object
+void _convertToDiscordantCluster(DMap &dd, vector<ReadVec> cvec, ReadVec &bav) {
+
+  for (auto& v : cvec) {
+    if (v.size() > 1) {
+      DiscordantCluster d(v, bav); /// slow but works
+      dd[d.id] = d;
+    }
+  }
+
+}
 
 // convert a cluster of reads into a new DiscordantCluster object
-void _convertToDiscordantCluster(DMap &dd, vector<BamAlignmentUPVector> cvec, BamAlignmentUPVector &bav) {
+/*void _convertToDiscordantCluster(DMap &dd, vector<bam1_v> cvec, bam1_v &bav) {
 
   for (auto& v : cvec) {
     DiscordantCluster d(v, bav); /// slow but works
     dd[d.id] = d;
   }
 
-}
+  }*/
+
 
 /**
  * Open the output files for writing
  */
 void initializeFiles() {
-
-  assert(!hashits);
-  hashits = true;
 
   // setup the ASCII plots
   all_align_stream = new ogzstream("alignments.txt.gz", ios::out);
@@ -1283,6 +1499,9 @@ void initializeFiles() {
   // write the bp header
   (*os_allbps) << BreakPoint::header() << endl;
   
+  // write the discordant reads header
+  (*all_disc_stream) << DiscordantCluster::header() << endl;
+
   // write the tumor header to the contigs SAM file
   (*contigs_sam) << treader_for_convert->GetHeaderText();
   
@@ -1295,3 +1514,186 @@ void initializeFiles() {
     exit(EXIT_FAILURE);
   }
 }
+
+//
+void learnParameters() {
+
+  BamAlignment a;
+  size_t count = 0;
+  while (treader_for_convert->GetNextAlignmentCore(a) && count++ < 10000) 
+    opt::readlen = max(a.Length, opt::readlen);
+  treader_for_convert->Rewind();
+ 
+}
+
+
+// check reads against mate regions
+GenomicRegionVector checkReadsMateRegions(GenomicRegionVector mate_final, unique_ptr<BARMap>& bar) {
+
+  GenomicRegionVector new_mate_final;
+
+  for (auto& i : mate_final) {
+    for (auto& bam : opt::bam) {
+      for (auto& v : (*bar)[bam.first]->arvec) {
+	for (auto& r : v->reads) {
+	  if (i.getOverlap(GenomicRegion(r_mid(r), r_mpos(r), r_mpos(r))) > 0) {
+	    if (bam.second.at(0) == 'n') 
+	      i.ncount++;
+	    else
+	      i.tcount++;
+	  }
+	}
+      }
+    }
+    if (opt::verbose > 3)
+      cout << "MATE REGION: " << i << " tcount " << i.tcount << " ncount " << i.ncount << endl;
+    if (i.ncount == 0 && i.tcount >= 3)
+      new_mate_final.push_back(i);
+  }
+
+  return new_mate_final;
+}
+
+
+
+/*
+// cluster the discordant reads
+DMap clusterDiscordantReads(bam1_v &bav) {
+
+  vector<string> names;
+  for (int i = 0; i < bav.size(); i++)
+    names.push_back(string(bam_get_qname(bav[i])));
+
+  // remove any reads that are not present twice
+  unordered_map<string, int> tmp_map;
+  for (int i = 0; i < bav.size(); i++) // auto& i : bav) 
+    if (tmp_map.count(names[i]) ==0)
+      tmp_map[names[i]] = 1;
+    else
+      tmp_map[names[i]]++;
+  //ReadVec bav_dd;
+  bav1_v bav_dd;
+  for (int i = 0; i < bav.size(); i++) 
+    if (tmp_map[names[i]] == 2)
+      bav_dd.push_back(bav[i]);
+
+  // sort by position
+  sort(bav_dd.begin(), bav_dd.end(), ByReadPositionB());
+
+  // clear the tmp map. Now we want to use it to store if we already clustered read
+  tmp_map.clear();
+
+  //vector<ReadVec> fwd, rev, fwdfwd, revrev, fwdrev, revfwd;
+  //ReadVec this_fwd, this_rev;
+  vector<bam1_v> fwd, rev, fwdfwd, revrev, fwdrev, revfwd;
+  bam1_v this_fwd, this_rev;
+
+  pair<int, int> fwd_info, rev_info; // refid, pos
+  fwd_info = {-1,-1};
+  rev_info = {-1,-1};
+
+  // cluster in the READ direction
+  for (int i = 0; i < bav_dd.size(); i++) {
+    //if (i->IsMapped() && i->IsMateMapped() && abs(i->InsertSize) >= opt::isize && tmp_map.count(i->Name) == 0) {
+    bool mapped_pair = (!bav_dd[i]->core.flag&BAM_FUNMAP) && (!bav_dd[i]->core.flag&BAM_FMUNMAP);
+    if (mapped_pair && abs(i->core.isize) >= opt::isize && tmp_map.count(names[i]) == 0) {
+      tmp_map[names[i]] = 0;
+      // forward clustering
+      if (!bam_is_rev(bav_dd[i])) 
+	_cluster(fwd, this_fwd, i, false);
+      // reverse clustering 
+      else 
+      	_cluster(rev, this_rev, i, false);
+    }
+  }
+  // finish the last clusters
+  if (this_fwd.size() > 0)
+    fwd.push_back(this_fwd);
+  if (this_rev.size() > 0)
+    rev.push_back(this_rev);
+
+  // cluster in the MATE direction for FWD facing READ
+  for (auto& v : fwd) {
+    fwd_info = {-1,-1};
+    rev_info = {-1,-1};
+    this_fwd.clear(); this_rev.clear();
+    // sort by mate position to prepare for second clustering
+    sort(v.begin(), v.end(), ByMatePositionB());
+    for (auto& i : v) {
+      // forward clustering
+      if (!bam_is_mrev(i)) 
+	_cluster(fwdfwd, this_fwd, i, true);
+      // reverse clustering 
+      else 
+	_cluster(fwdrev, this_rev, i, true);
+    }
+    // finish the last clusters
+    if (this_fwd.size() > 0)
+      fwdfwd.push_back(this_fwd);
+    if (this_rev.size() > 0)
+      fwdrev.push_back(this_rev);
+  }
+
+  // cluster in the MATE direction for REV facing READ
+  for (auto& v : rev) {
+    fwd_info = {-1,-1};
+    rev_info = {-1,-1};
+    this_fwd.clear(); this_rev.clear();
+    // sort by mate position to prepare for second clustering
+    sort(v.begin(), v.end(), ByMatePositionB());
+    for (auto& i : v) {
+      if (!bam_is_mrev(i)) 
+	_cluster(revfwd, this_fwd, i, true);
+      // reverse clustering 
+      else 
+	_cluster(revrev, this_rev, i, true);
+    }
+    // finish the last clusters
+    if (this_fwd.size() > 0)
+      revfwd.push_back(this_fwd);
+    if (this_rev.size() > 0)
+      revrev.push_back(this_rev);
+  }    
+
+  DMap dd;
+  _convertToDiscordantCluster(dd, fwdfwd, bav_dd);
+  _convertToDiscordantCluster(dd, fwdrev, bav_dd);
+  _convertToDiscordantCluster(dd, revfwd, bav_dd);
+  _convertToDiscordantCluster(dd, revrev, bav_dd);
+
+  // print the clusters
+  if (opt::verbose > 1) {
+    for (auto& i : dd)
+      cout << i.second << endl;
+  }
+  
+  return dd;
+
+}
+*/
+
+
+
+/**
+ *
+ */
+/*
+SeqRecordVector toSeqRecordVector(ReadVec &bav) {
+
+  SeqRecordVector srv;
+
+  for (auto &i : bav) {
+
+    SeqItem si;
+    r_get_Z_tag(i, "SR", si.id);
+    assert(si.id.length());
+    
+    string seqr;
+    r_get_trimmed_seq(i, seqr);
+
+    si.seq = seqr;
+    assert(seqr.length());
+    srv.push_back(si);
+  }
+}
+*/  

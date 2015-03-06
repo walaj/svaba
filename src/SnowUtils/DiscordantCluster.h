@@ -8,6 +8,8 @@
 #include "GenomicRegion.h"
 #include "VariantBamReader.h"
 
+#include "reads.h"
+
 using namespace std;
 
 // define a structure to hold discordant clusters
@@ -18,19 +20,22 @@ struct DiscordantCluster {
   size_t tcount = 0;
   size_t ncount = 0; 
   unordered_map<string, bool> qnames; // TODO get rid of it
-  unordered_map<string, BamAlignmentUP> reads;
-  unordered_map<string, BamAlignmentUP> mates;
+  unordered_map<string, Read> reads;
+  unordered_map<string, Read> mates;
+
   double reads_mapq; 
   double mates_mapq;
   vector<int> mapq; // TODO remoe
   string contig = "";
+
+  static string header() { return "chr1\tpos1\tstrand1\tchr2\tpos2\tstrand2\ttcount\tncount\tmapq1\tmapq2\treads"; }
 
   GenomicRegion reg1;
   GenomicRegion reg2;
 
   DiscordantCluster() {}
   ~DiscordantCluster() {}
-  DiscordantCluster(BamAlignmentUPVector &this_reads, BamAlignmentUPVector &all_reads);
+  DiscordantCluster(ReadVec &this_reads, ReadVec &all_reads);
   DiscordantCluster(string tcluster);
   DiscordantCluster(string tcluster, GenomicRegion gr1, GenomicRegion gr2) {
     cluster = tcluster;
@@ -38,7 +43,7 @@ struct DiscordantCluster {
     reg2 = gr2;
   }
 
-  void addMateReads(BamAlignmentUPVector &bav);
+  void addMateReads(ReadVec &bav);
 
   // return the mean mapping quality for this cluster
   double getMeanMapq(bool mate) const;

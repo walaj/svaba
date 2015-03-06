@@ -6,14 +6,22 @@
 #include "VariantBamReader.h"
 #include "MiniRules.h"
 #include <time.h>
-#include <memory>
 #include "MinRead.h"
 
-using namespace std;
-using namespace BamTools;
+#include "reads.h"
 
-typedef shared_ptr<BamAlignment> BamAlignmentUP;
-typedef vector<BamAlignmentUP> BamAlignmentUPVector;
+using namespace std;
+//using namespace BamTools;
+
+//typedef shared_ptr<BamAlignment> BamAlignmentUP;
+//typedef vector<BamAlignmentUP> BamAlignmentUPVector;
+//typedef vector<bam1_t*> bam1_v;
+
+//typedef vector<CigarOp> CigarOpVector;
+//typedef pair<int32_t, CigarOpVector> CigPos;
+//typedef vector<pair<int32_t, CigarOpVector> > CigarPosVec;
+//typedef unordered_map<string, CigarPosVec> CigarPosVecMap;
+typedef unordered_map<string, size_t> CigarMap;
 
 // a smaller region to assemble
 struct AssemblyRegion {
@@ -26,12 +34,14 @@ struct AssemblyRegion {
     //reads.clear();
   }
   
-  BamAlignmentUPVector reads;
+  ReadVec reads;
   MinReadSPVector mrv;
   GenomicRegion region;
 
   GenomicRegionVector partner_windows;
   GenomicIntervalTreeMap tree_pw;
+
+  void removeBlacklist(GenomicIntervalTreeMap &bt);
 };
 
 typedef vector<AssemblyRegion> AssemblyRegionVector;
@@ -45,7 +55,9 @@ struct BamAndReads {
 
   BamAndReads() {}
   ~BamAndReads() { 
+#ifdef HAVE_BAMTOOLS
     delete reader; 
+#endif
     arvec.clear();
     //for (AssemblyRegionVector::iterator it = arvec.begin(); it != arvec.end(); it++)
     //  delete (*it);
@@ -53,7 +65,13 @@ struct BamAndReads {
   }
   BamAndReads(GenomicRegion gr, MiniRulesCollection *tmr, int tverb, string tbam, string tprefix);
 
+#ifdef HAVE_BAMTOOLS
   BamReader * reader;
+#endif
+
+  GenomicRegionVector blacklist;
+
+  void removeBlacklist(GenomicIntervalTreeMap &bt);
 
   int read_time = 0; // timer in seconds for reading BAM
   int unique_reads = 0; // total number of unique reads to be assembled
@@ -63,9 +81,21 @@ struct BamAndReads {
   int mate_unique_reads = 0; // total number of unique reads to be assembled
   int mate_reads = 0; // total number of reads to be assembled (allows doubles, etc)
 
+#ifdef HAVE_HTSLIB
+  // hts
+  BGZF * fp = 0;
+  hts_idx_t * idx = 0; // hts_idx_load(bamfile.c_str(), HTS_FMT_BAI);
+  hts_itr_t * hts_itr = 0; // sam_itr_queryi(idx, 3, 60000, 80000);
+  bam_hdr_t * br = 0; // header
+  //samFile* fop = 0;
+  //fp = sam_open(fn, mode)
+#endif  
+
   // what interval is this defined on
   GenomicRegion interval;
   GenomicIntervalTreeMap tree;
+
+  CigarMap cigmap;
 
   GenomicRegionVector mate_regions;
   GenomicIntervalTreeMap tree_with_mate;
@@ -82,7 +112,7 @@ struct BamAndReads {
 
   // store all of the discordant reads that map outside of BIGCHUNK
   // we'll need these to lookup extra reads for assembly
-  BamAlignmentUPVector disc;
+  ReadVec disc;
 
   // break up the interval into small pieces
   void divideIntoRegions();
@@ -96,11 +126,11 @@ struct BamAndReads {
   // get mate regions
   void calculateMateRegions();
 
-  void _read_bam(BamAlignmentVector &reads, int limit);
+  GenomicRegionVector _read_bam(ReadVec &reads, int limit);
 
   // use the interval tree to see if a read should be added to a group, based on itself or its mate
-  void addRead(BamAlignment &a);
-  void addMateRead(BamAlignment &a);
+  void addRead(Read &r);
+  void addMateRead(Read &r);
 
   friend ostream& operator<<(ostream &out, BamAndReads &bar);
   

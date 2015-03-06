@@ -66,6 +66,7 @@ struct VCFEntry {
   VCFEntry() {}
   ~VCFEntry() {}
   VCFEntry(string line, string method);
+  VCFEntry(unordered_map<string,string> &inf);
 
   int chr = 0;
   int pos = 0;
@@ -76,7 +77,7 @@ struct VCFEntry {
   string filter = "NA";
   string format;
   string samp1;
-  string samp2;
+  string samp2;  
   
   string idcommon;
   //string method;
@@ -89,6 +90,8 @@ struct VCFEntry {
 
   // define how to sort
   bool operator<(const VCFEntry &v) const;
+
+  bool operator==(const VCFEntry &v) const;
 
 };
 
@@ -108,6 +111,8 @@ struct VCFEntryPair {
   string method;
   string idcommon;
 
+  vector<string> samples;
+
   string overlap_partner = "";
 
   SupportingReadsMap supp_reads;
@@ -125,10 +130,16 @@ struct VCFEntryPair {
   int tdisc = 0;
   int ndisc = 0;
 
+  bool indel = false;
+
+  // output it to a string
+  friend ostream& operator<<(ostream& out, const VCFEntryPair& v);
+
 };
 
 typedef vector<VCFEntryPair> VCFEntryPairVec;
 typedef unordered_map<string, VCFEntryPair> VCFEntryPairMap;
+typedef unordered_map<string, VCFEntry> VCFEntryMap;
 
 // declare a structure to hold the entire VCF
 struct VCFFile {
@@ -139,23 +150,37 @@ struct VCFFile {
   VCFFile(string file, string tmethod);
 
   // create a VCFFile from a csv
-  VCFFile(string file, char sep= '\t');
+  VCFFile(string file, const char* index, char sep, string analysis_id);
 
   string filename;
   string method;
 
-  VCFHeader header;
+  unordered_map<string, bool> dups;
+
+  //  VCFHeader header;
+  VCFHeader indel_header;
+  VCFHeader sv_header;
   VCFEntryPairMap entry_pairs;
+  VCFEntryMap indels;
+  
 
   // output it to a string
   friend ostream& operator<<(ostream& out, const VCFFile& v);
   
   // write to file
-  bool write() const;
+  bool write(string basename) const;
 
   // write to csv file 
   bool writeCSV() const;
+
+  //
+  void deduplicate();
   
+  //
+  void writeIndels(string basename) const;
+  void writeSVs(string basename) const;
+  
+
 };
 
 // 

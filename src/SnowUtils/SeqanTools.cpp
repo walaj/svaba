@@ -1,12 +1,20 @@
 #include "SeqanTools.h"
 #include "SnowUtils.h"
 
-double SeqanTools::SWalign(TSequence &ref,int32_t &pos, string &rseq, int32_t &score, int cutoff, bool revcomp /* false */) {
-  
+double SeqanTools::SWalign(TSequence &ref,int32_t &pos, string &rseq, int32_t &score, int cutoff, bool revcomp, bool indel /* false */) {
+
   int match = 4;
   int mismatch = -2;
-  int gapopen = -4;
-  int gapextend = -2;
+  int gapopen, gapextend;
+  if (indel) {
+    gapopen = -100;
+    gapextend = -100;
+  } else {
+    gapopen = -4;
+    gapextend = -2;
+  }
+
+  Score<int, Simple> sc(match, mismatch, gapopen, gapextend);
 
   if (revcomp) 
     SnowUtils::rcomplement(rseq);
@@ -16,10 +24,11 @@ double SeqanTools::SWalign(TSequence &ref,int32_t &pos, string &rseq, int32_t &s
   resize(rows(align), 2); 
   assignSource(row(align,0), ref); 
   assignSource(row(align,1), read);
-  score = localAlignment(align, Score<int,Simple>(match, mismatch, gapopen, gapextend));
+  score = localAlignment(align, sc);
 
-  //debug
-  //cout << "score for "  << rseq << " is " << score << " revcomp " << revcomp << endl;
+  //debug 
+  //if (rseq == "GAGCTGGGGGTTAGGTGAAGGAAATTGTGTGTGTGTGTGTGTGTGTGTCTGTGCATGCACATGCGTGTGTGCACGC")
+  //  cout << align << " score " << score << endl;
 
   if (score < cutoff)
     return false;
@@ -38,12 +47,17 @@ double SeqanTools::SWalign(TSequence &ref,int32_t &pos, string &rseq, int32_t &s
 
   // trim the front of the read if it falls off the front
   int align_span = read_end_pos - read_start_pos + 1;
-  //if (end > 20) 
-  if (align_span != rseq.length()) {
-    rseq = rseq.substr(read_start_pos, align_span);
-    pos = new_pos -read_start_pos;
-    //assert(pos >= 0);
-  }
   
+
+  // left end of read hangs off
+  if (read_start_pos > 0 && pos == 0)
+    rseq = rseq.substr(read_start_pos, rseq.length() - read_start_pos);
+  // right end of read hangs off
+  else if (read_end_pos > clip_end_pos) 
+    rseq = rseq.substr(0, read_end_pos);
+
+  //debug 
+  //score = 0;
+
   return score;
 }

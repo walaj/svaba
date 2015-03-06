@@ -9,11 +9,24 @@
 #include <unordered_map>
 #include <memory>
 
+#include "htslib/sam.h"
+
 typedef shared_ptr<BamAlignment> BamAlignmentUP;
 typedef vector<BamAlignmentUP> BamAlignmentUPVector;
 
 using namespace std;
 using namespace BamTools;
+
+/*#include "htslib/hts.h"                                                                                                                                                                                                    
+#include "htslib/sam.h"                                                                                                                                                                                                    
+#include "htslib/bgzf.h"                                                                                                                                                                                                   
+#include "htslib/kstring.h"
+
+static const char BASES[16] = {' ', 'A', 'C', ' ',
+                               'G', ' ', ' ', ' ', 
+                               'T', ' ', ' ', ' ', 
+                               ' ', ' ', ' ', 'N'};
+*/
 
 // Phred score transformations
 inline int char2phred(char b) {
@@ -60,6 +73,9 @@ class VariantBamReader {
   void setPrefix(string prefix) { m_prefix = prefix; } 
   
   VariantBamReader(string inbam, string outbam, MiniRulesCollection* mr, int verbose);
+
+  static int32_t qualityTrimRead(int qualTrim, int32_t &startpoint,  shared_ptr<bam1_t> &b);
+  static int32_t qualityTrimRead(int qualTrim, int32_t &startpoint,  shared_ptr<BamTools::BamAlignment> &b);
 
   // remove duplicate reads by name and alignment flag
   static void deduplicateReads(const BamAlignmentVector &inbav, BamAlignmentVector &outbav);

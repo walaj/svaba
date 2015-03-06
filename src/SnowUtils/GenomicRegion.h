@@ -97,6 +97,8 @@ struct GenomicRegion {
 
   // define how these are to be sorted
   bool operator < (const GenomicRegion& b) const;
+  bool operator==(const GenomicRegion& b) const;
+  bool operator<=(const GenomicRegion &b) const;
 
   static bool GenomicIntervalLessThan (const GenomicInterval& a, const GenomicInterval& b);
   

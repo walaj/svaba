@@ -23,10 +23,8 @@
 //
 //typedef std::map<VertexID, Vertex*> VertexPtrMap;
 //typedef __gnu_cxx::hash_map<VertexID, Vertex*> VertexPtrMap;
-//typedef std::tr1::unordered_map<VertexID, Vertex*> VertexPtrMap;
-typedef SparseHashMap<VertexID, Vertex*, StringHasher> VertexPtrMap;
-
-//typedef std::unordered_map<VertexID, Vertex> VertexMap; // SNOWMAN
+typedef std::tr1::unordered_map<VertexID, Vertex*> VertexPtrMap;
+//typedef SparseHashMap<VertexID, Vertex*, StringHasher> VertexPtrMap;// JEREMIAH
 
 typedef VertexPtrMap::iterator VertexPtrMapIter;
 typedef VertexPtrMap::const_iterator VertexPtrMapConstIter;

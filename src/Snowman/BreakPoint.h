@@ -6,9 +6,8 @@
 #include <unordered_map>
 #include "GenomicRegion.h"
 #include "DiscordantCluster.h"
-#include "api/BamReader.h"
-#include "api/BamWriter.h"
-#include <memory>
+
+#include "reads.h"
 
 using namespace std;
 
@@ -18,9 +17,19 @@ typedef vector<BreakPoint> BPVec;
 //typedef shared_ptr<BamAlignment> BamAlignmentUP;
 //typedef vector<BamAlignmentUP> BamAlignmentUPVector;
 
+/**
+ *
+ */
+void runRefilterBreakpoints(int argc, char** argv);
+
+/**
+ *
+ */
+void parseBreakOptions(int argc, char** argv);
+
 struct BreakPoint {
 
-  static string header() { return "chr1\tpos1\tstrand1\tchr2\tpos2\tstrand2\tspan\tmapq1\tmapq2\tnsplit\ttsplit\tndisc\ttdisc\thomology\tinsertion\tcontig\tnumalign\tconfidence\tevidence\treads"; }
+  static string header() { return "chr1\tpos1\tstrand1\tchr2\tpos2\tstrand2\tspan\tmapq1\tmapq2\tnsplit\ttsplit\tndisc\ttdisc\tncigar\ttcigar\thomology\tinsertion\tcontig\tnumalign\tconfidence\tevidence\treads"; }
 
   // Discovar information
   size_t disco_tum = 0;
@@ -28,7 +37,7 @@ struct BreakPoint {
   bool discovar = false;
   
   // reads spanning this breakpoint
-  BamAlignmentUPVector reads;
+  ReadVec reads;
 
   // discordant reads supporting this aseembly bp
   DiscordantCluster dc;
@@ -37,6 +46,7 @@ struct BreakPoint {
   GenomicRegion gr1;
   GenomicRegion gr2;
 
+  string read_names;
 
   //unsigned pos1 = 0;
   //unsigned pos2 = 0;
@@ -58,6 +68,9 @@ struct BreakPoint {
   string id2;
   int matchlen1 = 0;
   int matchlen2 = 0;
+
+  size_t tcigar = 0;
+  size_t ncigar = 0;
   
   //char strand1;
   //char strand2;
@@ -106,7 +119,9 @@ struct BreakPoint {
     gr2.pos1 = 0;
   }
 
-  static string BreakPointHeader();
+  BreakPoint(string &line);
+
+  bool hasMinimal() const;
 
   string toString() const; 
  
@@ -125,6 +140,8 @@ struct BreakPoint {
 
   // return whether a bp is good to move on
   bool isGoodGermline(int mapq, size_t allsplit) const;
+
+  bool operator==(const BreakPoint& bp) const;
 
   // define how to sort these 
   bool operator < (const BreakPoint& bp) const { 

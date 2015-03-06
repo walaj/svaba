@@ -51,9 +51,10 @@ struct StringHasher
 // Ensure the sparse hash is available
 #if HAVE_GOOGLE_SPARSE_HASH_MAP
 #include <google/sparse_hash_map>
-#define SparseHashMap google::sparse_hash_map
+//#define SparseHashMap google::sparse_hash_map // JEREMIAH
 #else
-#error The google sparse hash is required
+#define SparseHashMap std::tr1::unordered_map
+//#error The google sparse hash is required
 #endif 
 
 #endif

@@ -29,7 +29,7 @@ void saca_induced_copying(SuffixArray* pSA, const ReadTable* pRT, int numThreads
     // to hold the L/S types for the suffixes
     size_t num_strings = pRT->getCount();
     char** type_array = new char*[num_strings];
-    
+
     for(size_t i = 0; i < num_strings; ++i)
     {
         size_t s_len = pRT->getReadLength(i) + 1;
@@ -101,15 +101,11 @@ void saca_induced_copying(SuffixArray* pSA, const ReadTable* pRT, int numThreads
     }
     */
 
-    double ratio = (double)n1 / (double)num_suffixes;
-    //if(!silent)
-    //    std::cout << "[saca] calling mkqs on " << n1 << " suffixes " << ratio << " using " << numThreads << " threads \n";
-
     // Call MKQS, first on the sequence and then on the index in the read table
     SuffixCompareRadix radix_compare(pRT, 6);
     SuffixCompareIndex index_compare;
     //SuffixCompareID id_compare(pRT);
-    
+
     if(numThreads <= 1)
         mkqs2(&pSA->m_data[0], n1, 0, radix_compare, index_compare);
     else

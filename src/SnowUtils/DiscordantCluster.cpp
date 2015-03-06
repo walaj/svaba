@@ -7,7 +7,7 @@ void DiscordantCluster::addRead(string name) {
   return;
 }
 
-DiscordantCluster::DiscordantCluster(BamAlignmentUPVector &this_reads, BamAlignmentUPVector &all_reads) {
+DiscordantCluster::DiscordantCluster(ReadVec &this_reads, ReadVec &all_reads) {
 
   if (this_reads.size() == 0)
     return;
@@ -15,10 +15,83 @@ DiscordantCluster::DiscordantCluster(BamAlignmentUPVector &this_reads, BamAlignm
     return;
 
   // check the orientations, fill the reads
-  bool rev = this_reads[0]->IsReverseStrand();
-  bool mrev = this_reads[0]->IsMateReverseStrand();
+  bool rev = r_is_rstrand(this_reads[0]); //this_reads[0]->IsReverseStrand();
+  bool mrev = r_is_mrstrand(this_reads[0]); //this_reads[0]->IsMateReverseStrand();
 
-  id = this_reads[0]->Name;
+  id = r_qname(this_reads[0]); //this_reads[0]->Name;
+
+  for (auto& i : this_reads) {
+
+    assert(rev == r_is_rstrand(i) && mrev == r_is_mrstrand(i)); //i->IsReverseStrand() && mrev == i->IsMateReverseStrand());
+    string tmp;
+    r_get_Z_tag(i, "SR", tmp);
+
+    assert(tmp.length());
+    reads[tmp] = i;
+    qnames[r_qname(i)] = true;
+    if (r_qname(i) < id)
+      id = r_qname(i);
+    if (tmp.at(0) == 't')
+      tcount++;
+    else
+      ncount++;
+  }
+  
+  addMateReads(all_reads);
+
+  assert(reads.size() == mates.size());
+  assert(reads.size() > 0);
+
+  // set the mapq
+  reads_mapq = getMeanMapq(false);
+  mates_mapq = getMeanMapq(true);
+  
+  // set the regions
+  reg1 = GenomicRegion(-1,500000000,-1); // read region
+  for (auto& i : reads) {
+    reg1.strand = r_strand(i.second); //(!i.second->IsReverseStrand()) ? '+' : '-';
+    reg1.chr = r_id(i.second); //i.second->RefID;
+    if (r_pos(i.second) < reg1.pos1)
+      reg1.pos1 = r_pos(i.second); //i.second->Position;
+    int endpos = r_endpos(i.second);
+    if (endpos > reg1.pos2)
+      reg1.pos2 = endpos;
+  }
+
+  reg2 = GenomicRegion(-1,500000000,-1); // mate region
+  for (auto& i : mates) {
+    reg2.strand = r_strand(i.second); //(!i.second->IsReverseStrand()) ? '+' : '-';
+    reg2.chr = r_id(i.second); //i.second->RefID;
+    if (r_pos(i.second) < reg2.pos1)
+      reg2.pos1 = r_pos(i.second);
+    int endpos = r_endpos(i.second);
+    if (endpos > reg2.pos2)
+      reg2.pos2 = endpos;
+  }
+
+  cluster = toRegionString();
+
+  // add the tags
+  //debug
+  //for (auto& i : reads)
+  //  SnowUtils::SmartAddTag(i.second, "DC", cluster);
+  //for (auto& i : mates)
+  //  SnowUtils::SmartAddTag(i.second, "DC", cluster);
+}
+
+/*
+DiscordantCluster::DiscordantCluster(ReadVec &this_reads, ReadVec &all_reads) {
+
+  if (this_reads.size() == 0)
+    return;
+  if (all_reads.size() == 0)
+    return;
+
+  // check the orientations, fill the reads
+  bool rev = r_is_rstrand(this_reads[0]); //this_reads[0]->IsReverseStrand();
+  bool mrev = r_is_mrstrand(this_reads[0]); //this_reads[0]->IsMateReverseStrand();
+
+  id = r_qname(this_reads[0]); //this_reads[0]->Name;
 
   for (auto& i : this_reads) {
     assert(rev == i->IsReverseStrand() && mrev == i->IsMateReverseStrand());
@@ -72,15 +145,17 @@ DiscordantCluster::DiscordantCluster(BamAlignmentUPVector &this_reads, BamAlignm
   for (auto& i : mates)
     SnowUtils::SmartAddTag(i.second, "DC", cluster);
 }
+*/
 
-void DiscordantCluster::addMateReads(BamAlignmentUPVector &bav) {
+void DiscordantCluster::addMateReads(ReadVec &bav) { // BamAlignmentUPVector &bav) {
 
   for (auto& i : bav) {
-    if (qnames.count(i->Name) == 1) {
+    string sr;
+    if (qnames.count(r_qname(i))) {
       string tmp;
-      i->GetTag("SR", tmp);
-      if (reads.count(tmp) == 0)
-	mates[tmp] = i;;
+      r_get_Z_tag(i, "SR", tmp);
+      if (reads.count(tmp) == 0) // only add if this is a mate read
+	mates[tmp] = i;
     }
   }
 
@@ -91,10 +166,10 @@ double DiscordantCluster::getMeanMapq(bool mate) const {
   vector<int> tmapq;
   if (mate) {
     for (auto& i : mates)
-      tmapq.push_back(i.second->MapQuality);
+      tmapq.push_back(r_mapq(i.second));
   } else {
     for (auto& i : reads)
-      tmapq.push_back(i.second->MapQuality);
+      tmapq.push_back(r_mapq(i.second));
   }
 
   if (tmapq.size() > 0)
@@ -106,15 +181,14 @@ double DiscordantCluster::getMeanMapq() const {
   double mean = 0;
   vector<int> tmapq;
   for (auto& i : mates)
-    tmapq.push_back(i.second->MapQuality);
+    tmapq.push_back(r_mapq(i.second));
   for (auto& i : reads)
-    tmapq.push_back(i.second->MapQuality);
+    tmapq.push_back(r_mapq(i.second));
 
   if (tmapq.size() > 0)
     mean = accumulate(tmapq.begin(), tmapq.end(), 0.0) / tmapq.size();
   return mean;
 }
-
 
 /*
 DiscordantCluster::DiscordantCluster(string tcluster) {
@@ -157,6 +231,29 @@ std::ostream& operator<<(std::ostream& out, const DiscordantCluster& dc) {
 
 // define how to print to file
 string DiscordantCluster::toFileString() const { 
+
+  string sep = "\t";
+
+  string reads_string;
+  for (auto& i : reads) {
+    string tmp;
+    r_get_Z_tag(i.second, "SR", tmp);
+    //i.second->GetTag("SR", tmp);
+    reads_string += tmp + ",";
+  }
+  //debug
+  if (reads_string.length() == 0)
+    reads_string = "x";
+  else
+    reads_string = reads_string.substr(0,reads_string.length() - 1);
+
+  stringstream out;
+  out << reg1.chr+1 << sep << reg1.pos1 << sep << reg1.strand << sep 
+      << reg2.chr+1 << sep << reg2.pos1 << sep << reg2.strand << sep 
+      << tcount << sep << ncount << sep << reads_mapq << sep 
+      << mates_mapq << sep << reads_string;
+
+  return (out.str());
   /*
   string sep = ",";
   stringstream ss;
