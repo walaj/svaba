@@ -2,7 +2,6 @@
 #include <regex>
 #include "GenomicRegion.h"
 #include <unordered_map>
-//#include "SVBamReader.h"
 #include "api/algorithms/Sort.h"
 #include "SnowUtils.h"
 #include "SeqanTools.h"
@@ -30,17 +29,14 @@ void AlignedContig::setIndelBreaks(CAlignment &ca) {
 
   // reject some
   bool reject = true;
-  
-  // reject if multiple D / I
-  for (auto& i : ca.align.CigarData) {
-    if (!reject && i.Type=='D' || i.Type == 'I') { // TODO support mulitple indels
-      reject = true;
-      break;
-    }
+  uint32_t hitlen = 0;
+
+  // use largest D / I
+  for (auto& i : ca.align.CigarData) 
     if (i.Type == 'D' || i.Type == 'I') {
       reject = false;
+      hitlen = max(i.Length, hitlen);
     }
-  }
 
   // reject if not in window
   GenomicRegion tmpw = window;
@@ -48,28 +44,34 @@ void AlignedContig::setIndelBreaks(CAlignment &ca) {
   if (tmpw.getOverlap(GenomicRegion(ca.align.RefID, ca.align.Position, ca.align.Position)) == 0)
     reject = true;
 
-  if (reject)
+  if (reject) {
+    //debug
+    //cerr << "Rejecting " << *this << endl;
     return;
+  }
 
   hasvariant = true;
-  int curr = 0;
+
+  int curr = -1;
   int gcurrlen = 0;
   char strand1 = '*', strand2 = '*';
   string insertion = "";
+
   for (auto& i : ca.align.CigarData) {
 
     // set the contig breakpoint
-    if (i.Type == 'M' || i.Type == 'S' || i.Type == 'I') {
+    if (i.Type == 'M' || i.Type == 'I') {
       curr += i.Length;
     } 
-    if (i.Type == 'D' && ca.break1 == -1) {
+    if (i.Type == 'D' && ca.break1 == -1 && i.Length == hitlen) {
       ca.break1 = curr;
-      ca.break2 = curr + 1; //i.Length;
+      ca.break2 = curr+1; //i.Length;
     } 
-    if (i.Type == 'I' && ca.break1 == -1) {
-      ca.break1 = curr - i.Length - 1;
-      ca.break2 = curr - 1;
-      insertion = ca.align.QueryBases.substr(curr, i.Length);
+    if (i.Type == 'I' && ca.break1 == -1 && i.Length == hitlen) {
+      ca.break1 = curr - i.Length;
+      ca.break2 = curr + 1;
+
+      insertion = ca.align.QueryBases.substr(curr+1, i.Length);
     }
    
     // set the genome length diferently, skip insertions
@@ -83,7 +85,7 @@ void AlignedContig::setIndelBreaks(CAlignment &ca) {
 	strand2 = '+';
 	} else */ if (/*!ca.align.IsReverseStrand() && */i.Type == 'D') {
 	ca.gbreak1 =  ca.break1 + ca.align.Position;
-	ca.gbreak2 = ca.gbreak1 + i.Length;
+	ca.gbreak2 =  ca.gbreak1 + i.Length;
 	strand1 = '+';
 	strand2 = '-';
       } /*else if (ca.align.IsReverseStrand() && i.Type == 'I') {
@@ -99,11 +101,12 @@ void AlignedContig::setIndelBreaks(CAlignment &ca) {
       }
     }
 
-
-    /*     cout << i.Length << i.Type << " gcurrlen " << gcurrlen << " curr " << curr << 
+    /*
+        cout << i.Length << i.Type << " gcurrlen " << gcurrlen << " curr " << curr << 
       " ca.break1 " << ca.break1 << " ca.break2 " << ca.break2 << " ca.gbreak1 " << 
        ca.gbreak1 << " ca.gbreak2 " << ca.gbreak2 <<" cigar " << ca.cigstring << endl;
     */
+
       }
 
 //   cout << "D_GBREAK1: " << ca.dgbreak1 << " D_GBREAK2: " << ca.dgbreak2 
@@ -123,18 +126,23 @@ void AlignedContig::setIndelBreaks(CAlignment &ca) {
   m_farbreak.num_align = m_align.size();
   m_farbreak.cname = m_align[0].align.Name;
 
+  assert(m_farbreak.cpos1 < 10000);
+  assert(m_farbreak.cpos2 < 10000);
   m_farbreak.order();
 
 }
 
 // make work function for getting PER-ALIGNMENT breaks from BWA-MEM
+// breaks on the contig are zero based
 void AlignedContig::setBreaks(CAlignment &align) { 
 
-  hasvariant = true;
-  unsigned currlen  = 0; 
-  unsigned gcurrlen = 0;
+  if (skip)
+    return;
+  assert(!skip);
 
-  bool trig = false;
+  unsigned currlen  = 0; 
+
+  // cigar is oriented to positive strand
   for (CigarOpVec::const_iterator j = align.cigar.begin(); j != align.cigar.end(); j++) {
     
     // SET THE CONTIG BREAK (treats deletions and leading S differently)
@@ -146,21 +154,15 @@ void AlignedContig::setBreaks(CAlignment &align) {
     if (j->Type == 'M') // keeps triggering every M, with pos at the right
       align.break2 = currlen;
     
-    // SET THE GENOME BREAK (treats insertions differently)
-    trig = j->Type == 'M' || trig;
-    if (j->Type != 'I' && j->Type != 'S' && j->Type != 'H' && trig) 
-      gcurrlen += j->Length;
   }
   
-  // convert genome break in contig coords to reference coords
-  if (align.align.IsReverseStrand()) {
-    align.gbreak1 = align.align.Position + gcurrlen;
-    align.gbreak2 = align.align.Position + 1; //gcurrlen + align.align.Position - align.gbreak2;
-  } else {
-    align.gbreak1  = align.align.Position + 1;
-    align.gbreak2  = align.align.Position + gcurrlen;
-  }
+  align.gbreak1 = align.align.Position;
+  align.gbreak2 = align.align.GetEndPosition() - 1;
     
+  assert(align.break1 < 10000);
+  assert(align.break2 < 10000);
+  assert(align.break1 >= 0);
+  assert(align.break2 >= 0);
   /*If (align.align.Name.compare("contig_8:94302502-94310502_1")==0)
     cout << "GBREAK1: " << align.gbreak1 << " GBREAK2: " << align.gbreak2 << 
     " gcurrlen: " << gcurrlen << " IsReverseStrand: " << align.align.IsReverseStrand() << 
@@ -174,11 +176,14 @@ void AlignedContig::printContigFasta(ofstream &ostream) const {
 }
 
 void AlignedContig::sortReads() { 
-  //  std::sort( m_bamreads.begin(), m_bamreads.end(), ByALTag());
+  //std::sort( m_bamreads.begin(), m_bamreads.end(), ByReadPosition());
 }
 
 void AlignedContig::splitCoverage() { 
   
+  if (skip)
+    return;
+
    for (AlignVec::iterator it = m_align.begin(); it != m_align.end(); it++) {
 
      it->nsplit1 = 0;
@@ -194,13 +199,13 @@ void AlignedContig::splitCoverage() {
      for (auto& j : m_bamreads) {
 
        string jw;
-       assert(j->GetTag("SR", jw));
+       r_get_Z_tag(j, "SR", jw);
+       //assert(j->GetTag("SR", jw));
+       assert(jw.length());
        bool tumor_read = (jw.at(0) == 't');
+
        string seq;
-       if (!j->GetTag("TS",seq))
-	 seq = j->QueryBases;
-       assert(seq.length() > 0);
-       //assert(j->GetTag("TS", seq));
+       r_get_trimmed_seq(j, seq);
 
        int pos = SnowUtils::GetIntTag(j, "AL").back();
 
@@ -224,7 +229,13 @@ void AlignedContig::splitCoverage() {
        if (issplit2 && !tumor_read)
 	 it->nsplit2++;
      }
+
+   //debug
+   //if (m_align[0].align.Name == "c_1_724479_729479_44")
+   //  cout << "TSPLIT1: " << it->tsplit1 << " TSPLIT2: " << it->tsplit2 << " NSPLIT1 " << it->nsplit1 << " NSPLIT2 " << it->nsplit2 << endl;
+
    }
+
 
 }
 
@@ -261,7 +272,7 @@ string AlignedContig::printAlignments() const {
 
    // print the BWA alignments
   for (auto& i : m_align) 
-    ostream << i << endl;
+    ostream << i << " Discordant: " << printDiscordantClusters() << endl;
 
    // print the masked contig base-pairs
    if (m_masked_seq.length() > 0)
@@ -275,9 +286,9 @@ string AlignedContig::printAlignments() const {
    }
 
    // print the break locations
-   if ( (m_align[0].break1 >= 0 && m_align[0].break1 < 3000) && (m_align[0].break2 >= 0 && m_align[0].break2 < 3000) && m_align.size() == 1) {
-     ostream << string(m_align[0].break1, ' ') << "|" << string(m_align[0].break2-m_align[0].break1, ' ') << '|' << endl;
-   }
+   // breaks are 0 based
+   if ( (m_align[0].break1 >= 0 && m_align[0].break1 < 3000) && (m_align[0].break2 >= 0 && m_align[0].break2 < 3000) && m_align.size() == 1) 
+     ostream << string(m_align[0].break1, ' ') << "|" << string(m_align[0].break2-m_align[0].break1-1, ' ') << '|' << endl;
 
    // print the contig base-pairs
    ostream << m_seq << "    " << m_align[0].align.Name << endl; 
@@ -287,9 +298,9 @@ string AlignedContig::printAlignments() const {
 
      string seq, sr;
      int pos, sw;
-     if (!i->GetTag("TS", seq))
-       seq = i->QueryBases;
-     assert(i->GetTag("SR",sr));
+
+     r_get_trimmed_seq(i, seq);
+     r_get_Z_tag(i, "SR", sr);
 
      // get the more complex tags (since there can be multiple annotations per tag)
      vector<int> posvec = SnowUtils::GetIntTag(i, "AL");
@@ -314,7 +325,7 @@ string AlignedContig::printAlignments() const {
        cout << "Overflow for contig: " << m_align[0].align.Name << " Padlen: " << padlen << " pos: " << pos << endl;
        return ostream.str();
      } else {
-       ostream << string(pos, ' ') << seq << string(padlen, ' ') << sr << "--" << i->RefID+1 << ":" << i->Position  << " SW: " << sw << endl;
+       ostream << string(pos, ' ') << seq << string(padlen, ' ') << sr << "--" << (r_id(i)+1) << ":" << r_pos(i)  << " SW: " << sw << endl;
      }
 
    }
@@ -349,6 +360,10 @@ string CAlignment::cigarToString(CigarOpVec cig) {
 // find the breakpoint pairs by looping through ALL the alignments
 void AlignedContig::getBreakPairs() {
    
+  if (skip)
+    return;
+  assert(!skip);
+
   if (m_align.size() < 2) {
     if (m_align.size() == 1) {
       m_farbreak.reads.insert(m_farbreak.reads.begin(), m_align.back().reads_b1.begin(), m_align.back().reads_b1.end());
@@ -413,6 +428,9 @@ void AlignedContig::getBreakPairs() {
      //bp.pos1  = it->gbreak2; 
      //bp.refID1 = it->align.RefID;
      bp.cpos2 = (it+1)->break1;  // take the left-most of the next one
+
+     assert(bp.cpos1 < 10000);
+     assert(bp.cpos2 < 10000);
      //bp.pos2  = (it+1)->gbreak1; 
      //bp.refID2 = (it+1)->align.RefID;
      bp.reads.insert(bp.reads.end(), it->reads_b2.begin(), it->reads_b2.end());
@@ -873,17 +891,35 @@ AlignedContig::AlignedContig(string sam, const BamReader * reader, GenomicRegion
 
     assert(a.MapQuality <= 60);
     addAlignment(a);
-    aln.push_back(a);
+    //aln.push_back(a);
     i = 0;
     //break; // only do the first record of multi-part
   }
 
-  assert(aln.size());
+  //assert(aln.size());
+
+  // reject if not at last partially in window
+  GenomicRegion tmpw = window;
+  tmpw.pad(1000);
+  bool reject = true;
+  for (auto& ca : m_align) {
+    if (tmpw.getOverlap(GenomicRegion(ca.align.RefID, ca.align.Position, ca.align.Position)))
+      reject = false;
+  }
+
+  // doesn't map to anchor window in any way, reject it
+  if (reject) {
+    skip = true;
+    return;
+  }
 
   // set the breaks
   if (m_align.size() > 1) {
-    for (auto& i : m_align)
+    hasvariant = true;
+    for (auto& i : m_align) {
       setBreaks(i);
+    }
+    getBreakPairs();
   } else {
     setIndelBreaks(m_align[0]);
   }
@@ -891,11 +927,13 @@ AlignedContig::AlignedContig(string sam, const BamReader * reader, GenomicRegion
 }
 
 // align sequencing reads to the contig using SW alignment
-void AlignedContig::alignReadsToContigs(BamAlignmentUPVector &bav) {
+void AlignedContig::alignReadsToContigs(ReadVec &bav, bool indel) {
 
-  hasvariant = true;
+  if (skip)
+    return;
+
   // MATCHING BY FIND
-  int buff = 1;
+  int buff = 8;
   //int pad = 10;
   TSequence contig = m_seq;
 
@@ -903,9 +941,7 @@ void AlignedContig::alignReadsToContigs(BamAlignmentUPVector &bav) {
   for (auto& j : bav) {
       
       string QB;
-      
-      if (!j->GetTag("TS", QB))
-	QB = j->QueryBases;
+      r_get_trimmed_seq(j, QB);
 
       int seqlen = QB.length();
       int32_t score = seqlen * 4;;
@@ -914,14 +950,13 @@ void AlignedContig::alignReadsToContigs(BamAlignmentUPVector &bav) {
       if (seqlen > 20) {
 
 	string read_name;
-	j->GetTag("SR",read_name);
+	r_get_Z_tag(j, "SR", read_name);
 	string short_name = read_name.substr(0,2);
-	
+
 	size_t pos = m_seq.find(QB);
 	int32_t aligned_pos;
 	
 	bool addread = false;
-	bool isrev = false;
 	
 	// make some substrings to match. Dont proceed if none of these match anywhere
 	string sub1 = QB.substr(10, buff); // 10-(10+buff)
@@ -931,20 +966,22 @@ void AlignedContig::alignReadsToContigs(BamAlignmentUPVector &bav) {
 	if (pos != string::npos) {
 	  aligned_pos = pos;
 	  addread = true;
-	  // didn't match completely, SW align
-	} else if (m_seq.find(sub1) != string::npos || m_seq.find(sub2) != string::npos) {
-	  if (SeqanTools::SWalign(contig, aligned_pos, QB, score, cutoff, false))
+	} 
+	// didn't match completely, SW align
+	if (!addread && (m_seq.find(sub1) != string::npos || m_seq.find(sub2) != string::npos) ) {
+
+	  if (SeqanTools::SWalign(contig, aligned_pos, QB, score, cutoff, false, indel))
 	    addread = true;
 	  else {
 	    SnowUtils::rcomplement(sub1);
 	    SnowUtils::rcomplement(sub2);
 	  }
+
 	}
 	// forwards SW didn't make it, try reverse
-	else if (!addread && (m_seq.find(sub1) != string::npos || m_seq.find(sub2) != string::npos)) {
-	  if (SeqanTools::SWalign(contig, aligned_pos, QB, score, cutoff, true)) {
+	if (!addread && (m_seq.find(sub1) != string::npos || m_seq.find(sub2) != string::npos)) {
+	  if (SeqanTools::SWalign(contig, aligned_pos, QB, score, cutoff, true, indel)) {
 	    addread = true;
-	    isrev = true;
 	  }
 	}
 	
@@ -954,11 +991,11 @@ void AlignedContig::alignReadsToContigs(BamAlignmentUPVector &bav) {
 	  SnowUtils::SmartAddTag(j, "AL", to_string(aligned_pos));
 	  SnowUtils::SmartAddTag(j, "CN", m_align[0].align.Name);
 	  SnowUtils::SmartAddTag(j, "SW", to_string(score));
-	  
-	  if (isrev)
-	    j->EditTag("TS", "Z", QB); // stores reverse comp if need be
 
-	  
+	  int tt = 1;
+	  r_add_int32_tag(j, "RC", tt); // flag for rev comp
+	  //j->EditTag("TS", "Z", QB); // stores reverse comp if need be, or shortened read
+
 	  m_bamreads.push_back(j); // make a copy of the data
 	}
       } // end if > 20
@@ -1039,6 +1076,7 @@ void AlignedContig::parseTags(const string& val, BamAlignment &a) {
 
 // CONSTRUCTOR
 CAlignment::CAlignment(BamTools::BamAlignment talign, CigarOpVec tcigar) : align(talign), cigar(tcigar) {
+
   cigstring = cigarToString(tcigar);
   
   // find the start position of alignment ON CONTIG
@@ -1075,15 +1113,35 @@ ostream& operator<<(ostream &out, const CAlignment &c) {
 	  << " Breaks: " << c.break1 << " " << c.break2 
 	  << " GenomeBreaks: " << c.gbreak1 << " " << c.gbreak2 
 	  << " Tsplits: " << c.tsplit1 << " " << c.tsplit2 
-	  << " Nsplits: " << c.nsplit1 << " " << c.nsplit2 
-      << " DiscordantCluster: "; // << printDiscordantClusters();
+          << " Nsplits: " << c.nsplit1 << " " << c.nsplit2;
   
   return out;
 }
 
 
+void AlignedContig::indelCigarMatches(CigarMap &nmap, CigarMap &tmap) { 
+
+  if (m_farbreak.span <= 0) {
+    cerr << "m_farbreak size <= 0" << endl;
+    cerr << m_farbreak << endl;
+    cerr << "SPAN: " << m_farbreak.span << endl;
+    cerr << samrecord << endl;
+  }
+  //assert(m_farbreak.span > 0);
+
+  string st = to_string(m_farbreak.gr1.chr) + "_" + to_string(m_farbreak.gr1.pos1) + "_" + to_string(m_farbreak.span) + (m_farbreak.insertion.length() ? "I" : "D");
+  if (nmap.count(st))
+    m_farbreak.ncigar = nmap[st];
+  if (tmap.count(st))
+    m_farbreak.tcigar = tmap[st];
+
+}
+
 void AlignedContig::splitIndelCoverage() { 
   
+  m_farbreak.tsplit = 0;
+  m_farbreak.nsplit = 0;
+
   int rightbreak1= m_farbreak.cpos1 + SPLIT_BUFF;
   int leftbreak1 = m_farbreak.cpos1 - SPLIT_BUFF;
   int rightbreak2= m_farbreak.cpos2 + SPLIT_BUFF;
@@ -1092,12 +1150,14 @@ void AlignedContig::splitIndelCoverage() {
   for (auto& j : m_bamreads) {
     
     string sr;
-    assert(j->GetTag("SR", sr));
+    r_get_Z_tag(j, "SR", sr);
+    //assert(j->GetTag("SR", sr));
     assert(sr.at(0) == 't' || sr.at(0) == 'n');
     bool tumor_read = (sr.at(0) == 't');
     string seq;
-    if (!j->GetTag("TS",seq))
-      seq = j->QueryBases;
+    r_get_trimmed_seq(j, seq);
+    //if (!j->GetTag("TS",seq))
+    //  seq = j->QueryBases;
     assert(seq.length() > 0);
     //assert(j->GetTag("TS", seq));
     
@@ -1116,9 +1176,33 @@ void AlignedContig::splitIndelCoverage() {
     if ( (issplit1 || issplit2) && !tumor_read)
       m_farbreak.nsplit++;
 
-    //    cout << "issplit1 " << issplit1 << " issplit2 "  << issplit2 << " leftedn " << leftend << " rightend " << rightend << " leftbrea1k " << leftbreak1 << " leftbreak2 " << leftbreak2 << " rightbreak1 " << rightbreak1 << " righrbreak2 " << rightbreak2 << endl;
-    // cout << "checkng coverage tslpit " << m_farbreak.tsplit << " (isspli1 || issplit2) " << (issplit1 || issplit2) << " tumor_read " << tumor_read <<  endl;
-    //cout << "checkng coverage nslpit " << m_farbreak.nsplit << endl;
+   //debug
+   if (m_align[0].align.Name == "c_1_724479_729479_44")
+     cout << "TSPLIT: " << m_farbreak.tsplit << " NSPLIT: " << m_farbreak.nsplit << endl;
+
+
   }
+
+  
+}
+
+bool AlignedContig::isBetter(const AlignedContig &ac) const {
+
+  int mapq_this = max(m_farbreak.gr1.mapq, m_farbreak.gr2.mapq);
+  int mapq_that = max(ac.m_farbreak.gr1.mapq, ac.m_farbreak.gr2.mapq);
+
+  //debug
+  //cout << "COMPARING " << endl;
+  //cout << ac.m_farbreak << endl;
+  //cout << m_farbreak << endl;
+
+  if (mapq_this > mapq_that)
+    return true;
+
+  if (m_seq.length() > ac.m_seq.length())
+    return true;
+  
+  return false;
+  
 
 }

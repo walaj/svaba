@@ -5,7 +5,7 @@ AC_INIT(snowman, 0.0, jwala@broadinstitute.org)
 AM_INIT_AUTOMAKE(foreign)
 AC_CONFIG_SRCDIR([Snowman/snowman.cpp])
 AC_CONFIG_HEADER([config.h])
-m4_include([m4/m4_ax_openmp.m4])
+##m4_include([m4/m4_ax_openmp.m4])
 AC_MSG_NOTICE([Hello World]) ## print function
 
 # Checks for programs.
@@ -23,7 +23,7 @@ AC_SEARCH_LIBS([gzopen],[z],,[AC_MSG_ERROR([libz not found, please install zlib 
 AC_SEARCH_LIBS([clock_gettime], [rt], [AC_DEFINE([HAVE_CLOCK_GETTIME], [1], [clock_getttime found])], )
 
 # Check for openmp
-AX_OPENMP([openmp_cppflags="-fopenmp" AC_DEFINE(HAVE_OPENMP,1,[Define if OpenMP is enabled])])
+#AX_OPENMP([openmp_cppflags="-fopenmp" AC_DEFINE(HAVE_OPENMP,1,[Define if OpenMP is enabled])])
 
 # Check for the bamtools library pathz
 # Bamtools has two different path formats
@@ -73,13 +73,14 @@ AC_ARG_WITH(htslib, AS_HELP_STRING([--with-htslib=PATH],
 	[specify directory containing the Heng Li's HTSlib)]))
 
 if test "$with_htslib" -a -d "$with_htslib"; then
-    htslib_include="-I$with_htslib/htslib"
+    htslib_include="-I$with_htslib"
     htslib_ldflags="-Wl,-rpath,$with_htslib -L$with_htslib"
 else
-    htslib=/xchip/gistic/Jeremiah/htslib-1.1	
-    htslib_include="-I$htslib/htslib"
-    htslib_ldflags="-Wl,-rpath,$htslib -L$htslib"
+    htslibr=/xchip/gistic/Jeremiah/htslib-1.1	
+    htslib_include="-I$htslibr"
+    htslib_ldflags="-Wl,-rpath,$htslibr -L$htslibr"
 fi
+
 
 # Check for the bwa library paths
 AC_ARG_WITH(bwalib, AS_HELP_STRING([--with-bwalib=PATH],
@@ -154,8 +155,11 @@ fi
 AC_SUBST(AM_CXXFLAGS, "-g -Wall -Wextra $fail_on_warning -Wno-unknown-pragmas -std=c++11")
 AC_SUBST(CXXFLAGS, "-O3")
 AC_SUBST(CFLAGS, "-O3")
-AC_SUBST(CPPFLAGS, "$CPPFLAGS $openmp_cppflags $sparsehash_include $bamtools_include $seqan_include $htlib_include $bwalib_include")
-AC_SUBST(LDFLAGS, "$openmp_cppflags $external_malloc_ldflags $bamtools_ldflags $htslib_ldflags $bwalib_ldflags $LDFLAGS")
+##AC_SUBST(CPPFLAGS, "$CPPFLAGS $openmp_cppflags $sparsehash_include $bamtools_include $seqan_include $htlib_include $bwalib_include")
+##AC_SUBST(CPPFLAGS, "$CPPFLAGS $htslib_include $sparsehash_include $bamtools_include $seqan_include $bwalib_include")
+AC_SUBST(CPPFLAGS, "$CPPFLAGS $htslib_include $bamtools_include $seqan_include $bwalib_include")
+##AC_SUBST(LDFLAGS, "$openmp_cppflags $external_malloc_ldflags $bamtools_ldflags $htslib_ldflags $bwalib_ldflags $LDFLAGS")
+AC_SUBST(LDFLAGS, "$external_malloc_ldflags $bamtools_ldflags $htslib_ldflags $bwalib_ldflags $LDFLAGS")
 
 # We always need to specify to link in bamtools
 AC_SUBST(LIBS, "$LIBS -lbamtools -lhts -lbwa")
@@ -174,8 +178,8 @@ if test "$enable_jemalloc"; then
 fi
 
 # Ensure the sparse hash is available
-AC_MSG_NOTICE($sparsehash_include)
-AC_CHECK_HEADERS([google/sparse_hash_set],,[AC_MSG_ERROR([google sparse hash library is required: http://code.google.com/p/google-sparsehash/])])
+##AC_MSG_NOTICE($sparsehash_include)
+##AC_CHECK_HEADERS([google/sparse_hash_set],,[AC_MSG_ERROR([google sparse hash library is required: http://code.google.com/p/google-sparsehash/])])
 
 # Check for hash table headers
 AC_CHECK_HEADERS([ \
@@ -195,8 +199,11 @@ AC_CHECK_HEADERS([bwa.h],,[AC_MSG_ERROR([The BWA library must be installed. You 
 # Make sure the seqan headers can be found
 AC_CHECK_HEADERS([seqan/basic.h],,[AC_MSG_ERROR([The seqan library must be installed (http://trac.seqan.de). You can specify its path with the --with-seqan=PATH option])])
 
+AC_MSG_NOTICE($htslib_include)
+AC_MSG_NOTICE($htslib_ldflags)
+
 # Make sure the HTSlib headers can be found
-AC_CHECK_HEADERS([faidx.h],,[AC_MSG_ERROR([The HTSlib library must be installed. You can specify its path with the --with-htslib=PATH option])])
+AC_CHECK_HEADERS([htslib/hts.h],,[AC_MSG_ERROR([The HTSlib library must be installed. You can specify its path with the --with-htslib=PATH option])])
 
 
 AC_CONFIG_FILES([Makefile

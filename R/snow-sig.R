@@ -34,6 +34,31 @@ source('/home/unix/jwala/GIT/isva/Taiga/R/sourceall.R')
 ########################
 ## some functions
 ########################
+source.all <- function() {
+
+  suppressMessages(suppressWarnings(require(ff, quietly=TRUE)))
+  suppressMessages(suppressWarnings(require(VariantAnnotation, quietly=TRUE)))
+  suppressMessages(suppressWarnings(require(rtracklayer, quietly=TRUE)))
+  suppressMessages(suppressWarnings(require(data.table, quietly=TRUE)))
+  suppressMessages(suppressWarnings(require(plyr, quietly=TRUE)))
+  suppressMessages(suppressWarnings(require(ggplot2, quietly=TRUE)))
+  suppressMessages(suppressWarnings(require(reshape2, quietly=TRUE)))
+  suppressMessages(suppressWarnings(require(GenomicRanges, quietly=TRUE)))
+  suppressMessages(suppressWarnings(require(popbio, quietly=TRUE)))
+  suppressMessages(suppressWarnings(require(BSgenome.Hsapiens.UCSC.hg19, quietly=TRUE)))
+  suppressMessages(suppressWarnings(require(bitops, quietly=TRUE)))
+  suppressMessages(suppressWarnings(require(seqinr, quietly=TRUE)))
+  suppressMessages(suppressWarnings(require(Rsamtools, quietly=TRUE)))
+  suppressMessages(suppressWarnings(require(ff, quietly=TRUE)))
+  suppressMessages(suppressWarnings(require(multicore, quietly=TRUE)))
+  suppressMessages(suppressWarnings(require(Biostrings, quietly=TRUE)))  
+  suppressMessages(suppressWarnings(require(rtracklayer, quietly=TRUE)))
+  suppressMessages(suppressWarnings(require(lattice, quietly=TRUE)))
+  suppressMessages(suppressWarnings(require(RColorBrewer, quietly=TRUE)))
+  suppressMessages(suppressWarnings(require(Matrix, quietly=TRUE)))
+
+}
+
 round.n <- function(x, n) n * round(x / n)
 
 lm_eqn = function(m){
@@ -76,6 +101,7 @@ if (GETFH) {
 } else {
 
 }
+
 print('...loading VCF files')
 toload = file.exists(vcf)
 cols = sample(colors(), sum(toload))

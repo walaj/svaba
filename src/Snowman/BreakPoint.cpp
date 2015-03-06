@@ -1,4 +1,36 @@
 #include "BreakPoint.h"
+#include <getopt.h>
+#include "gzstream.h"
+
+namespace bopt {
+
+  static string input_file = "";
+  static string output_file = "";
+
+  static int verbose = 1;
+}
+
+static const char* shortopts = "hi:v:o:";
+static const struct option longopts[] = {
+  { "help",                    no_argument, NULL, 'h' },
+  { "input-bps",               required_argument, NULL, 'i'},
+  { "output-bps",              required_argument, NULL, 'o'},
+  { "verbose",                 required_argument, NULL, 'v' },
+  { NULL, 0, NULL, 0 }
+};
+
+static const char *BP_USAGE_MESSAGE =
+"Usage: snowman refilter [OPTION] -i bps.txt.gz -o bps.new.txt.gz\n\n"
+"  Description: \n"
+"\n"
+"  General options\n"
+"  -v, --verbose                        Select verbosity level (0-4). Default: 1 \n"
+"  -h, --help                           Display this help and exit\n"
+"  Required input\n"
+"  -i, --tumor-bam                      Tumor BAM file\n"
+"  -o, --tumor-bam                      Tumor BAM file\n"
+"  Optional input\n"                       
+"\n";
 
 // send breakpoint to a string
 string BreakPoint::toString() const {
@@ -128,6 +160,8 @@ string BreakPoint::toFileString() {
   bool issplit = dc.contig != ""; 
   if (discovar)
     evidence = "DSCVR";
+  else if (num_align == 1)
+    evidence = "INDEL";
   else if ( isdisc && issplit )
     evidence = "ASDIS";
   else if ( isdisc )
@@ -136,40 +170,61 @@ string BreakPoint::toFileString() {
     evidence = "ASSMB";
   else if (num_align > 2)
     evidence = "COMPL";
-  else if (num_align == 1)
-    evidence = "INDEL";
   assert(evidence.length());
   
   confidence = "";
   // low split, high span, no discordant. Suspicous
-  if (num_align > 1) {
-    if ((tsplit + nsplit) < 6 && span > 1500 && !hasDiscordant()) 
+
+  // check assembly -only ones
+  if (num_align > 1 && !hasDiscordant()) {
+
+    if ((tsplit + nsplit) < 6 && span > 1500) 
       confidence = "NODISC";
-    // assembly break, low mapq, no discordant
-    else if ((tsplit + nsplit) != 0 && (gr1.mapq != 60 || gr2.mapq != 60) && !hasDiscordant())
+    else if (max(gr1.mapq, gr2.mapq) != 60 || min(gr1.mapq, gr2.mapq) <= 50) 
       confidence = "LOWMAPQ";
-    // assembly only, low evidence
-    else if ( (tsplit + nsplit) <= 3 && !hasDiscordant() && span > 1500)
+    else if ( (tsplit + nsplit) <= 3 && span <= 1500)
       confidence = "WEAKASSEMBLY";
-    // disc is 6+, has assembly + disc, assembly is 3+ with 60/60 mapq
-    else 
+    else
       confidence = "PASS";
+
+    // score ones with both assembly and discordant
+  } else if (num_align > 1 && hasDiscordant()) {
+
+    double min_disc_mapq = min(dc.getMeanMapq(true), dc.getMeanMapq(false));
+    int min_assm_mapq = min(gr1.mapq, gr2.mapq);
+    //double max_disc_mapq = max(dc.getMeanMapq(true), dc.getMeanMapq(false));
+    int max_assm_mapq = max(gr1.mapq, gr2.mapq);
+    
+    if ( (min_disc_mapq < 10 && min_assm_mapq < 30) || (max_assm_mapq < 40))
+      confidence = "LOWMAPQ";
+    else if ( (dc.tcount + dc.ncount + nsplit + tsplit) < 4)
+      confidence = "WEAKASSEMBLY";
+    else
+      confidence = "PASS";
+
+    // score ones with discordant only
+  } else if (num_align == 0) {
+
+    if (min(gr1.mapq, gr2.mapq) < 30 || max(gr1.mapq, gr2.mapq) <= 36) // mapq here is READ mapq (37 max)
+      confidence = "LOWMAPQ";
+    else if (dc.tcount + dc.ncount < 8)
+      confidence = "WEAKDISC";
+    else
+      confidence = "PASS";
+    
+    // indels
   } else if (num_align == 1) {
+
     if ( (tsplit + nsplit) < 4)
       confidence="WEAKASSEMBLY";
     else if (gr1.mapq != 60)
       confidence="LOWMAPQ";
+    else if (seq.find("AAAAAAA") != string::npos || seq.find("TTTTTTT") != string::npos || seq.find("TGTGTGTG") != string::npos)
+      confidence="REPEAT";
     else
       confidence="PASS";
-    //disdcorant only
-  } else if (hasDiscordant()) {
-    if ((dc.tcount + dc.ncount < 6))
-      confidence = "WEAKDISC";
-    else if (gr1.mapq < 50 && gr2.mapq < 50)
-      confidence = "LOWMAPQ";
-    else
-      confidence = "PASS";
-  }
+  } 
+
   assert(confidence.length());
 
   assert(span > -2);
@@ -178,20 +233,33 @@ string BreakPoint::toFileString() {
   unordered_map<string, bool> supp_reads;
 
   //add the discordant reads
-  for (auto& r : dc.reads) 
-    supp_reads[r.second->Name] = true;
-  for (auto& r : dc.mates) 
-    supp_reads[r.second->Name] = true;
+  for (auto& r : dc.reads) {
+    string tmp;
+    r_get_SR(r.second,tmp);
+    supp_reads[tmp] = true;
+  }
+  for (auto& r : dc.mates) {
+    string tmp;
+    r_get_SR(r.second, tmp);
+    supp_reads[tmp] = true;
+  }
 
   //add the reads from the breakpoint
-  for (auto& r : reads) 
-    supp_reads[r->Name];
+  for (auto& r : reads) {
+    string tmp;
+    r_get_SR(r,tmp);
+    supp_reads[tmp];
+  }
    
   // print reads to a string
+  // delimit with a ,
   for (auto& i : supp_reads) 
-    supporting_reads = supporting_reads + "_" + i.first;
+    supporting_reads = supporting_reads + "," + i.first;
   if (supporting_reads.size() > 0)
     supporting_reads = supporting_reads.substr(1, supporting_reads.size() - 1); // remove first _
+
+  if (read_names.length() == 0)
+    read_names = supporting_reads;
 
   // TODO convert chr to string with treader
   ss << gr1.chr+1 << sep << gr1.pos1 << sep << gr1.strand << sep 
@@ -200,12 +268,13 @@ string BreakPoint::toFileString() {
      << gr1.mapq <<  sep << gr2.mapq << sep 
      << nsplit << sep << tsplit << sep
      << discordant_norm << sep << discordant_tum << sep
+     << ncigar << sep << tcigar << sep
     //<< nall << sep << tall << sep 
      << (homology.length() ? homology : "x") << sep 
      << (insertion.length() ? insertion : "x") << sep 
      << contig_name << sep
      << num_align << sep 
-     << confidence << sep << evidence << sep << (supporting_reads.length() ? supporting_reads : "x");
+     << confidence << sep << evidence << sep << (read_names.length() ? read_names : "x");
 
   return ss.str();
   
@@ -308,31 +377,147 @@ BreakPoint::BreakPoint(DiscordantCluster tdc) {
   gr1.mapq = tdc.getMeanMapq(false); 
   gr2.mapq = tdc.getMeanMapq(true); // mate
 
-  //  local1 = true;
-  // local2 = true; // by definition, for discordant alignment came from alignment location...
   
   if (gr1.chr != gr2.chr)
     span = -1;
   else
     span = abs(gr1.pos1 - gr2.pos1);
-  
-}
 
-string BreakPoint::BreakPointHeader() {
-  string sep = ",";
-  stringstream header;
-  header << "evidence" << sep << "chr1" << sep << "pos1" << sep << "strand1" << sep
-         << "chr2" << sep << "pos2" << sep << "strand2" << sep
-         << "mapq1" << sep << "mapq2" << sep 
-	 << "nsplit" << sep << "tsplit" << sep 
-	 << "ndisc" << sep << "tdisc" << sep 
-    //<< "tumcount" << sep << "numcount" << sep 
-	 << "homology" << sep << "insertion" << sep
-         << "cname" << sep << "span" << sep << "num.dups" << sep << "num.parts" 
-	 << sep << "confidence" << sep << "supporting.reads";
-  return header.str();
 }
 
 bool BreakPoint::hasDiscordant() const {
   return !dc.reg1.isEmpty();
+}
+
+
+/** 
+ * Has at least two supporting reads
+ */
+bool BreakPoint::hasMinimal() const {
+
+  int total = tsplit + nsplit + dc.tcount + dc.ncount;
+  if (total >= 2)
+    return true;
+  else
+    return false;
+
+}
+
+bool BreakPoint::operator==(const BreakPoint &bp) const {
+
+  return (gr1.chr == bp.gr1.chr && gr1.pos1 == bp.gr1.pos1 && gr2.pos1 == bp.gr2.pos1);
+
+}
+
+
+void runRefilterBreakpoints(int argc, char** argv) {
+  
+  parseBreakOptions(argc, argv);
+
+  if (bopt::verbose > 0) {
+    cout << "Input bps file:  " << bopt::input_file << endl;
+    cout << "Output bps file: " << bopt::output_file << endl;
+  }
+
+  igzstream iz(bopt::input_file.c_str());
+  if (!iz) {
+    cerr << "Can't read file " << bopt::input_file << endl;
+    exit(EXIT_FAILURE);
+  }
+
+  ogzstream oz(bopt::output_file.c_str(), ios::out);
+  if (!oz) {
+    cerr << "Can't write to output file " << bopt::output_file << endl;
+    exit(EXIT_FAILURE);
+  }
+  // set the header
+  oz << BreakPoint::header() << endl;
+
+
+  string line;
+  //skip the header
+  getline(iz, line, '\n');
+
+  while (getline(iz, line, '\n')) {
+    BreakPoint bp(line);
+    if (bp.hasMinimal())
+      oz << bp.toFileString() << endl;
+  }
+  
+  oz.close();
+}
+
+/**
+ *
+ */
+BreakPoint::BreakPoint(string &line) {
+
+  istringstream iss(line);
+  string val;
+  size_t count = 0;
+  while (getline(iss, val, '\t')) {
+    switch(++count) {
+    case 1: gr1.chr = stoi(val); break;
+    case 2: gr1.pos1 = stoi(val); gr1.pos2 = gr1.pos1; break;
+    case 3: gr1.strand = val.at(0); break;
+    case 4: gr2.chr = stoi(val); break;
+    case 5: gr2.pos1 = stoi(val); gr2.pos2 = gr2.pos1; break;
+    case 6: gr2.strand = val.at(0); break;
+    case 7: span = stoi(val); break;
+    case 8: gr1.mapq = stoi(val); break;
+    case 9: gr2.mapq = stoi(val); break;
+    case 10: nsplit = stoi(val); break;
+    case 11: tsplit = stoi(val); break;
+    case 12: dc.ncount = stoi(val); break;
+    case 13: dc.tcount = stoi(val); break;
+    case 14: ncigar = stoi(val); break;
+    case 15: tcigar = stoi(val); break;
+    case 16: homology = val; break;
+    case 17: insertion = val; break;
+    case 18: cname = val; break;
+    case 19: num_align = stoi(val); break;
+    case 20: confidence = val; break;
+    case 21: evidence = val; break;
+    case 22: read_names = val; break;
+    }
+  }
+
+  //debug
+  if (num_align == 1) {
+    dc.tcount = 0;
+    dc.ncount = 0;
+  }
+
+
+}
+
+
+
+// parse the command line options
+void parseBreakOptions(int argc, char** argv) {
+  bool die = false;
+
+  if (argc <= 2) 
+    die = true;
+
+  string tmp;
+  for (char c; (c = getopt_long(argc, argv, shortopts, longopts, NULL)) != -1;) {
+    istringstream arg(optarg != NULL ? optarg : "");
+    switch (c) {
+      case 'h': die = true; break;
+      case 'i': arg >> bopt::input_file; break;
+      case 'o': arg >> bopt::output_file; break;
+      case 'v': arg >> bopt::verbose; break;
+    }
+  }
+
+  if (bopt::input_file.length() == 0)
+    die = true;
+  if (bopt::output_file.length() == 0)
+    die = true;
+
+  if (die) {
+      cout << "\n" << BP_USAGE_MESSAGE;
+      exit(1);
+    }
 }

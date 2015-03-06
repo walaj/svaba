@@ -50,4 +50,7 @@ V(g)$color = "blue"
 ## format the edges
 E(g)$lab <- tab.e$overlap_end2 - tab.e$overlap_start2
 
-ppdf(plot(g, vertex.color=V(g)$color, vertex.label=V(g)$names, edge.label=E(g)$lab, vertex.size=2), height=40, width=40, filename='trim.pdf')
+pdf(opt$output, height=40, width=40)
+plot(g, vertex.color=V(g)$color, vertex.label=V(g)$names, edge.label=E(g)$lab, vertex.size=2)
+dev.off()
+

@@ -7,6 +7,7 @@
 #include <vector>
 #include <iostream>
 #include <algorithm>
+#include <memory>
 
 extern "C" {
   #include "bwa.h"
@@ -72,7 +73,7 @@ class BWAWrapper {
 
   bseq1_t t;
 
-  void addSequences(const BWAReadVec &seqs, bwaidx_t *idx, SamRecordVec &sam);
+  void addSequences(const BWAReadVec &seqs, std::unique_ptr<bwaidx_t>* idx, SamRecordVec &sam);
 
   //void makebseq1(const std::string &name, const std::string &seq, bseq1_t *s);
 

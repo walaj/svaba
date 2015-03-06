@@ -1031,7 +1031,7 @@ void writeBreakFiles(BPVec &fine, BPVec &glob) {
   if (opt::discovar_acount != "")
     disc = sep + "discovar_tumor" + sep + "discovar_normal";
 
-  string header = BreakPoint::BreakPointHeader();
+  string header = ""; //BreakPoint::BreakPointHeader();
 
   // make the output file names
   stringstream out_som_fine; out_som_fine << opt::outdir << "/breakpoints/breakpoints.somatic.fine.txt";

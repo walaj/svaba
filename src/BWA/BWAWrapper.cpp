@@ -21,7 +21,7 @@ static inline void makebseq1(const std::string &name, const std::string &seq, bs
 
 }
 
-void BWAWrapper::addSequences(const BWAReadVec &seqs, bwaidx_t *idx, SamRecordVec &sam) {
+void BWAWrapper::addSequences(const BWAReadVec &seqs, std::unique_ptr<bwaidx_t>* idx, SamRecordVec &sam) {
 
   int m = 0; 
   
@@ -45,7 +45,7 @@ void BWAWrapper::addSequences(const BWAReadVec &seqs, bwaidx_t *idx, SamRecordVe
   mem_pestat_t *fake_mem_pestat_t;
 
   int i = 0;
-  mem_process_seqs(memopt, idx->bwt, idx->bns, idx->pac, n_processed, m_blen, m_bseqs, fake_mem_pestat_t);
+  mem_process_seqs(memopt, (*idx)->bwt, (*idx)->bns, (*idx)->pac, n_processed, m_blen, m_bseqs, fake_mem_pestat_t);
 
   for (i = 0; i < m_blen; i++) {
     sam.push_back(SamRecord(std::string(m_bseqs[i].sam)));

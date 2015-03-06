@@ -24,7 +24,7 @@ Bigraph::Bigraph() : m_hasContainment(false), m_hasTransitive(false), m_isExactM
     //m_pEdgeAllocator = new SimpleAllocator<Edge>();
     //m_pVertexAllocator = new SimpleAllocator<Vertex>();
 
-    m_vertices.set_deleted_key("");
+    //m_vertices.set_deleted_key(""); // JEREMIAH
     //WARN_ONCE("HARDCODED HASH TABLE MAX SIZE");
     //m_vertices.resize(600000000);
 }

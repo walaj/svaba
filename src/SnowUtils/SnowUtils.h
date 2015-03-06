@@ -6,11 +6,8 @@
 #include <ctime>
 #include <vector>
 #include "GenomicRegion.h"
-#include "api/BamReader.h"
-#include "api/BamWriter.h"
-#include <memory>
 
-typedef std::shared_ptr<BamTools::BamAlignment> BamAlignmentUP;
+#include "reads.h"
 
 namespace SnowUtils {
 
@@ -123,11 +120,11 @@ inline void rcomplement(std::string &a) {
  }
 
  // get a string or int tag that might be separted by "x"
- std::vector<std::string> GetStringTag(const BamAlignmentUP& a, const std::string tag);
- std::vector<int> GetIntTag(const BamAlignmentUP& a, const std::string tag);
+ std::vector<std::string> GetStringTag(const Read& a, const std::string tag);
+ std::vector<int> GetIntTag(const Read& a, const std::string tag);
 
  // add a tag, and if its already there separate by "x"
- void SmartAddTag(BamAlignmentUP &a, const std::string tag, const std::string val);
+ void SmartAddTag(Read &a, const std::string tag, const std::string val);
 
 } // end namespace
 

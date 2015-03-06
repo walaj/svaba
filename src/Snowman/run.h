@@ -15,29 +15,35 @@
 #include "DiscordantCluster.h"
 #include "BamAndReads.h"
 #include <time.h>
+#include "BWAWrapper.h"
+// needed for seq record vector
+#include "Util.h" 
+
+#include "reads.h"
 
 using namespace std;
-using namespace BamTools;
 
-typedef unordered_map<string, BamAlignmentUP> ReadMap;
+typedef unordered_map<string, Read> ReadMap;
 typedef unordered_map<string, unique_ptr<BamAndReads> > BARMap;
+//typedef vector<bam1_t*> bam1_v;
 
 void initializeFiles();
 void addDiscordantPairsBreakpoints(BPVec &bp, DMap& dmap);
-GenomicRegionVector calculateClusters(BamAlignmentUPVector &bav);
-DMap clusterDiscordantReads(BamAlignmentUPVector &bav);
-bool grabReads(int refID, int pos1, int pos2);
+GenomicRegionVector calculateClusters(ReadVec &bav);
+DMap clusterDiscordantReads(ReadVec &bav);
+bool _cluster(vector<ReadVec> &cvec, ReadVec &clust, Read &a, bool mate);
+bool grabReads(int refID, int pos1, int pos2, unique_ptr<bwaidx_t>* idx);
 bool runSnowman(int argc, char** argv);
 void parseRunOptions(int argc, char** argv);
 void writeR2C(ReadMap &r2c);
-bool _cluster(vector<BamAlignmentUPVector> &cvec, BamAlignmentUPVector &clust, BamAlignmentUP &a, bool mate);
-void _convertToDiscordantCluster(DMap &dd, vector<BamAlignmentUPVector> cvec, BamAlignmentUPVector &bav);
+void _convertToDiscordantCluster(DMap &dd, vector<ReadVec> cvec, ReadVec &bav);
 void doAssembly(ReadTable *pRT, std::string name, ContigVector &contigs, int pass);
 int countJobs(GenomicRegionVector &file_regions, GenomicRegionVector &run_regions);
-bool isDiscordant(const BamAlignmentUP &a, bool ancrev, bool parrev);
-bool isTumorRead(const BamAlignmentUP &a);
 void cleanR2CBam();
 void combineContigsWithDiscordantClusters(DMap &dm, AlignedContigVec &contigs);
+void learnParameters();
+GenomicRegionVector checkReadsMateRegions(GenomicRegionVector mate_final, unique_ptr<BARMap>& bar);
+SeqRecordVector toSeqRecordVector(ReadVec &bav);
 
 /** @brief p-thread work item that calls Snowman on a small region
 
@@ -51,11 +57,12 @@ private:
   int m_refid; 
   int m_pos1;
   int m_pos2;
-  int m_number;
+  int m_number;  
+  unique_ptr<bwaidx_t> * m_idx;
    
 public:
-  SnowmanWorkItem(int refid, int start, int end, int number)  
-    : m_refid(refid), m_pos1(start), m_pos2(end), m_number(number) {}
+  SnowmanWorkItem(int refid, int start, int end, int number, unique_ptr<bwaidx_t>* idx)  
+    : m_refid(refid), m_pos1(start), m_pos2(end), m_number(number), m_idx(idx) {}
   ~SnowmanWorkItem() {}
  
   int getNumber() { return m_number; }
@@ -63,7 +70,7 @@ public:
   int getPos1() { return m_pos1; }
   int getPos2() { return m_pos2; }
 
-  bool run() { return grabReads(m_refid, m_pos1, m_pos2); }
+  bool run() { return grabReads(m_refid, m_pos1, m_pos2, m_idx); }
 
 };
 
@@ -76,7 +83,7 @@ template<typename T> inline double calc_sd(vector<T> vec) {
 
 
 // define a sorter to sort by the Mate Position
-typedef std::binary_function<BamAlignmentUP, BamAlignmentUP, bool> AlignmentSortBase;
+typedef std::binary_function<Read, Read, bool> AlignmentSortBase;
 struct ByMatePosition : public AlignmentSortBase {
   
   // ctor
@@ -84,18 +91,18 @@ struct ByMatePosition : public AlignmentSortBase {
     : m_order(order) { }
   
   // comparison function
-  bool operator()(const BamAlignmentUP& lhs, const BamAlignmentUP& rhs) {
+  bool operator()(const Read& lhs, const Read& rhs) {
     
     // force unmapped aligmnents to end
-    if ( lhs->MateRefID == -1 ) return false;
-    if ( rhs->MateRefID == -1 ) return true;
+    if ( r_mid(lhs) == -1 ) return false;
+    if ( r_mid(rhs) == -1 ) return true;
     
     // if on same reference, sort on position
-    if ( lhs->MateRefID == rhs->MateRefID )
-      return Algorithms::Sort::sort_helper(m_order, lhs->MatePosition, rhs->MatePosition);
+    if ( r_mid(lhs) == r_mid(rhs) )
+      return Algorithms::Sort::sort_helper(m_order, r_mpos(lhs), r_mpos(rhs));
     
     // otherwise sort on reference ID
-    return Algorithms::Sort::sort_helper(m_order, lhs->MateRefID, rhs->MateRefID);
+    return Algorithms::Sort::sort_helper(m_order, r_mid(lhs), r_mid(rhs));
   }
   // used by BamMultiReader internals
   static inline bool UsesCharData(void) { return false; }
@@ -106,7 +113,7 @@ struct ByMatePosition : public AlignmentSortBase {
 };
 
 // define a sorter to sort by the Mate Position
-typedef std::binary_function<BamAlignmentUP, BamAlignmentUP, bool> AlignmentSortBase;
+typedef std::binary_function<Read, Read, bool> AlignmentSortBase;
 struct ByReadPosition : public AlignmentSortBase {
   
   // ctor
@@ -114,18 +121,18 @@ struct ByReadPosition : public AlignmentSortBase {
     : m_order(order) { }
   
   // comparison function
-  bool operator()(const BamAlignmentUP& lhs, const BamAlignmentUP& rhs) {
+  bool operator()(const Read& lhs, const Read& rhs) {
     
     // force unmapped aligmnents to end
-    if ( lhs->RefID == -1 ) return false;
-    if ( rhs->RefID == -1 ) return true;
+    if ( r_id(lhs) == -1 ) return false;
+    if ( r_id(rhs) == -1 ) return true;
     
     // if on same reference, sort on position
-    if ( lhs->RefID == rhs->RefID )
-      return Algorithms::Sort::sort_helper(m_order, lhs->Position, rhs->Position);
+    if ( r_id(lhs) == r_id(rhs) )
+      return Algorithms::Sort::sort_helper(m_order, r_pos(lhs), r_pos(rhs));
     
     // otherwise sort on reference ID
-    return Algorithms::Sort::sort_helper(m_order, lhs->RefID, rhs->RefID);
+    return Algorithms::Sort::sort_helper(m_order, r_id(lhs), r_id(rhs));
   }
   // used by BamMultiReader internals
   static inline bool UsesCharData(void) { return false; }
@@ -136,7 +143,7 @@ struct ByReadPosition : public AlignmentSortBase {
 };
 
 // define a sorter to sort by the Mate Position
-typedef std::binary_function<BamAlignmentUP, BamAlignmentUP, bool> AlignmentSortBase;
+typedef std::binary_function<Read, Read, bool> AlignmentSortBase;
 struct ByReadAndMatePosition : public AlignmentSortBase {
   
   // ctor
@@ -144,29 +151,29 @@ struct ByReadAndMatePosition : public AlignmentSortBase {
     : m_order(order) { }
 
   // comparison function
-  bool operator()(const BamAlignmentUP& lhs, const BamAlignmentUP& rhs) {
+  bool operator()(const Read& lhs, const Read& rhs) {
 
     // set the lower nums
     int Lref, Lpos, Rref, Rpos;
 
     // read is lower
-    if ( (lhs->RefID < lhs->MateRefID) || (lhs->RefID == lhs->MateRefID && lhs->Position < lhs->MatePosition)) {
-      Lref = lhs->RefID;
-      Lpos = lhs->Position;
+    if ( (r_id(lhs) < r_mid(lhs)) || (r_id(lhs) == r_mid(lhs) && r_pos(lhs) < r_mpos(lhs))) {
+      Lref = r_id(lhs);
+      Lpos = r_pos(lhs);
     // mate is lower
     } else {
-      Lref = lhs->MateRefID;
-      Lpos = lhs->MatePosition;
+      Lref = r_mid(lhs);
+      Lpos = r_mpos(lhs);
     }
     
     // read is lower
-    if ( (rhs->RefID < rhs->MateRefID) || (rhs->RefID == rhs->MateRefID && rhs->Position < rhs->MatePosition)) {
-      Rref = rhs->RefID;
-      Rpos = rhs->Position;
+    if ( (r_id(rhs) < r_mid(rhs)) || (r_id(rhs) == r_mid(rhs) && r_pos(rhs) < r_mpos(rhs))) {
+      Rref = r_id(rhs);
+      Rpos = r_pos(rhs);
     // mate is lower
     } else {
-      Rref = rhs->MateRefID;
-      Rpos = rhs->MatePosition;
+      Rref = r_mid(rhs);
+      Rpos = r_mpos(rhs);
     }
 
     // force unmapped aligmnents to end
@@ -187,6 +194,7 @@ struct ByReadAndMatePosition : public AlignmentSortBase {
   private:
   const Algorithms::Sort::Order m_order;
 };
+
 
 // make a structure to store timing opt
 struct SnowTimer {

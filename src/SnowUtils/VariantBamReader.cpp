@@ -4,6 +4,107 @@ using namespace std;
 using namespace BamTools;
 
 // Trim the sequence by removing low quality bases from either end
+int32_t VariantBamReader::qualityTrimRead(int qualTrim, int32_t &startpoint, shared_ptr<bam1_t> &b) {
+
+    int endpoint = -1; //seq.length();
+    startpoint = 0;
+    int i = 0; 
+    
+    uint8_t * qual = bam_get_qual(b);
+    
+    // get the start point (loop forward)
+    while(i < b->core.l_qseq) {
+      if (qual[i] >= qualTrim) {
+          startpoint = i;
+          break;
+	}
+	i++;
+    }
+
+    // get the end point (loop backwards)
+    i = b->core.l_qseq - 1; //seq.length() - 1;
+    while(i >= 0) {
+        if (qual[i] >= qualTrim) { //ps >= qualTrim) {
+	  endpoint = i + 1; // endpoint is one past edge
+          break;
+	}
+	i--;
+    }
+
+    // check that they aren't all bad
+    if (startpoint == 0 && endpoint == -1) {
+      //trimmed_seq = 0; //trimmed_seq = "";
+      //seq = "";
+      //qual = "";
+      return 0;
+    }
+
+
+    // Clip the read
+    /*    uint8_t * query_seq = bam_get_seq(b);
+    for (int i = startpoint; i < (endpoint - startpoint); i++) {
+      cout << bam_seqi(query_seq, i) << endl;
+      trimmed_seq[i] = BASES[bam_seqi(query_seq, i)];
+      }*/
+    //    seq =   seq.substr(startpoint, endpoint);
+    //qual = qual.substr(startpoint, endpoint)
+
+    return (endpoint - startpoint);
+
+}
+
+// Trim the sequence by removing low quality bases from either end
+int32_t VariantBamReader::qualityTrimRead(int qualTrim, int32_t &startpoint, shared_ptr<BamTools::BamAlignment> &b) {
+
+    int endpoint = -1; //seq.length();
+    startpoint = 0;
+    int i = 0; 
+    
+    // get the start point (loop forward)
+    while(i < b->Qualities.length()) {
+        int ps = char2phred(b->Qualities[i]);
+      if (ps >= qualTrim) {
+          startpoint = i;
+          break;
+	}
+	i++;
+    }
+
+    // get the end point (loop backwards)
+    i = b->Qualities.length() - 1; //core.l_qseq - 1; //seq.length() - 1;
+    while(i >= 0) {
+        int ps = char2phred(b->Qualities[i]);
+        if (ps >= qualTrim) { //ps >= qualTrim) {
+	  endpoint = i + 1; // endpoint is one past edge
+          break;
+	}
+	i--;
+    }
+
+    // check that they aren't all bad
+    if (startpoint == 0 && endpoint == -1) {
+      //trimmed_seq = 0; //trimmed_seq = "";
+      //seq = "";
+      //qual = "";
+      return 0;
+    }
+
+
+    // Clip the read
+    /*    uint8_t * query_seq = bam_get_seq(b);
+    for (int i = startpoint; i < (endpoint - startpoint); i++) {
+      cout << bam_seqi(query_seq, i) << endl;
+      trimmed_seq[i] = BASES[bam_seqi(query_seq, i)];
+      }*/
+    //    seq =   seq.substr(startpoint, endpoint);
+    //qual = qual.substr(startpoint, endpoint)
+
+    return (endpoint - startpoint);
+
+}
+
+
+// Trim the sequence by removing low quality bases from either end
 void VariantBamReader::qualityTrimRead(int qualTrim, std::string &seq, std::string &qual) {
 
     assert(seq.size() == qual.size());

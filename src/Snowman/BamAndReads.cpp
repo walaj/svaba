@@ -4,9 +4,10 @@
 using namespace std;
 
 #define BUFF 500
-// values above this are discarded
-#define MATE_LOOKUP_LIM 20
 
+// values above this are discarded
+#define MATE_LOOKUP_LIM 10
+#define MATE_LOOKUP_WID 100
 
 // divide the larger BAM chunk into smaller reigons for smaller assemblies
 void BamAndReads::divideIntoRegions() {
@@ -30,18 +31,54 @@ void BamAndReads::readBam() {
   clock_t startr;
   startr = clock();
 
-  BamAlignmentVector reads;
-  _read_bam(reads, -1);
+  ReadVec this_reads;
+  GenomicRegionVector black = _read_bam(this_reads, -1);
+
+  blacklist.insert(blacklist.end(), black.begin(), black.end());
 
   // transfer to assembly regions, place on heap
-  for (auto& i : reads)
+  for (auto& i : this_reads)
     addRead(i);
 
   // end the timer
   read_time = clock() - startr;
 
+  
 }
 
+// use the interval tree to see if a read should be added to different regions
+void BamAndReads::addRead(Read &r) {
+
+  unique_reads++;
+
+  GenomicIntervalVector giv; 
+
+  // check read itself
+  tree[r_id(r)].findOverlapping(r_pos(r), r_pos(r), giv);
+  size_t num_read_intervals = giv.size();
+
+  // check mate to see if we should add this read to mates region too
+  if (r_is_mapped(r) && r_mpos(r) >= interval.pos1 && r_mpos(r) <= interval.pos2 && r_mid(r) == interval.chr)
+    tree[r_mid(r)].findOverlapping(r_mpos(r), r_mpos(r), giv);  
+  bool mate_in_interval = giv.size() > num_read_intervals;
+
+  // loop through assembly regions, and then hits
+  // TODO break if already found all
+  for (auto& i : arvec) 
+    for (auto& j : giv)
+      if (i->region.pos1 == j.start) {
+        reads++;
+	i->reads.push_back(r);
+	
+	// add the partner window to this assembly region
+	if (!mate_in_interval && r_is_mmapped(r) && (r_mapq(r) > 0)) {
+	  i->partner_windows.push_back(GenomicRegion(r_mid(r), r_mpos(r)-BUFF, r_mpos(r)+BUFF));
+	}
+	break;
+      }
+}
+
+/*
 // use the interval tree to see if a read should be added to different regions
 void BamAndReads::addRead(BamAlignment &a) {
 
@@ -60,15 +97,6 @@ void BamAndReads::addRead(BamAlignment &a) {
     tree[ba->MateRefID].findOverlapping(ba->MatePosition, ba->MatePosition, giv);  
   bool mate_in_interval = giv.size() > num_read_intervals;
 
-  // if mate is outside, add to discordant region pile
-  //if (!mate_in_interval && ba->IsMateMapped()) {
-  //  disc.push_back(a);
-
-  //}
-
-  // try the min read structure
-  //MinReadSP ms(new MinRead(ba->QueryBases, a->Position, a->RefID, a->Position, a->Position + a->Length));
-
   // loop through assembly regions, and then hits
   // TODO break if already found all
   for (auto& i : arvec) 
@@ -81,14 +109,12 @@ void BamAndReads::addRead(BamAlignment &a) {
 	if (!mate_in_interval && ba->IsMateMapped() && ba->MapQuality > 0) {
 	  i->partner_windows.push_back(GenomicRegion(ba->MateRefID, ba->MatePosition-BUFF, ba->MatePosition+BUFF));
 	}
-	
-	//i->mrv.push_back(ms);
-	
 	break;
       }
-    
 }
+*/
 
+/*
 // use the interval tree to see if a read should be added to different regions
 void BamAndReads::addMateRead(BamAlignment &a) {
 
@@ -111,12 +137,59 @@ void BamAndReads::addMateRead(BamAlignment &a) {
   }
 
 }
+*/
+
+// use the interval tree to see if a read should be added to different regions
+void BamAndReads::addMateRead(Read &r) {
+
+  mate_unique_reads++;
+
+  // loop through assembly regions
+  // if a read overlaps a partner window for this AssemblyRegion, add it
+  for (auto& i : arvec) {
+    GenomicIntervalVector giv;
+    i->tree_pw[r_id(r)].findOverlapping(r_pos(r), r_pos(r), giv);
+
+    if (giv.size() > 0) {
+      i->reads.push_back(r);
+      mate_reads++;
+    }
+  }
+
+}
 
 
 // start a new BamReader, initial a new set of assembly intervals
 BamAndReads::BamAndReads(GenomicRegion gr, MiniRulesCollection *tmr, int tverb, string tbam, string tprefix) : 
   interval(gr), mr(tmr), verbose(tverb), bam(tbam), prefix(tprefix) {
 
+  // open the HTS reader
+#ifdef HAVE_HTSLIB
+  const char rflag = 'r';
+  fp = bgzf_open(bam.c_str(), &rflag); 
+
+  if (!fp) {
+    cerr << "Error using HTS reader on opening " << bam << endl;
+    exit(EXIT_FAILURE);
+  }
+  br = bam_hdr_read(fp);
+  // open the header with HTS
+  if (!br) {
+    cerr << "Error using HTS reader on opening " << bam << endl;
+    exit(EXIT_FAILURE);
+  }
+
+  //HTS set region
+  if (!idx)
+    idx = hts_idx_load(bam.c_str(), HTS_FMT_BAI);
+  hts_itr = sam_itr_queryi(idx, interval.chr, interval.pos1, interval.pos2);
+  if (!hts_itr) {
+    std::cerr << "Error: Failed to set region: " << interval << endl; 
+    exit(EXIT_FAILURE);
+  }
+#endif
+
+#ifdef HAVE_BAMTOOLS
   // put the reader on the heap
   reader = new BamReader();
 
@@ -147,7 +220,8 @@ BamAndReads::BamAndReads(GenomicRegion gr, MiniRulesCollection *tmr, int tverb, 
     cerr << "Failed to set the region " << interval << endl;
     exit(EXIT_FAILURE);
   }
-
+#endif
+  
   // set set of assembly intervals
   divideIntoRegions();
 
@@ -179,8 +253,10 @@ void BamAndReads::calculateMateRegions() {
 
     // make a growing list all partner regions
     for (auto& q : i->partner_windows) {
-      if (q.width() > (BUFF * 2+1)) // BUFF * 2 + 1 is width if only one read. 
-      grv.push_back(q);
+      if (q.width() > (BUFF * 2+1)) { // BUFF * 2 + 1 is width if only one read. 
+	q.pad(500);
+	grv.push_back(q);
+      }
     }
   }
 
@@ -207,19 +283,32 @@ void BamAndReads::readMateBam() {
 
   // loop through the mated regions and grab the reads
   for (auto& i : mate_regions) {
+
+#ifdef HAVE_BAMTOOLS
     if (!reader->SetRegion(i.chr, i.pos1, i.chr, i.pos2)) {
       cerr << "Failed to set MATE region at " << i << " on bam: " << bam << endl;
       exit(EXIT_FAILURE);
     }
-    BamAlignmentVector reads;
-    _read_bam(reads, 3000); // dont read more than 3000 reads
+#endif
+
+#ifdef HAVE_HTSLIB
+    hts_itr = sam_itr_queryi(idx, i.chr, i.pos1, i.pos2);
+  if (!hts_itr) {
+    std::cerr << "Error: Failed to set region: " << i << endl; 
+    exit(EXIT_FAILURE);
+  }
+#endif
+
+    ReadVec this_reads;
+    _read_bam(this_reads, 3000); // dont read more than 3000 reads
     
     //debug
     if (verbose > 1)
-      cout << "mate reads size " << reads.size() << " on region " << i << endl;
+      cout << "mate reads size " << this_reads.size() << " on region " << i << endl;
 
-    for (auto& r : reads) 
+    for (auto& r : this_reads) 
       addMateRead(r);
+
   }
 
   // end the timer
@@ -228,9 +317,159 @@ void BamAndReads::readMateBam() {
 }
 
 // 
-void BamAndReads::_read_bam(BamAlignmentVector &reads, int limit) {
+GenomicRegionVector BamAndReads::_read_bam(ReadVec &reads, int limit) {
 
-  BamAlignmentVector bam_buffer;
+  GenomicRegionVector black;
+  
+  ReadVec bam_buffer;
+
+  // prepare to deduplicate reads, based on name and seq
+  unordered_map<string, bool> name_map;
+  unordered_map<string, bool> seq_map;
+
+  int pileup = 0;
+
+  for (;;) {
+
+    Read r;
+    GET_READ(r);
+
+    // immediately add cigar
+    if (r_cig_size(r) > 1) {
+
+      stringstream ss; 
+      int pos = r_pos(r); 
+      for (int i = 0; i < r_cig_size(r); i++) {
+	if (r_cig_type(r,i) == 'D' || r_cig_type(r,i) == 'I') {
+	  ss << r_id(r) << "_" << pos << r_cig_len(r, i) << r_cig_type(r, i);
+	  cigmap[ss.str()]++;
+	}
+	if (!r_cig_type(r, i) == 'I')
+	  pos += r_cig_len(r, i);
+      }
+    }
+    
+    // check if read passes rules. 
+    string rule_pass = mr->isValid(r);
+
+    // if it makes it, check that it's not a duplicate
+    bool pass_rule_and_dup = false;
+    if (rule_pass != "") {
+
+      // deduplicate by query-bases / position
+      string sname = to_string(r_id(r)) + "_" + to_string(r_pos(r)) + "_" + to_string(r_mid(r)) + "_" + to_string(r_mpos(r));    
+      // deduplicate by Name
+      string uname = r_qname(r) + "_" + to_string(r_is_first(r));
+      
+      // its not already add, insert
+      bool uname_pass = false, sname_pass = false;
+      if (name_map.count(uname) == 0) { // && seq_map.count(sname) == 0) {  
+	uname_pass = true;
+	name_map.insert(pair<string, int>(uname, true));
+      } 
+      if (seq_map.count(sname) == 0) {
+	sname_pass = true;
+	seq_map.insert(pair<string, int>(sname, true));
+      }
+
+      pass_rule_and_dup = uname_pass && sname_pass;
+
+
+    }
+
+    // read passes rule AND is not a duplicate
+    if ( pass_rule_and_dup ) {
+
+      // keep track of pile
+      int32_t nm = 0; 
+      r_get_int32_tag(r, "NM", nm);
+      if (r_mapq(r) == 0 || nm >= 4) 
+	pileup++;
+
+      // clear it out
+      r_remove_tag(r, "R2");
+      r_remove_tag(r, "Q2");
+      r_remove_tag(r, "OQ");
+      
+      r_add_Z_tag(r, "RL", rule_pass);
+      string srn =  prefix+to_string(r_flag(r)) + "_" + r_qname(r);
+      r_add_Z_tag(r, "SR", srn);
+
+      bam_buffer.push_back(r);
+
+      size_t buffer_lim = 100;
+      // deal with bam buff
+      if (bam_buffer.size() >= buffer_lim) {
+
+        int pos_width = r_pos(bam_buffer.back()) - r_pos(bam_buffer[0]); //bam_buffer.back().Position - bam_buffer[0].Position;
+
+	// check if it has too many discordant reads in different directions
+	GenomicRegionVector grv_tmp;
+	for (auto& i : bam_buffer) {
+	  if (pos_width <= MATE_LOOKUP_WID) { // if the buffer have ~10x weird read coverage or higher, check for weird discordance
+	    if (r_is_pmapped(i))
+	      grv_tmp.push_back(GenomicRegion(r_mid(i), r_mpos(i) - 5000, r_mpos(i) + 5000));
+	    grv_tmp = GenomicRegion::mergeOverlappingIntervals(grv_tmp);
+	  }
+	}
+	  
+	// check if bad region
+	if (pileup >= buffer_lim * 0.8 && pos_width <= 40) {
+	  for (auto& i : bam_buffer)
+	    if (r_mapq(i) > 0) 
+	      reads.push_back(i);
+	  if (verbose > 2)
+	    cout << "Detected mapq 0 pileup of " << pileup << " at " << (r_id(r)+1) << ":" << r_pos(bam_buffer[0]) << "-" << r_pos(bam_buffer.back()) << endl;
+	} else if (grv_tmp.size() >= MATE_LOOKUP_LIM) {
+	  if (verbose > 2) {
+	    cout << "Detected bad discordant pileup with " << grv_tmp.size() << " regions at " << (r_id(r)+1) << ":" << r_pos(bam_buffer[0]) << "-" << r_pos(bam_buffer.back()) << endl;
+	    for (auto &y : grv_tmp)
+	      cout << "      " << y << endl;
+	  }
+	  GenomicRegion bl(interval.chr, r_pos(bam_buffer[0]), r_pos(bam_buffer.back()));
+	  bl.pad(10);
+	  black.push_back(bl);
+	  for (auto& it : bam_buffer) {
+	    reads.push_back(it);
+	  }
+	}
+	// it's OK 
+	else {
+	  for (auto& it : bam_buffer) {
+	    reads.push_back(it);
+	  }
+	  //	    addRead(it);
+	}
+
+	bam_buffer.clear();
+	pileup = 0;
+
+	// check the size. If it's too high, kill the reader. -1 means never kill
+	if (reads.size() > limit && limit >= 0)
+	  return GenomicRegionVector();
+
+      } // end buffer check
+      
+    } // end save read checking
+
+  } // end read while loop
+
+  // write the final buffer
+  for (auto& it : bam_buffer) { 
+    reads.push_back(it);
+    //addRead(it);
+  }
+
+  return black;
+}
+
+// 
+/*
+GenomicRegionVector BamAndReads::_read_bam(ReadVec &reads, int limit) {
+
+  GenomicRegionVector black;
+  
+  bam1_v bam_buffer;
   vector<int> mapq_buffer;
 
   // prepare to deduplicate reads, based on name and seq
@@ -239,27 +478,48 @@ void BamAndReads::_read_bam(BamAlignmentVector &reads, int limit) {
 
   int pileup = 0;
 
-  BamTools::BamAlignment a;
-  while (reader->GetNextAlignmentCore(a)) {
+  void* dum;
+  assert(hts_itr);
+  for (;;) {
 
-    // clear the name because it's just a relic?
-    a.Name = ""; 
+    Read r;
+    GET_READ(r);
 
+    bam1_t * b = bam_init1();    
+    if (hts_itr_next(fp, hts_itr, b, dum) <= 0)
+      break;
+
+    // immediately add cigar
+    if (b->core.n_cigar > 1) {
+      uint32_t *cig = bam_get_cigar(b);      
+      int pos = b->core.pos;
+      stringstream ss;
+      for (int i = 0; i < b->core.n_cigar; i++) {
+	if ((cig[i] & BAM_CDEL) || (cig[i] & BAM_CINS)) {
+	  ss << m_id(r) << "_" << pos << bam_cigar_oplen(cig[i]) << bam_cigar_opchr(cig[i]);
+	  cigmap[ss.str()]++;
+	}
+	
+	//cigmap[to_string(m_id(r)) + "_" + to_string(pos) + "_" + to_string(bam_cigar_oplen(cig[i])) + string(bam_cigar_opchr(cig[i]))]++;
+	if (!cig[i]&BAM_CREF_SKIP)
+	  pos += bam_cigar_oplen(cig[i]);
+      }
+    }
+    
     // check if read passes rules. 
-    string rule_pass = mr->isValid(a);
+    string rule_pass = mr->isValid(b);
+    string qname;
 
     // if it makes it, check that it's not a duplicate
     bool pass_rule_and_dup = false;
     if (rule_pass != "") {
 
-      // build it if we haven't
-      if (a.Name == "")
-	a.BuildCharData();
+      qname = string(bam_get_qname(b));
 
       // deduplicate by query-bases / position
-      string sname = to_string(a.RefID) + "_" + to_string(a.Position) + "_" + to_string(a.MateRefID) + "_" + to_string(a.MatePosition) + a.QueryBases;    
+      string sname = to_string(m_id(r)) + "_" + to_string(b->core.pos) + "_" + to_string(r_mid(r)) + "_" + to_string(r_mpos(r));
       // deduplicate by Name
-      string uname = a.Name + "_" + to_string(a.IsFirstMate());
+      string uname = qname + "_" + to_string(b->core.flag&BAM_FREAD1);
       
       // its not already add, insert
       bool uname_pass = false, sname_pass = false;
@@ -280,23 +540,27 @@ void BamAndReads::_read_bam(BamAlignmentVector &reads, int limit) {
     if ( pass_rule_and_dup ) {
 
       // keep track of pile
-      int32_t nm; 
-      if (!a.GetTag("NM", nm)) nm = 0;
-      if (a.MapQuality == 0 || nm >= 4) 
+      int32_t nm = 0; 
+      uint8_t * nmp = bam_aux_get(b, "NM");
+      if (nmp)
+	nm = bam_aux2i(nmp);
+      if (b->core.qual == 0 || nm >= 4)
 	pileup++;
 
       // clear it out
-      a.RemoveTag("R2");
-      a.RemoveTag("Q2");
-      a.RemoveTag("OQ");
+      uint8_t * p;
+      if ( (p = bam_aux_get(b, "OQ")) ) bam_aux_del(b, p);
+      if ( (p = bam_aux_get(b, "R2")) ) bam_aux_del(b, p);
+      if ( (p = bam_aux_get(b, "Q2")) ) bam_aux_del(b, p);
 
       // add a tag to say which region/rule it passes
-      a.AddTag("RL","Z",rule_pass);
+      bam_aux_append(b, "RL", 'Z', rule_pass.length()+1, (uint8_t*)rule_pass.c_str()); // need +1. Dunno why
 
       // add a tag to give it a unique read name
-      a.AddTag("SR", "Z", prefix + to_string(a.AlignmentFlag) + "_" + a.Name);
+      string sr_name = prefix + to_string(b->core.flag) + "_" + qname;
+      bam_aux_append(b, "SR", 'Z',  sr_name.length() + 1, (uint8_t*)qname.c_str()); // need +1. Dunno why
       
-      bam_buffer.push_back(move(a));
+      bam_buffer.push_back(bam_dup1(b));
 
       size_t buffer_lim = 100;
       // deal with bam buff
@@ -304,34 +568,47 @@ void BamAndReads::_read_bam(BamAlignmentVector &reads, int limit) {
 
 	// check if it has too many discordant reads in different directions
 	GenomicRegionVector grv_tmp;
-	for (auto& it : bam_buffer) {
-	  if (it.IsMateMapped() && it.IsMapped())
-	    grv_tmp.push_back(GenomicRegion(it.MateRefID, it.MatePosition - 5000, it.MatePosition + 5000));
-	  grv_tmp = GenomicRegion::mergeOverlappingIntervals(grv_tmp);
+	int buff_width = bam_buffer.back()->core.pos - bam_buffer[0]->core.pos;
+	for (auto& i : bam_buffer) {
+
+	  if (buff_width <= MATE_LOOKUP_WID) { // if the buffer have ~10x weird read coverage or higher, check for weird discordance
+	    if ( (!i->core.flag&BAM_FUNMAP) && (!i->core.flag&BAM_FMUNMAP) ) 
+	      grv_tmp.push_back(GenomicRegion(i->core.mtid, i->core.mpos - 5000, i->core.mpos + 5000));
+	    grv_tmp = GenomicRegion::mergeOverlappingIntervals(grv_tmp);
+	  }
 	}
 	  
 	// check if bad region
-	int buf_width = bam_buffer.back().Position - bam_buffer[0].Position;
-	if (pileup >= buffer_lim * 0.8 && buf_width <= 40) {
-	  /*	  for (auto& it : bam_buffer)
-	    if (it.MapQuality > 0) 
-	      reads.push_back(move(it));
-	  */
-		//      addRead(it);
-	  if (verbose > 4)
-	    cout << "Detected mapq 0 pileup of " << pileup << " at " << a.RefID+1 << ":" << bam_buffer[0].Position << "-" << bam_buffer.back().Position << endl;
+	if (pileup >= buffer_lim * 0.8 && buff_width <= 40) {
+	  for (auto& i : bam_buffer) {
+	    if (i->core.qual > 0) 
+	      reads.push_back(i);
+	    else
+	      bam_destroy1(i);
+	  }
+	  
+	  if (verbose > 4 || true)
+	    cout << "Detected mapq 0 pileup of " << pileup << " at " << m_id(r)+1 << ":" << bam_buffer[0]->core.pos << "-" << bam_buffer.back()->core.pos << endl;
 	} else if (grv_tmp.size() >= MATE_LOOKUP_LIM) {
 	  if (verbose > 4) {
-	    cout << "Detected bad discordant pileup with " << grv_tmp.size() << " regions at " << a.RefID+1 << ":" << bam_buffer[0].Position << "-" << bam_buffer.back().Position << endl;
+	    cout << "Detected bad discordant pileup with " << grv_tmp.size() << " regions at " << m_id(r)+1 << ":" << bam_buffer[0]->core.pos << "-" << bam_buffer.back()->core.pos << endl;
 	    for (auto &y : grv_tmp)
 	      cout << "      " << y << endl;
 	  }
-	  // its bad, skip the whole thing
+	  GenomicRegion bl(interval.chr, bam_buffer[0]->core.pos, bam_buffer.back()->core.pos);
+	  bl.pad(10);
+	  black.push_back(bl);
+	  // add the reads anyway, delete them later
+	  for (auto& i : bam_buffer) {
+	    reads.push_back(i);
+	  }
 	}
+
 	// it's OK 
 	else {
-	  for (auto& it : bam_buffer) 
-	    reads.push_back(move(it));
+	  for (auto& it : bam_buffer) {
+	    reads.push_back(it);
+	  }
 	  //	    addRead(it);
 	}
 
@@ -340,18 +617,62 @@ void BamAndReads::_read_bam(BamAlignmentVector &reads, int limit) {
 
 	// check the size. If it's too high, kill the reader. -1 means never kill
 	if (reads.size() > limit && limit >= 0)
-	  return;
+	  return GenomicRegionVector();
 
       } // end buffer check
       
     } // end save read checking
 
+    bam_destroy1(b);
   } // end read while loop
 
   // write the final buffer
   for (auto& it : bam_buffer) { 
-    reads.push_back(move(it));
+    reads.push_back(it);
     //addRead(it);
   }
 
+  return black;
+}
+*/
+
+void BamAndReads::removeBlacklist(GenomicIntervalTreeMap &bt) {
+
+  size_t before = 0, after = 0;
+  for (auto& v : arvec) {
+    before += v->reads.size();
+    v->removeBlacklist(bt);
+    after += v->reads.size();
+  }
+
+  cout << "before reads: " << before << " after " << after << endl;
+
+}
+
+void AssemblyRegion::removeBlacklist(GenomicIntervalTreeMap &bt) {
+
+  ReadVec new_reads;
+  GenomicRegionVector new_partner_windows;
+
+  for (auto& r : reads) {
+    GenomicIntervalVector giv;
+    bt[r_id(r)].findOverlapping(r_pos(r), r_pos(r), giv);
+    bt[r_mid(r)].findOverlapping(r_mpos(r), r_mpos(r), giv);
+    if (giv.size() == 0) {
+      new_reads.push_back(r);
+    }
+  }
+
+  reads = new_reads;
+  new_reads.clear();
+
+  for (auto& p : partner_windows) {
+    GenomicIntervalVector giv;
+    bt[p.chr].findOverlapping(p.pos1, p.pos2, giv);
+    if (giv.size() == 0)
+      new_partner_windows.push_back(p);
+  }
+
+  partner_windows = new_partner_windows;
+  
 }

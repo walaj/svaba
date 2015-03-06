@@ -471,7 +471,7 @@ if (FALSE) {
   gr.reads$flag = as.numeric(gsub("[a-z]+([0-9]+)_?(.*)", "\\1", gr.reads$rheader))
   gr.reads.per <- split(gr.reads, seqnames(gr.reads))
 
-  ## grab the discorsant reads
+  ## grab the discordant reads
   gr.test = gr.reads.per[[1]]
   tab = table(gr.test$rqname)
   gr.test.disc = gr.test[gr.test$rqname %in% names(tab[tab==2])]

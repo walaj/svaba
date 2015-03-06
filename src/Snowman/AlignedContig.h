@@ -1,5 +1,5 @@
-#ifndef ALIGNED_CONTIG
-#define ALIGNED_CONTIG
+#ifndef ALIGNED_CONTIG_H
+#define ALIGNED_CONTIG_H
 
 #include "Util.h" //TODO
 #include "GenomicRegion.h"
@@ -9,19 +9,21 @@
 #include "api/BamReader.h"
 #include "api/BamWriter.h"
 #include "api/algorithms/Sort.h"
-#include <memory>
 #include "SnowUtils.h"
+
+#include "reads.h"
 
 using namespace std;
 using namespace BamTools;
 
-typedef shared_ptr<BamAlignment> BamAlignmentUP;
-typedef vector<BamAlignmentUP> BamAlignmentUPVector;
+//typedef shared_ptr<BamAlignment> BamAlignmentUP;
+//typedef vector<BamAlignmentUP> BamAlignmentUPVector;
 
-typedef vector<BamTools::BamAlignment> BAVec;
+//typedef vector<BamTools::BamAlignment> BAVec;
 typedef vector<BamTools::CigarOp> CigarOpVec;
 
-typedef std::vector<std::string> StringVec;
+typedef vector<string> StringVec;
+typedef unordered_map<string, size_t> CigarMap;
 
 class AlignedContig;
 typedef unordered_map<string, AlignedContig> ContigMap;
@@ -39,8 +41,10 @@ struct CAlignment {
 
   unsigned start;
 
-  BamAlignmentUPVector reads_b1;
-  BamAlignmentUPVector reads_b2;
+  //BamAlignmentUPVector reads_b1;
+  //BamAlignmentUPVector reads_b2;
+  ReadVec reads_b1;
+  ReadVec reads_b2;
 
   unsigned nsplit1 = 0;
   unsigned tsplit1 = 0;
@@ -89,13 +93,18 @@ class AlignedContig {
   BreakPoint m_farbreak;
   BreakPoint m_farbreak_filt; // global breakpoint, but remove bad fragments (e.g. 60, 60, 0 mapqs, keep 60-60 connection)
   //vector<BamAlignment> m_bamreads;
-  BamAlignmentUPVector m_bamreads;
+  ReadVec m_bamreads;
+  //BamAlignmentUPVector m_bamreads;
   AlignVec m_align;
   string samrecord;
   GenomicRegion window;
 
+  bool skip = false;
+
+  bool isBetter(const AlignedContig &ac) const;
+
   // new
-  BamAlignmentVector aln;
+  //BamAlignmentVector aln;
 
   void parseTags(const string& val, BamTools::BamAlignment &a);
   CigarOpVec stringToCigar(const string& val);
@@ -251,7 +260,7 @@ class AlignedContig {
 
   string getName() const { return m_align[0].align.Name; }
 
-  void alignReadsToContigs(BamAlignmentUPVector &bav);
+  void alignReadsToContigs(ReadVec &bav, bool indel);
 
   AlignVec getAlignments() const { return m_align; }
 
@@ -268,9 +277,15 @@ class AlignedContig {
 
   //vector<BamAlignment> getBamReads() const { return m_bamreads; }
 
+  void indelCigarMatches(CigarMap &nmap, CigarMap &tmap);
+
   void settleContigs();
 
   string getSequence() const { return m_seq; }
+
+  bool hasSubSequence(const string& subseq) const { 
+    return (m_seq.find(subseq) != string::npos);
+  }
   
 
   friend ostream& operator<<(ostream &out, const AlignedContig &ac);
@@ -296,7 +311,7 @@ class AlignedContig {
 };
 
 // define a sorter to sort by the Mate Position
-typedef std::binary_function<BamAlignmentUP, BamAlignmentUP, bool> AlignmentSortBase;
+/*typedef std::binary_function<BamAlignmentUP, BamAlignmentUP, bool> AlignmentSortBase;
 struct ByALTag : public AlignmentSortBase {
   
   // ctor
@@ -319,7 +334,7 @@ struct ByALTag : public AlignmentSortBase {
   private:
   const Algorithms::Sort::Order m_order;
 };
-
+*/
 
 #endif
 

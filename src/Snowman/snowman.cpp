@@ -28,8 +28,9 @@ shome=/home/unix/jwala/GIT/isva/Snowman
 #include "vcf.h"
 //#include "prep_pon.h"
 #include <vector>
+#include "BreakPoint.h"
 //#include "clean.h"
-#include "nozzle.h"
+//#include "nozzle.h"
 //#include "bamprocess.h"
 //#include "cluster.h"
 
@@ -45,15 +46,13 @@ static const char *SNOWMAN_USAGE_MESSAGE =
 "Contact: " AUTHOR " [" PACKAGE_BUGREPORT "]\n"
 "Usage: " PROGRAM_BIN " <command> [options]\n\n"
 "Commands:\n"
-"           preprocess     Extract only weird reads from a BAM\n"
 "           run            Run the Snowman SV algorithm on an SV bam pair\n"
 "           gather         Gather the contigs and alignments, send to BWA-MEM and produce outputs\n"
 "           vcf            Tools for handling VCF files within Snowman and across centers\n"
-"           nozzle         Generate a Nozzle HTML report for this run. Wrapper to Rscript.\n"
+"           refilter       Specify a new set of confidence / evidence criteria for a bp file. Can re-run snowman vcf to make new calls\n"
 "\nReport bugs to " PACKAGE_BUGREPORT "\n\n";
 
-int main(int argc, char** argv)
-{
+int main(int argc, char** argv) {
 
   if (argc <= 1) {
     std::cerr << SNOWMAN_USAGE_MESSAGE;
@@ -69,9 +68,10 @@ int main(int argc, char** argv)
       runSnowman(argc -1, argv + 1);
     } else if (command == "gather") {
       runConcat(argc-1, argv+1);
-    } else if (command == "nozzle") {
-      runNozzle(argc-1, argv+1);
-    } else if (command == "vcf") {
+    } else if (command == "refilter") {
+      runRefilterBreakpoints(argc-1, argv+1);
+     } 
+  else if (command == "vcf") {
       runVCF(argc-1, argv+1);
     } else {
       std::cerr << SNOWMAN_USAGE_MESSAGE;

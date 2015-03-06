@@ -162,8 +162,15 @@ void assemble(std::stringstream& asqg_stream, int minOverlap, int maxEdges, bool
     //std::cout << "Removing contained vertices from graph\n";
     //std::cout << "Containments: " << pGraph->hasContainment() << std::endl;
     //std::cout << prefix << std::endl;
+
+    //debug
+    //pGraph->writeASQG("after_build.asqg");
+
     while(pGraph->hasContainment())
         pGraph->visit(containVisit);
+
+    //debug
+    //pGraph->writeASQG("after_contain.asqg");
     /*std::cout << "After containments" << endl;
       pGraph->visit(statsVisit);    
       pGraph->writeASQG("/home/unix/jwala/tmp.graph.aftercontainments.asqg");
@@ -190,6 +197,9 @@ void assemble(std::stringstream& asqg_stream, int minOverlap, int maxEdges, bool
 
     // Compact together unbranched chains of vertices
     pGraph->simplify();
+
+    //debug
+    //pGraph->writeASQG("after_simplify.asqg");
     
     if(bValidate)
     {
@@ -199,7 +209,6 @@ void assemble(std::stringstream& asqg_stream, int minOverlap, int maxEdges, bool
 
     // Remove dead-end branches from the graph
     //numTrimRounds = 1;
-    numTrimRounds = 0;
     if(numTrimRounds > 0)
     {
       //std::cout << "Trimming bad vertices\n"; 
@@ -255,6 +264,9 @@ void assemble(std::stringstream& asqg_stream, int minOverlap, int maxEdges, bool
             pGraph->visit(smoothingVisit);
         pGraph->simplify();
     }
+
+    //debug
+    //pGraph->writeASQG("after_bubble.asqg");
 
     /* std::cerr << prefix << " NumBubble2: " << numBubbleRounds << "\n\n\n\n";
     vt = pGraph->getVertexMap();
