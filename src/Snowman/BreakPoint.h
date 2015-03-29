@@ -13,6 +13,7 @@ using namespace std;
 
 struct BreakPoint;
 typedef vector<BreakPoint> BPVec;
+typedef unordered_map<string, size_t> PON;
 //typedef unordered_map<string, BreakPoint> BPMap;
 //typedef shared_ptr<BamAlignment> BamAlignmentUP;
 //typedef vector<BamAlignmentUP> BamAlignmentUPVector;
@@ -29,7 +30,7 @@ void parseBreakOptions(int argc, char** argv);
 
 struct BreakPoint {
 
-  static string header() { return "chr1\tpos1\tstrand1\tchr2\tpos2\tstrand2\tspan\tmapq1\tmapq2\tnsplit\ttsplit\tndisc\ttdisc\tncigar\ttcigar\thomology\tinsertion\tcontig\tnumalign\tconfidence\tevidence\treads"; }
+  static string header() { return "chr1\tpos1\tstrand1\tchr2\tpos2\tstrand2\tspan\tmapq1\tmapq2\tnsplit\ttsplit\tndisc\ttdisc\tncigar\ttcigar\thomology\tinsertion\tcontig\tnumalign\tconfidence\tevidence\treads\tpon_samples"; }
 
   // Discovar information
   size_t disco_tum = 0;
@@ -48,21 +49,15 @@ struct BreakPoint {
 
   string read_names;
 
-  //unsigned pos1 = 0;
-  //unsigned pos2 = 0;
-
-  unsigned cpos1 = 0;  
-  unsigned cpos2 = 0;
-
-  //unsigned refID1 = 0;
-  //unsigned refID2 = 0;
+  int cpos1 = 0;  
+  int cpos2 = 0;
 
   string seq;
 
   string cname;
 
-  string insertion;
-  string homology;
+  string insertion = "";
+  string homology = "";
 
   string id1;
   string id2;
@@ -71,12 +66,16 @@ struct BreakPoint {
 
   size_t tcigar = 0;
   size_t ncigar = 0;
+
+  size_t min_end_align_length = 0; // minimum length of alignment on end. real short are not to be trusted
   
   //char strand1;
   //char strand2;
 
   bool isSomatic = false;
   bool isGermline = false;
+
+  size_t pon = 0;
 
   //unsigned mapq1; 
   //unsigned mapq2; 
@@ -101,7 +100,7 @@ struct BreakPoint {
   //Window window;
   GenomicRegion window;
 
-  int span;
+  //int span;
 
   unsigned num_align = 0;
 
@@ -113,6 +112,8 @@ struct BreakPoint {
   string evidence = "";
   string confidence = "";
 
+  bool isindel = false;
+
   BreakPoint(DiscordantCluster tdc);
   BreakPoint() {
     gr1.pos1 = 0;
@@ -120,6 +121,42 @@ struct BreakPoint {
   }
 
   BreakPoint(string &line);
+
+  
+  static void readPON(string &file, unique_ptr<PON> &pmap);
+  
+  /*! @function determine if the breakpoint has split read support
+   * @param reference to a vector of read smart pointers that have been aligned to a contig
+   * @discussion Note: will cause an error if the AL tag not filled in for the reads. 
+   * The AL tag is filled in by AlignedContig::alignReadsToContigs.
+   */
+  void splitCoverage(ReadVec &bav);
+
+  /*! @function get the span of the breakpoints (in bp). -1 for interchrom
+   * @return int distance between breakpoints
+   */
+  int getSpan() const { 
+    if (isindel && insertion == "" )// deletion
+      return (abs(gr1.pos1 - gr2.pos1) - 1);
+    if (isindel)
+      return (insertion.length()); // insertion
+    if (gr1.chr == gr2.chr)
+      return abs(gr1.pos1-gr2.pos1);
+    else
+      return -1;
+  }
+
+  /*! @function check the breakpoint against a panel of normals
+   * @param Panel of normals hash
+   * @return number of normal samples with this variant
+   */
+  int checkPon(unique_ptr<PON> &p);
+  
+  /*! @function get a unique string representation of this breakpoint.
+   * Format for indel is chr_breakpos_type (eg. 0_134134_I)
+   * @return string with breakpoint info
+   */
+  string getHashString() const;
 
   bool hasMinimal() const;
 
@@ -134,7 +171,7 @@ struct BreakPoint {
   // return whether a bp is good to move on
   bool isGoodSomatic(int mapq, size_t tsplit_cutoff, size_t nsplit_cutoff) const;
 
-  string toFileString();
+  string toFileString(bool noreads = false);
   
   bool hasDiscordant() const;
 

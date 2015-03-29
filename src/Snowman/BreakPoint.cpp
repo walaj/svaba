@@ -1,20 +1,32 @@
 #include "BreakPoint.h"
 #include <getopt.h>
 #include "gzstream.h"
+#include "vcf.h"
+
+#define SPLIT_BUFF 12
 
 namespace bopt {
 
   static string input_file = "";
   static string output_file = "";
+  static string pon = "";
+  static string analysis_id = "noid";
+  static bool noreads = false;
+
+  static string ref_index = REFHG19;
 
   static int verbose = 1;
 }
 
-static const char* shortopts = "hi:v:o:";
+static const char* shortopts = "hxi:a:v:o:p:g:";
 static const struct option longopts[] = {
   { "help",                    no_argument, NULL, 'h' },
   { "input-bps",               required_argument, NULL, 'i'},
   { "output-bps",              required_argument, NULL, 'o'},
+  { "panel-of-normals",        required_argument, NULL, 'p'},
+  { "reference-genome",        required_argument, NULL, 'g'},
+  { "analysis-id",             required_argument, NULL, 'a'},
+  { "no-reads",                no_argument, NULL, 'x'},
   { "verbose",                 required_argument, NULL, 'v' },
   { NULL, 0, NULL, 0 }
 };
@@ -26,20 +38,27 @@ static const char *BP_USAGE_MESSAGE =
 "  General options\n"
 "  -v, --verbose                        Select verbosity level (0-4). Default: 1 \n"
 "  -h, --help                           Display this help and exit\n"
+"  -g, --reference-genome               Path to indexed reference genome to be used by BWA-MEM. Default is Broad hg19 (/seq/reference/...)\n"
 "  Required input\n"
-"  -i, --tumor-bam                      Tumor BAM file\n"
-"  -o, --tumor-bam                      Tumor BAM file\n"
+"  -i, --input-bps                      Original bps.txt.gz file\n"
+"  -o, --output-bps                     Output bps.txt.gz file\n"
+
 "  Optional input\n"                       
+"  -p, --panel-of-normals               Input a file containing chr\tpos1\tpos2\ttype\tnum_samples as a panel of normals\n"                       
+"  -a, --id-string                      String specifying the analysis ID to be used as part of ID common.\n"
+"  -x, --no-reads                       Flag to turn off recording of supporting reads. Setting this flag greatly reduces file size.\n"
+
 "\n";
 
 // send breakpoint to a string
 string BreakPoint::toString() const {
     stringstream out;
     out << cname << " " << gr1.chr+1 << ":" << gr1.pos1 << " to " << gr2.chr+1 << ":" << gr2.pos1 <<
-       " Span: " << span << " MAPQ: " << 
+      " Span: " << getSpan() << " MAPQ: " << 
        gr1.mapq << "/" << gr2.mapq << " homology: " << 
        homology << " insertion: " << insertion << " NumDups: " << num_dups << " Nsplit: " << 
-       nsplit << " Tsplit: " << tsplit << " Tdisc: " << dc.tcount << " Ndisc: " << dc.ncount; // << " isBest: " << isBest;
+       nsplit << " Tsplit: " << tsplit << " Tdisc: " << dc.tcount << " Ndisc: " << dc.ncount 
+	<< " Ncigar " << ncigar << " Tcigar " << tcigar<< " cname " << cname; // << " isBest: " << isBest;
     return out.str();
 }
 
@@ -140,7 +159,7 @@ bool BreakPoint::isGoodGermline(int mapq, size_t allsplit) const {
 }
 
 // make the file string
-string BreakPoint::toFileString() {
+string BreakPoint::toFileString(bool noreads) {
 
   string sep = "\t";
   stringstream ss;
@@ -175,14 +194,23 @@ string BreakPoint::toFileString() {
   confidence = "";
   // low split, high span, no discordant. Suspicous
 
+  int disc_count = dc.tcount + dc.ncount;
+  int split_count = tsplit + nsplit;
+  bool germ = dc.ncount > 0 || nsplit > 0;
+  int total_count = disc_count + split_count;
+
+  int span = getSpan();
+
   // check assembly -only ones
   if (num_align > 1 && !hasDiscordant()) {
 
-    if ((tsplit + nsplit) < 6 && span > 1500) 
+    if (split_count < 6 && span > 1500) 
       confidence = "NODISC";
     else if (max(gr1.mapq, gr2.mapq) != 60 || min(gr1.mapq, gr2.mapq) <= 50) 
       confidence = "LOWMAPQ";
-    else if ( (tsplit + nsplit) <= 3 && span <= 1500)
+    else if ( split_count <= 3 && span <= 1500)
+      confidence = "WEAKASSEMBLY";
+    else if (min_end_align_length <= 40 || (germ && span == -1) || (germ && span > 1000000)) // super short alignemtns are not to be trusted. Also big germline events
       confidence = "WEAKASSEMBLY";
     else
       confidence = "PASS";
@@ -197,7 +225,9 @@ string BreakPoint::toFileString() {
     
     if ( (min_disc_mapq < 10 && min_assm_mapq < 30) || (max_assm_mapq < 40))
       confidence = "LOWMAPQ";
-    else if ( (dc.tcount + dc.ncount + nsplit + tsplit) < 4)
+    else if ( total_count < 4 || (germ && (total_count <= 6) )) // stricter about germline
+      confidence = "WEAKASSEMBLY";
+    else if ( total_count < 15 && germ && span == -1) // be super strict about germline interchrom
       confidence = "WEAKASSEMBLY";
     else
       confidence = "PASS";
@@ -207,19 +237,21 @@ string BreakPoint::toFileString() {
 
     if (min(gr1.mapq, gr2.mapq) < 30 || max(gr1.mapq, gr2.mapq) <= 36) // mapq here is READ mapq (37 max)
       confidence = "LOWMAPQ";
-    else if (dc.tcount + dc.ncount < 8)
+    else if ( disc_count < 8 || (dc.ncount > 0 && disc_count < 12) )  // be stricter about germline disc only
       confidence = "WEAKDISC";
-    else
+    else 
       confidence = "PASS";
     
     // indels
   } else if (num_align == 1) {
 
-    if ( (tsplit + nsplit) < 4)
+    if ( split_count < 4)
       confidence="WEAKASSEMBLY";
+    else if ( split_count < 8 && (tcigar+ncigar) < 3 && getSpan() < 6)
+      confidence="WEAKCIGARMATCH";
     else if (gr1.mapq != 60)
       confidence="LOWMAPQ";
-    else if (seq.find("AAAAAAA") != string::npos || seq.find("TTTTTTT") != string::npos || seq.find("TGTGTGTG") != string::npos)
+    else if (seq.find("AAAAAAAAAAA") != string::npos || seq.find("TTTTTTTTTTT") != string::npos || seq.find("TGTGTGTGTGTGTGTGTGTGTGTGTG") != string::npos)
       confidence="REPEAT";
     else
       confidence="PASS";
@@ -227,44 +259,52 @@ string BreakPoint::toFileString() {
 
   assert(confidence.length());
 
-  assert(span > -2);
+  assert(getSpan() > -2);
 
-  string supporting_reads = "";
-  unordered_map<string, bool> supp_reads;
-
-  //add the discordant reads
-  for (auto& r : dc.reads) {
-    string tmp;
-    r_get_SR(r.second,tmp);
-    supp_reads[tmp] = true;
+  if (!noreads) {
+    string supporting_reads = "";
+    unordered_map<string, bool> supp_reads;
+    
+    //add the discordant reads
+    for (auto& r : dc.reads) {
+      string tmp;
+      r_get_SR(r.second,tmp);
+      supp_reads[tmp] = true;
+    }
+    for (auto& r : dc.mates) {
+      string tmp;
+      r_get_SR(r.second, tmp);
+      supp_reads[tmp] = true;
+    }
+    
+    //add the reads from the breakpoint
+    for (auto& r : reads) {
+      string tmp;
+      r_get_SR(r,tmp);
+      supp_reads[tmp];
+    }
+    
+    // print reads to a string
+    // delimit with a ,
+    size_t lim = 0;
+    for (auto& i : supp_reads) {
+      if (++lim > 50)
+	break;
+      supporting_reads = supporting_reads + "," + i.first;
+    }
+    if (supporting_reads.size() > 0)
+      supporting_reads = supporting_reads.substr(1, supporting_reads.size() - 1); // remove first _
+    
+    if (read_names.length() == 0)
+      read_names = supporting_reads;
+  } else {
+    read_names = "";
   }
-  for (auto& r : dc.mates) {
-    string tmp;
-    r_get_SR(r.second, tmp);
-    supp_reads[tmp] = true;
-  }
-
-  //add the reads from the breakpoint
-  for (auto& r : reads) {
-    string tmp;
-    r_get_SR(r,tmp);
-    supp_reads[tmp];
-  }
-   
-  // print reads to a string
-  // delimit with a ,
-  for (auto& i : supp_reads) 
-    supporting_reads = supporting_reads + "," + i.first;
-  if (supporting_reads.size() > 0)
-    supporting_reads = supporting_reads.substr(1, supporting_reads.size() - 1); // remove first _
-
-  if (read_names.length() == 0)
-    read_names = supporting_reads;
 
   // TODO convert chr to string with treader
   ss << gr1.chr+1 << sep << gr1.pos1 << sep << gr1.strand << sep 
      << gr2.chr+1 << sep << gr2.pos1 << sep << gr2.strand << sep 
-     << span << sep
+     << getSpan() << sep
      << gr1.mapq <<  sep << gr2.mapq << sep 
      << nsplit << sep << tsplit << sep
      << discordant_norm << sep << discordant_tum << sep
@@ -274,7 +314,8 @@ string BreakPoint::toFileString() {
      << (insertion.length() ? insertion : "x") << sep 
      << contig_name << sep
      << num_align << sep 
-     << confidence << sep << evidence << sep << (read_names.length() ? read_names : "x");
+     << confidence << sep << evidence << sep << (read_names.length() ? read_names : "x") << sep 
+     << pon;
 
   return ss.str();
   
@@ -377,12 +418,6 @@ BreakPoint::BreakPoint(DiscordantCluster tdc) {
   gr1.mapq = tdc.getMeanMapq(false); 
   gr2.mapq = tdc.getMeanMapq(true); // mate
 
-  
-  if (gr1.chr != gr2.chr)
-    span = -1;
-  else
-    span = abs(gr1.pos1 - gr2.pos1);
-
 }
 
 bool BreakPoint::hasDiscordant() const {
@@ -396,6 +431,7 @@ bool BreakPoint::hasDiscordant() const {
 bool BreakPoint::hasMinimal() const {
 
   int total = tsplit + nsplit + dc.tcount + dc.ncount;
+
   if (total >= 2)
     return true;
   else
@@ -417,6 +453,8 @@ void runRefilterBreakpoints(int argc, char** argv) {
   if (bopt::verbose > 0) {
     cout << "Input bps file:  " << bopt::input_file << endl;
     cout << "Output bps file: " << bopt::output_file << endl;
+    cout << "Panel of normals file: " << bopt::pon << endl;
+    cout << "Analysis id: " << bopt::analysis_id << endl;
   }
 
   igzstream iz(bopt::input_file.c_str());
@@ -425,14 +463,20 @@ void runRefilterBreakpoints(int argc, char** argv) {
     exit(EXIT_FAILURE);
   }
 
+  unique_ptr<PON> pmap;
+  BreakPoint::readPON(bopt::pon, pmap);
+  
   ogzstream oz(bopt::output_file.c_str(), ios::out);
   if (!oz) {
     cerr << "Can't write to output file " << bopt::output_file << endl;
     exit(EXIT_FAILURE);
   }
+  
+  if (bopt::verbose)
+    cout << "...refiltering variants" << endl;
+  
   // set the header
   oz << BreakPoint::header() << endl;
-
 
   string line;
   //skip the header
@@ -440,16 +484,28 @@ void runRefilterBreakpoints(int argc, char** argv) {
 
   while (getline(iz, line, '\n')) {
     BreakPoint bp(line);
-    if (bp.hasMinimal())
-      oz << bp.toFileString() << endl;
+
+    // check if in panel of normals
+    bp.checkPon(pmap);
+
+    if (bp.hasMinimal() && bp.gr1.chr < 24 && bp.gr2.chr < 24)
+      oz << bp.toFileString(bopt::noreads) << endl;
   }
   
   oz.close();
+
+  // make the VCF files
+  if (bopt::verbose)
+    cout << "...converting filtered.bps.txt.gz to vcf files" << endl;
+  VCFFile filtered_vcf(bopt::output_file, bopt::ref_index.c_str(), '\t', bopt::analysis_id);
+
+  // output the vcfs
+  string basename = bopt::analysis_id + ".broad-snowman.DATECODE.filtered.";
+  filtered_vcf.writeIndels(basename, true); // zip them -> true
+  filtered_vcf.writeSVs(basename, true);
+  
 }
 
-/**
- *
- */
 BreakPoint::BreakPoint(string &line) {
 
   istringstream iss(line);
@@ -457,13 +513,13 @@ BreakPoint::BreakPoint(string &line) {
   size_t count = 0;
   while (getline(iss, val, '\t')) {
     switch(++count) {
-    case 1: gr1.chr = stoi(val); break;
+    case 1: gr1.chr = stoi(val) - 1; break;
     case 2: gr1.pos1 = stoi(val); gr1.pos2 = gr1.pos1; break;
     case 3: gr1.strand = val.at(0); break;
-    case 4: gr2.chr = stoi(val); break;
+    case 4: gr2.chr = stoi(val) - 1; break;
     case 5: gr2.pos1 = stoi(val); gr2.pos2 = gr2.pos1; break;
     case 6: gr2.strand = val.at(0); break;
-    case 7: span = stoi(val); break;
+      //case 7: span = stoi(val); break;
     case 8: gr1.mapq = stoi(val); break;
     case 9: gr2.mapq = stoi(val); break;
     case 10: nsplit = stoi(val); break;
@@ -482,6 +538,9 @@ BreakPoint::BreakPoint(string &line) {
     }
   }
 
+  if (evidence == "INDEL")
+    isindel = true;
+
   //debug
   if (num_align == 1) {
     dc.tcount = 0;
@@ -490,7 +549,6 @@ BreakPoint::BreakPoint(string &line) {
 
 
 }
-
 
 
 // parse the command line options
@@ -505,9 +563,13 @@ void parseBreakOptions(int argc, char** argv) {
     istringstream arg(optarg != NULL ? optarg : "");
     switch (c) {
       case 'h': die = true; break;
+      case 'g': arg >> bopt::ref_index; break;
       case 'i': arg >> bopt::input_file; break;
       case 'o': arg >> bopt::output_file; break;
       case 'v': arg >> bopt::verbose; break;
+      case 'p': arg >> bopt::pon; break;
+      case 'a': arg >> bopt::analysis_id; break;
+      case 'x': bopt::noreads = true; break;
     }
   }
 
@@ -520,4 +582,159 @@ void parseBreakOptions(int argc, char** argv) {
       cout << "\n" << BP_USAGE_MESSAGE;
       exit(1);
     }
+}
+
+void BreakPoint::splitCoverage(ReadVec &bav) {
+
+  assert(cname.length());
+
+  // make sure we're not double counting
+  assert(tsplit == 0 && nsplit == 0 && nsplit1 == 0 && nsplit2 == 0 && tsplit1 == 0 && tsplit2 == 0);
+
+  // total number of valid split reads
+  tsplit = 0;
+  nsplit = 0;
+  
+  int rightbreak1= cpos1 + SPLIT_BUFF; // read must extend this far right of break1
+  int leftbreak1 = cpos1 - SPLIT_BUFF; // read must extend this far left break2
+  int rightbreak2= cpos2 + SPLIT_BUFF;
+  int leftbreak2 = cpos2 - SPLIT_BUFF;
+  
+  for (auto& j : bav) {
+    
+    string sr;
+    r_get_Z_tag(j, "SR", sr);
+    assert(sr.at(0) == 't' || sr.at(0) == 'n');
+
+    bool tumor_read = (sr.at(0) == 't');
+    string seq;
+    r_get_trimmed_seq(j, seq);
+    assert(seq.length() > 0);
+    
+    string qname = SnowUtils::GetStringTag(j, "CN").back();
+    int pos = SnowUtils::GetIntTag(j, "AL").back();
+    
+    if (qname != cname)
+      cerr << "qname " << qname << "cname " << cname << endl;
+
+    assert(qname == cname);
+
+    if (qname == cname) { // make sure we're comparing the right alignment
+      int rightend = pos + seq.length();
+      int leftend  = pos;
+      bool issplit1 = (leftend <= leftbreak1) && (rightend >= rightbreak1);
+      bool issplit2 = (leftend <= leftbreak2) && (rightend >= rightbreak2);
+      
+      // add the split reads for each end of the break
+      if (issplit1 || issplit2)
+	reads.push_back(j);
+      
+      // update the counters for each end
+      if (issplit1 && tumor_read)
+	tsplit1++;
+      if (issplit1 && !tumor_read)
+	nsplit1++;
+      if (issplit2 && tumor_read)
+	tsplit2++;
+      if (issplit2 && !tumor_read)
+	nsplit2++;
+      
+      // read spans both ends
+      if ((issplit1 || issplit2) && tumor_read)
+	tsplit++;
+      if ((issplit1 || issplit2) && !tumor_read)
+	nsplit++;
+
+      /*if (issplit1 || issplit2) {
+	if (tumor_read)
+	  tunique++;
+	else
+	  nunique++;
+	  }*/
+      
+    }
+  }
+  //cout << "tsplit1 " << tsplit1 << " nsplit1 " << nsplit1 << " tsplit2 " << tsplit2 << " nsplit2 " << nsplit2 << " mapq1 " << gr1.mapq << " gr2.mapq " << gr2.mapq << " cname " << cname << " bp " << *this << endl;
+}
+
+string BreakPoint::getHashString() const {
+  
+  string st = to_string(gr1.chr) + "_" + to_string(gr1.pos1) + "_" + to_string(this->getSpan()) + (insertion.length() ? "I" : "D");
+  return st;
+}
+
+int BreakPoint::checkPon(unique_ptr<PON> &p) {
+
+  // only built for indels for now
+  if (!isindel || !p)
+    return 0;
+
+  string chr = to_string(gr1.chr+1);
+  if (chr == "23")
+    chr = "X";
+  if (chr == "24")
+    chr = "Y";
+  if (chr == "25")
+    chr = "M";
+  
+  string key1, key2, key3, key4, key5;
+  key1 = chr + "_" + to_string(gr1.pos1-1);
+  key2 = chr + "_" + to_string(gr1.pos1);
+  key3 = chr + "_" + to_string(gr1.pos1+1);
+  key4 = chr + "_" + to_string(gr1.pos1-2);
+  key5 = chr + "_" + to_string(gr1.pos1+2);
+  
+  if (p->count(key1))
+    pon = max((*p)[key1], pon);
+  if (p->count(key2))
+    pon = max((*p)[key2], pon);
+  if (p->count(key3))
+    pon = max((*p)[key3], pon);
+  if (p->count(key4))
+    pon = max((*p)[key4], pon);
+  if (p->count(key5))
+    pon = max((*p)[key5], pon);
+  
+  return pon;
+  
+}
+
+
+void BreakPoint::readPON(string &file, unique_ptr<PON> &pmap) {
+
+  // import the pon
+  igzstream izp(file.c_str());
+  if (!izp) {
+    cerr << "Can't read file " << file << endl;
+    exit(EXIT_FAILURE);
+  }
+
+  if (bopt::verbose)
+    cout << "...importing PON data" << endl;
+  pmap = unique_ptr<PON>(new PON());
+  string pval;
+  while (getline(izp, pval, '\n')) {
+    istringstream gg(pval);
+    string tval;
+    string key;
+    string scount;
+    size_t c = 0;
+    while (getline(gg, tval, '\t')) {
+      switch(++c) {
+      case 1: key = tval; break;
+      case 2: scount = tval; break;
+      }
+    }
+
+    try {
+      (*pmap)[key] = stoi(scount);
+    } catch (...) {
+      cerr << "stoi error on " << scount << " from line " << pval << endl;
+      exit(EXIT_FAILURE);
+    }
+    
+  }
+
+  return;
+
 }

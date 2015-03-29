@@ -138,7 +138,8 @@ void assemble(std::stringstream& asqg_stream, int minOverlap, int maxEdges, bool
       numBubbleRounds << " maxBubbleGapDivergence: " << maxBubbleGapDivergence << " maxBubbleDivergence: " << maxBubbleDivergence <<
     " opt::maxIndelLength: " << maxIndelLength << " cutoff: " << cutoff << " name: " << prefix << std::endl;
   */
-
+  cout << "HERHERHERHEHREHRHERHEHRH" << endl;
+  exit(1);
     //Timer t("sga assemble");
     //StringGraph* pGraph = SGUtil::loadASQG(opt::asqgFile, opt::minOverlap, true, opt::maxEdges);
     StringGraph* pGraph = SGUtil::loadASQG(asqg_stream, minOverlap, true, maxEdges);
@@ -255,6 +256,16 @@ void assemble(std::stringstream& asqg_stream, int minOverlap, int maxEdges, bool
     //}
     //}
 
+
+    //debug
+    SGVisitorContig av_TEST;
+    pGraph->visit(av_TEST);
+    cout << "checking before bubble " << endl;
+    for (auto& i : av_TEST.m_ct) {
+      cout << "BEFRE BUBBLEin assembly " << i.getID() << " " << i.getSeq() << " len " << i.getSeq().length() << endl;
+    }
+
+
     if(numBubbleRounds > 0)
     {
         //std::cout << "\nPerforming variation smoothing\n";
@@ -314,6 +325,14 @@ void assemble(std::stringstream& asqg_stream, int minOverlap, int maxEdges, bool
     //std::cerr << "NUM CONTIGS: " << av.m_ct.size() << std::endl;
     //for (int i = 0; i < av.m_ct.size(); i++)
     // std::cerr << "LEN: " << av.m_ct[i].getLength() << std::endl;
+
+    //debug
+    /*
+    SGVisitorContig av_TEST;
+    pGraph->visit(av_TEST);
+    for (auto& i : avTEST.m_ct) {
+      cout << "in assembly " << i.getID() << " " << i.getSeq() << " len " << i.getSeq().length() << endl;
+      }*/
     
     ContigVector tmp = av.m_ct;
     for (ContigVector::const_iterator it = tmp.begin(); it != tmp.end(); it++) {

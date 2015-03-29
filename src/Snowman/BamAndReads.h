@@ -6,21 +6,10 @@
 #include "VariantBamReader.h"
 #include "MiniRules.h"
 #include <time.h>
-#include "MinRead.h"
 
 #include "reads.h"
 
 using namespace std;
-//using namespace BamTools;
-
-//typedef shared_ptr<BamAlignment> BamAlignmentUP;
-//typedef vector<BamAlignmentUP> BamAlignmentUPVector;
-//typedef vector<bam1_t*> bam1_v;
-
-//typedef vector<CigarOp> CigarOpVector;
-//typedef pair<int32_t, CigarOpVector> CigPos;
-//typedef vector<pair<int32_t, CigarOpVector> > CigarPosVec;
-//typedef unordered_map<string, CigarPosVec> CigarPosVecMap;
 typedef unordered_map<string, size_t> CigarMap;
 
 // a smaller region to assemble
@@ -29,13 +18,9 @@ struct AssemblyRegion {
   AssemblyRegion() {}
   AssemblyRegion(GenomicRegion gr) { region = gr; }
   ~AssemblyRegion() {
-    //for (vector<BamAlignment*>::iterator it = reads.begin() ; it != reads.end(); ++it) 
-    //  delete (*it);
-    //reads.clear();
   }
   
   ReadVec reads;
-  MinReadSPVector mrv;
   GenomicRegion region;
 
   GenomicRegionVector partner_windows;
@@ -58,16 +43,25 @@ struct BamAndReads {
 #ifdef HAVE_BAMTOOLS
     delete reader; 
 #endif
+#ifdef HAVE_HTSLIB
+    bgzf_close(fp);                                                                                                                                                                                                 
+    bam_hdr_destroy(br);                                                                                                                                                                                            
+    //hts_itr_destroy(hts_itr);                                                                                                                                                                                       
+    hts_idx_destroy(idx);                                                                                                                                                                                           
+#endif
     arvec.clear();
     //for (AssemblyRegionVector::iterator it = arvec.begin(); it != arvec.end(); it++)
     //  delete (*it);
     //arvec.clear();
   }
-  BamAndReads(GenomicRegion gr, MiniRulesCollection *tmr, int tverb, string tbam, string tprefix);
+  BamAndReads(GenomicRegion gr, MiniRulesCollection *tmr, int tverb, string tbam, string tprefix, int tlittle, int tpad);
 
 #ifdef HAVE_BAMTOOLS
   BamReader * reader;
 #endif
+
+  ReadHash m_all_non_mate_reads, m_all_mate_reads;
+  ReadHash m_allreads; // vector of pointer to all reads
 
   GenomicRegionVector blacklist;
 
@@ -80,6 +74,9 @@ struct BamAndReads {
   int mate_read_time = 0; // timer in seconds for reading BAM
   int mate_unique_reads = 0; // total number of unique reads to be assembled
   int mate_reads = 0; // total number of reads to be assembled (allows doubles, etc)
+
+  int littlechunk = 3000;
+  int window_pad = 500;
 
 #ifdef HAVE_HTSLIB
   // hts
@@ -109,6 +106,10 @@ struct BamAndReads {
 
   // store all of the mini regions to run
   AssemblyRegionUPVector arvec;
+
+  ReadHash getAllReads() { return m_allreads; }
+
+  ReadHash getAllNonMateReads() { return m_all_non_mate_reads; } 
 
   // store all of the discordant reads that map outside of BIGCHUNK
   // we'll need these to lookup extra reads for assembly

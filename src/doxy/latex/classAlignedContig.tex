@@ -1,0 +1,213 @@
+\section{Aligned\-Contig Class Reference}
+\label{classAlignedContig}\index{AlignedContig@{AlignedContig}}
+{\tt \#include $<$Aligned\-Contig.h$>$}
+
+\subsection*{Public Member Functions}
+\begin{CompactItemize}
+\item 
+\bf{Aligned\-Contig} (const std::string \&sam, const Bam\-Tools::Bam\-Reader $\ast$reader, const Genomic\-Region \&twindow)
+\item 
+bool \bf{is\-Better} (const \bf{Aligned\-Contig} \&ac) const 
+\item 
+void \bf{add\-Alignment} (const Bam\-Tools::Bam\-Alignment align)
+\item 
+void \bf{add\-Discordant\-Cluster} (Discordant\-Cluster dc)\label{classAlignedContig_88a303a9bc8cc07a7efa4548cb73e5fd}
+
+\begin{CompactList}\small\item\em add a discordant cluster that maps to same regions as this contig \item\end{CompactList}\item 
+string \bf{print\-Discordant\-Clusters} () const 
+\item 
+string \bf{get\-Contig\-Name} () const \label{classAlignedContig_9c5e01eb031057bac726cbe43bc00a91}
+
+\begin{CompactList}\small\item\em return the name of the contig \item\end{CompactList}\item 
+int \bf{get\-Max\-Mapq} () const 
+\item 
+int \bf{get\-Min\-Mapq} () const 
+\item 
+void \bf{split\-Coverage} ()
+\item 
+bool \bf{parse\-Discovar\-Name} (const std::string \&name, int \&tumor, int \&normal)
+\item 
+void \bf{print\-Contig\-Fasta} (ofstream \&ostream) const 
+\item 
+void \bf{get\-Break\-Pairs} ()
+\item 
+void \bf{align\-Reads\-To\-Contigs} (Read\-Vec \&bav, bool indel=true)
+\item 
+string \bf{get\-Sequence} () const \label{classAlignedContig_d935f14d74760679d68d12de51658e76}
+
+\begin{CompactList}\small\item\em return the contig sequence as it came off the assembler \item\end{CompactList}\item 
+bool \bf{has\-Sub\-Sequence} (const string \&subseq) const \label{classAlignedContig_0ce031bcb39c98838a3a8f2cd3c0aec9}
+
+\begin{CompactList}\small\item\em detemine if the contig contains a subsequence \item\end{CompactList}\end{CompactItemize}
+\subsection*{Public Attributes}
+\begin{CompactItemize}
+\item 
+bool \bf{hasvariant} = false
+\item 
+vector$<$ Break\-Point $>$ \bf{break\_\-vec}
+\item 
+Break\-Point global\_\-bp Read\-Vec \bf{m\_\-bamreads}
+\item 
+Alignment\-Fragment\-Vector \bf{m\_\-align}
+\item 
+string \bf{samrecord}
+\item 
+Genomic\-Region \bf{window}
+\item 
+bool \bf{skip} = false
+\end{CompactItemize}
+\subsection*{Friends}
+\begin{CompactItemize}
+\item 
+ostream \& \bf{operator$<$$<$} (ostream \&out, const \bf{Aligned\-Contig} \&ac)\label{classAlignedContig_82e5ee6f02c601eca5855698a7c397c8}
+
+\begin{CompactList}\small\item\em print this contig \item\end{CompactList}\end{CompactItemize}
+
+
+\subsection{Detailed Description}
+Contains the mapping of an aligned contig to the reference genome, along with pointer to all of the reads aligned to this contig, and a store of all of the breakpoints associated with this contig 
+
+
+
+\subsection{Constructor \& Destructor Documentation}
+\index{AlignedContig@{Aligned\-Contig}!AlignedContig@{AlignedContig}}
+\index{AlignedContig@{AlignedContig}!AlignedContig@{Aligned\-Contig}}
+\subsubsection{\setlength{\rightskip}{0pt plus 5cm}Aligned\-Contig::Aligned\-Contig (const std::string \& {\em sam}, const Bam\-Tools::Bam\-Reader $\ast$ {\em reader}, const Genomic\-Region \& {\em twindow})}\label{classAlignedContig_e1ec35beab154579c8ead94db3fbe878}
+
+
+Constructor which parses an alignment record from BWA (a potentially multi-line SAM record) \begin{Desc}
+\item[Parameters:]
+\begin{description}
+\item[{\em const}]reference to a string representing a SAM alignment (contains newlines if multi-part alignment) \item[{\em const}]pointer to a Bam\-Reader, which is used to convert chr ids to strings (e.g. X, Y) \item[{\em const}]reference to a Genomic\-Region window specifying where in the reference this contig was assembled from. \end{description}
+\end{Desc}
+
+
+\subsection{Member Function Documentation}
+\index{AlignedContig@{Aligned\-Contig}!addAlignment@{addAlignment}}
+\index{addAlignment@{addAlignment}!AlignedContig@{Aligned\-Contig}}
+\subsubsection{\setlength{\rightskip}{0pt plus 5cm}void Aligned\-Contig::add\-Alignment (const Bam\-Tools::Bam\-Alignment {\em align})}\label{classAlignedContig_e5820e5d748334e78e3130d14f96bb7e}
+
+
+Get whether the query is on the reverse strand \begin{Desc}
+\item[Parameters:]
+\begin{description}
+\item[{\em b}]pointer to an alignment \end{description}
+\end{Desc}
+\begin{Desc}
+\item[Returns:]boolean true if query is on the reverse strand \end{Desc}
+\index{AlignedContig@{Aligned\-Contig}!alignReadsToContigs@{alignReadsToContigs}}
+\index{alignReadsToContigs@{alignReadsToContigs}!AlignedContig@{Aligned\-Contig}}
+\subsubsection{\setlength{\rightskip}{0pt plus 5cm}void Aligned\-Contig::align\-Reads\-To\-Contigs (Read\-Vec \& {\em bav}, bool {\em indel} = {\tt true})}\label{classAlignedContig_5ab132cacd9cb27eda2e48107f724346}
+
+
+align reads to contig and modify their tags to show contig mapping Currently this function will attempt a Smith\-Waterman alignment for all reads that don't have an exact mapping to the contig. \begin{Desc}
+\item[Parameters:]
+\begin{description}
+\item[{\em reference}]to a vector of read smart pointers to align and modify \end{description}
+\end{Desc}
+\index{AlignedContig@{Aligned\-Contig}!getBreakPairs@{getBreakPairs}}
+\index{getBreakPairs@{getBreakPairs}!AlignedContig@{Aligned\-Contig}}
+\subsubsection{\setlength{\rightskip}{0pt plus 5cm}void Aligned\-Contig::get\-Break\-Pairs ()}\label{classAlignedContig_2ae9d56426ad1838b1ac38010110c1a4}
+
+
+set the breakpoints on the reference by combining multi-mapped contigs \index{AlignedContig@{Aligned\-Contig}!getMaxMapq@{getMaxMapq}}
+\index{getMaxMapq@{getMaxMapq}!AlignedContig@{Aligned\-Contig}}
+\subsubsection{\setlength{\rightskip}{0pt plus 5cm}int Aligned\-Contig::get\-Max\-Mapq () const\hspace{0.3cm}{\tt  [inline]}}\label{classAlignedContig_6e859c97339b1211923816d20d76380c}
+
+
+get the maximum mapping quality from all alignments \begin{Desc}
+\item[Returns:]int max mapq \end{Desc}
+\index{AlignedContig@{Aligned\-Contig}!getMinMapq@{getMinMapq}}
+\index{getMinMapq@{getMinMapq}!AlignedContig@{Aligned\-Contig}}
+\subsubsection{\setlength{\rightskip}{0pt plus 5cm}int Aligned\-Contig::get\-Min\-Mapq () const\hspace{0.3cm}{\tt  [inline]}}\label{classAlignedContig_d339b798afa99c0abcf1a2b5dd27642f}
+
+
+get the minimum mapping quality from all alignments \begin{Desc}
+\item[Returns:]int min mapq \end{Desc}
+\index{AlignedContig@{Aligned\-Contig}!isBetter@{isBetter}}
+\index{isBetter@{isBetter}!AlignedContig@{Aligned\-Contig}}
+\subsubsection{\setlength{\rightskip}{0pt plus 5cm}bool Aligned\-Contig::is\-Better (const \bf{Aligned\-Contig} \& {\em ac}) const}\label{classAlignedContig_781ebb77816d73494cfbe9ace9c48b19}
+
+
+Determine if this contig has identical breaks and is better than another. \begin{Desc}
+\item[Parameters:]
+\begin{description}
+\item[{\em const}]reference to another \doxyref{Aligned\-Contig}{p.}{classAlignedContig} \end{description}
+\end{Desc}
+\begin{Desc}
+\item[Returns:]bool bool returning true iff this contig has identical info has better MAPQ, or equal MAPQ but longer \end{Desc}
+\index{AlignedContig@{Aligned\-Contig}!parseDiscovarName@{parseDiscovarName}}
+\index{parseDiscovarName@{parseDiscovarName}!AlignedContig@{Aligned\-Contig}}
+\subsubsection{\setlength{\rightskip}{0pt plus 5cm}bool Aligned\-Contig::parse\-Discovar\-Name (const std::string \& {\em name}, int \& {\em tumor}, int \& {\em normal})}\label{classAlignedContig_dabfd701ff3236edc4c30400d0eacb8b}
+
+
+if this is a Discovar contig, extract the tumor and normal read support \begin{Desc}
+\item[Parameters:]
+\begin{description}
+\item[{\em const}]string reference to contig name to be parsed \item[{\em reference}]to int to fill for normal support \item[{\em reference}]to int to fill for tumor support \end{description}
+\end{Desc}
+\begin{Desc}
+\item[Returns:]boolean reporting if this is a discovar name \end{Desc}
+\index{AlignedContig@{Aligned\-Contig}!printContigFasta@{printContigFasta}}
+\index{printContigFasta@{printContigFasta}!AlignedContig@{Aligned\-Contig}}
+\subsubsection{\setlength{\rightskip}{0pt plus 5cm}void Aligned\-Contig::print\-Contig\-Fasta (ofstream \& {\em ostream}) const}\label{classAlignedContig_30b1451c696a746fd6441b2e79d7287b}
+
+
+dump the contigs to a fasta \begin{Desc}
+\item[Parameters:]
+\begin{description}
+\item[{\em ostream}]to write to \end{description}
+\end{Desc}
+\index{AlignedContig@{Aligned\-Contig}!printDiscordantClusters@{printDiscordantClusters}}
+\index{printDiscordantClusters@{printDiscordantClusters}!AlignedContig@{Aligned\-Contig}}
+\subsubsection{\setlength{\rightskip}{0pt plus 5cm}string Aligned\-Contig::print\-Discordant\-Clusters () const}\label{classAlignedContig_0697440ffb027292e93402077e2ef730}
+
+
+loop through the vector of Discordant\-Cluster objects associated with this contig and print \index{AlignedContig@{Aligned\-Contig}!splitCoverage@{splitCoverage}}
+\index{splitCoverage@{splitCoverage}!AlignedContig@{Aligned\-Contig}}
+\subsubsection{\setlength{\rightskip}{0pt plus 5cm}void Aligned\-Contig::split\-Coverage ()}\label{classAlignedContig_e5681bd6d2185c4f274d68f83404e072}
+
+
+loop through all of the breakpoints and calculate the split read support for each. Requires aligned\-Reads to have been run first (will error if not run). 
+
+\subsection{Member Data Documentation}
+\index{AlignedContig@{Aligned\-Contig}!break_vec@{break\_\-vec}}
+\index{break_vec@{break\_\-vec}!AlignedContig@{Aligned\-Contig}}
+\subsubsection{\setlength{\rightskip}{0pt plus 5cm}vector$<$Break\-Point$>$ \bf{Aligned\-Contig::break\_\-vec}}\label{classAlignedContig_0a75d1617e18ec6ecf9a75c23e857e0a}
+
+
+store all of the multi-map Break\-Points for this contigs \index{AlignedContig@{Aligned\-Contig}!hasvariant@{hasvariant}}
+\index{hasvariant@{hasvariant}!AlignedContig@{Aligned\-Contig}}
+\subsubsection{\setlength{\rightskip}{0pt plus 5cm}bool \bf{Aligned\-Contig::hasvariant} = false}\label{classAlignedContig_547fb82eb3f773ccae6024d7bcedc494}
+
+
+flag to specify whether this alignment has some potential variant (e.g. not full match to ref) \index{AlignedContig@{Aligned\-Contig}!m_align@{m\_\-align}}
+\index{m_align@{m\_\-align}!AlignedContig@{Aligned\-Contig}}
+\subsubsection{\setlength{\rightskip}{0pt plus 5cm}Alignment\-Fragment\-Vector \bf{Aligned\-Contig::m\_\-align}}\label{classAlignedContig_6372374f9b177011a2c6b43bab9cd4f7}
+
+
+store all of the individual alignment fragments \index{AlignedContig@{Aligned\-Contig}!m_bamreads@{m\_\-bamreads}}
+\index{m_bamreads@{m\_\-bamreads}!AlignedContig@{Aligned\-Contig}}
+\subsubsection{\setlength{\rightskip}{0pt plus 5cm}Break\-Point global\_\-bp Read\-Vec \bf{Aligned\-Contig::m\_\-bamreads}}\label{classAlignedContig_9a88bc9f7ccfc84d4b1970e7807da501}
+
+
+$<$ store the single spanning Break\-Poing for this contig store smart pointers to all of the reads that align to this contig \index{AlignedContig@{Aligned\-Contig}!samrecord@{samrecord}}
+\index{samrecord@{samrecord}!AlignedContig@{Aligned\-Contig}}
+\subsubsection{\setlength{\rightskip}{0pt plus 5cm}string \bf{Aligned\-Contig::samrecord}}\label{classAlignedContig_37e6ebd38f55f70588af30d3e2c7c86a}
+
+
+the original SAM record \index{AlignedContig@{Aligned\-Contig}!skip@{skip}}
+\index{skip@{skip}!AlignedContig@{Aligned\-Contig}}
+\subsubsection{\setlength{\rightskip}{0pt plus 5cm}bool \bf{Aligned\-Contig::skip} = false}\label{classAlignedContig_7044897c1ad6ee628d96fe7f393a761d}
+
+
+flag to specify that we should minimally process and simply dump to contigs\_\-all.sam \index{AlignedContig@{Aligned\-Contig}!window@{window}}
+\index{window@{window}!AlignedContig@{Aligned\-Contig}}
+\subsubsection{\setlength{\rightskip}{0pt plus 5cm}Genomic\-Region \bf{Aligned\-Contig::window}}\label{classAlignedContig_71791399da2317c67cc00e79a661d171}
+
+
+reference window from where this contig was assembled 
+
+The documentation for this class was generated from the following file:\begin{CompactItemize}
+\item 
+/xchip/gistic/Jeremiah/GIT/Snowman\-SV/src/Snowman/Aligned\-Contig.h\end{CompactItemize}

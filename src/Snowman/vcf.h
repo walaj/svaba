@@ -177,8 +177,8 @@ struct VCFFile {
   void deduplicate();
   
   //
-  void writeIndels(string basename) const;
-  void writeSVs(string basename) const;
+  void writeIndels(string basename, bool zip) const;
+  void writeSVs(string basename, bool zip) const;
   
 
 };

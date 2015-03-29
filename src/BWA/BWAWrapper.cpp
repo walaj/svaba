@@ -9,6 +9,33 @@ extern "C" {
   #include "bwamem.h"
 }
 
+//mem_alnreg_v mem_align1_core(const mem_opt_t *opt, const bwt_t *bwt, const bntseq_t *bns, const uint8_t *pac, int l_seq, char *seq, void *buf);
+
+  /*typedef struct {
+  bwtintv_v mem, mem1, *tmpv[2];
+} smem_aux_t;
+
+static smem_aux_t *smem_aux_init()
+{
+  smem_aux_t *a;
+  a = calloc(1, sizeof(smem_aux_t));
+  a->tmpv[0] = calloc(1, sizeof(bwtintv_v));
+  a->tmpv[1] = calloc(1, sizeof(bwtintv_v));
+  return a;
+}
+
+static void smem_aux_destroy(smem_aux_t *a)
+{
+  free(a->tmpv[0]->a); free(a->tmpv[0]);
+  free(a->tmpv[1]->a); free(a->tmpv[1]);
+  free(a->mem.a); free(a->mem1.a);
+  free(a);
+  }*/
+
+typedef struct {
+  bwtintv_v mem, mem1, *tmpv[2];
+} smem_aux_t;
+
 #include <iostream>
 
 static inline void makebseq1(const std::string &name, const std::string &seq, bseq1_t *s) {
@@ -21,10 +48,20 @@ static inline void makebseq1(const std::string &name, const std::string &seq, bs
 
 }
 
-void BWAWrapper::addSequences(const BWAReadVec &seqs, std::unique_ptr<bwaidx_t>* idx, SamRecordVec &sam) {
+/*void BWAWrapper::alignSequences(const BWAReadVec &seqs, std::unique_ptr<bwaidx_t>* idx) {
+
+  //new
+  for (int i = 0; i < m_blen; i++) {
+    mem_alnreg_v reg = mem_align1(memopt, (*idx)->bwt, (*idx)->bns, (*idx)->pac, seqs[i].second.length(), seqs[i].second.c_str());
+    mem_aln_t aln = mem_reg2aln(memopt, (*idx)->bns, (*idx)->pac, seqs[i].second.length(), seqs[i].second.c_str(), reg.a);
+  }
+
+  }*/
+
+void BWAWrapper::addSequences(const BWAReadVec &seqs, bwaidx_t* idx, SamRecordVec &sam) {
 
   int m = 0; 
-  
+
   for (BWAReadVec::const_iterator it = seqs.begin(); it != seqs.end(); it++) {
 
     // see bseq_read in bwa
@@ -44,19 +81,47 @@ void BWAWrapper::addSequences(const BWAReadVec &seqs, std::unique_ptr<bwaidx_t>*
   int n_processed;
   mem_pestat_t *fake_mem_pestat_t;
 
-  int i = 0;
-  mem_process_seqs(memopt, (*idx)->bwt, (*idx)->bns, (*idx)->pac, n_processed, m_blen, m_bseqs, fake_mem_pestat_t);
+  /*
+  //new
+  for (int i = 0; i < m_blen; i++) {
+    mem_alnreg_v reg = mem_align1(memopt, (*idx)->bwt, (*idx)->bns, (*idx)->pac, seqs[i].second.length(), seqs[i].second.c_str());
+    mem_aln_t aln = mem_reg2aln(memopt, (*idx)->bns, (*idx)->pac, seqs[i].second.length(), seqs[i].second.c_str(), reg.a);
+    
+    //void* aux =  malloc(sizeof(smem_aux_t));
+    //smem_aux_t* aux = malloc(sizeof(smem_aux_t));
+    //aux = smem_aux_init();
+    //char cseq[seqs[i].second.size()+1];//as 1 char space for null is also required
+    //strcpy(cseq, seqs[i].second.c_str());
+    //mem_align1_core(memopt, (*idx)->bwt, (*idx)->bns, (*idx)->pac, i.second.length(), cseq, aux);
+    //mem_alnreg_v reg = mem_align1_core(memopt, (*idx)->bwt, (*idx)->bns, (*idx)->pac, seqs[i].second.length(), cseq, 0);
+    //mem_mark_primary_se(memopt, reg.n, reg.a, i);
+    //mem_reg2sam(memopt, (*idx)->bns, (*idx)->pac, cseq, &reg, 0, 0);
+    //free(reg.a);
+    //smem_aux_destroy(aux);
+    //free(aux);
+  }*/
 
-  for (i = 0; i < m_blen; i++) {
+  mem_process_seqs(memopt, (idx)->bwt, (idx)->bns, (idx)->pac, n_processed, m_blen, m_bseqs, fake_mem_pestat_t);
+
+  for (int i = 0; i < m_blen; i++) {
+    //bam1_b * b = malloc(sizeof(bam1_t));
+    //sam_parse1(kstring_t *s, bam_hdr_t *h, b)
     sam.push_back(SamRecord(std::string(m_bseqs[i].sam)));
   }
 
   // free all of the char* fields of bseq1_t
-  for (i = 0; i < m_blen; i++) {
+  for (int i = 0; i < m_blen; i++) {
     free(m_bseqs[i].seq);
     free(m_bseqs[i].name);
+    free(m_bseqs[i].sam);
+    free(m_bseqs[i].qual);
+    free(m_bseqs[i].comment);;
     m_bseqs[i].seq = NULL;
-    m_bseqs[i].seq = NULL;
+    m_bseqs[i].name = NULL;
+    m_bseqs[i].sam = NULL;
+    m_bseqs[i].qual = NULL;
+    m_bseqs[i].comment = NULL;
+
    }
 
   // free the array and the dummy vars passed to mem_process_seqs

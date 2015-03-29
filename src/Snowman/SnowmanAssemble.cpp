@@ -113,7 +113,6 @@ void assemble(std::stringstream& asqg_stream, int minOverlap, int maxEdges, bool
 
     // Remove dead-end branches from the graph
     //numTrimRounds = 1;
-    numTrimRounds = 0;
     if(numTrimRounds > 0)
     {
       //std::cout << "Trimming bad vertices\n"; 
@@ -216,6 +215,16 @@ void assemble(std::stringstream& asqg_stream, int minOverlap, int maxEdges, bool
     //std::cerr << "NUM CONTIGS: " << av.m_ct.size() << std::endl;
     //for (int i = 0; i < av.m_ct.size(); i++)
     // std::cerr << "LEN: " << av.m_ct[i].getLength() << std::endl;
+
+    //debug
+    /*    SGVisitorContig av_TEST;
+    pGraph->visit(av_TEST);
+    cout << "checking after bubble " << endl;
+    for (auto& i : av_TEST.m_ct) {
+      cout << "BEFRE AFTER in assembly " << i.getID() << " " << i.getSeq() << " len " << i.getSeq().length() << endl;
+      }*/
+
+
     
     ContigVector tmp = av.m_ct;
     for (ContigVector::const_iterator it = tmp.begin(); it != tmp.end(); it++) {

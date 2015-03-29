@@ -30,9 +30,9 @@ typedef unordered_map<string, unique_ptr<BamAndReads> > BARMap;
 void initializeFiles();
 void addDiscordantPairsBreakpoints(BPVec &bp, DMap& dmap);
 GenomicRegionVector calculateClusters(ReadVec &bav);
-DMap clusterDiscordantReads(ReadVec &bav);
+DMap clusterDiscordantReads(ReadVec &bav, const GenomicRegion &interval);
 bool _cluster(vector<ReadVec> &cvec, ReadVec &clust, Read &a, bool mate);
-bool grabReads(int refID, int pos1, int pos2, unique_ptr<bwaidx_t>* idx);
+bool grabReads(int refID, int pos1, int pos2, bwaidx_t* idx);
 bool runSnowman(int argc, char** argv);
 void parseRunOptions(int argc, char** argv);
 void writeR2C(ReadMap &r2c);
@@ -58,10 +58,10 @@ private:
   int m_pos1;
   int m_pos2;
   int m_number;  
-  unique_ptr<bwaidx_t> * m_idx;
+  bwaidx_t * m_idx;
    
 public:
-  SnowmanWorkItem(int refid, int start, int end, int number, unique_ptr<bwaidx_t>* idx)  
+  SnowmanWorkItem(int refid, int start, int end, int number, bwaidx_t* idx)  
     : m_refid(refid), m_pos1(start), m_pos2(end), m_number(number), m_idx(idx) {}
   ~SnowmanWorkItem() {}
  
