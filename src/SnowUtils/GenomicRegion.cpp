@@ -419,8 +419,11 @@ GenomicRegionVector GenomicRegion::mergeOverlappingIntervals(const GenomicRegion
 // convert a GRV into an interval tree (map), where each chrom is its own tree
 GenomicIntervalTreeMap GenomicRegion::createTreeMap(const GenomicRegionVector &grv) {
 
+  GenomicRegionVector gg = grv;
+  sort(gg.begin(), gg.end());
+
   GenomicIntervalMap map;
-  for (auto it : grv) {
+  for (auto it : gg) {
     map[it.chr].push_back(GenomicInterval(it.pos1, it.pos2, it));
   }
 

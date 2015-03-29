@@ -14,127 +14,135 @@
 #include "reads.h"
 
 using namespace std;
-using namespace BamTools;
 
-//typedef shared_ptr<BamAlignment> BamAlignmentUP;
-//typedef vector<BamAlignmentUP> BamAlignmentUPVector;
-
-//typedef vector<BamTools::BamAlignment> BAVec;
 typedef vector<BamTools::CigarOp> CigarOpVec;
-
-typedef vector<string> StringVec;
 typedef unordered_map<string, size_t> CigarMap;
 
 class AlignedContig;
 typedef unordered_map<string, AlignedContig> ContigMap;
 typedef vector<AlignedContig> AlignedContigVec;
 
-struct CAlignment {
 
-  BamTools::BamAlignment align;
-  CigarOpVec cigar;
-  string cigstring; 
-  int break1 = -1;
-  int break2 = -1;
-  int gbreak1 = -1;
-  int gbreak2 = -1;
+/*! This class contains a single alignment fragment from a contig to
+ * the reference. For a multi-part mapping of a contig to the reference,
+ * an object of this class represents just a single fragment from that alignment.
+ */
+struct AlignmentFragment {
 
-  unsigned start;
+  friend AlignedContig;
 
-  //BamAlignmentUPVector reads_b1;
-  //BamAlignmentUPVector reads_b2;
-  ReadVec reads_b1;
-  ReadVec reads_b2;
-
-  unsigned nsplit1 = 0;
-  unsigned tsplit1 = 0;
-  unsigned nsplit2 = 0;
-  unsigned tsplit2 = 0;
-
-  size_t ndisc = 0;
+  /*! Construct an AlignmentFragment from a BWA alignment
+   * @param const reference to a BamAlignment
+   * @param const reference to a GenomicRegion window where this contig was assembled from
+   */
+  AlignmentFragment(const BamTools::BamAlignment &talign, const GenomicRegion &window, const CigarMap &nmap, const CigarMap &tmap);
   
-  bool ca_local = false; // is an alignmend to anchor window
+  //! sort AlignmentFragment objects by start position
+  bool operator < (const AlignmentFragment& str) const { return (start < str.start); }
 
-  // converts the BamTools cigar format to string
-  string cigarToString(CigarOpVec cig);
+  //! print the AlignmentFragment
+  friend ostream& operator<<(ostream &out, const AlignmentFragment& c); 
 
-  // CONSTRUCTOR
-  CAlignment(BamTools::BamAlignment talign, CigarOpVec tcigar);
+  /*! @function
+   * @abstract Parse an alignment frag for a breakpoint
+   * @param reference to a BreakPoint to be created
+   * @return boolean informing whether there was a remaining indel break
+   */
+  bool parseIndelBreak(BreakPoint &bp);
 
-  // define how to sort these 
-  bool operator < (const CAlignment& str) const { return (start < str.start); }
+  /*! @function check if breakpoints match any cigar strings direct from the reads
+   * This is important in case the assembly missed a read (esp normal) that indicates
+   * that there is an indel. Basically this function says that if assembly calls a breakpoint
+   * and it agrees with a read alignment breakpoint, combine the info.
+   * @param const CigarMap reference containing hash with key=chr_breakpos_indeltype, val=tumor count
+   * @param const CigarMap reference containing hash with key=chr_breakpos_indeltype, val=normal count
+   */
+  void indelCigarMatches(const CigarMap &nmap, const CigarMap &tmap);  
 
-  // define how to sort these 
-  friend ostream& operator<<(ostream &out, const CAlignment& c); 
+  BPVec indel_breaks; /**< indel variants on this alignment */
+
+  CigarOpVec cigar; /**< cigar oriented to assembled orientation */
+
+  private:
+
+  BamTools::BamAlignment align; /**< BWA alignment to reference */
+
+  size_t idx = 0; // index of the cigar where the last indel was taken from 
+
+  int break1 = -1; // 0-based breakpoint 1 on contig 
+  int break2 = -1; /**< 0-based breakpoint 2 on contig */
+  int gbreak1 = -1; /**< 0-based breakpoint 1 on reference chr */
+  int gbreak2 = -1; /**< 0-based breakpoint 1 on reference chr */
+  
+  size_t start; /**< the start position of this alignment on the reference. */
+
+  bool local = false; /**< boolean to note whether this fragment aligns to same location is was assembled from */
+
+  string m_name; // name of the entire contig
+  
+  string m_seq; // sequence of the entire contig
 
 };
 
 // define a way to order the contigs by start
-struct AlignmentOrdering {
-  inline bool operator() (const CAlignment& struct1, const CAlignment& struct2) {
+/*struct AlignmentOrdering {
+  inline bool operator() (const AlignmentFragment& struct1, const AlignmentFragment& struct2) {
     return (struct1.start < struct2.start);
   }
-};
+  };*/
 
-typedef vector<CAlignment> AlignVec;
+//! vector of AlignmentFragment objects
+typedef vector<AlignmentFragment> AlignmentFragmentVector;
 
+/*! Contains the mapping of an aligned contig to the reference genome,
+ * along with pointer to all of the reads aligned to this contig, and a 
+ * store of all of the breakpoints associated with this contig
+ */
 class AlignedContig {
+
+  friend AlignmentFragment;
 
  public:  
 
-  // constructor taking in a BAM record from the contig BAM
-  AlignedContig(const BamTools::BamAlignment align); 
-  AlignedContig() {}
-  ~AlignedContig() {}
-  AlignedContig(std::string sam, const BamTools::BamReader * reader, GenomicRegion &twindow);
+  /*! Constructor which parses an alignment record from BWA (a potentially multi-line SAM record)
+   * @param const reference to a string representing a SAM alignment (contains newlines if multi-part alignment)
+   * @param const pointer to a BamReader, which is used to convert chr ids to strings (e.g. X, Y)
+   * @param const reference to a GenomicRegion window specifying where in the reference this contig was assembled from.
+   */
+  AlignedContig(const std::string &sam, const BamTools::BamReader * reader, const GenomicRegion &twindow, 
+		const CigarMap &nmap, const CigarMap &tmap);
 
-  bool hasvariant = false;
-  BPVec m_breaks;  
-  BreakPoint m_farbreak;
-  BreakPoint m_farbreak_filt; // global breakpoint, but remove bad fragments (e.g. 60, 60, 0 mapqs, keep 60-60 connection)
-  //vector<BamAlignment> m_bamreads;
-  ReadVec m_bamreads;
-  //BamAlignmentUPVector m_bamreads;
-  AlignVec m_align;
-  string samrecord;
-  GenomicRegion window;
+  string samrecord; /**< the original SAM record */
 
-  bool skip = false;
+  GenomicRegion window; /**< reference window from where this contig was assembled */
 
-  bool isBetter(const AlignedContig &ac) const;
+  /*! @function Determine if this contig has identical breaks and is better than another.
+   * @param const reference to another AlignedContig
+   * @return bool bool returning true iff this contig has identical info has better MAPQ, or equal MAPQ but longer */
+  bool isWorse(const AlignedContig &ac) const;
+  
+  /*! @function
+    @abstract  Get whether the query is on the reverse strand
+    @param  b  pointer to an alignment
+    @return    boolean true if query is on the reverse strand
+  */
+  void addAlignment(const BamTools::BamAlignment &align, const GenomicRegion &window, 
+		    const CigarMap &nmap, const CigarMap &tmap);
 
-  // new
-  //BamAlignmentVector aln;
-
-  void parseTags(const string& val, BamTools::BamAlignment &a);
-  CigarOpVec stringToCigar(const string& val);
-
-  void splitIndelCoverage();
-
-  bool hasVariant() const { return hasvariant; }
-
-  int maxSplit() const;
-
-  // add a new contig alignment
-  void addAlignment(const BamTools::BamAlignment align);
-
-  void fillExtraReads();
-
+  //! add a discordant cluster that maps to same regions as this contig
   void addDiscordantCluster(DiscordantCluster dc) { m_dc.push_back(dc); } 
 
-  int numDiscordantClusters() const { return m_dc.size(); }
-
+  /*! @function loop through the vector of DiscordantCluster objects
+   * associated with this contig and print
+   */
   string printDiscordantClusters() const;
 
-  void setIndelBreaks(CAlignment &align);
+  //! return the name of the contig
+  string getContigName() const { assert(m_align.size()); return m_align[0].align.Name; }
 
-  // return the name of the contigs
-  string getContigName() const { return m_align[0].align.Name; }
- 
-  // return the number of alignments
-  int getNumPrimaryAlign() const { return m_align.size(); }
-  int getNumSecondaryAlign() const { return m_align_second.size(); }
-
+  /*! @function get the maximum mapping quality from all alignments
+   * @return int max mapq
+   */
   int getMaxMapq() const { 
     int m = -1;
     for (auto& i : m_align)
@@ -143,6 +151,9 @@ class AlignedContig {
     return m;
   }
 
+  /*! @function get the minimum mapping quality from all alignments
+   * @return int min mapq
+   */
   int getMinMapq() const { 
     int m = 1000;
     for (auto& i : m_align)
@@ -151,190 +162,130 @@ class AlignedContig {
     return m;
   }
 
-  //bool hasLocal() const { return m_local; }
-
-  /*int getNumReads(const char type) const { 
-    int countr = 0;
-    for (R2CVec::const_iterator it = m_reads.begin(); it != m_reads.end(); it++) 
-      if (it->rname.at(0) == type)
-	countr++;
-    return countr; 
-    };*/
-
-  // sort the read2contigs
-  void sortReads();
-
-  // make work function for getting PER-ALIGNMENT breaks from BWA-MEM
-  void setBreaks(CAlignment &align);
-
+  /*! @function loop through all of the breakpoints and
+   * calculate the split read support for each. Requires 
+   * alignedReads to have been run first (will error if not run).
+   */
   void splitCoverage();
 
-  string printForR() const;
+  /*! @function if this is a Discovar contig, extract
+   * the tumor and normal read support
+   * @param reference to int to fill for normal support
+   * @param reference to int to fill for tumor support
+   * @return boolean reporting if this is a discovar name
+   */
+  bool parseDiscovarName(size_t &tumor, size_t &normal);
 
-  // set whether this alignment has a somatic breakpoint
-  //void setSomatic();
-
-  string printAlignments() const;
+  /*! @function dump the contigs to a fasta
+   * @param ostream to write to
+   */
   void printContigFasta(ofstream &ostream) const;
 
-  bool isGermline() const { return m_germline; };
-  bool isSomatic() const { return m_somatic; };
+  /*! @function set the breakpoints on the reference by combining multi-mapped contigs
+   */
+  void setMultiMapBreakPairs();
 
-  bool intersect(const AlignedContig *al) const; 
+  /*! @function align reads to contig and modify their tags to show contig mapping
+   * Currently this function will attempt a SmithWaterman alignment for all reads
+   * that don't have an exact mapping to the contig.
+   * @param reference to a vector of read smart pointers to align and modify
+   */
+  void alignReadsToContigs(ReadVec &bav, bool indel = true);
 
-  // flips the cigar if the contig is aligned to the opposite strand
-  CigarOpVec orientCigar(const BamTools::BamAlignment align);
+  //! return the contig sequence as it came off the assembler
+  string getSequence() const { assert(m_seq.length()); return m_seq; }
 
-  // parses the contig file name to determine where the anchor window was
-  //void setWindow(const string s);
-
-  // 
-  //Window getWindow() const { return m_window; }
-
-  // find the breakpoint pairs by looping through ALL the alignments
-  void getBreakPairs();
-   
-  // get the break pairs, but update incase things have changed
-  BPVec getBreaks() const { 
-    return m_breaks; 
-  }
-
-  // add masked seq
-  void addMaskedSeq(string seq) { m_masked_seq  = seq; }
-
-  // add repeat masker
-  void addRepeatMasker(RepeatMasker rp) { 
-    m_rep_vec.push_back(rp); 
-    sort(m_rep_vec.begin(), m_rep_vec.end());
-  }
-
-  // add SBlat alignment
-  void addSBlat(SBlat b) { 
-    m_blat_vec.push_back(b); 
-    sort(m_blat_vec.begin(), m_blat_vec.end());
-  }
-  
-  // run all the algorithms for updating the breakpoints, in case other parts changed
-  /*void updateBreakpointData(bool skip_realign, bool no_r2c_matched) {
-
-    // realign the reads to the contigs
-
-    if (!skip_realign) 
-      realignReads();
-    else
-      readR2Creads();
-
-    // sort the reads for better visualization
-    if (!no_r2c_matched)
-      sortReads(); 
-
-    // get the split coverage
-    splitCoverage();
-
-    // get the break pairs
-    getBreakPairs();
-
-    //debug
-    if (m_breaks.size() == 0)
-      cerr << "m_align size: "<< m_align.size() << endl;
-
-    // if we don't need to write the output, clear most of the read data
-    if (no_r2c_matched) {
-      for (BamAlignmentVector::iterator it = m_bamreads.begin(); it != m_bamreads.end(); it++) {
-	it->QueryBases = "";
-	it->Qualities = "";
-	it->RemoveTag("JW");
-	it->RemoveTag("TS");
-      }
-    }
-
-  }
-  */
-  void readR2Creads();
-
-  BreakPoint getGlobalBreak() const { assert(m_farbreak.gr1.mapq <= 60 && m_farbreak.gr2.mapq <= 60); return m_farbreak; }
-
-  // doing a more stringent alignment of reads to the contig
-  // this is to remove normals that ruin somatic calls
-  void realignReads();
-
-  string getName() const { return m_align[0].align.Name; }
-
-  void alignReadsToContigs(ReadVec &bav, bool indel);
-
-  AlignVec getAlignments() const { return m_align; }
-
-  void setSomatic(const bool somatic) { m_somatic = somatic; }
-
-  void setGermline(const bool germline) { m_germline = germline; }
-
-  void addBams(string tum, string norm, string pan, string r2c) { 
-    tbam = tum;
-    nbam = norm;
-    pbam = pan;
-    rbam = r2c;
-  }
-
-  //vector<BamAlignment> getBamReads() const { return m_bamreads; }
-
-  void indelCigarMatches(CigarMap &nmap, CigarMap &tmap);
-
-  void settleContigs();
-
-  string getSequence() const { return m_seq; }
-
+  //! detemine if the contig contains a subsequence
   bool hasSubSequence(const string& subseq) const { 
     return (m_seq.find(subseq) != string::npos);
   }
   
-
+  //! print this contig
   friend ostream& operator<<(ostream &out, const AlignedContig &ac);
+
+  /*! @function query if this contig contains a potential variant (indel or multi-map)
+   * @return true if there is multimapping or an indel
+   */
+  bool hasVariant() const;
+
+  /*! @function retrieves all of the breakpoints by combining indels with global mutli-map break
+   * @return vector of ind
+   */
+  vector<BreakPoint> getAllBreakPoints() const;
+  vector<const BreakPoint*> getAllBreakPointPointers() const ;
+
+  vector<BreakPoint> m_local_breaks; // store all of the multi-map BreakPoints for this contigs 
+
+  BreakPoint m_global_bp;  // store the single spanning BreakPoing for this contig e
+
+  ReadVec m_bamreads; // store smart pointers to all of the reads that align to this contig 
+
+  bool m_skip = false; // flag to specify that we should minimally process and simply dump to contigs_all.sam 
+
+  AlignmentFragmentVector m_align; // store all of the individual alignment fragments 
+
  private:
 
-  AlignVec m_align_second;
+  bool m_hasvariant = false; // flag to specify whether this alignment has some potential varaint (eg indel)
 
-  bool m_somatic = false;
-  bool m_germline = false;
-  string m_seq = "";
-  string m_masked_seq = "";
-  RepeatMaskerVec m_rep_vec;
-  SBlatVec m_blat_vec;
-  int mapq_threshold = 60;
-  // store the raw alignments. Move into AlignVec if keeping the contig
+  bool m_tried_align_reads = false; // flag to specify whether we tried to align reads.
 
-  // the bam files that
-  string tbam, nbam, pbam, rbam;
-  //SVBamReader treader, nreader, preader;
+  string m_seq = ""; // sequence of contig as it came off of assembler
 
-  vector<DiscordantCluster> m_dc;
+  vector<DiscordantCluster> m_dc; // collection of all discordant clusters that map to same location as this contig
 
 };
 
-// define a sorter to sort by the Mate Position
-/*typedef std::binary_function<BamAlignmentUP, BamAlignmentUP, bool> AlignmentSortBase;
-struct ByALTag : public AlignmentSortBase {
-  
-  // ctor
-  ByALTag(const Algorithms::Sort::Order& order = Algorithms::Sort::AscendingOrder)
-    : m_order(order) { }
+struct PlottedRead {
 
-  // comparison function
-  bool operator()(const BamAlignmentUP& lhs, const BamAlignmentUP& rhs) {
+  int pos;
+  string seq;
+  string info;
 
-    int alL = SnowUtils::GetIntTag(lhs, "AL").back();
-    int alR = SnowUtils::GetIntTag(rhs, "AL").back();
-
-    // otherwise sort on reference ID
-    return Algorithms::Sort::sort_helper(m_order, alL, alR);
+  bool operator<(const PlottedRead& pr) const {
+    return (pos < pr.pos);
   }
-  // used by BamMultiReader internals
-  static inline bool UsesCharData(void) { return false; }
-  
-  // data members
-  private:
-  const Algorithms::Sort::Order m_order;
+
 };
-*/
+
+typedef vector<PlottedRead> PlottedReadVector;
+
+struct PlottedReadLine {
+
+  vector<PlottedRead*> read_vec;
+  int available = 0;
+  int contig_len = 0;
+
+  void addRead(PlottedRead *r) {
+    read_vec.push_back(r);
+    available = r->pos + r->seq.length() + 5;
+  }
+
+  bool readFits(PlottedRead &r) {
+    return (r.pos >= available);
+  }
+
+  friend ostream& operator<<(ostream& out, const PlottedReadLine &r) {
+    int last_loc = 0;
+    for (auto& i : r.read_vec) {
+      assert(i->pos - last_loc >= 0);
+      out << string(i->pos - last_loc, ' ') << i->seq;
+      last_loc = i->pos + i->seq.length();
+    }
+    int name_buff = r.contig_len - last_loc;
+    assert(name_buff < 10000);
+    out << string(max(name_buff, 5), ' ');
+    for (auto& i : r.read_vec) { // add the data
+      out << i->info << ",";
+    }
+    return out;
+  }
+
+};
+
+typedef vector<PlottedReadLine> PlottedReadLineVector;
+
+
 
 #endif
 

@@ -12,6 +12,10 @@
 #include "gzstream.h"
 #include "vcf2.h"
 
+#include "reads.h"
+#include "htslib/tbx.h"
+#include "htslib/bgzf.h"
+
 using namespace std;
 
 static const char *VCF_USAGE_MESSAGE =
@@ -23,10 +27,12 @@ static const char *VCF_USAGE_MESSAGE =
 "  -h, --help                           Display this help and exit\n"
 "  -o, --output-vcf                     File to out the VCF to.\n"
 "  -c, --write-csv                      File to output the VCF as a comma separated file. Default: not output\n"
+"  -g, --reference-genome               Path to indexed reference genome to be used by BWA-MEM. Default is Broad hg19 (/seq/reference/...)\n"
+"      --no-zip                         Dont bgzip or tabix the outputs.\n"
   //"      --stats                          Write a simple stats file as specified.\n"
 " Optional Input\n"
 "  -i, --snowman-csv                    A csv breakpoint file (usually breakpoints.somatic.txt) that needs to be converted to VCF.\n"
-"  -p, --id-string                      String specifying the analysis ID to be used as part of ID common.\n"
+"  -a, --id-string                      String specifying the analysis ID to be used as part of ID common.\n"
 "  -t, --tumor-bam-string               Tumor BAM\n"
 "  -n, --normal-bam-string              Normal BAM\n"
 "  -s, --snowman-vcf                    A VCF produced from SnowmanSV.\n"
@@ -50,15 +56,19 @@ namespace vopt {
   static string brass = "";
   static string delly = "";
 
+  static bool filtered = false;
+
+  static bool zip = true;
+
   static string csv = "";
   static string normal = "normal";
   static string tumor = "tumor";
-  static string analysis_id = "";
+  static string analysis_id = "no_id";
 
   static string ref_index = REFHG19;
 
   static int pad = 100;
-  static string outvcf = "vars.vcf";
+  //static string outvcf = "vars.vcf";
 
   static bool include_nonpass = false;
   static string as_csv = "";;
@@ -66,7 +76,7 @@ namespace vopt {
   static string stats = "stats.txt";
 }
 
-static const char* shortopts = "hv:p:t:n:r:b:s:d:i:o:y:m:xzc:";
+static const char* shortopts = "hv:a:t:n:r:b:s:d:i:o:y:m:g:xzjc:";
 static const struct option longopts[] = {
   { "help",                    no_argument, NULL, 'h' },
   { "snowman-csv",             required_argument, NULL, 'i' },
@@ -74,15 +84,17 @@ static const struct option longopts[] = {
   { "tumor-bam-string",        required_argument, NULL, 't' },
   { "normal-bam-string",       required_argument, NULL, 'n' },
   { "dranger-vcf",             required_argument, NULL, 'r' },
+  { "reference-genome",        required_argument, NULL, 'g' },
   { "snowman-vcf",             required_argument, NULL, 's' },
   { "delly-vcf",               required_argument, NULL, 'd' },
   { "brass-vcf",               required_argument, NULL, 'b' },
-  { "id-string",               required_argument, NULL, 'p' },
+  { "id-string",               required_argument, NULL, 'a' },
   { "padding",                 required_argument, NULL, 'y' },
   { "output-vcf",              required_argument, NULL, 'o' },
-  { "old-snowman",              no_argument, NULL, 'x'},
-  { "include-nonpass",              no_argument, NULL, 'z'},
-  { "write-csv",              required_argument, NULL, 'c'},
+  { "old-snowman",             no_argument, NULL, 'x'},
+  { "include-nonpass",         no_argument, NULL, 'j'},
+  { "no-zip",                  no_argument, NULL, 'z'},
+  { "write-csv",               required_argument, NULL, 'c'},
   { NULL, 0, NULL, 0 }
 };
 
@@ -96,6 +108,8 @@ static InfoMap union_info_fields;
 bool compareInfoFields(const pair<string,string> &lhs, const pair<string,string> &rhs) {
   return ( (rhs.first == "READ_ID" && lhs.first != "READ_ID") || ( (rhs.first != "READ_ID" && lhs.first != "READ_ID") && lhs.first < rhs.first));
 }
+
+void tabixVcf(const string &fn);
 
 void runVCF(int argc, char** argv) {
 
@@ -113,6 +127,7 @@ void runVCF(int argc, char** argv) {
   parseVCFOptions(argc, argv);
 
   if (vopt::verbose > 0) {
+    cout << "-- Reference genome " << vopt::ref_index << endl;
     cout << "-- Input VCFs:  " << endl;
     cout << "   Snowman:           " << vopt::snowman << endl;
     cout << "   dRanger:           " << vopt::dranger << endl;
@@ -120,7 +135,7 @@ void runVCF(int argc, char** argv) {
     cout << "   Brass:             " << vopt::brass << endl;
     cout << "-- Input CSV:         " << endl;
     cout << "   Snowman CSV:       " << vopt::csv << endl;
-    cout << "-- Output VCF:        " << vopt::outvcf << endl;
+    //    cout << "-- Output VCF:        " << vopt::outvcf << endl;
     cout << "-- Annotation strings:" << endl;
     cout << "   Analysis ID        " << vopt::analysis_id << endl;
     cout << "   Tumor:             " << vopt::tumor << endl;
@@ -130,16 +145,17 @@ void runVCF(int argc, char** argv) {
     cout << "   Old Snowman:       " << vopt::old_snowman << endl;
     cout << "   Include non-PASS:  " << (vopt::include_nonpass ? "ON" : "OFF") << endl;
     cout << "   Write as CSV:      " << vopt::as_csv << endl;
+    cout << "   Is from a filtered CSV?:      " << (vopt::filtered ? "TRUE" : "FALSE") << endl;
     cout << endl;
   }
 
   // if dranger only exists, move it over and stop
-  if (vopt::snowman == "" && vopt::dranger != "") {
+  /*if (vopt::snowman == "" && vopt::dranger != "") {
     cerr << "Warning: SnowmanSV VCF does not exist. Copying input dRanger VCF to output" << endl;
-    string runthis = "cp " + vopt::dranger + " " + vopt::outvcf;
+    string runthis = "cp " + vopt::dranger;
     system(runthis.c_str());
     return;
-  } 
+    } */
   
   // load the reference genome
   if (vopt::csv != "") {
@@ -158,20 +174,21 @@ void runVCF(int argc, char** argv) {
 
   // if only one file specified, outpt
   if (vopt::dranger == "" && vopt::snowman != "") {
-    if (vopt::outvcf != "")
-      snowvcf.write(vopt::analysis_id + ".broad-snowman.DATECODE.");
+    //if (vopt::outvcf != "")
+    //  snowvcf.write(vopt::analysis_id + ".broad-snowman.DATECODE.");
     if (vopt::as_csv != "")
       snowvcf.writeCSV();
   } else if (vopt::snowman == "" && vopt::dranger != "") {
-    if (vopt::outvcf != "")
-      dranvcf.write(vopt::analysis_id + ".broad-dRanger.DATECODE.");
+    //if (vopt::outvcf != "")
+    //  dranvcf.write(vopt::analysis_id + ".broad-dRanger.DATECODE.");
     if (vopt::as_csv != "")
       dranvcf.writeCSV();
   } else if (vopt::dranger != "" && vopt::snowman != "") {
     VCFFile merged_vcf = mergeVCFFiles(dranvcf, snowvcf);
-    if (vopt::outvcf != "") {
-      merged_vcf.write(vopt::analysis_id + ".broad-merged.DATECODE.");
-    }
+    merged_vcf.write(vopt::analysis_id + ".broad-merged.DATECODE.");
+    //if (vopt::outvcf != "") {
+    //  merged_vcf.write(vopt::analysis_id + ".broad-merged.DATECODE.");
+    // }
     if (vopt::as_csv != "")
       merged_vcf.writeCSV();
   }
@@ -179,7 +196,7 @@ void runVCF(int argc, char** argv) {
   if (vopt::csv != "") {
     cout << "...converting Snowman csv to vcf" << endl;
     VCFFile snowcsv(vopt::csv, vopt::ref_index.c_str(), '\t', vopt::analysis_id);
-    snowcsv.filename = vopt::outvcf;
+    //snowcsv.filename = vopt::outvcf;
     snowcsv.write(vopt::analysis_id + ".broad-snowman.DATECODE.");
    }
 
@@ -198,8 +215,10 @@ void parseVCFOptions(int argc, char** argv) {
   for (char c; (c = getopt_long(argc, argv, shortopts, longopts, NULL)) != -1;) {
     istringstream arg(optarg != NULL ? optarg : "");
     switch (c) {
-    case 'p': arg >> vopt::analysis_id; break;
+    case 'a': arg >> vopt::analysis_id; break;
+    case 'g': arg >> vopt::ref_index; break;
     case 'h': die = true; break;
+    case 'z': vopt::zip = false; break;
     case 't': arg >> vopt::tumor; break;
     case 'n': arg >> vopt::normal; break;
     case 's': arg >> vopt::snowman; break;
@@ -208,17 +227,23 @@ void parseVCFOptions(int argc, char** argv) {
     case 'r': arg >> vopt::dranger; break;
     case 'b': arg >> vopt::brass; break;
     case 'y': arg >> vopt::pad; break;
-    case 'o': arg >> vopt::outvcf; break;
+      //case 'o': arg >> vopt::outvcf; break;
     case 'i': arg >> vopt::csv; break;
     case 'x': vopt::old_snowman = true; break;
-    case 'z': vopt::include_nonpass = true; break;
+    case 'j': vopt::include_nonpass = true; break;
     case 'c': arg >> vopt::as_csv; break;
     }
   }
 
-  if (vopt::as_csv == "" && vopt::outvcf == "") {
+  /*if (vopt::as_csv == "" && vopt::outvcf == "") {
     die = true;
     cerr << "Must output either csv or vcf" << endl;
+    }*/
+  
+  // make sure that the csv exists
+  if (vopt::csv != "" && !SnowUtils::existTest(vopt::csv)) {
+    die = true;
+    cerr << "CSV file " << vopt::csv << " does not exist " << endl;
   }
 
   // make sure that the inputs exist
@@ -238,6 +263,10 @@ void parseVCFOptions(int argc, char** argv) {
     die = true;
     cerr << "############Supplied DELLY VCF does not exist: " << vopt::delly << endl;
   }
+
+  // check if this is a filtered bps
+  if (vopt::csv.find("filter") != string::npos)
+    vopt::filtered = true;
 
   // something went wrong, kill
   if (die) {
@@ -747,7 +776,7 @@ VCFFile mergeVCFFiles(VCFFile const &v1, VCFFile const &v2) {
   VCFFile out = v1;
   out.sv_header = header;
   out.entry_pairs = final_map;
-  out.filename = vopt::outvcf;
+  //out.filename = vopt::outvcf;
 
   total = final_map.size();
   int dperc = SnowUtils::percentCalc<int>(dprivate, total);
@@ -792,9 +821,9 @@ bool VCFFile::write(string basename) const {
   out << *this;
   */
   // write the indel one
-  if (basename.find("merged") == string::npos)
-    writeIndels(basename);
-  writeSVs(basename);
+  if (vopt::dranger == "") //basename.find("merged") == string::npos)
+    writeIndels(basename, vopt::zip);
+  writeSVs(basename, vopt::zip);
   
   return true;
 
@@ -813,6 +842,8 @@ VCFFile::VCFFile(string file, const char* index, char sep, string analysis_id) {
   }
 
   // read the reference if not open
+  if (vopt::verbose)
+    cout << "...vcf - reading in the reference" << endl;
   if (!findex)
     findex = fai_load(index);  // load the reference
 
@@ -823,7 +854,6 @@ VCFFile::VCFFile(string file, const char* index, char sep, string analysis_id) {
     exit(EXIT_FAILURE);
     }*/
 
-
   string sample_id_tum = analysis_id + "T";
   string sample_id_norm= analysis_id + "N";
   // make the VCFHeader
@@ -831,7 +861,6 @@ VCFFile::VCFFile(string file, const char* index, char sep, string analysis_id) {
   sv_header.source = "snowmanSV";
   indel_header.filedate = "";
   indel_header.source = "snowmanSV";
-
 
   // add the filters that apply to SVs
   sv_header.addFilterField("NODISC","Rearrangement was not detected independently by assembly");
@@ -846,6 +875,7 @@ VCFFile::VCFFile(string file, const char* index, char sep, string analysis_id) {
   // add the filters that apply to indels
   indel_header.addFilterField("LOWMAPQ","Assembly contig has less than MAPQ 60");
   indel_header.addFilterField("WEAKASSEMBLY","4 or fewer split reads");
+  indel_header.addFilterField("WEAKCIGARMATCH","For indels <= 5 bp, require 8+ split reads or 4+ and 3+ cigar matches");
   indel_header.addFilterField("REPEAT", "3+ split reads, 60 contig MAPQ");
   indel_header.addFilterField("PASS", "3+ split reads, 60 contig MAPQ");
   indel_header.addSampleField(sample_id_norm);
@@ -906,6 +936,10 @@ VCFFile::VCFFile(string file, const char* index, char sep, string analysis_id) {
   // keep track of exact positions to keep from duplicating
   unordered_map<string,bool> double_check;
 
+  // read the reference if not open
+  if (vopt::verbose)
+    cout << "...vcf - reading in the breakpoings file" << endl;
+
   // read it in line by line
   getline(infile, line, '\n'); // skip first line
   size_t line_counter = 0;
@@ -953,7 +987,9 @@ VCFFile::VCFFile(string file, const char* index, char sep, string analysis_id) {
       case 20: vcf1.filter = val; vcf2.filter = val; break; // CONFIDENCE
       case 21: info_fields["EVDNC"] = val; if (val=="DSCRD") info_fields["IMPRECISE"] = ""; break;
       case 22: readid = val; break;
-      case 23: info_fields["JABBACN"] = val; break;
+      case 23: info_fields["PONCOUNT"] = val; break;
+	//case 24: info_fields["JABBACN"] = val; break;
+      
       }
     }
 
@@ -978,6 +1014,9 @@ VCFFile::VCFFile(string file, const char* index, char sep, string analysis_id) {
       
       vcf1.id = vcf1.idcommon + ":1";
       vcf2.id = vcf2.idcommon + ":2";
+
+      vcf1.info_fields["MATEID"] = vcf2.id;
+      vcf2.info_fields["MATEID"] = vcf1.id;
       
       // add the info_fields
       vcf1.info_fields.insert(info_fields.begin(), info_fields.end());
@@ -1183,7 +1222,6 @@ VCFFile::VCFFile(string file, const char* index, char sep, string analysis_id) {
 	  ++it;
       }
 
-
       // get the reference for insertions
       string ins = info_fields["INSERTION"];
       //cout << ins << endl;
@@ -1200,8 +1238,11 @@ VCFFile::VCFFile(string file, const char* index, char sep, string analysis_id) {
 
       } else { // get the reference for deletions
 
+	// fix the span
+	vcf1.info_fields["SPAN"] = to_string(abs(vcf1.pos - vcf2.pos) - 1);
+
 	// get the reference
-	GenomicRegion ref(vcf1.chr, vcf1.pos, vcf2.pos);
+	GenomicRegion ref(vcf1.chr, vcf1.pos, vcf2.pos-1); //-1 so we don't include the final unaltered base
 	if (vcf1.chr < 24) 
 	  vcf1.ref = getRefSequence(ref);
 
@@ -1547,7 +1588,7 @@ VCFEntry::VCFEntry(unordered_map<string,string> &inf) {
 void VCFFile::deduplicate() {
 
   if (vopt::verbose)
-    cout << "deduping" << endl;
+    cout << "deduping events" << endl;
 
   GenomicRegionVector grv;
 
@@ -1565,32 +1606,17 @@ void VCFFile::deduplicate() {
   for (auto i : entry_pairs) {
     count++;
     GenomicIntervalVector giv;
-    tree[i.second.e1.chr].findOverlapping(i.second.e1.pos, i.second.e1.pos, giv);
-    if (giv.size() > 2)
-    tree[i.second.e2.chr].findOverlapping(i.second.e2.pos, i.second.e2.pos, giv);
+    tree[i.second.e1.chr].findContained(i.second.e1.pos-vopt::pad, i.second.e1.pos+vopt::pad, giv);
+    tree[i.second.e2.chr].findContained(i.second.e2.pos-vopt::pad, i.second.e2.pos+vopt::pad, giv);
 
-    size_t hit_count = 0;
     if (giv.size() >= 3)
-    for (auto j : entry_pairs) {
-      if (i.first != j.first && dups.count(j.first) == 0) {
-	if (i.second.getOverlaps(0, j.second)) {
-	  //cout << "overlap " << i.second.e1.chr << ":" << i.second.e1.pos << "--" << i.second.e2.chr << ":" << i.second.e2.pos 
-	  //     << " TO TO  " << j.second.e1.chr << ":" << j.second.e1.pos << "--" << j.second.e2.chr << ":" << j.second.e2.pos << endl;
-	  dups[i.first] = true;
-	  }
+      for (auto j : entry_pairs) {
+	if (i.first != j.first && dups.count(j.first) == 0) {
+	  if (i.second.getOverlaps(vopt::pad, j.second)) 
+	    dups[i.first] = true;
+	}
       }
-    }
   }
-
-  // create the interval tree
-  /*  for (auto i : entry_pairs) { // todo add 
-    grv.push_back(GenomicRegion(i.second.e1.chr, i.second.e1.pos, i.second.e1.pos));
-    grv.push_back(GenomicRegion(i.second.e2.chr, i.second.e2.pos, i.second.e2.pos));
-  }
-
-  // interval tree
-  GenomicIntervalTreeMap tree = GenomicRegion::createTreeMap(grv);
-  */
   
 }
 
@@ -1610,15 +1636,40 @@ bool VCFEntry::operator==(const VCFEntry &v) const {
 }
 
 // write out somatic and germline INDEL vcfs
-void VCFFile::writeIndels(string basename) const {
+void VCFFile::writeIndels(string basename, bool zip) const {
 
   string gname = basename + "germline.indel.vcf.gz";
   string sname = basename + "somatic.indel.vcf.gz";
-  ogzstream out_g(gname.c_str(), ios::out);
-  ogzstream out_s(sname.c_str(), ios::out);
+  string gname_nz = basename + "germline.indel.vcf";
+  string sname_nz = basename + "somatic.indel.vcf";
 
-  out_g << indel_header << endl;
-  out_s << indel_header << endl;
+  ofstream out_g, out_s;
+
+  BGZF* g_bg = NULL;
+  BGZF* s_bg = NULL;
+  // try BGZIP
+  //gname += ".bz";
+  //sname += ".bz";
+  if (zip) {
+    g_bg = bgzf_open(gname.c_str(), "w");
+    s_bg = bgzf_open(sname.c_str(), "w");
+    stringstream indel_h;
+    indel_h << indel_header << endl;
+    if (!bgzf_write(g_bg, indel_h.str().c_str(), indel_h.str().length())) {
+      cerr << "Could not write bzipped vcf" << endl;
+    }
+    if (!bgzf_write(s_bg, indel_h.str().c_str(), indel_h.str().length())) {
+      cerr << "Could not write bzipped vcf" << endl;
+    }
+  } else {
+    out_g.open(gname_nz.c_str());
+    out_s.open(sname_nz.c_str());
+    out_g << indel_header << endl;
+    out_s << indel_header << endl;
+  }
+    
+  //out_g << indel_header << endl;
+  //out_s << indel_header << endl;
 
   VCFEntryVec tmpvec;
 
@@ -1629,32 +1680,105 @@ void VCFFile::writeIndels(string basename) const {
 
   // sort the temp entry vec
   sort(tmpvec.begin(), tmpvec.end());  
-  
+
   // print out the entries
   for (auto& i : tmpvec) { 
     if (i.filter == "PASS" || vopt::include_nonpass) {
-      if (i.info_fields["NCIGAR"] == "0" && i.info_fields["NSPLIT"] == "0")
-	out_s << i << endl;
-      else
-	out_g << i << endl;
+
+      // get the counts
+      size_t pon = i.info_fields.count("PONCOUNT") ? stoi(i.info_fields["PONCOUNT"]) : 0;
+      size_t nsplit = i.info_fields.count("NSPLIT") ? stoi(i.info_fields["NSPLIT"]) : 0;
+      size_t ncigar = i.info_fields.count("NCIGAR") ? stoi(i.info_fields["NCIGAR"]) : 0;
+      size_t tcigar = i.info_fields.count("TCIGAR") ? stoi(i.info_fields["TCIGAR"]) : 0;
+      size_t tsplit = i.info_fields.count("TSPLIT") ? stoi(i.info_fields["TSPLIT"]) : 0;
+      
+      double somatic_ratio = 100;
+      size_t ncount = nsplit + ncigar;
+      if (ncount > 0)
+	somatic_ratio = (tsplit + tcigar) / ncount;
+
+      if (somatic_ratio >= 10 && ncount < 3 && pon <= 1) { // ok if its just one...
+	//out_s << i << endl;
+	if (zip) {
+	  stringstream ss;
+	  ss << i << endl;
+	  if (!bgzf_write(s_bg, ss.str().c_str(), ss.str().length())) {
+	    cerr << "Could not write bzipped vcf for line " << ss.str() << endl;
+	  }
+	} else {
+	  out_s << i << endl;
+	}
+	
+      } else {
+	//out_g << i << endl;
+
+	if (zip) {
+	  stringstream ss;
+	  ss << i << endl;
+	  if (!bgzf_write(g_bg, ss.str().c_str(), ss.str().length())) {
+	    cerr << "Could not write bzipped vcf for line " << ss.str() << endl;
+	  }
+	} else {
+	  out_g << i << endl;
+	}
+
+
+      }
     }
   }
  
+  if (zip) {
+    bgzf_close(g_bg);
+    bgzf_close(s_bg);
+  } else {
+    out_g.close();
+    out_s.close();
+  }
+
+  if (zip) {
+    // tabix it
+    tabixVcf(gname);
+    tabixVcf(sname);
+  }
 
 }
 
 
 // write out somatic and germline SV vcfs
-void VCFFile::writeSVs(string basename) const {
+void VCFFile::writeSVs(string basename, bool zip) const {
   
-  string gname = basename + "germline.sv.vcf.gz";
-  string sname = basename + "somatic.sv.vcf.gz";
-  ogzstream out_g(gname.c_str(), ios::out);
-  ogzstream out_s(sname.c_str(), ios::out);
+  string gname, sname, gname_nz, sname_nz; 
+  string filt = vopt::filtered ? ".filtered" : "";
+  gname = basename + "germline.sv" + filt + ".vcf.gz";
+  sname = basename + "somatic.sv" + filt + ".vcf.gz";
+  gname_nz = basename + "germline.sv" + filt + ".vcf";
+  sname_nz = basename + "somatic.sv" + filt + ".vcf";
 
-  out_g << sv_header << endl;
-  out_s << sv_header << endl;
+  ofstream out_g, out_s;
 
+  BGZF* s_bg = NULL;
+  BGZF* g_bg = NULL;
+
+  if (zip) {
+    g_bg = bgzf_open(gname.c_str(), "w");
+    s_bg = bgzf_open(sname.c_str(), "w");
+    stringstream sv_h;
+    sv_h << sv_header << endl;
+    if (!bgzf_write(g_bg, sv_h.str().c_str(), sv_h.str().length())) {
+      cerr << "Could not write bzipped vcf" << endl;
+    }
+    if (!bgzf_write(s_bg, sv_h.str().c_str(), sv_h.str().length())) {
+      cerr << "Could not write bzipped vcf" << endl;
+    }
+  } else {
+    out_g.open(gname_nz.c_str());
+    out_s.open(sname_nz.c_str());
+
+    out_g << sv_header << endl;
+    out_s << sv_header << endl;
+  }
+    
+    
   VCFEntryVec tmpvec;
   size_t id_counter = 0;
 
@@ -1673,34 +1797,88 @@ void VCFFile::writeSVs(string basename) const {
 	tmppair.e2.id = tmppair.e2.idcommon + ":2";
 	tmppair.e1.info_fields["MATEID"] = tmppair.e2.id;
 	tmppair.e2.info_fields["MATEID"] = tmppair.e1.id;
-      }
+      } 
       
       tmpvec.push_back(tmppair.e1);
       tmpvec.push_back(tmppair.e2);
     }
+
   }
 
   // sort the temp entry vec
   sort(tmpvec.begin(), tmpvec.end());  
   
   // for now all merged calls are somatic
-  bool ismerged = basename.find("merged") != string::npos;
+  //bool ismerged = basename.find("merged") != string::npos;
+  bool ismerged = vopt::dranger != "";
 
   // print out the entries
   for (auto& i : tmpvec) { 
     if (i.filter == "PASS" || vopt::include_nonpass) {
-      if ( (i.info_fields["NDISC"] == "0" && i.info_fields["NSPLIT"] == "0") || (ismerged))
-	out_s << i << endl;
-      else if (!ismerged)
-	out_g << i << endl;
+      if ( (i.info_fields["NDISC"] == "0" && i.info_fields["NSPLIT"] == "0") || (ismerged)) {
+	if (zip) {
+	  stringstream ss;
+	  ss << i << endl;
+	  if (!bgzf_write(s_bg, ss.str().c_str(), ss.str().length())) {
+	    cerr << "Could not write bzipped vcf for line " << ss.str() << endl;
+	  }
+	} else {
+	  out_s << i << endl;
+	}
+
+	//out_s << i << endl;
+      } else if (!ismerged) {
+	if (zip) {
+	  stringstream ss;
+	  ss << i << endl;
+	  if (!bgzf_write(g_bg, ss.str().c_str(), ss.str().length())) {
+	    cerr << "Could not write bzipped vcf for line " << ss.str() << endl;
+	  }
+	} else {
+	  out_g << i << endl;
+	}
+      }
     }
+  }
+
+  if (zip) {
+    bgzf_close(g_bg);
+    bgzf_close(s_bg);
+  } else {
+    out_s.close();
+    out_g.close();
   }
 
   // dont need germline if merged
   if (ismerged) {
-    string cmd = "rm " + gname;
+    string cmd;
+    if (zip) {
+      cmd = "rm " + gname;
+    } else {
+      cmd = "rm " + gname_nz;
+    }
     system(cmd.c_str());
   }
+  
+  // tabix it
+  if (zip) {
+    if (!ismerged)
+      tabixVcf(gname);
+    tabixVcf(sname);
+  }
+
 
 }
 
+
+// tabix the vcf
+void tabixVcf(const string &fn) {
+
+  // tabix it
+  tbx_conf_t conf = tbx_conf_gff;
+  tbx_conf_t * conf_ptr = &tbx_conf_vcf;
+  conf = *conf_ptr;
+  if ( tbx_index_build(fn.c_str(), 0, &conf) ) 
+    cerr << "tbx_index_build failed: " << fn << endl;
+
+}

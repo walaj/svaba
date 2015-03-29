@@ -35,9 +35,9 @@ snowman_LDADD = \
 snowman_LDFLAGS = -pthread -std=c++11
 
 snowman_SOURCES = snowman.cpp workqueue.h \
-                gather.h gather.cpp AlignedContig.h AlignedContig.cpp \
+                AlignedContig.h AlignedContig.cpp \
 		kseq.h vcf.h vcf.cpp \
-		nozzle.h nozzle.cpp zfstream.h zfstream.cpp \
+		zfstream.h zfstream.cpp \
 		SnowmanOverlapAlgorithm.h SnowmanOverlapAlgorithm.cpp SnowmanASQG.h SnowmanASQG.cpp \
-		SnowmanAssemble.h SnowmanAssemble.cpp BreakPoint.cpp run.cpp BamAndReads.cpp \
-		vcf2.cpp
+		SnowmanAssemble.h SnowmanAssemble.cpp BreakPoint.cpp run.cpp BamAndReads.cpp genpon.cpp
+

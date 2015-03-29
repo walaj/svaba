@@ -6,10 +6,20 @@
 #include <ctime>
 #include <vector>
 #include "GenomicRegion.h"
+#include <unistd.h>
+
+#include "api/BamReader.h"
+#include "api/BamWriter.h"
 
 #include "reads.h"
 
+typedef std::vector<BamTools::CigarOp> CigarOpVec;
+
 namespace SnowUtils {
+
+inline bool read_access_test (const std::string& name) {
+  return (access (name.c_str(), R_OK) == 0); 
+}
 
 template <typename T> 
 std::string AddCommas(T data) { 
@@ -33,7 +43,7 @@ inline bool existTest (const std::string& name) {
 }
 
 // clean an output directory
-/*inline std::string getDirPath(std::string dir) {
+/* inline std::string getDirPath(std::string dir) {
  
   // get the basepath from directory
   // check if it is a directory
@@ -103,7 +113,7 @@ inline void rcomplement(std::string &a) {
 
  // get a file name + extension
  // https://www.safaribooksonline.com/library/view/c-cookbook/0596007612/ch10s16.html
- inline std::string getFileName(const std::string& s) {
+ /* inline std::string getFileName(const std::string& s) {
 
    char sep = '/';
 
@@ -117,15 +127,48 @@ inline void rcomplement(std::string &a) {
    }
 
    return(s);
- }
+   }*/
 
- // get a string or int tag that might be separted by "x"
+ /*! @function parse a tag storing multiple strings separated by 'x' character
+  * @param Read containing tag to be parsed
+  * @param tag to parse
+  * @return all of the strings from the tag
+  */
  std::vector<std::string> GetStringTag(const Read& a, const std::string tag);
+
+ /*! @function parse a tag storing multiple integers separated by 'x' character
+  * @param Read containing tag to be parsed
+  * @param tag to parse
+  * @return all of the integers from the tag
+  */
  std::vector<int> GetIntTag(const Read& a, const std::string tag);
 
  // add a tag, and if its already there separate by "x"
  void SmartAddTag(Read &a, const std::string tag, const std::string val);
 
-} // end namespace
+ /*! @function Convert a CigarOpVec to a string for printing
+  * @param Cigar vec to be read
+  * @return CIGAR string
+  */
+ std::string cigarToString(const CigarOpVec &cig);
+
+ /*! @function Flip the cigar so that is in opposite orientation
+  * @param cigar to be flipped in place
+  */
+ void flipCigar(CigarOpVec &cig);
+
+ /*! @function Parse a cigar string into a vector<CigarOp>
+  * @param CIGAR string to be parsed
+  * @return parsed CIGAR in vector format from BamTools package
+  */
+ CigarOpVec stringToCigar(const std::string& val);
+
+ /*! @function Parse tags from a SAM alignment and add to a BamAlignment
+  * @param tag to be parsed (e.g. XA:Z:...)
+  * @param alignment object to be modified
+  */
+ void parseTags(const std::string& val, BamTools::BamAlignment &a);
+
+}
 
 #endif

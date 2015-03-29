@@ -24,11 +24,12 @@ shome=/home/unix/jwala/GIT/isva/Snowman
 #include <string>
 #include <iostream>
 #include "run.h"
-#include "gather.h"
+//#include "gather.h"
 #include "vcf.h"
 //#include "prep_pon.h"
 #include <vector>
 #include "BreakPoint.h"
+#include "genpon.h"
 //#include "clean.h"
 //#include "nozzle.h"
 //#include "bamprocess.h"
@@ -47,9 +48,10 @@ static const char *SNOWMAN_USAGE_MESSAGE =
 "Usage: " PROGRAM_BIN " <command> [options]\n\n"
 "Commands:\n"
 "           run            Run the Snowman SV algorithm on an SV bam pair\n"
-"           gather         Gather the contigs and alignments, send to BWA-MEM and produce outputs\n"
+  //"           gather         Gather the contigs and alignments, send to BWA-MEM and produce outputs\n"
 "           vcf            Tools for handling VCF files within Snowman and across centers\n"
 "           refilter       Specify a new set of confidence / evidence criteria for a bp file. Can re-run snowman vcf to make new calls\n"
+"           pon            Generate a panel of normal files from a list of germline vcf files. For use with <snowman refilter>\n"
 "\nReport bugs to " PACKAGE_BUGREPORT "\n\n";
 
 int main(int argc, char** argv) {
@@ -66,11 +68,13 @@ int main(int argc, char** argv) {
       //runPrep(argc-1, argv+1);
     } else if (command == "run") {
       runSnowman(argc -1, argv + 1);
-    } else if (command == "gather") {
-      runConcat(argc-1, argv+1);
+      //} else if (command == "gather") {
+      //  runConcat(argc-1, argv+1);
     } else if (command == "refilter") {
       runRefilterBreakpoints(argc-1, argv+1);
-     } 
+    } else if (command == "pon") {
+      runGeneratePON(argc-1, argv+1);
+    }
   else if (command == "vcf") {
       runVCF(argc-1, argv+1);
     } else {

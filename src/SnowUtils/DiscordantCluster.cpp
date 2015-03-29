@@ -20,11 +20,16 @@ DiscordantCluster::DiscordantCluster(ReadVec &this_reads, ReadVec &all_reads) {
 
   id = r_qname(this_reads[0]); //this_reads[0]->Name;
 
+  //cout << "rev " << rev << " mrev " << mrev << endl;
   for (auto& i : this_reads) {
 
+    //cout << "flag " << r_flag(i) << " frev " << r_is_rstrand(i) << " mrev " << r_is_mrstrand(i) << endl;
     assert(rev == r_is_rstrand(i) && mrev == r_is_mrstrand(i)); //i->IsReverseStrand() && mrev == i->IsMateReverseStrand());
     string tmp;
     r_get_Z_tag(i, "SR", tmp);
+
+    assert(id.length());
+    r_add_Z_tag(i, "DC", id);
 
     assert(tmp.length());
     reads[tmp] = i;
@@ -154,6 +159,7 @@ void DiscordantCluster::addMateReads(ReadVec &bav) { // BamAlignmentUPVector &ba
     if (qnames.count(r_qname(i))) {
       string tmp;
       r_get_Z_tag(i, "SR", tmp);
+      r_add_Z_tag(i, "DC", id);
       if (reads.count(tmp) == 0) // only add if this is a mate read
 	mates[tmp] = i;
     }

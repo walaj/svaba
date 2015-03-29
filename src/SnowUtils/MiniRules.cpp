@@ -392,7 +392,7 @@ ostream& operator<<(ostream &out, const MiniRulesCollection &mr) {
 // print a MiniRules information
 ostream& operator<<(ostream &out, const MiniRules &mr) {
   
-  string file_print = mr.m_whole_genome ? "WHOLE GENOME" : SnowUtils::getFileName(mr.m_region_file);
+  string file_print = mr.m_whole_genome ? "WHOLE GENOME" : mr.m_region_file;
   out << "--Region: " << file_print;;
   if (!mr.m_whole_genome) {
     out << " --Size: " << SnowUtils::AddCommas<int>(mr.m_width); 
