@@ -18,12 +18,11 @@ namespace bopt {
   static int verbose = 1;
 }
 
-static const char* shortopts = "hxi:a:v:o:p:g:";
+static const char* shortopts = "hxi:a:v:q:g:";
 static const struct option longopts[] = {
   { "help",                    no_argument, NULL, 'h' },
   { "input-bps",               required_argument, NULL, 'i'},
-  { "output-bps",              required_argument, NULL, 'o'},
-  { "panel-of-normals",        required_argument, NULL, 'p'},
+  { "panel-of-normals",        required_argument, NULL, 'q'},
   { "reference-genome",        required_argument, NULL, 'g'},
   { "analysis-id",             required_argument, NULL, 'a'},
   { "no-reads",                no_argument, NULL, 'x'},
@@ -41,10 +40,8 @@ static const char *BP_USAGE_MESSAGE =
 "  -g, --reference-genome               Path to indexed reference genome to be used by BWA-MEM. Default is Broad hg19 (/seq/reference/...)\n"
 "  Required input\n"
 "  -i, --input-bps                      Original bps.txt.gz file\n"
-"  -o, --output-bps                     Output bps.txt.gz file\n"
-
 "  Optional input\n"                       
-"  -p, --panel-of-normals               Input a file containing chr\tpos1\tpos2\ttype\tnum_samples as a panel of normals\n"                       
+"  -q, --panel-of-normals               Panel of normals files generated from snowman pon\n"                       
 "  -a, --id-string                      String specifying the analysis ID to be used as part of ID common.\n"
 "  -x, --no-reads                       Flag to turn off recording of supporting reads. Setting this flag greatly reduces file size.\n"
 
@@ -152,7 +149,7 @@ bool BreakPoint::isGoodGermline(int mapq, size_t allsplit) const {
 
   //bool enough_tum_reads = static_cast<double>(tall)/static_cast<double>(nall) >= 2 && max(tsplit1, tsplit2) > 0 && max(nsplit1, nsplit2) == 0 && tall >= 5;
   
-  bool passall = isger && qual && inter_ok && !good_enough; 
+ bool passall = isger && qual && inter_ok && !good_enough; 
 
   return passall;
 
@@ -450,6 +447,7 @@ void runRefilterBreakpoints(int argc, char** argv) {
   
   parseBreakOptions(argc, argv);
 
+  bopt::output_file = bopt::analysis_id + ".filtered.bps.txt.gz";
   if (bopt::verbose > 0) {
     cout << "Input bps file:  " << bopt::input_file << endl;
     cout << "Output bps file: " << bopt::output_file << endl;
@@ -565,9 +563,8 @@ void parseBreakOptions(int argc, char** argv) {
       case 'h': die = true; break;
       case 'g': arg >> bopt::ref_index; break;
       case 'i': arg >> bopt::input_file; break;
-      case 'o': arg >> bopt::output_file; break;
       case 'v': arg >> bopt::verbose; break;
-      case 'p': arg >> bopt::pon; break;
+      case 'q': arg >> bopt::pon; break;
       case 'a': arg >> bopt::analysis_id; break;
       case 'x': bopt::noreads = true; break;
     }
@@ -669,20 +666,24 @@ int BreakPoint::checkPon(unique_ptr<PON> &p) {
   if (!isindel || !p)
     return 0;
 
-  string chr = to_string(gr1.chr+1);
+  /*string chr = to_string(gr1.chr+1);
   if (chr == "23")
     chr = "X";
   if (chr == "24")
     chr = "Y";
   if (chr == "25")
     chr = "M";
-  
+  */
+  string chr = to_string(gr1.chr);
+
   string key1, key2, key3, key4, key5;
-  key1 = chr + "_" + to_string(gr1.pos1-1);
-  key2 = chr + "_" + to_string(gr1.pos1);
-  key3 = chr + "_" + to_string(gr1.pos1+1);
-  key4 = chr + "_" + to_string(gr1.pos1-2);
-  key5 = chr + "_" + to_string(gr1.pos1+2);
+  int span = getSpan();
+  string type = (insertion != "") ? "I" : "D";
+  key1 = chr + "_" + to_string(gr1.pos1-1) + "_" + to_string(span) + type;
+  key2 = chr + "_" + to_string(gr1.pos1  ) + "_" + to_string(span) + type;
+  key3 = chr + "_" + to_string(gr1.pos1+1) + "_" + to_string(span) + type;
+  key4 = chr + "_" + to_string(gr1.pos1-2) + "_" + to_string(span) + type;
+  key5 = chr + "_" + to_string(gr1.pos1+2) + "_" + to_string(span) + type;
   
   if (p->count(key1))
     pon = max((*p)[key1], pon);
@@ -694,6 +695,9 @@ int BreakPoint::checkPon(unique_ptr<PON> &p) {
     pon = max((*p)[key4], pon);
   if (p->count(key5))
     pon = max((*p)[key5], pon);
+
+  if (pon > 0)
+    cout << "pon key " << key1 << " val " << pon << endl;
   
   return pon;
   
@@ -717,22 +721,20 @@ void BreakPoint::readPON(string &file, unique_ptr<PON> &pmap) {
     istringstream gg(pval);
     string tval;
     string key;
-    string scount;
+    //vector<int> scount;
+    int scount_total = 0;
     size_t c = 0;
     while (getline(gg, tval, '\t')) {
-      switch(++c) {
-      case 1: key = tval; break;
-      case 2: scount = tval; break;
+      if (++c == 1 && tval.length()) {
+	key = tval.substr(1,tval.length() - 1);
+	if (key.at(0) == 'T') // only accumulate normal
+	  break;
       }
+      else if (tval.length())
+	try { scount_total += stoi(tval); } catch(...) { cerr << "stoi error in PON read with val " << tval << " on line " << pval << endl; }
     }
 
-    try {
-      (*pmap)[key] = stoi(scount);
-    } catch (...) {
-      cerr << "stoi error on " << scount << " from line " << pval << endl;
-      exit(EXIT_FAILURE);
-    }
-    
+    (*pmap)[key] = scount_total;
   }
 
   return;

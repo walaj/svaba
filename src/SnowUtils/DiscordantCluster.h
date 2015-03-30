@@ -58,7 +58,7 @@ struct DiscordantCluster {
   friend ostream& operator<<(std::ostream& out, const DiscordantCluster& dc);
 
   // define how to print to file
-  string toFileString() const;
+  string toFileString(bool with_read_names = false) const;
 
   // define how these are to be sorted
   bool operator < (const DiscordantCluster& b) const;

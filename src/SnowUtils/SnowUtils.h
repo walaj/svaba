@@ -8,9 +8,6 @@
 #include "GenomicRegion.h"
 #include <unistd.h>
 
-#include "api/BamReader.h"
-#include "api/BamWriter.h"
-
 #include "reads.h"
 
 typedef std::vector<BamTools::CigarOp> CigarOpVec;

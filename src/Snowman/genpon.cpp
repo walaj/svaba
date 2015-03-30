@@ -5,7 +5,8 @@
 #include <memory>
 #include "gzstream.h"
 #include <sstream>
-#include "reads.h"
+//#include "reads.h"
+#include "SnowUtils.h"
 
 using namespace std;
 
@@ -13,6 +14,7 @@ namespace popt {
 
   static string input_file = "";
   static string output_file = "";
+  static string file_list = "";
 
   static int verbose = 1;
 }
@@ -99,11 +101,12 @@ void runGeneratePONfromVCF(int argc, char** argv) {
   delete pon;
 }
 
-static const char* shortopts = "hi:v:o:";
+static const char* shortopts = "hi:v:o:l:";
 static const struct option longopts[] = {
   { "help",                    no_argument, NULL, 'h' },
-  { "input-vcfs",               required_argument, NULL, 'i'},
+  { "input-vcfs",              required_argument, NULL, 'i'},
   { "output-pon",              required_argument, NULL, 'o'},
+  { "file-list",               required_argument, NULL, 'l'},
   { "verbose",                 required_argument, NULL, 'v' },
   { NULL, 0, NULL, 0 }
 };
@@ -115,11 +118,10 @@ static const char *PON_USAGE_MESSAGE =
 "  General options\n"
 "  -v, --verbose                        Select verbosity level (0-4). Default: 1 \n"
 "  -h, --help                           Display this help and exit\n"
+"  -l, --file-list                      File containing list of cigar.gz files for each sample to be panel\n"
+"  -o, --output-pon                     Output panel of normals file for use with snowman run -q or snowman refilter -q \n"
 "  Required input\n"
-"  -i, --tumor-bam                      Tumor BAM file\n"
-"  -o, --tumor-bam                      Tumor BAM file\n"
 "  Optional input\n"                       
-"  -p, --panel-of-normals               Input a file containing chr\tpos1\tpos2\ttype\tnum_samples as a panel of normals\n"                       
 "\n";
 
 void parsePONOptions(int argc, char** argv) {
@@ -135,12 +137,13 @@ void parsePONOptions(int argc, char** argv) {
       case 'h': die = true; break;
       case 'i': arg >> popt::input_file; break;
       case 'o': arg >> popt::output_file; break;
+      case 'l': arg >> popt::file_list; break;
       case 'v': arg >> popt::verbose; break;
     }
   }
 
-  if (popt::input_file.length() == 0)
-    die = true;
+  //if (popt::input_file.length() == 0)
+  //  die = true;
   if (popt::output_file.length() == 0)
     die = true;
 
@@ -154,6 +157,20 @@ void runGeneratePON(int argc, char** argv) {
 
   parsePONOptions(argc, argv);
 
+  bool list_exist = SnowUtils::read_access_test(popt::file_list);
+  if (list_exist) {
+    if (popt::verbose)
+      cout << "...combining PON" << endl;
+    combinePON();
+  } else if (!list_exist && popt::file_list.length()) {
+    cerr << "!!!!!!!!!!" << endl << "!!!!!!!!!!" << endl << "!!!!!!!!!!" << endl;
+    cerr << "List of cigar file does not exist or is not readable -- " << popt::file_list << endl;
+    cerr << "!!!!!!!!!!" << endl << "!!!!!!!!!!" << endl << "!!!!!!!!!!" << endl;
+  }
+
+  return;
+
+  /*
   ogzstream ogz;
   ogz.open(popt::output_file.c_str(), ios::out);
 
@@ -244,5 +261,92 @@ void runGeneratePON(int argc, char** argv) {
   }
   
 
+  */
 }
 
+
+void combinePON() {
+
+  typedef unordered_map<string, vector<size_t>> pmap;
+  pmap * pon = new pmap();
+
+  // read in the file
+  igzstream iz(popt::file_list.c_str());
+  if (!iz) {
+    cerr << "Can't read file " << popt::file_list << endl;
+    exit(EXIT_FAILURE);
+  }
+  
+  // count the files
+  string file;
+  size_t file_count = 0; 
+  size_t fc = 0;
+  while (getline(iz, file))
+    file_count++;
+  // close and reopen
+  iz.close();
+
+  igzstream izl(popt::file_list.c_str());
+
+  while (getline(izl, file, '\n')) {
+    fc++;
+
+    // open this PON file
+    igzstream zz(file.c_str());
+    if (!zz) {
+      cerr << "Can't read file " << file << endl;
+      exit(EXIT_FAILURE);
+    }
+
+    if (popt::verbose) 
+      cout << "working on file "  << file << " (" << fc << " of " << file_count << ")" << endl;
+
+    // loop through and add 
+    string line;
+    while (getline(zz, line, '\n')) {
+      if (!line.length())
+	break;
+      size_t c = 0;
+      if (line.at(0) != '#') {
+	istringstream is(line);
+	string val;
+	string key;
+	string num;
+	string tum;
+	
+	while(getline(is, val, '\t')) {
+	  switch (++c) {
+	  case 1: key = val; break;
+	  case 2: num = val;
+	  case 3: tum = val; 
+	  }
+	  if (c > 2)
+	    break;
+	}
+	
+	key = tum + key;
+	//string key = chr + "_" + pos;
+	//if (!pon->count(key))
+	  (*pon)[key].push_back(stoi(num));
+	  //else
+	  //(*pon)[key]++;
+      }
+    }
+  }
+
+  // write the pon
+  ogzstream oz(popt::output_file.c_str(), ios::out);
+  if (!oz) {
+    cerr << "Can't write to output file " << popt::output_file << endl;
+    exit(EXIT_FAILURE);
+  }
+  for (auto& i : (*pon)) {
+    oz << i.first;
+    for (auto& j : i.second) 
+      oz << "\t" << j;
+    oz << endl;
+  }
+  oz.close();
+  
+  delete pon;
+}

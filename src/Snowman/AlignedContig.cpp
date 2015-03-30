@@ -619,14 +619,9 @@ void AlignmentFragment::indelCigarMatches(const CigarMap &nmap, const CigarMap &
     //assert(i.getSpan() > 0);
     
     string st = i.getHashString();
-     
+
     CigarMap::const_iterator ffn = nmap.find(st);
     CigarMap::const_iterator fft = tmap.find(st);
-
-    //for (auto& i : nmap)
-    //  cout << "      N " << i.first << " " << i.second << endl;
-    //for (auto& i : tmap)
-    //  cout << "      T " << i.first << " " << i.second << endl;
 
     if (ffn != nmap.end())
       i.ncigar = ffn->second;
@@ -773,7 +768,7 @@ bool AlignmentFragment::parseIndelBreak(BreakPoint &bp) {
     if (i.Type == 'I' && bp.cpos1 == -1 && count == idx) {
       bp.cpos1 = curr - i.Length - 1;
       bp.cpos2 = curr - 1;
-      bp.insertion = align.QueryBases.substr(curr+1, i.Length);
+      bp.insertion = align.QueryBases.substr(curr, i.Length);
 
       if (m_name == "c_1_8456000_8462000_45")
 	cout << "Insertion found of " << i.Length << i.Type << endl;

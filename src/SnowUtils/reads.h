@@ -19,7 +19,6 @@ static const char BASES[16] = {' ', 'A', 'C', ' ',
                                'T', ' ', ' ', ' ', 
                                ' ', ' ', ' ', 'N'};
 
-// custom deleter
 struct free_delete {
   void operator()(void* x) { bam_destroy1((bam1_t*)x); }
 };
@@ -41,7 +40,6 @@ typedef bam1_t* RawRead;
 #define r_is_first(b) ((b)->core.flag&BAM_FREAD1)
 #define r_qname(b) (std::string(bam_get_qname((b).get())))
 #define r_remove_tag(b, t) do { uint8_t *p  = bam_aux_get((b).get(), t); if (p) bam_aux_del((b).get(), p); } while(0)
-
 #define r_flag(b) ((b)->core.flag)
 #define r_is_pmapped(b) (!((b)->core.flag&BAM_FUNMAP) && !((b)->core.flag&BAM_FMUNMAP))
 #define r_length(b) ((b)->core.l_qseq)
