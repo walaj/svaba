@@ -236,22 +236,26 @@ std::ostream& operator<<(std::ostream& out, const DiscordantCluster& dc) {
 
 
 // define how to print to file
-string DiscordantCluster::toFileString() const { 
+string DiscordantCluster::toFileString(bool with_read_names /* false */) const { 
 
   string sep = "\t";
 
-  string reads_string;
-  for (auto& i : reads) {
-    string tmp;
-    r_get_Z_tag(i.second, "SR", tmp);
-    //i.second->GetTag("SR", tmp);
-    reads_string += tmp + ",";
+  // add the reads names (currently off)
+  string reads_string = "x";
+  if (with_read_names) {
+    for (auto& i : reads) {
+      string tmp;
+      r_get_Z_tag(i.second, "SR", tmp);
+      //i.second->GetTag("SR", tmp);
+      reads_string += tmp + ",";
+    }
+    
+    //debug
+    if (reads_string.length() == 0)
+      reads_string = "x";
+    else
+      reads_string = reads_string.substr(0,reads_string.length() - 1);
   }
-  //debug
-  if (reads_string.length() == 0)
-    reads_string = "x";
-  else
-    reads_string = reads_string.substr(0,reads_string.length() - 1);
 
   stringstream out;
   out << reg1.chr+1 << sep << reg1.pos1 << sep << reg1.strand << sep 

@@ -169,6 +169,7 @@ static const char *RUN_USAGE_MESSAGE =
 "  -r, --rules                          VariantBam style rules string to determine which reads to do assembly on. See documentation for default.\n"
 "  -m, --min-overlap                    Minimum read overlap, an SGA parameter. Default: 0.4* readlength\n"
 "  -k, --region-file                    Set a region txt file. Format: one region per line, Ex: 1,10000000,11000000\n"
+"  -q, --panel-of-normals               Panel of normals gzipped txt file generated from snowman pon\n"
 "      --disc-cluster-only              Only run the discordant read clustering module, skip assembly. Default: off\n"
 "  Assembly params\n"
 "      --write-asqg                     Output an ASQG graph file for each 5000bp window. Default: false\n"

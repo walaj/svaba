@@ -384,7 +384,7 @@ GenomicRegionVector BamAndReads::_read_bam(ReadVec &reads, int limit) {
       for (int i = 0; i < r_cig_size(r); i++) {
 	if (r_cig_type(r,i) == 'D' || r_cig_type(r,i) == 'I') {	
 	  //ss << r_id(r) << "_" << pos << "_" << /*r_cig_len(r,i) <<*/ r_cig_type(r, i);
-	  ss << r_id(r) << "_" << pos << "_" << r_cig_len(r,i) << "_" << r_cig_type(r, i);
+	  ss << r_id(r) << "_" << pos << "_" << r_cig_len(r,i) << r_cig_type(r, i);
 	  cigmap[ss.str()]++;
 	  ss.str("");
 

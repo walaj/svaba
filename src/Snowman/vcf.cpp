@@ -1228,18 +1228,19 @@ VCFFile::VCFFile(string file, const char* index, char sep, string analysis_id) {
       if (ins != "") {
 
 	// get the reference
-	vcf1.pos--;
+	//vcf1.pos--; 
 	GenomicRegion ref(vcf1.chr, vcf1.pos, vcf2.pos-1);
 	if (vcf1.chr < 24) {
 	  vcf1.ref = getRefSequence(ref);
 	}
-
-	vcf1.alt = vcf1.ref.substr(0,2) + ins; //.substr(1,ins.length());
+	
+	vcf1.alt = vcf1.ref.substr(0,1) + ins; //.substr(1,ins.length());
+	//vcf1.alt = vcf1.ref.substr(0,2) + ins; //.substr(1,ins.length());
 
       } else { // get the reference for deletions
 
 	// fix the span
-	vcf1.info_fields["SPAN"] = to_string(abs(vcf1.pos - vcf2.pos) - 1);
+	//vcf1.info_fields["SPAN"] = to_string(abs(vcf1.pos - vcf2.pos) - 1);
 
 	// get the reference
 	GenomicRegion ref(vcf1.chr, vcf1.pos, vcf2.pos-1); //-1 so we don't include the final unaltered base
@@ -1693,9 +1694,9 @@ void VCFFile::writeIndels(string basename, bool zip) const {
       size_t tsplit = i.info_fields.count("TSPLIT") ? stoi(i.info_fields["TSPLIT"]) : 0;
       
       double somatic_ratio = 100;
-      size_t ncount = nsplit + ncigar;
+      size_t ncount = max(nsplit,ncigar);
       if (ncount > 0)
-	somatic_ratio = (tsplit + tcigar) / ncount;
+	somatic_ratio = (max(tsplit,tcigar)) / ncount;
 
       if (somatic_ratio >= 10 && ncount < 3 && pon <= 1) { // ok if its just one...
 	//out_s << i << endl;

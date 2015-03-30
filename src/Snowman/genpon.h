@@ -4,6 +4,6 @@
 void parsePONOptions(int argc, char** argv);
 void runGeneratePONfromVCF(int argc, char** argv);
 void runGeneratePON(int argc, char** argv);
-
+void combinePON();
 
 #endif
