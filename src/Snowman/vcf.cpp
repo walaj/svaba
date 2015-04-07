@@ -7,7 +7,6 @@
 #include <sstream>
 #include <regex>
 #include "GenomicRegion.h"
-#include "faidx.h"
 #include "SnowUtils.h"
 #include "gzstream.h"
 #include "vcf2.h"
@@ -897,6 +896,7 @@ VCFFile::VCFFile(string file, const char* index, char sep, string analysis_id) {
   sv_header.filedate = mdate.str();
 
   //add the SV info fields
+  sv_header.addInfoField("REPSEQ","1","String","Repeat sequence near the event");
   sv_header.addInfoField("SVTYPE","1","String","Type of structural variant");
   sv_header.addInfoField("HOMSEQ","1","String","Sequence of base pair identical micro-homology at event breakpoints. Plus strand sequence displayed.");
   sv_header.addInfoField("IMPRECISE","0","Flag", "Imprecise structural variation");
@@ -932,13 +932,14 @@ VCFFile::VCFFile(string file, const char* index, char sep, string analysis_id) {
   indel_header.addFormatField("NALT_RP","1","Integer","Number of ALT support aberrant Read Pairs");
   indel_header.addFormatField("NREF","1","Integer","Number of REF support Reads");
   indel_header.addFormatField("NALT","1","Integer","Number of ALT support reads or pairs");
+  indel_header.addInfoField("REPSEQ","1","String","Repeat sequence near the event");
 
   // keep track of exact positions to keep from duplicating
   unordered_map<string,bool> double_check;
 
   // read the reference if not open
   if (vopt::verbose)
-    cout << "...vcf - reading in the breakpoings file" << endl;
+    cout << "...vcf - reading in the breakpoints file" << endl;
 
   // read it in line by line
   getline(infile, line, '\n'); // skip first line
@@ -988,8 +989,7 @@ VCFFile::VCFFile(string file, const char* index, char sep, string analysis_id) {
       case 21: info_fields["EVDNC"] = val; if (val=="DSCRD") info_fields["IMPRECISE"] = ""; break;
       case 22: readid = val; break;
       case 23: info_fields["PONCOUNT"] = val; break;
-	//case 24: info_fields["JABBACN"] = val; break;
-      
+      case 24: info_fields["REPSEQ"] = val; break;
       }
     }
 
@@ -998,6 +998,9 @@ VCFFile::VCFFile(string file, const char* index, char sep, string analysis_id) {
       info_fields["HOMSEQ"] = "";
     if (info_fields["INSERTION"] == "x")
       info_fields["INSERTION"] = "";
+    if (info_fields["REPSEQ"] == "x")
+      info_fields["REPSEQ"] = "";
+
 
     //string nalt = to_string(stoi(info_fields["TSPLIT"]) + stoi(info_fields["TDISC"]));
     string nalt_rp = info_fields["TDISC"];
@@ -1100,8 +1103,8 @@ VCFFile::VCFFile(string file, const char* index, char sep, string analysis_id) {
       GenomicRegion gr1(vcf1.chr, vcf1.pos, vcf1.pos);
       GenomicRegion gr2(vcf2.chr, vcf2.pos, vcf2.pos);
       if (vcf1.chr < 24 && vcf2.chr < 24) { // TODO FIX 
-	vcf1.ref = getRefSequence(gr1);
-	vcf2.ref = getRefSequence(gr2);
+	vcf1.ref = getRefSequence(gr1, findex);
+	vcf2.ref = getRefSequence(gr2, findex);
       }
       
       // set the reference position for making ALT tag
@@ -1231,7 +1234,7 @@ VCFFile::VCFFile(string file, const char* index, char sep, string analysis_id) {
 	//vcf1.pos--; 
 	GenomicRegion ref(vcf1.chr, vcf1.pos, vcf2.pos-1);
 	if (vcf1.chr < 24) {
-	  vcf1.ref = getRefSequence(ref);
+	  vcf1.ref = getRefSequence(ref, findex);
 	}
 	
 	vcf1.alt = vcf1.ref.substr(0,1) + ins; //.substr(1,ins.length());
@@ -1245,7 +1248,7 @@ VCFFile::VCFFile(string file, const char* index, char sep, string analysis_id) {
 	// get the reference
 	GenomicRegion ref(vcf1.chr, vcf1.pos, vcf2.pos-1); //-1 so we don't include the final unaltered base
 	if (vcf1.chr < 24) 
-	  vcf1.ref = getRefSequence(ref);
+	  vcf1.ref = getRefSequence(ref, findex);
 
 	vcf1.alt = vcf1.ref.substr(0,1);
 	
@@ -1286,11 +1289,11 @@ VCFFile::VCFFile(string file, const char* index, char sep, string analysis_id) {
 }
 
 // return a sequence from the reference
-string getRefSequence(const GenomicRegion &gr) {
+string getRefSequence(const GenomicRegion &gr, faidx_t * fi) {
 
   int len;
   string chrstring = GenomicRegion::chrToString(gr.chr);
-  char * seq = faidx_fetch_seq(findex, const_cast<char*>(chrstring.c_str()), gr.pos1-1, gr.pos2-1, &len);
+  char * seq = faidx_fetch_seq(fi, const_cast<char*>(chrstring.c_str()), gr.pos1-1, gr.pos2-1, &len);
   
   if (seq) {
     return string(seq);
@@ -1397,7 +1400,7 @@ VCFEntryPair::VCFEntryPair(VCFEntryPair &v1, VCFEntryPair &v2) {
   VCFEntryPair snow = (v1.method == "dranger") ? v2 : v1;
 
   // merge the info fields
-  InfoMap merged_fields = mergeInfoFields(dran.e1.info_fields, snow.e1.info_fields);
+  //InfoMap merged_fields = mergeInfoFields(dran.e1.info_fields, snow.e1.info_fields);
 
   // dranger wins if snow+dran && BPRESLULT
   if (dran.tsplit > 0) {
@@ -1429,12 +1432,11 @@ VCFEntryPair::VCFEntryPair(VCFEntryPair &v1, VCFEntryPair &v2) {
 
 
 // merge the info fields
-InfoMap mergeInfoFields(InfoMap const &m1, InfoMap const &m2) {
+/*InfoMap mergeInfoFields(InfoMap const &m1, InfoMap const &m2) {
 
   InfoMap shared_fields;
 
   // merge the info maps
-  /*
   for (InfoMap::const_iterator it = m1.begin(); it != m1.end(); it++) {
     if (m2.count(it->first) > 0) {
       shared_fields.insert(pair<string,string>(it->first, it->second));
@@ -1444,10 +1446,9 @@ InfoMap mergeInfoFields(InfoMap const &m1, InfoMap const &m2) {
     if (m1.count(it->first) > 0 && shared_fields.count(it->first) == 0)
       shared_fields.insert(pair<string,string>(it->first, it->second));
   }  
-  */
     
   return shared_fields;
-}
+  }*/
 
 // write the VCF as a csv file
 bool VCFFile::writeCSV() const {
@@ -1692,13 +1693,14 @@ void VCFFile::writeIndels(string basename, bool zip) const {
       size_t ncigar = i.info_fields.count("NCIGAR") ? stoi(i.info_fields["NCIGAR"]) : 0;
       size_t tcigar = i.info_fields.count("TCIGAR") ? stoi(i.info_fields["TCIGAR"]) : 0;
       size_t tsplit = i.info_fields.count("TSPLIT") ? stoi(i.info_fields["TSPLIT"]) : 0;
-      
+      size_t repseq = i.info_fields.count("REPSEQ") ? i.info_fields["REPSEQ"].length() : 0;
+
       double somatic_ratio = 100;
       size_t ncount = max(nsplit,ncigar);
       if (ncount > 0)
 	somatic_ratio = (max(tsplit,tcigar)) / ncount;
 
-      if (somatic_ratio >= 10 && ncount < 3 && pon <= 1) { // ok if its just one...
+      if (somatic_ratio >= 10 && ncount < 3 && pon <= 1 && repseq == 0) { // ok if its just one...
 	//out_s << i << endl;
 	if (zip) {
 	  stringstream ss;

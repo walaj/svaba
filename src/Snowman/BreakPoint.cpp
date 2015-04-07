@@ -244,11 +244,12 @@ string BreakPoint::toFileString(bool noreads) {
 
     if ( split_count < 4)
       confidence="WEAKASSEMBLY";
-    else if ( split_count < 8 && (tcigar+ncigar) < 3 && getSpan() < 6)
+    else if ( (tcigar+ncigar) < 3 && getSpan() < 6)
       confidence="WEAKCIGARMATCH";
     else if (gr1.mapq != 60)
       confidence="LOWMAPQ";
-    else if (seq.find("AAAAAAAAAAA") != string::npos || seq.find("TTTTTTTTTTT") != string::npos || seq.find("TGTGTGTGTGTGTGTGTGTGTGTGTG") != string::npos)
+    //else if (seq.find("AAAAAAAAAAA") != string::npos || seq.find("TTTTTTTTTTT") != string::npos || seq.find("TGTGTGTGTGTGTGTGTGTGTGTGTG") != string::npos)
+    else if (repeat_seq.length() && (pon > 0))
       confidence="REPEAT";
     else
       confidence="PASS";
@@ -312,7 +313,7 @@ string BreakPoint::toFileString(bool noreads) {
      << contig_name << sep
      << num_align << sep 
      << confidence << sep << evidence << sep << (read_names.length() ? read_names : "x") << sep 
-     << pon;
+     << pon << sep << (repeat_seq.length() ? repeat_seq : "x");
 
   return ss.str();
   
@@ -455,6 +456,12 @@ void runRefilterBreakpoints(int argc, char** argv) {
     cout << "Analysis id: " << bopt::analysis_id << endl;
   }
 
+  // load the reference index
+  if (bopt::verbose > 0)
+    cout << "attempting to load: " << bopt::ref_index << endl;
+  faidx_t * findex = fai_load(bopt::ref_index.c_str());  // load the reference
+
+  // open the output file
   igzstream iz(bopt::input_file.c_str());
   if (!iz) {
     cerr << "Can't read file " << bopt::input_file << endl;
@@ -480,11 +487,34 @@ void runRefilterBreakpoints(int argc, char** argv) {
   //skip the header
   getline(iz, line, '\n');
 
+  size_t count = 0;
   while (getline(iz, line, '\n')) {
+    
+    if (++count % 10000 == 1 && bopt::verbose > 0)
+      cout << "filtering breakpoint " << count << endl;
+
     BreakPoint bp(line);
 
     // check if in panel of normals
     bp.checkPon(pmap);
+
+    // check for repeat sequence
+    if (bp.gr1.chr < 24) {
+      GenomicRegion gr = bp.gr1;
+      gr.pad(20);
+      string seqr = getRefSequence(gr, findex);
+      vector<string> repr = {"AAAAA", "TTTTT", "CCCCC", "GGGGG", 
+			     "TATATATA", "ATATATAT", 
+			     "GCGCGCGC", "CGCGCGCGC", 
+			     "TGTGTGTG", "GTGTGTGT", 
+			     "TCTCTCTC", "CTCTCTCT", 
+			     "CACACACA", "ACACACAC", 
+			     "GAGAGAGA", "AGAGAGAG"};
+      //cout << "seq " << seqr << endl;
+      for (auto& i : repr)
+	if (seqr.find(i) != string::npos)
+	  bp.repeat_seq = i;
+    }
 
     if (bp.hasMinimal() && bp.gr1.chr < 24 && bp.gr2.chr < 24)
       oz << bp.toFileString(bopt::noreads) << endl;
@@ -571,8 +601,6 @@ void parseBreakOptions(int argc, char** argv) {
   }
 
   if (bopt::input_file.length() == 0)
-    die = true;
-  if (bopt::output_file.length() == 0)
     die = true;
 
   if (die) {
@@ -696,8 +724,8 @@ int BreakPoint::checkPon(unique_ptr<PON> &p) {
   if (p->count(key5))
     pon = max((*p)[key5], pon);
 
-  if (pon > 0)
-    cout << "pon key " << key1 << " val " << pon << endl;
+  //if (pon > 0)
+  //  cout << "pon key " << key1 << " val " << pon << endl;
   
   return pon;
   
@@ -722,19 +750,25 @@ void BreakPoint::readPON(string &file, unique_ptr<PON> &pmap) {
     string tval;
     string key;
     //vector<int> scount;
-    int scount_total = 0;
+    int sample_count_total = 0;
+    int read_count_total = 0;
     size_t c = 0;
     while (getline(gg, tval, '\t')) {
-      if (++c == 1 && tval.length()) {
+      c++;
+      if (c == 1 && tval.length()) {
 	key = tval.substr(1,tval.length() - 1);
 	if (key.at(0) == 'T') // only accumulate normal
 	  break;
       }
       else if (tval.length())
-	try { scount_total += stoi(tval); } catch(...) { cerr << "stoi error in PON read with val " << tval << " on line " << pval << endl; }
+	try { sample_count_total += (stoi(tval) > 0 ? 1 : 0); } catch(...) { cerr << "stoi error in PON read with val " << tval << " on line " << pval << endl; }
+      //else if (tval.length() && c==2)
+      //	try { read_count_total += stoi(tval); } catch(...) { cerr << "stoi error in PON read with val " << tval << " on line " << pval << endl; }
+
     }
 
-    (*pmap)[key] = scount_total;
+    if (sample_count_total > 1)
+      (*pmap)[key] = sample_count_total;
   }
 
   return;

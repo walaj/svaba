@@ -3,8 +3,8 @@
 library(optparse)
 
 option_list = list(
-    make_option(c("-i", "--input"),  type = "character", default = "qcreport.txt",  help = "Input txt file from a snowman preprocess qcreport.txt"),
-    make_option(c("-o", "--output"), type = "character", default = "qcreport.pdf",  help = "Output pdf to generate")
+    make_option(c("-i", "--input"),  type = "character", default = "qcreport.txt",  help = "Input file containing paths to germline "),
+    make_option(c("-o", "--output"), type = "character", default = "qcreport.pdf",  help = "Output panel of normals file")
 )
 
 parseobj = OptionParser(option_list=option_list)
@@ -38,3 +38,5 @@ dt.all <- mclapply(opt$vcf_files, function(x) {
 }, mc.cores=15)
 
 dt <- rbindlist(dt.all)
+
+## need to add indel tye, also svss

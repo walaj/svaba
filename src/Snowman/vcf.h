@@ -6,6 +6,7 @@
 #include <vector>
 #include "GenomicRegion.h"
 #include "AlignedContig.h"
+#include "faidx.h"
 
 using namespace std;
 
@@ -21,7 +22,7 @@ typedef unordered_map<string, pair<string,string>> FormatRecordMap;
 
 void runVCF(int argc, char** argv);
 void parseVCFOptions(int argc, char** argv);
-string getRefSequence(const GenomicRegion &gr);
+string getRefSequence(const GenomicRegion &gr, faidx_t *fi);
 
 // structure to store a VCF header
 struct VCFHeader {
