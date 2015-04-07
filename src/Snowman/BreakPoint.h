@@ -30,7 +30,7 @@ void parseBreakOptions(int argc, char** argv);
 
 struct BreakPoint {
 
-  static string header() { return "chr1\tpos1\tstrand1\tchr2\tpos2\tstrand2\tspan\tmapq1\tmapq2\tnsplit\ttsplit\tndisc\ttdisc\tncigar\ttcigar\thomology\tinsertion\tcontig\tnumalign\tconfidence\tevidence\treads\tpon_samples"; }
+  static string header() { return "chr1\tpos1\tstrand1\tchr2\tpos2\tstrand2\tspan\tmapq1\tmapq2\tnsplit\ttsplit\tndisc\ttdisc\tncigar\ttcigar\thomology\tinsertion\tcontig\tnumalign\tconfidence\tevidence\treads\tpon_samples\trepeat_seq"; }
 
   // Discovar information
   size_t disco_tum = 0;
@@ -58,6 +58,8 @@ struct BreakPoint {
 
   string insertion = "";
   string homology = "";
+
+  string repeat_seq = "";
 
   string id1;
   string id2;

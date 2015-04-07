@@ -236,6 +236,11 @@ void my_handler(int s){
     delete contigs_sam;
     delete contigs_all;
 
+#ifdef HAVE_HTSLIB_FALSE
+    // open the SAM
+    samFile * sam = sam_open(contig_sam.c_str(), "r");
+#endif
+
     // convert SAM to BAM
     string contig_sam = opt::analysis_id + ".contigs.sam";
     string contig_tmp_bam = opt::analysis_id + ".contigs.tmp.bam";
@@ -671,8 +676,8 @@ bool grabReads(int refID, int pos1, int pos2, bwaidx_t* idx) {
 	alc.push_back(AlignedContig(r.record, treader_for_convert, grv_small[i], cigmap_n, cigmap_t));
 
       // dedupe
-      for (int i = new_alc_start; i < alc.size(); i++) 
-	for (int j = new_alc_start; j < alc.size(); j++) 
+      for (size_t i = new_alc_start; i < alc.size(); i++) 
+	for (size_t j = new_alc_start; j < alc.size(); j++) 
 	  if (alc[i].hasVariant() && alc[j].hasVariant() && !alc[i].m_skip && !alc[j].m_skip && i != j)
 	    if (alc[i].isWorse(alc[j])) {
 	      alc[i].m_skip = true;

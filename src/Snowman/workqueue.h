@@ -1,4 +1,8 @@
+#ifndef WORKQUEUE_SNOW_H
+#define WORKQUEUE_SNOW_H
+
 #include <pthread.h>
+#include <list>
 
 template <typename T> class wqueue
 { 
@@ -141,3 +145,5 @@ public:
   bool m_verbose;
 
 };
+
+#endif

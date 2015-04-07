@@ -15,6 +15,7 @@ namespace popt {
   static string input_file = "";
   static string output_file = "";
   static string file_list = "";
+  static bool collapse = false;
 
   static int verbose = 1;
 }
@@ -101,12 +102,13 @@ void runGeneratePONfromVCF(int argc, char** argv) {
   delete pon;
 }
 
-static const char* shortopts = "hi:v:o:l:";
+static const char* shortopts = "hci:v:o:l:";
 static const struct option longopts[] = {
   { "help",                    no_argument, NULL, 'h' },
   { "input-vcfs",              required_argument, NULL, 'i'},
   { "output-pon",              required_argument, NULL, 'o'},
   { "file-list",               required_argument, NULL, 'l'},
+  { "collapse",                no_argument, NULL, 'c'},
   { "verbose",                 required_argument, NULL, 'v' },
   { NULL, 0, NULL, 0 }
 };
@@ -120,6 +122,7 @@ static const char *PON_USAGE_MESSAGE =
 "  -h, --help                           Display this help and exit\n"
 "  -l, --file-list                      File containing list of cigar.gz files for each sample to be panel\n"
 "  -o, --output-pon                     Output panel of normals file for use with snowman run -q or snowman refilter -q \n"
+"  -c, --collapse                       Collapse all of the counts from individual files to one point. Makes PON file much smaller\n"
 "  Required input\n"
 "  Optional input\n"                       
 "\n";
@@ -135,6 +138,7 @@ void parsePONOptions(int argc, char** argv) {
     istringstream arg(optarg != NULL ? optarg : "");
     switch (c) {
       case 'h': die = true; break;
+      case 'c': popt::collapse = true; break;
       case 'i': arg >> popt::input_file; break;
       case 'o': arg >> popt::output_file; break;
       case 'l': arg >> popt::file_list; break;
@@ -156,6 +160,10 @@ void parsePONOptions(int argc, char** argv) {
 void runGeneratePON(int argc, char** argv) {
 
   parsePONOptions(argc, argv);
+
+  cout << "PON file list:   " << popt::file_list << endl;
+  cout << "PON output file: " << popt::output_file << endl;
+  cout << "Collapse PON:    " << (popt::collapse ? "ON" : "OFF") << endl;
 
   bool list_exist = SnowUtils::read_access_test(popt::file_list);
   if (list_exist) {
@@ -327,9 +335,12 @@ void combinePON() {
 	key = tum + key;
 	//string key = chr + "_" + pos;
 	//if (!pon->count(key))
+	try {
 	  (*pon)[key].push_back(stoi(num));
-	  //else
-	  //(*pon)[key]++;
+	} catch (...) {
+	  cerr << "stoi exception on num " << num << " in line " << line << endl;
+	  //exit(EXIT_FAILURE);
+	}
       }
     }
   }
@@ -340,11 +351,24 @@ void combinePON() {
     cerr << "Can't write to output file " << popt::output_file << endl;
     exit(EXIT_FAILURE);
   }
+
+  size_t total_reads = 0;
+  size_t total_samples = 0;
   for (auto& i : (*pon)) {
-    oz << i.first;
-    for (auto& j : i.second) 
-      oz << "\t" << j;
-    oz << endl;
+    if (i.second.size() > 1) {
+      oz << i.first;
+      for (auto& j : i.second) {
+	if (!popt::collapse) {
+	  oz << "\t" << j;
+	} else {
+	  total_reads += j;
+	  total_samples += (j > 0 ? 1 : 0);
+	}
+      }
+      if (popt::collapse)
+	oz << "\t" << total_reads << "\t" << total_samples << endl;
+      oz << endl;
+    }
   }
   oz.close();
   
