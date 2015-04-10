@@ -220,6 +220,7 @@ AC_CONFIG_FILES([Makefile
                 SGA/SGA/Makefile
                 SnowUtils/Makefile
 		BWA/Makefile
+		BedTools/Makefile
                 Snowman/Makefile])
 
 AC_OUTPUT

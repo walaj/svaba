@@ -82,7 +82,7 @@ struct GenomicRegion {
 
   static int chrToNumber(string ref);
   static string chrToString(int ref);
-  static GenomicRegionVector regionFileToGRV(string file, int pad);
+  static void regionFileToGRV(string file, int pad, GenomicRegionVector * grv);
   static GenomicRegionVector mergeOverlappingIntervals(const GenomicRegionVector &grv);
   static GenomicIntervalTreeMap createTreeMap(const GenomicRegionVector &grv);
   static void sendToBed(const GenomicRegionVector &grv, const string file);
@@ -90,7 +90,7 @@ struct GenomicRegion {
   // divide a region into pieces of width and overlaps
   GenomicRegionVector divideWithOverlaps(int width, int ovlpo);
 
-  static uslong posToBigPos(int refid, int pos);
+  //static uslong posToBigPos(int refid, int pos);
 
   // checks whether a GenomicRegion is empty
   bool isEmpty() const;

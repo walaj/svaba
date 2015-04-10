@@ -196,6 +196,14 @@ string BreakPoint::toFileString(bool noreads) {
   bool germ = dc.ncount > 0 || nsplit > 0;
   int total_count = disc_count + split_count;
 
+  // set the allelic fraction
+  double af_n = -1;
+  double af_t = -1;
+  if (isindel && tcov > 0) 
+    af_t = static_cast<double>(max(tsplit, tcigar)) / static_cast<double>(tcov);
+  if (isindel && ncov > 0) 
+    af_n = static_cast<double>(max(nsplit, ncigar)) / static_cast<double>(ncov);
+
   int span = getSpan();
 
   // check assembly -only ones
@@ -205,9 +213,9 @@ string BreakPoint::toFileString(bool noreads) {
       confidence = "NODISC";
     else if (max(gr1.mapq, gr2.mapq) != 60 || min(gr1.mapq, gr2.mapq) <= 50) 
       confidence = "LOWMAPQ";
-    else if ( split_count <= 3 && span <= 1500)
+    else if ( split_count <= 3 && abs(span) <= 1500)
       confidence = "WEAKASSEMBLY";
-    else if (min_end_align_length <= 40 || (germ && span == -1) || (germ && span > 1000000)) // super short alignemtns are not to be trusted. Also big germline events
+    else if (/*min_end_align_length <= 40 || */(germ && span == -1) || (germ && span > 1000000)) // super short alignemtns are not to be trusted. Also big germline events
       confidence = "WEAKASSEMBLY";
     else
       confidence = "PASS";
@@ -312,8 +320,10 @@ string BreakPoint::toFileString(bool noreads) {
      << (insertion.length() ? insertion : "x") << sep 
      << contig_name << sep
      << num_align << sep 
-     << confidence << sep << evidence << sep << (read_names.length() ? read_names : "x") << sep 
-     << pon << sep << (repeat_seq.length() ? repeat_seq : "x");
+     << confidence << sep << evidence << sep
+     << pon << sep << (repeat_seq.length() ? repeat_seq : "x") << sep 
+     << ncov << sep << tcov << sep << af_n << sep << af_t << sep
+     << (read_names.length() ? read_names : "x");
 
   return ss.str();
   
@@ -428,6 +438,9 @@ bool BreakPoint::hasDiscordant() const {
  */
 bool BreakPoint::hasMinimal() const {
 
+  if (skip)
+    return false;
+
   int total = tsplit + nsplit + dc.tcount + dc.ncount;
 
   if (total >= 2)
@@ -503,13 +516,13 @@ void runRefilterBreakpoints(int argc, char** argv) {
       GenomicRegion gr = bp.gr1;
       gr.pad(20);
       string seqr = getRefSequence(gr, findex);
-      vector<string> repr = {"AAAAA", "TTTTT", "CCCCC", "GGGGG", 
-			     "TATATATA", "ATATATAT", 
-			     "GCGCGCGC", "CGCGCGCGC", 
-			     "TGTGTGTG", "GTGTGTGT", 
-			     "TCTCTCTC", "CTCTCTCT", 
-			     "CACACACA", "ACACACAC", 
-			     "GAGAGAGA", "AGAGAGAG"};
+      vector<string> repr = {"AAAAAA", "TTTTTT", "CCCCCC", "GGGGGG", 
+			     "TATATATATA", "ATATATATAT", 
+			     "GCGCGCGCGC", "CGCGCGCGCGC", 
+			     "TGTGTGTGTG", "GTGTGTGTGT", 
+			     "TCTCTCTCTC", "CTCTCTCTCT", 
+			     "CACACACACA", "ACACACACCA", 
+			     "GAGAGAGAGA", "AGAGAGAGGA"};
       //cout << "seq " << seqr << endl;
       for (auto& i : repr)
 	if (seqr.find(i) != string::npos)
@@ -772,5 +785,41 @@ void BreakPoint::readPON(string &file, unique_ptr<PON> &pmap) {
   }
 
   return;
+
+}
+
+void BreakPoint::addAllelicFraction(Coverage * t_cov, Coverage * n_cov) {
+
+  //assert(gr1.chr == t_cov->id && gr1.chr == n_cov->id);
+  
+  tcov = t_cov->getCoverageAtPosition(gr1.pos1); 
+  ncov = n_cov->getCoverageAtPosition(gr1.pos1); 
+
+}
+
+string BreakPoint::toPrintString() const {
+
+  stringstream ss;
+ 
+  // set the allelic fraction
+  double af_n = -1;
+  double af_t = -1;
+  if (isindel && tcov > 0) 
+    af_t = static_cast<double>(max(tsplit, tcigar)) / static_cast<double>(tcov);
+  if (isindel && ncov > 0) 
+    af_n = static_cast<double>(max(nsplit, ncigar)) / static_cast<double>(ncov);
+
+ 
+  if (isindel)
+    ss << "Somatic " << (insertion.size() ? "insertion" : "deletion") <<  " at " << gr1 << " contig " << cname 
+       << " T/N split: " << tsplit << "/" << nsplit << " T/N cigar: " 
+       << tcigar << "/" << ncigar << " T/N AF " << af_t << "/" << af_n << endl;
+  else
+    ss << "Somatic SV  at " << gr1 << " to " << gr2 << " contig " << cname 
+       << " T/N split: " << tsplit << "/" << nsplit << " T/N discordant: " 
+       << dc.tcount << "/" << dc.ncount << " evidence " << evidence << endl;
+
+
+  return ss.str();
 
 }

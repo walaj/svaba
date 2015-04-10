@@ -933,6 +933,10 @@ VCFFile::VCFFile(string file, const char* index, char sep, string analysis_id) {
   indel_header.addFormatField("NREF","1","Integer","Number of REF support Reads");
   indel_header.addFormatField("NALT","1","Integer","Number of ALT support reads or pairs");
   indel_header.addInfoField("REPSEQ","1","String","Repeat sequence near the event");
+  indel_header.addInfoField("TCOV","1","Integer","Tumor coverage at break");
+  indel_header.addInfoField("NCOV","1","Integer","Normal coverage at break");
+  indel_header.addInfoField("TFRAC","1","String","Tumor allelic fraction at break. -1 for undefined");
+  indel_header.addInfoField("NFRAC","1","String","Normal allelic fraction at break. -1 for undefined");
 
   // keep track of exact positions to keep from duplicating
   unordered_map<string,bool> double_check;
@@ -987,9 +991,13 @@ VCFFile::VCFFile(string file, const char* index, char sep, string analysis_id) {
       case 19: info_fields["NUMPARTS"] = val; break;
       case 20: vcf1.filter = val; vcf2.filter = val; break; // CONFIDENCE
       case 21: info_fields["EVDNC"] = val; if (val=="DSCRD") info_fields["IMPRECISE"] = ""; break;
-      case 22: readid = val; break;
-      case 23: info_fields["PONCOUNT"] = val; break;
-      case 24: info_fields["REPSEQ"] = val; break;
+      case 22: info_fields["PONCOUNT"] = val; break;
+      case 23: info_fields["REPSEQ"] = val; break;
+      case 24: info_fields["NCOV"] = val; break;
+      case 25: info_fields["TCOV"] = val; break;
+      case 26: info_fields["NFRAC"] = val; break;
+      case 27: info_fields["TFRAC"] = val; break;
+      case 28: readid = val; break;
       }
     }
 
@@ -1001,13 +1009,21 @@ VCFFile::VCFFile(string file, const char* index, char sep, string analysis_id) {
     if (info_fields["REPSEQ"] == "x")
       info_fields["REPSEQ"] = "";
 
-
     //string nalt = to_string(stoi(info_fields["TSPLIT"]) + stoi(info_fields["TDISC"]));
     string nalt_rp = info_fields["TDISC"];
     string nalt_sp = info_fields["TSPLIT"];
 
     // treak indels separatley
     if (info_fields["EVDNC"] != "INDEL" && (vcf1.filter == "PASS" || vopt::include_nonpass)) {
+
+      // remove some fields not relevant to SVs
+      info_fields.erase("TCOV");
+      info_fields.erase("NCOV");
+      info_fields.erase("TFRAC");
+      info_fields.erase("NFRAC");
+      info_fields.erase("TCIGAR");
+      info_fields.erase("NCIGAR");
+      info_fields.erase("PONCOUNT");
 
       vcf1.info_fields["MATEID"] = vcf2.id;
       vcf2.info_fields["MATEID"] = vcf1.id;
@@ -1212,7 +1228,7 @@ VCFFile::VCFFile(string file, const char* index, char sep, string analysis_id) {
 	//}
       
     }  else if (info_fields["EVDNC"] == "INDEL"  && (vcf1.filter == "PASS" || vopt::include_nonpass)) { // END THE INDEL CONDITIONAL
-      
+
       // set the ID
       vcf1.id = vcf1.idcommon;
       

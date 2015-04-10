@@ -14,7 +14,8 @@ snowman_CPPFLAGS = \
 	-I$(top_srcdir)/SGA/Thirdparty \
 	-I$(top_srcdir)/SnowUtils \
 	-I$(top_srcdir)/BWA \
-	-I$(top_srcdir)/ThirdParty
+	-I$(top_srcdir)/ThirdParty \
+	-I$(top_srcdir)/BedTools
 
 snowman_LDADD = \
 	$(top_builddir)/SGA/SGA/libsga.a \
@@ -30,6 +31,7 @@ snowman_LDADD = \
 	$(top_builddir)/SGA/Thirdparty/libthirdparty.a \
 	$(top_builddir)/SnowUtils/libsnowutils.a \
 	$(top_builddir)/BWA/libbwawrapper.a \
+	$(top_builddir)/BedTools/libsnowbed.a \
 	$(top_builddir)/ThirdParty/libahocorasick.a
 
 snowman_LDFLAGS = -pthread -std=c++11
@@ -39,5 +41,6 @@ snowman_SOURCES = snowman.cpp workqueue.h \
 		kseq.h vcf.h vcf.cpp \
 		zfstream.h zfstream.cpp \
 		SnowmanOverlapAlgorithm.h SnowmanOverlapAlgorithm.cpp SnowmanASQG.h SnowmanASQG.cpp \
-		SnowmanAssemble.h SnowmanAssemble.cpp BreakPoint.cpp run.cpp BamAndReads.cpp genpon.cpp
+		SnowmanAssemble.h SnowmanAssemble.cpp BreakPoint.cpp run.cpp BamAndReads.cpp genpon.cpp \
+		Coverage.cpp
 

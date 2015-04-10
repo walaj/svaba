@@ -8,6 +8,7 @@
 #include <time.h>
 
 #include "reads.h"
+#include "Coverage.h"
 
 using namespace std;
 typedef unordered_map<string, size_t> CigarMap;
@@ -50,6 +51,7 @@ struct BamAndReads {
     hts_idx_destroy(idx);                                                                                                                                                                                           
 #endif
     arvec.clear();
+    delete cov;
     //for (AssemblyRegionVector::iterator it = arvec.begin(); it != arvec.end(); it++)
     //  delete (*it);
     //arvec.clear();
@@ -75,8 +77,7 @@ struct BamAndReads {
   int mate_unique_reads = 0; // total number of unique reads to be assembled
   int mate_reads = 0; // total number of reads to be assembled (allows doubles, etc)
 
-  int littlechunk = 3000;
-  int window_pad = 500;
+  Coverage * cov;
 
 #ifdef HAVE_HTSLIB
   // hts
@@ -103,6 +104,8 @@ struct BamAndReads {
   int verbose = 1;
   string bam;
   string prefix;
+  int littlechunk = 3000;
+  int window_pad = 500;
 
   // store all of the mini regions to run
   AssemblyRegionUPVector arvec;
@@ -127,7 +130,7 @@ struct BamAndReads {
   // get mate regions
   void calculateMateRegions();
 
-  GenomicRegionVector _read_bam(ReadVec &reads, int limit);
+  GenomicRegionVector _read_bam(ReadVec &reads, int limit, bool cover = false);
 
   // use the interval tree to see if a read should be added to a group, based on itself or its mate
   void addRead(Read &r);
