@@ -1,5 +1,6 @@
 #include "BamAndReads.h"
 #include "SnowUtils.h"
+#include "Coverage.h"
 
 using namespace std;
 
@@ -32,7 +33,7 @@ void BamAndReads::readBam() {
   startr = clock();
 
   ReadVec this_reads;
-  GenomicRegionVector black = _read_bam(this_reads, -1);
+  GenomicRegionVector black = _read_bam(this_reads, -1, true);
 
   blacklist.insert(blacklist.end(), black.begin(), black.end());
 
@@ -242,6 +243,11 @@ BamAndReads::BamAndReads(GenomicRegion gr, MiniRulesCollection *tmr, int tverb, 
   // set set of assembly intervals
   divideIntoRegions();
 
+#ifndef FORGORDON
+  // setup the coverage
+  cov = new Coverage(interval.chr, interval.pos1, interval.pos2+1000);
+#endif
+
 }
 
 // define how to print this
@@ -322,8 +328,8 @@ void BamAndReads::readMateBam() {
   }
 #endif
 
-    ReadVec this_reads;
-    _read_bam(this_reads, 3000); // dont read more than 3000 reads
+  ReadVec this_reads;
+  _read_bam(this_reads, 3000, false); // dont read more than 3000 reads
 
 #ifdef HAVE_HTSLIB    
     if (hts_itr) {
@@ -346,7 +352,7 @@ void BamAndReads::readMateBam() {
 }
 
 // 
-GenomicRegionVector BamAndReads::_read_bam(ReadVec &reads, int limit) {
+GenomicRegionVector BamAndReads::_read_bam(ReadVec &reads, int limit, bool cover) {
 
   GenomicRegionVector black;
   
@@ -374,9 +380,17 @@ GenomicRegionVector BamAndReads::_read_bam(ReadVec &reads, int limit) {
 #else
     GET_READ(r);
 #endif
+    
+    bool validr = !r_is_dup(r) && !r_is_qc_fail(r);
+    
+#ifndef FORGORDON
+    // get the coverage
+    if (cover && validr && r_is_primary(r))
+      cov->addRead(r);
+#endif
 
     // immediately add cigar
-    if (r_cig_size(r) > 1) {
+    if (r_cig_size(r) > 1 && validr) {
 
       stringstream ss; 
       int pos = r_pos(r); 
@@ -424,7 +438,7 @@ GenomicRegionVector BamAndReads::_read_bam(ReadVec &reads, int limit) {
 
     // read passes rule AND is not a duplicate
     if ( pass_rule_and_dup ) {
-
+    
       // keep track of pile
       int32_t nm = 0; 
       r_get_int32_tag(r, "NM", nm);

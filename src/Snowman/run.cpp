@@ -13,6 +13,8 @@
 #include "vcf.h"
 #include <cstdio>
 
+#include "Coverage.h"
+
 // need for SeqItem
 #include "Util.h"
 
@@ -37,6 +39,7 @@ static int read_counter = 0;
 static int contig_counter = 0;
 static int discordant_counter = 0;
 static pthread_mutex_t snow_lock;
+static GenomicIntervalTreeMap grm_mask;
 
 static size_t interupt_counter = 0;
 
@@ -50,6 +53,7 @@ static ogzstream * os_cigmap;
 static ogzstream * contigs_all; 
 static ofstream * contigs_sam;
 static ogzstream * all_disc_stream;
+static ogzstream *os_coverage;
 
 // bwa index
 static bwaidx_t * idx;
@@ -71,7 +75,7 @@ static bool hashits = false;
 
 namespace opt {
 
-  // assembly parameters
+  // assembly parameter
   namespace assemb {
     static unsigned minOverlap = 35;
     static unsigned numBubbleRounds = 3;
@@ -90,6 +94,10 @@ namespace opt {
     static string outVariantsFile = ""; // dummy
   }
 
+  static string indel_mask = "/xchip/gistic/Jeremiah/Projects/HengLiMask/um75-hs37d5.bed.gz";
+
+  static bool output_cov = false;
+
   static int32_t readlen;
 
   static bool no_r2c = false;
@@ -101,7 +109,7 @@ namespace opt {
   // parameters for filtering reads
   static int isize = 1000;
   //static string rules = "global@nbases[0,0];!nm[7,1000]!hardclip;!supplementary;!duplicate;!qcfail;phred[4,100];length[50,300]%region@WG%discordant[0,800];mapq[1,100]%mapq[1,1000];clip[5,100]%ins[1,1000]%del[1,1000]";
-  static string rules = "global@nbases[0,0];!hardclip;!supplementary;!duplicate;!qcfail;phred[4,100];%region@WG%discordant[0,1000];mapq[1,100]%mapq[1,1000];clip[5,100]%ins[1,1000];mapq[1,100]%del[1,1000];mapq[1,100]";
+  static string rules = "global@nbases[0,0];!hardclip;!supplementary;!duplicate;!qcfail;phred[4,100];%region@WG%discordant[0,1000];mapq[1,1000]%mapq[1,1000];clip[5,1000]%ins[1,1000];mapq[1,100]%del[1,1000];mapq[1,1000]";
 
   static int chunk = 1000000;
 
@@ -132,10 +140,11 @@ enum {
   OPT_DISC_CLUSTER_ONLY
 };
 
-static const char* shortopts = "hzxt:n:p:v:r:g:r:e:g:k:c:a:q:";
+static const char* shortopts = "hzxt:n:p:v:r:g:r:e:g:k:c:a:q:m:";
 static const struct option longopts[] = {
   { "help",                    no_argument, NULL, 'h' },
   { "tumor-bam",               required_argument, NULL, 't' },
+  { "indel-mask",              required_argument, NULL, 'm' },
   { "panel-of-normals",        required_argument, NULL, 'q' },
   { "id-string",               required_argument, NULL, 'a' },
   { "normal-bam",              required_argument, NULL, 'n' },
@@ -170,6 +179,7 @@ static const char *RUN_USAGE_MESSAGE =
 "  -m, --min-overlap                    Minimum read overlap, an SGA parameter. Default: 0.4* readlength\n"
 "  -k, --region-file                    Set a region txt file. Format: one region per line, Ex: 1,10000000,11000000\n"
 "  -q, --panel-of-normals               Panel of normals gzipped txt file generated from snowman pon\n"
+"  -m, --indel-mask                     BED-file with blacklisted regions for indel calling. Default /xchip/gistic/Jeremiah/Projects/HengLiMask/um75-hs37d5.bed.gz\n"
 "      --disc-cluster-only              Only run the discordant read clustering module, skip assembly. Default: off\n"
 "  Assembly params\n"
 "      --write-asqg                     Output an ASQG graph file for each 5000bp window. Default: false\n"
@@ -225,12 +235,15 @@ void my_handler(int s){
     
     all_align_stream->close();
     all_disc_stream->close();
+    if (opt::output_cov)
+      os_coverage->close();
     os_allbps->close(); 
     os_cigmap->close(); 
     contigs_sam->close();
 
     delete all_align_stream;
     delete all_disc_stream;
+    delete os_coverage;
     delete os_allbps;
     delete os_cigmap;
     delete contigs_sam;
@@ -287,17 +300,6 @@ void my_handler(int s){
 }
 
 void sendThreads(GenomicRegionVector &regions_torun) {
-
-  // load the index reference genome onto the heap
-  if (opt::verbose > 0)
-    cout << "Loading the reference BWT index file for: "  << opt::refgenome << endl;
-
-  //idx = unique_ptr<bwaidx_t>(bwa_idx_load(opt::refgenome.c_str(), BWA_IDX_ALL));
-  idx = bwa_idx_load(opt::refgenome.c_str(), BWA_IDX_ALL);
-  if (idx == NULL) {
-    std::cerr << "Could not load the reference: " << opt::refgenome << endl;
-    exit(EXIT_FAILURE);
-  }
 
   // Create the queue and consumer (worker) threads
   wqueue<SnowmanWorkItem*>  queue;
@@ -361,12 +363,14 @@ bool runSnowman(int argc, char** argv) {
 
   if (opt::verbose > 0) {
     cout << "Num threads:         " << opt::numThreads << endl;
+    cout << "Min overlap:         " << opt::assemb::minOverlap << endl;
     cout << "Assembly error rate: " << opt::assemb::error_rate << endl;
-    cout << "Read length: " << opt::readlen << endl;
+    cout << "Indel mask BED:      " << opt::indel_mask << endl;
+    cout << "Read length:         " << opt::readlen << endl;
     cout << "BGzipping and Tabixing output?: " << (opt::zip ? "ON" : "OFF") << endl;
-    cout << "Output r2c.bam?: " << (opt::no_r2c ? "OFF" : "ON") << endl;
+    cout << "Output r2c.bam?:     " << (opt::no_r2c ? "OFF" : "ON") << endl;
     #ifdef HAVE_HTSLIB
-    cout << "Running with HTS-Lib" << endl;
+    cout << "Running with HTS-Lib " << endl;
     #endif
     #ifdef HAVE_BAMTOOLS
     cout << "Running with BamTools" << endl;
@@ -393,6 +397,19 @@ bool runSnowman(int argc, char** argv) {
     for (auto i : opt::bam)
       cout << i.first << " -- " << i.second << endl;
   }
+
+  // read the indel mask
+  if (!SnowUtils::read_access_test(opt::indel_mask) && opt::indel_mask.length()) {
+    cerr << "indel mask " << opt::indel_mask << " does not exist / is not readable. Skipping indel masking."  << endl;
+    opt::indel_mask = "";
+  }
+
+  if (opt::indel_mask.length()) {
+    GenomicRegionVector grv_mask;
+    GenomicRegion::regionFileToGRV(opt::indel_mask, 0, &grv_mask);
+    grm_mask = GenomicRegion::createTreeMap(grv_mask);
+  }
+  
 
   // set the MiniRules
   mr = new MiniRulesCollection(opt::rules);
@@ -427,6 +444,17 @@ bool runSnowman(int argc, char** argv) {
       cout << "***Running across whole genome***" << endl;
     }
   }  
+  
+  // load the index reference genome onto the heap
+  if (opt::verbose > 0)
+    cout << "Loading the reference BWT index file for: "  << opt::refgenome << endl;
+
+  //idx = unique_ptr<bwaidx_t>(bwa_idx_load(opt::refgenome.c_str(), BWA_IDX_ALL));
+  idx = bwa_idx_load(opt::refgenome.c_str(), BWA_IDX_ALL);
+  if (idx == NULL) {
+    std::cerr << "Could not load the reference: " << opt::refgenome << endl;
+    exit(EXIT_FAILURE);
+  }
 
   sendThreads(regions_torun);
   
@@ -615,6 +643,11 @@ bool grabReads(int refID, int pos1, int pos2, bwaidx_t* idx) {
 	}
     }
 
+    //debug
+    for (auto& i : bav_join)
+      if (r_qname(i) == "H7AC3ADXX130905:2:1216:15811:65764")
+	cout << "FOUND IT HERE " << endl;
+    
     // make the reads tables
     ReadTable pRT;
     for (auto& i : bav_join) {
@@ -683,6 +716,12 @@ bool grabReads(int refID, int pos1, int pos2, bwaidx_t* idx) {
 	      alc[i].m_skip = true;
 	    }
 
+      // mark to remove contigs where the variants are all in the indel mask
+      if (opt::indel_mask.length())
+	for (size_t i = new_alc_start; i < alc.size(); i++)
+	  alc[i].blacklist(&grm_mask);
+
+
       st.stop("bw");     
       
       for (size_t i = new_alc_start; i < alc.size(); i++) {
@@ -690,7 +729,6 @@ bool grabReads(int refID, int pos1, int pos2, bwaidx_t* idx) {
 	  
 	  alc[i].alignReadsToContigs(bav_join);
 	  alc[i].splitCoverage();
-	  
 	}
       }
       st.stop("sw");
@@ -755,6 +793,21 @@ bool grabReads(int refID, int pos1, int pos2, bwaidx_t* idx) {
     if (i.hasMinimal())
       i.checkPon(pon);
 
+  // get the allelic fractions
+#ifndef FORGORDON
+  Coverage * tcov;
+  Coverage * ncov;
+  for (auto& bam : opt::bam) {
+    if (bam.second == "t")
+      tcov = (*bar)[bam.first]->cov;
+    if (bam.second == "n")
+      ncov = (*bar)[bam.first]->cov;
+  }
+  for (auto& i : bp_glob)
+    if (i.hasMinimal() && i.isindel)
+      i.addAllelicFraction(tcov, ncov);
+#endif
+
   ////////////////////////////////////
   // MUTEX LOCKED
   ////////////////////////////////////
@@ -767,8 +820,11 @@ bool grabReads(int refID, int pos1, int pos2, bwaidx_t* idx) {
 
   // send all bps to file
   for (auto& i : bp_glob) {
-    if (i.hasMinimal())
+    if (i.hasMinimal()) {
       (*os_allbps) << i.toFileString() << endl;
+      if (i.confidence == "PASS" && i.ncigar == 0 && i.nsplit == 0 && i.dc.ncount == 0)
+	cout << i.toPrintString() << endl;
+    }
   }
 
   // send the cigmaps to file
@@ -800,6 +856,12 @@ bool grabReads(int refID, int pos1, int pos2, bwaidx_t* idx) {
       (*contigs_all) << i.samrecord;
     }
   }
+
+  // write the coverage file
+  if (opt::output_cov)
+    for (auto& bam : opt::bam) 
+      if (bam.second == "t")
+	(*os_coverage) << (*(*bar)[bam.first]->cov);
   st.stop("wr");
 
   // display the run time
@@ -840,6 +902,7 @@ void parseRunOptions(int argc, char** argv) {
     switch (c) {
       case 'p': arg >> opt::numThreads; break;
       case 'a': arg >> opt::analysis_id; break;
+      case 'm': arg >> opt::indel_mask; break;
       case 'q': arg >> opt::pon; break;
       case 'z': opt::zip = false; break;
       case 'h': die = true; break;
@@ -872,9 +935,6 @@ void parseRunOptions(int argc, char** argv) {
       case OPT_DISC_CLUSTER_ONLY: opt::disc_cluster_only = true; break;
     }
   }
-
-  // clean the outdir
-  //opt::outdir = SnowUtils::getDirPath(opt::outdir);
 
   // check that we input something
   if (opt::bam.size() == 0) {
@@ -909,12 +969,12 @@ void parseRunOptions(int argc, char** argv) {
 
 // just get a count of how many jobs to run. Useful for limiting threads
 // also set the regions
-int countJobs(GenomicRegionVector &file_regions, GenomicRegionVector &run_regions) {
+int countJobs(GenomicRegionVector &file_regions, GenomicRegionVector &run_regions/*, GenomicRegionVector &cov_regions*/) {
 
   // open the region file if it exists
   bool rgfile = opt::regionFile.compare("x") != 0;
   if (rgfile) 
-    file_regions = GenomicRegion::regionFileToGRV(opt::regionFile, 0);
+    GenomicRegion::regionFileToGRV(opt::regionFile, 0, &file_regions);
   //else if (!opt::ignore_skip_cent)
   //  file_regions = GenomicRegion::non_centromeres; // from GenomicRegion.cpp
   else {
@@ -973,11 +1033,13 @@ int countJobs(GenomicRegionVector &file_regions, GenomicRegionVector &run_region
 		kk++;
 		endr   = min(file_regions[jj].pos2, (kk+1)*opt::chunk + file_regions[jj].pos1 + thispad);
 		startr = min(file_regions[jj].pos2,  kk*opt::chunk + file_regions[jj].pos1);
+		//cov_endr   = min(file_regions[jj].pos2, (kk+1)*opt::chunk + file_regions[jj].pos1);
 
       } while (!stoploop);
 
     } else { // region size is below chunk
       run_regions.push_back(file_regions[jj]);
+      //cov_regions.push_back(file_regions[jj]);
     }
     jj++;
     kk = 0;
@@ -1247,10 +1309,13 @@ DMap clusterDiscordantReads(ReadVec &bav, const GenomicRegion &interval) {
       tmp_map[r_qname(i)] = 1;
     else
       tmp_map[r_qname(i)]++;
+
   ReadVec bav_dd;
-  for (auto&i : bav)
-    if (tmp_map[r_qname(i)] == 2 && abs(r_isize(i)) >= opt::isize)
+  for (auto&i : bav) {
+    bool disc_r = (abs(r_isize(i)) >= opt::isize) || (r_mid(i) != r_id(i));
+    if (tmp_map[r_qname(i)] == 2 && disc_r)
       bav_dd.push_back(i);
+  }
 
   // sort by position
   sort(bav_dd.begin(), bav_dd.end(), ByReadPosition());
@@ -1267,10 +1332,7 @@ DMap clusterDiscordantReads(ReadVec &bav, const GenomicRegion &interval) {
 
   // cluster in the READ direction
   for (auto& i : bav_dd) {
-    if (r_is_pmapped(i) && abs(r_isize(i)) >= opt::isize && tmp_map.count(r_qname(i)) == 0) {
-
-      //debug
-      assert(abs(r_isize(i)) >= 1000);
+    if (r_is_pmapped(i) && tmp_map.count(r_qname(i)) == 0) {
 
       tmp_map[r_qname(i)] = 0;
       // forward clustering
@@ -1580,7 +1642,10 @@ void initializeFiles() {
   string n4 = opt::analysis_id + ".contigs.sam";
   string n5 = opt::analysis_id + ".contigs_all.sam.gz";
   string n6 = opt::analysis_id + ".cigarmap.gz";
+  string n7 = opt::analysis_id + ".coverage.bed.gz";
   all_align_stream = new ogzstream(n1.c_str(), ios::out);
+  if (opt::output_cov)
+    os_coverage      = new ogzstream(n7.c_str(), ios::out);
   all_disc_stream  = new ogzstream(n2.c_str(), ios::out);
   os_allbps        = new ogzstream(n3.c_str(), ios::out);
   os_cigmap        = new ogzstream(n6.c_str(), ios::out);
@@ -1652,12 +1717,13 @@ void initializeFiles() {
 //
 void learnParameters() {
 
-  //#ifdef HAVE_BAMTOOLS
   BamAlignment a;
   size_t count = 0;
   while (treader_for_convert->GetNextAlignmentCore(a) && count++ < 10000) 
     opt::readlen = max(a.Length, opt::readlen);
   treader_for_convert->Rewind();
+  opt::assemb::minOverlap = 0.30 * opt::readlen;
+  opt::assemb::minOverlap = (opt::assemb::minOverlap > 50) ? 50 : opt::assemb::minOverlap;
   //#endif 
 
 }

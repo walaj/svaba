@@ -5699,7 +5699,7 @@ done
 
 
 
-                                                                                                                                                      ac_config_files="$ac_config_files Makefile SGA/Thirdparty/Makefile SGA/Util/Makefile SGA/SQG/Makefile SGA/Bigraph/Makefile SGA/Algorithm/Makefile SGA/StringGraph/Makefile SGA/Concurrency/Makefile SGA/SuffixTools/Makefile SGA/GraphDiff/Makefile SGA/Scaffold/Makefile SGA/SGA/Makefile SnowUtils/Makefile BWA/Makefile Snowman/Makefile"
+                                                                                                                                                                ac_config_files="$ac_config_files Makefile SGA/Thirdparty/Makefile SGA/Util/Makefile SGA/SQG/Makefile SGA/Bigraph/Makefile SGA/Algorithm/Makefile SGA/StringGraph/Makefile SGA/Concurrency/Makefile SGA/SuffixTools/Makefile SGA/GraphDiff/Makefile SGA/Scaffold/Makefile SGA/SGA/Makefile SnowUtils/Makefile BWA/Makefile BedTools/Makefile Snowman/Makefile"
 
 
 cat >confcache <<\_ACEOF
@@ -6272,6 +6272,7 @@ do
   "SGA/SGA/Makefile" ) CONFIG_FILES="$CONFIG_FILES SGA/SGA/Makefile" ;;
   "SnowUtils/Makefile" ) CONFIG_FILES="$CONFIG_FILES SnowUtils/Makefile" ;;
   "BWA/Makefile" ) CONFIG_FILES="$CONFIG_FILES BWA/Makefile" ;;
+  "BedTools/Makefile" ) CONFIG_FILES="$CONFIG_FILES BedTools/Makefile" ;;
   "Snowman/Makefile" ) CONFIG_FILES="$CONFIG_FILES Snowman/Makefile" ;;
   "depfiles" ) CONFIG_COMMANDS="$CONFIG_COMMANDS depfiles" ;;
   "config.h" ) CONFIG_HEADERS="$CONFIG_HEADERS config.h" ;;

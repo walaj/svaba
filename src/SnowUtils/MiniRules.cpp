@@ -188,7 +188,8 @@ string MiniRulesCollection::isValid(bam1_t *b) {
 void MiniRules::setIntervalTreeMap(string file) {
   
   m_region_file = file;
-  GenomicRegionVector grv = GenomicRegion::regionFileToGRV(file, pad);
+  GenomicRegionVector grv;
+  GenomicRegion::regionFileToGRV(file, pad, &grv);
   m_grv = GenomicRegion::mergeOverlappingIntervals(grv); 
   sort(m_grv.begin(), m_grv.end());
 
@@ -604,8 +605,6 @@ bool AbstractRule::isValid(Read &r) {
   if (!fr.isValid(r))
     return false;
 
-  //cout << "flag pass " << r_pos(r) << endl;
-
   // check the CIGAR
   if (!ins.isEvery() || !del.isEvery()) {
 
@@ -624,13 +623,12 @@ bool AbstractRule::isValid(Read &r) {
     if (!del.isValid(dmax))
       return false;
   }
-  
+
   // if we dont need to because everything is pass, just just pass it
   bool need_to_continue = !nm.isEvery() || !clip.isEvery() || !len.isEvery() || !nbases.isEvery();
-  if (!need_to_continue)
+  if (!need_to_continue) {
     return true;
-
-  //cout << "ins pass " << r_pos(r) << endl;
+  }
 
   // now check if we need to build char if all we want is clip
   unsigned clipnum = 0;
@@ -654,9 +652,6 @@ bool AbstractRule::isValid(Read &r) {
     new_len = r_length(r); //a.QueryBases.length();
     new_clipnum = clipnum;
   }
-
-  //cout << "nm pass " << r_pos(r) << endl;
-
 
   if (!phred.isEvery()) {
 
@@ -709,6 +704,7 @@ bool AbstractRule::isValid(Read &r) {
     if ( (!m && !atm_inv) || (m && atm_inv) )
       return false;
       }*/
+
 
   return true;
 }

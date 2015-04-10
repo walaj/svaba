@@ -6,6 +6,7 @@
 #include <unordered_map>
 #include "GenomicRegion.h"
 #include "DiscordantCluster.h"
+#include "Coverage.h"
 
 #include "reads.h"
 
@@ -30,7 +31,7 @@ void parseBreakOptions(int argc, char** argv);
 
 struct BreakPoint {
 
-  static string header() { return "chr1\tpos1\tstrand1\tchr2\tpos2\tstrand2\tspan\tmapq1\tmapq2\tnsplit\ttsplit\tndisc\ttdisc\tncigar\ttcigar\thomology\tinsertion\tcontig\tnumalign\tconfidence\tevidence\treads\tpon_samples\trepeat_seq"; }
+  static string header() { return "chr1\tpos1\tstrand1\tchr2\tpos2\tstrand2\tspan\tmapq1\tmapq2\tnsplit\ttsplit\tndisc\ttdisc\tncigar\ttcigar\thomology\tinsertion\tcontig\tnumalign\tconfidence\tevidence\tpon_samples\trepeat_seq\tnormal_cov\ttumor_cov\tnormal_allelic_fraction\ttumor_allelic_fraction\treads"; }
 
   // Discovar information
   size_t disco_tum = 0;
@@ -48,6 +49,9 @@ struct BreakPoint {
   GenomicRegion gr2;
 
   string read_names;
+
+  size_t tcov = 0;
+  size_t ncov = 0;
 
   int cpos1 = 0;  
   int cpos2 = 0;
@@ -116,6 +120,8 @@ struct BreakPoint {
 
   bool isindel = false;
 
+  bool skip = false;
+
   BreakPoint(DiscordantCluster tdc);
   BreakPoint() {
     gr1.pos1 = 0;
@@ -124,6 +130,12 @@ struct BreakPoint {
 
   BreakPoint(string &line);
 
+  /** Return a string with information useful for printing at the 
+   * command line as Snowman runs 
+   *
+   */
+
+  string toPrintString() const;
   
   static void readPON(string &file, unique_ptr<PON> &pmap);
   
@@ -134,6 +146,8 @@ struct BreakPoint {
    */
   void splitCoverage(ReadVec &bav);
 
+  void addAllelicFraction(Coverage * t_cov, Coverage * n_cov);
+  
   /*! @function get the span of the breakpoints (in bp). -1 for interchrom
    * @return int distance between breakpoints
    */

@@ -167,6 +167,12 @@ class AlignedContig {
    * alignedReads to have been run first (will error if not run).
    */
   void splitCoverage();
+  
+  /*! Checks if any of the indel breaks are in a blacklist. If so, mark the
+   * breakpoints of the indels for skipping. That is, hasMinmal() will return false;
+   * @param grm Inteval tree map of the blacklisted regions
+   */
+  void blacklist(GenomicIntervalTreeMap * grm);
 
   /*! @function if this is a Discovar contig, extract
    * the tumor and normal read support

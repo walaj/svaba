@@ -9,6 +9,9 @@
 #include <unistd.h>
 
 #include "reads.h"
+#include "gzstream.h"
+
+#define FORGORDON 1
 
 typedef std::vector<BamTools::CigarOp> CigarOpVec;
 
@@ -165,6 +168,32 @@ inline void rcomplement(std::string &a) {
   * @param alignment object to be modified
   */
  void parseTags(const std::string& val, BamTools::BamAlignment &a);
+
+ /*! @function Loops through a text file to count the number of lines.
+  * @param file The file to count
+  * @param exclude String which, if present in line, causes line to not be counted.
+  * @param include String which must be present in the line to be counted.
+  * @return Number of valid lines in file
+  */
+ inline size_t countLines(const std::string &file, const std::string &exclude = "", const std::string &include = "") {
+   
+   //open the file
+   igzstream inFile(file.c_str());
+   if (!inFile) 
+     return 0;
+   
+   // loop through the file
+   size_t count = 0;
+   std::string dum;
+   while (std::getline(inFile, dum)) {
+     if (!include.length() || (dum.find(include) != std::string::npos)) // file must have include
+       if (!exclude.length() || (dum.find(exclude) == std::string::npos)) // and not have exclude
+	 count++;
+     
+   }
+   
+   return count;
+ }
 
 }
 

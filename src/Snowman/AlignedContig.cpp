@@ -6,6 +6,10 @@
 #include "SnowUtils.h"
 #include "SeqanTools.h"
 
+#include <seqan/index.h>
+#include <seqan/find.h>
+#include <seqan/store.h>
+
 using namespace std;
 using namespace BamTools;
 
@@ -23,6 +27,29 @@ void AlignedContig::addAlignment(const BamTools::BamAlignment &align, const Geno
 void AlignedContig::printContigFasta(ofstream &ostream) const {
   ostream << ">" << getContigName() << endl;
   ostream << getSequence() << endl;
+}
+
+void AlignedContig::blacklist(GenomicIntervalTreeMap * grm) {
+
+ if (m_skip)
+    return;
+
+ // loop through the indel breaks
+ for (auto& i : m_align) {
+   for (auto& j : i.indel_breaks) {
+     GenomicIntervalTreeMap::iterator ff = grm->find(j.gr1.chr);
+     if (ff != grm->end()) {
+       GenomicIntervalVector grv;
+       ff->second.findOverlapping(j.gr1.pos1, j.gr1.pos2, grv);
+       if (grv.size()) { // blacklist found
+	 j.skip = true;
+       }
+	 
+     }
+   }
+ }
+
+
 }
 
 void AlignedContig::splitCoverage() { 
@@ -405,6 +432,25 @@ AlignedContig::AlignedContig(const string &sam, const BamReader * reader, const 
 
 void AlignedContig::alignReadsToContigs(ReadVec &bav, bool indel) {
 
+  // BOWTIE ATTEMPT
+  /*typedef String<Dna> TString;
+  typedef StringSet<TString> TStringSet;
+  typedef Index<StringSet<TString>, FMIndex<> > TIndex;
+
+  TStringSet stringSet, readSet;
+  TString str0 = "TATAGTACGTGCTATATCGGCGATATCCGATCGATTACTGCGGACTACTATCGAGCGACGATCTACGGCGATCATCGATCTACTAGC";
+  appendValue(stringSet, str0);
+  TString read0 = "TCGGCGATATCCGATCGATTACTGCGGACTACTATCGAGCGACGATCT";
+  appendValue(readSet, read0);
+
+  seqan::CharString haystack = "Simon, send more money!";
+  seqan::CharString needle = "more";
+  */
+  //FragmentStore<> frag;
+  
+  
+  ////////////////////
+  
   if (m_skip)
     return;
 
@@ -428,7 +474,7 @@ void AlignedContig::alignReadsToContigs(ReadVec &bav, bool indel) {
     
     // 
     if (seqlen > 35 && r_cig_size(j) > 1 /* don't align 101M, dont believe that they could be split */) {
-      
+
       string read_name;
       r_get_Z_tag(j, "SR", read_name);
       string short_name = read_name.substr(0,2);
@@ -459,12 +505,13 @@ void AlignedContig::alignReadsToContigs(ReadVec &bav, bool indel) {
 	}
       }
       // didn't match completely, SW align
-      if (!addread) 
-	if ((m_seq.find(sub1) != string::npos || m_seq.find(sub2) != string::npos) ) {
+      if (!addread) {
+	if ((m_seq.find(sub1) != string::npos || m_seq.find(sub2) != string::npos || true) ) {
 	  if (SeqanTools::SWalign(contig, aligned_pos, QB, score, cutoff, false, indel)) {
 	    addread = true;
 	  }
 	}
+      }
       
       // reverse complement the attempts
       if (!addread) {
@@ -474,7 +521,7 @@ void AlignedContig::alignReadsToContigs(ReadVec &bav, bool indel) {
       
       // forwards SW didn't make it, try reverse
       if (!addread)
-	if ((m_seq.find(sub1) != string::npos || m_seq.find(sub2) != string::npos)) {
+	if ((m_seq.find(sub1) != string::npos || m_seq.find(sub2) != string::npos || true)) {
 	  if (SeqanTools::SWalign(contig, aligned_pos, RQB, score, cutoff, false, indel)) {
 	    isrev = true;
 	    addread = true;

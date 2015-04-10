@@ -35,6 +35,10 @@ shome=/home/unix/jwala/GIT/isva/Snowman
 //#include "bamprocess.h"
 //#include "cluster.h"
 
+//debug
+#include "SnowUtils.h"
+#include "SeqanTools.h"
+
 #define PROGRAM_BIN "snowman"
 #define AUTHOR "Jeremiah Wala <jwala@broadinstitute.org>"
 
@@ -56,6 +60,42 @@ static const char *SNOWMAN_USAGE_MESSAGE =
 
 int main(int argc, char** argv) {
 
+  /*
+  //debug
+  TSequence read =     "CGGAGAAAGGGGGATCTGGTGATCCTAATTTTGTCACCAGCTTTGAAATCTTTAGCAACGGATTCTCCATGGAGAG";
+  TSequence ref  = "AGGAAATTTCATGTCATTGTACAAAGATGCTACACCGGAGAAAGGGGGATCTGGTGATCCTAATTTTGTCACCAGCTTTGAAATCTTTAGCAACGGATTCTCCATGGAGAGCAGTAGAGGGGTGGTGATGGAACTGCTGCACCGAGTGACGCAAG";
+  string rr = "CGGAGAAAGGGGGATCTGGTGATCCTAATTTTGTCACCAGCTTTGAAATCTTTAGCAACGGATTCTCCATGGAGAG";
+  string cc = "AGGAAATTTCATGTCATTGTACAAAGATGCTACACCGGAGAAAGGGGGATCTGGTGATCCTAATTTTGTCACCAGCTTTGAAATCTTTAGCAACGGATTCTCCATGGAGAGCAGTAGAGGGGTGGTGATGGAACTGCTGCACCGAGTGACGCAAG";
+  TAlign align;
+  resize(rows(align), 2); 
+  assignSource(row(align,0), ref); 
+  assignSource(row(align,1), read);
+  Score<int, Simple> sc(4, -2, -4, -2);
+  int32_t score = localAlignment(align, sc, 0,0);
+
+  int cl = clock();
+  for (int i = 0; i < 10000; i++) {
+    cc.find(rr) != string::npos;
+    reverse(rr);
+    //cc.find(rr) != string::npos;
+  }
+  
+  cout << "score " << score << endl;
+  cout << clock() - cl << endl;
+
+  int rll = rr.length();
+  int cll = cc.length();
+  for (int i = 0; i < 10000; i++) {
+    score = localAlignment(align, sc, rll-cll-2, cll-rll+2);
+    //score = localAlignment(align, sc, -5,5);
+  }
+
+  cout << "score " << score << endl;
+  cout << clock() - cl << endl;
+
+  exit(0);
+
+*/
   if (argc <= 1) {
     std::cerr << SNOWMAN_USAGE_MESSAGE;
     return 0;

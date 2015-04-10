@@ -234,7 +234,7 @@ bool GenomicRegion::isEmpty() const {
 }
 
 // parse a region file
-GenomicRegionVector GenomicRegion::regionFileToGRV(string file, int pad) {
+void GenomicRegion::regionFileToGRV(string file, int pad, GenomicRegionVector * grv) {
 
   igzstream iss(file.c_str());
   if (!iss || file.length() == 0) { 
@@ -242,10 +242,9 @@ GenomicRegionVector GenomicRegion::regionFileToGRV(string file, int pad) {
     exit(EXIT_FAILURE);
   }
 
-  GenomicRegionVector grv;
   string line;
 
- // get the header line to check format
+  // get the header line to check format
   string header, header2;;
   igzstream iss_h(file.c_str());
   getline(iss_h, header, '\n');
@@ -283,7 +282,7 @@ GenomicRegionVector GenomicRegion::regionFileToGRV(string file, int pad) {
 	if (chrToNumber(chr) >= 0) {
 	  GenomicRegion gr(chr, pos, pos);
 	  gr.pad(pad);
-	  grv.push_back(gr);
+	  grv->push_back(gr);
 	}
       } // end "keep" conditional
     } // end main while
@@ -321,7 +320,7 @@ GenomicRegionVector GenomicRegion::regionFileToGRV(string file, int pad) {
 	if (chrToNumber(chr) >= 0) {
 	  GenomicRegion gr(chr, pos1, pos2);
 	  gr.pad(pad);
-	  grv.push_back(gr);
+	  grv->push_back(gr);
 	}
       } // end "keep" conditional
     } // end main while
@@ -351,12 +350,51 @@ GenomicRegionVector GenomicRegion::regionFileToGRV(string file, int pad) {
 	  } else {
 	    GenomicRegion gr(chr, pos, pos);
 	    gr.pad(pad);
-	    grv.push_back(gr);
+	    grv->push_back(gr);
 	  }
 	    
 	}
       }
     }
+  }
+  ///////////////////////////////////
+  // regular BED file 
+  ///////////////////////////////////
+  else if (file.find(".bed")) {
+    cout << "Reading normal BED" << endl;
+    string curr_chr = "dum";
+    while (getline(iss, line, '\n')) {
+      size_t counter = 0;
+      string chr, pos1, pos2;
+      istringstream iss_line(line);
+      string val;
+
+      if (line.find("#") == string::npos) {
+	while(getline(iss_line, val, '\t')) {
+	  switch (counter) { 
+	  case 0 : chr = val; break; 
+	  case 1 : pos1 = val; break;
+	  case 2 : pos2 = val; break;
+	  }
+	  if (counter >= 2)
+	    break;
+	  counter++;
+	  
+	  if (chr != curr_chr) {
+	    cout << "...reading chr" << chr << endl;
+	    curr_chr = chr;
+	  }
+
+	}
+	if (chrToNumber(chr) >= 0) {
+	  GenomicRegion gr(chr, pos1, pos2);
+	  gr.pad(pad);
+	  grv->push_back(gr);
+	}
+      } // end "keep" conditional
+    } // end main while
+    
+ 
   }
   ////////////////////////////////////
   // csv region file
@@ -380,13 +418,11 @@ GenomicRegionVector GenomicRegion::regionFileToGRV(string file, int pad) {
       if (chrToNumber(chr) >= 0) {
 	GenomicRegion gr(chr, pos1, pos2);
 	gr.pad(pad);
-	grv.push_back(gr);
+	grv->push_back(gr);
       }
     }
   }
     ////////////////////////////////////
-  
-    return (grv);
     
   }
 
@@ -481,14 +517,14 @@ GenomicRegionVector GenomicRegion::divideWithOverlaps(int width, int ovlp) {
 }
 
 //
-uslong GenomicRegion::posToBigPos(int refid, int pos) {
+/*uslong GenomicRegion::posToBigPos(int refid, int pos) {
   
   if (refid < 25)
     return 0;
   
   return CHR_CLEN[refid] + pos;
   
-}
+  }*/
 
 /*Genomic2DInterval GenomicRegion::makeGenomic2DInterval(GenomicRegion &r1, GenomicRegion &r2) {
 
