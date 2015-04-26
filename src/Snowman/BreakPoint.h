@@ -31,7 +31,7 @@ void parseBreakOptions(int argc, char** argv);
 
 struct BreakPoint {
 
-  static string header() { return "chr1\tpos1\tstrand1\tchr2\tpos2\tstrand2\tspan\tmapq1\tmapq2\tnsplit\ttsplit\tndisc\ttdisc\tncigar\ttcigar\thomology\tinsertion\tcontig\tnumalign\tconfidence\tevidence\tpon_samples\trepeat_seq\tnormal_cov\ttumor_cov\tnormal_allelic_fraction\ttumor_allelic_fraction\treads"; }
+  static string header() { return "chr1\tpos1\tstrand1\tchr2\tpos2\tstrand2\tspan\tmapq1\tmapq2\tnsplit\ttsplit\tndisc\ttdisc\tncigar\ttcigar\thomology\tinsertion\tcontig\tnumalign\tconfidence\tevidence\tpon_samples\trepeat_seq\tnormal_cov\ttumor_cov\tnormal_allelic_fraction\ttumor_allelic_fraction\tblacklist\treads"; }
 
   // Discovar information
   size_t disco_tum = 0;
@@ -120,21 +120,29 @@ struct BreakPoint {
 
   bool isindel = false;
 
-  bool skip = false;
+  bool blacklist = false;
 
+  /** Construct a breakpoint from a cluster of discordant reads
+   */
   BreakPoint(DiscordantCluster tdc);
+
+  
   BreakPoint() {
     gr1.pos1 = 0;
     gr2.pos1 = 0;
+    gr1.chr = 0;
+    gr2.chr = 0;
+    gr1.pos2 = 0;
+    gr2.pos2 = 0;
+
   }
 
   BreakPoint(string &line);
 
-  /** Return a string with information useful for printing at the 
+  /*! Return a string with information useful for printing at the 
    * command line as Snowman runs 
-   *
+   * @return string with minimal information about the BreakPoint.
    */
-
   string toPrintString() const;
   
   static void readPON(string &file, unique_ptr<PON> &pmap);
@@ -146,6 +154,27 @@ struct BreakPoint {
    */
   void splitCoverage(ReadVec &bav);
 
+  /*! Determines if the BreakPoint overlays a blacklisted region. If 
+   * and overlap is found, sets the blacklist bool to true.
+   *
+   * Note that currently this only is set for the pos1 of indels.
+   * If the BreakPoint object is not an indel, no action is taken. 
+   * @param grm An interval tree map created from a BED file containing blacklist regions
+   */
+  void checkBlacklist(GenomicIntervalTreeMap *grm);
+
+  /*! Compute the allelic fraction (tumor and normal) for this BreakPoint.
+   *
+   * The allelic fraction is computed by taking the base-pair level coverage
+   * as the denominator, and the max of number of split reads and number of 
+   * cigar supporting reads as the numerator. Note that because, theoretically
+   * but rarely, the number of split reads could be > 0 while the bp-level coverage
+   * at a variant could be exactly zero. This is because unmapped reads could be called split
+   * reads but are not counted in the coverage calculation. In such a case, the allelic fraction is
+   * set to -1. By the same argument, the allelic fraction could rarely be > 1.
+   * @param t_cov Base-pair level Coverage object, with coverage for all reads from Tumor bam(s).
+   * @param n_cov Base-pair level Coverage object, with coverage for all reads from Normal bam(s).
+   */
   void addAllelicFraction(Coverage * t_cov, Coverage * n_cov);
   
   /*! @function get the span of the breakpoints (in bp). -1 for interchrom

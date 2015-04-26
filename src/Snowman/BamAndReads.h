@@ -8,7 +8,12 @@
 #include <time.h>
 
 #include "reads.h"
+
+//#define FORGORDON 1
+
+#ifndef FORGORDON
 #include "Coverage.h"
+#endif
 
 using namespace std;
 typedef unordered_map<string, size_t> CigarMap;
@@ -51,7 +56,9 @@ struct BamAndReads {
     hts_idx_destroy(idx);                                                                                                                                                                                           
 #endif
     arvec.clear();
+#ifndef FORGORDON
     delete cov;
+#endif
     //for (AssemblyRegionVector::iterator it = arvec.begin(); it != arvec.end(); it++)
     //  delete (*it);
     //arvec.clear();
@@ -77,7 +84,9 @@ struct BamAndReads {
   int mate_unique_reads = 0; // total number of unique reads to be assembled
   int mate_reads = 0; // total number of reads to be assembled (allows doubles, etc)
 
-  Coverage * cov;
+#ifndef FORGORDON
+  Coverage * cov = NULL;
+#endif
 
 #ifdef HAVE_HTSLIB
   // hts
@@ -137,7 +146,7 @@ struct BamAndReads {
   void addMateRead(Read &r);
 
   friend ostream& operator<<(ostream &out, BamAndReads &bar);
-  
+
 };
 
 #endif

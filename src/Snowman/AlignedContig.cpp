@@ -6,12 +6,29 @@
 #include "SnowUtils.h"
 #include "SeqanTools.h"
 
-#include <seqan/index.h>
-#include <seqan/find.h>
-#include <seqan/store.h>
-
 using namespace std;
 using namespace BamTools;
+
+
+/* HENG LI CODE FROM SAMTOOLS -> BAM_IMPORT.C  */
+#ifndef kroundup32
+#define kroundup32(x) (--(x), (x)|=(x)>>1, (x)|=(x)>>2, (x)|=(x)>>4, (x)|=(x)>>8, (x)|=(x)>>16, ++(x))
+#endif
+
+/* HENG LI CODE FROM SAMTOOLS -> BAM_IMPORT.C  */
+static inline uint8_t *alloc_data(bam1_t *b, int size)
+{
+  if (b->m_data < size) {
+    b->m_data = size;
+    kroundup32(b->m_data);
+    b->data = (uint8_t*)realloc(b->data, b->m_data);
+  }
+  return b->data;
+}
+
+#ifdef HAVE_SEQAN_BASIC_H
+//#define SWALIGN 1
+#endif
 
 void AlignedContig::addAlignment(const BamTools::BamAlignment &align, const GenomicRegion &window,
 				 const CigarMap &nmap, const CigarMap &tmap) { 
@@ -34,21 +51,10 @@ void AlignedContig::blacklist(GenomicIntervalTreeMap * grm) {
  if (m_skip)
     return;
 
- // loop through the indel breaks
- for (auto& i : m_align) {
-   for (auto& j : i.indel_breaks) {
-     GenomicIntervalTreeMap::iterator ff = grm->find(j.gr1.chr);
-     if (ff != grm->end()) {
-       GenomicIntervalVector grv;
-       ff->second.findOverlapping(j.gr1.pos1, j.gr1.pos2, grv);
-       if (grv.size()) { // blacklist found
-	 j.skip = true;
-       }
-	 
-     }
-   }
- }
-
+ // loop through the indel breaks and blacklist
+ for (auto& i : m_align) 
+   for (auto& j : i.indel_breaks) 
+     j.checkBlacklist(grm);
 
 }
 
@@ -373,6 +379,11 @@ AlignedContig::AlignedContig(const string &sam, const BamReader * reader, const 
   std::regex reg_xp("^XA:Z:(.*)");
   std::regex reg_nm("^NM:[A-Za-z]:(.*)");
 
+  //tryit
+  //bam1_t *b = bam_init1();
+  //bam1_core_t *c = &b->core;
+  //size_t doff = 0;
+
   while (getline(iss, line, '\n')) {
     std::istringstream issv(line);
 
@@ -380,7 +391,10 @@ AlignedContig::AlignedContig(const string &sam, const BamReader * reader, const 
     while(getline(issv, val, '\t')) {
 
       switch(i) {
-      case 0 : a.Name = val; break;
+      case 0 : a.Name = val; 
+	//c->l_qname = val.length() + 1; 
+	//memcpy(alloc_data(b, doff + c->l_qname) + doff, /*str->s*/ val.c_str(), c->l_qname);
+	break;
       case 1 : a.AlignmentFlag = std::stoi(val); break;
       case 2 : try {a.RefID = (val == "*") ? -1 : reader->GetReferenceID(val);} catch (...) { a.RefID = -1; } break;
       case 3 : a.Position = std::stoi(val); break;
@@ -430,7 +444,7 @@ AlignedContig::AlignedContig(const string &sam, const BamReader * reader, const 
 
 }
 
-void AlignedContig::alignReadsToContigs(ReadVec &bav, bool indel) {
+void AlignedContig::alignReadsToContigs(ReadVec &bav) {
 
   // BOWTIE ATTEMPT
   /*typedef String<Dna> TString;
@@ -459,7 +473,10 @@ void AlignedContig::alignReadsToContigs(ReadVec &bav, bool indel) {
   // MATCHING BY FIND
   int buff = 8;
   //int pad = 10;
+
+#ifdef SWALIGN
   TSequence contig = m_seq;
+#endif
 
   // 
   for (auto& j : bav) {
@@ -470,7 +487,6 @@ void AlignedContig::alignReadsToContigs(ReadVec &bav, bool indel) {
     string RQB;
     int seqlen = QB.length();
     int32_t score = seqlen * 4;;
-    int cutoff = score - 25;
     
     // 
     if (seqlen > 35 && r_cig_size(j) > 1 /* don't align 101M, dont believe that they could be split */) {
@@ -504,6 +520,8 @@ void AlignedContig::alignReadsToContigs(ReadVec &bav, bool indel) {
 	  isrev = true;
 	}
       }
+#ifdef SWALIGN
+      int cutoff = score - 25;
       // didn't match completely, SW align
       if (!addread) {
 	if ((m_seq.find(sub1) != string::npos || m_seq.find(sub2) != string::npos || true) ) {
@@ -530,6 +548,7 @@ void AlignedContig::alignReadsToContigs(ReadVec &bav, bool indel) {
 	    //assert(aligned_pos < QB.length());
 	  }
 	}
+#endif
       
       // add some tags. remove others
       if (addread) {

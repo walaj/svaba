@@ -927,6 +927,8 @@ VCFFile::VCFFile(string file, const char* index, char sep, string analysis_id) {
   indel_header.addInfoField("SPAN","1","Integer","Size of the indel");
   indel_header.addInfoField("NCIGAR","1","Integer","Number of normal reads with cigar strings supporting this indel");
   indel_header.addInfoField("TCIGAR","1","Integer","Number of tumor reads with cigar strings supporting this indel");
+  indel_header.addInfoField("NSPLIT","1","Integer","Number of normal reads with read-to-contig alignments supporting this indel");
+  indel_header.addInfoField("TSPLIT","1","Integer","Number of tumor reads with read-to-contig alignments supporting this indel");
   indel_header.addFormatField("READ_ID",".","String","ALT supporting Read IDs");
   indel_header.addFormatField("NALT_SR","1","Integer","Number of ALT support Split Reads");           
   indel_header.addFormatField("NALT_RP","1","Integer","Number of ALT support aberrant Read Pairs");
@@ -937,6 +939,7 @@ VCFFile::VCFFile(string file, const char* index, char sep, string analysis_id) {
   indel_header.addInfoField("NCOV","1","Integer","Normal coverage at break");
   indel_header.addInfoField("TFRAC","1","String","Tumor allelic fraction at break. -1 for undefined");
   indel_header.addInfoField("NFRAC","1","String","Normal allelic fraction at break. -1 for undefined");
+  indel_header.addInfoField("BLACKLIST","1","String","Normal allelic fraction at break. -1 for undefined");
 
   // keep track of exact positions to keep from duplicating
   unordered_map<string,bool> double_check;
@@ -997,7 +1000,8 @@ VCFFile::VCFFile(string file, const char* index, char sep, string analysis_id) {
       case 25: info_fields["TCOV"] = val; break;
       case 26: info_fields["NFRAC"] = val; break;
       case 27: info_fields["TFRAC"] = val; break;
-      case 28: readid = val; break;
+      case 28: info_fields["BLACKLIST"] = val; break;
+      case 29: readid = val; break;
       }
     }
 
@@ -1709,14 +1713,16 @@ void VCFFile::writeIndels(string basename, bool zip) const {
       size_t ncigar = i.info_fields.count("NCIGAR") ? stoi(i.info_fields["NCIGAR"]) : 0;
       size_t tcigar = i.info_fields.count("TCIGAR") ? stoi(i.info_fields["TCIGAR"]) : 0;
       size_t tsplit = i.info_fields.count("TSPLIT") ? stoi(i.info_fields["TSPLIT"]) : 0;
-      size_t repseq = i.info_fields.count("REPSEQ") ? i.info_fields["REPSEQ"].length() : 0;
+      //size_t repseq = i.info_fields.count("REPSEQ") ? i.info_fields["REPSEQ"].length() : 0;
+      double naf = i.info_fields.count("NFRAC") ? stod(i.info_fields["NFRAC"]) : 0;
+      //double taf = i.info_fields.count("TFRAC") ? stod(i.info_fields["TFRAC"]) : 0;
 
       double somatic_ratio = 100;
       size_t ncount = max(nsplit,ncigar);
       if (ncount > 0)
 	somatic_ratio = (max(tsplit,tcigar)) / ncount;
 
-      if (somatic_ratio >= 10 && ncount < 3 && pon <= 1 && repseq == 0) { // ok if its just one...
+      if (somatic_ratio >= 20 && ncount < 2 && pon <= 1 && naf < 0.05) { // ok if its just one...
 	//out_s << i << endl;
 	if (zip) {
 	  stringstream ss;

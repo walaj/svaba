@@ -1,6 +1,5 @@
 #include "BamAndReads.h"
 #include "SnowUtils.h"
-#include "Coverage.h"
 
 using namespace std;
 
@@ -86,7 +85,7 @@ void BamAndReads::addRead(Read &r) {
 	i->reads.push_back(r);
 	
 	// add the partner window to this assembly region
-	if (!mate_in_interval && r_is_mmapped(r) && (r_mapq(r) > 0)) // the mate is NOT in an assembly window. It's a partner to look up
+	if (!mate_in_interval && r_is_mmapped(r) && (r_mapq(r) > 0) && r_mid(r) < 24) // the mate is NOT in an assembly window. It's a partner to look up
 	  i->partner_windows.push_back(GenomicRegion(r_mid(r), r_mpos(r)-BUFF, r_mpos(r)+BUFF));
 	break;
       }
@@ -187,23 +186,28 @@ BamAndReads::BamAndReads(GenomicRegion gr, MiniRulesCollection *tmr, int tverb, 
   fp = bgzf_open(bam.c_str(), "r"); 
 
   if (!fp) {
-    cerr << "Error using HTS reader on opening " << bam << endl;
-    exit(EXIT_FAILURE);
+    cerr << "Error using HTS reader on opening " << bam << " and interval " << gr << endl;
+    //exit(EXIT_FAILURE);
   }
   br = bam_hdr_read(fp);
   // open the header with HTS
   if (!br) {
-    cerr << "Error using HTS reader on opening " << bam << endl;
-    exit(EXIT_FAILURE);
+    cerr << "Error using HTS header reader on opening " << bam << " and interval " << gr << endl;
+    //exit(EXIT_FAILURE);
   }
 
   //HTS set region
   if (!idx)
     idx = hts_idx_load(bam.c_str(), HTS_FMT_BAI);
-  hts_itr = sam_itr_queryi(idx, interval.chr, interval.pos1, interval.pos2);
+  if (!idx) {
+    std::cerr << "HTS region setting failure. Could not read BAM index" << std::endl;
+    exit(EXIT_FAILURE);
+  } else {
+   hts_itr = sam_itr_queryi(idx, interval.chr, interval.pos1, interval.pos2);
+  }
   if (!hts_itr) {
     std::cerr << "Error: Failed to set region: " << interval << endl; 
-    exit(EXIT_FAILURE);
+    //exit(EXIT_FAILURE);
   }
 #endif
 
@@ -323,7 +327,7 @@ void BamAndReads::readMateBam() {
 #ifdef HAVE_HTSLIB
     hts_itr = sam_itr_queryi(idx, i.chr, i.pos1, i.pos2);
   if (!hts_itr) {
-    std::cerr << "Error: Failed to set region: " << i << endl; 
+    std::cerr << "Error: Failed to set MATE region: " << i << endl; 
     exit(EXIT_FAILURE);
   }
 #endif
@@ -355,6 +359,10 @@ void BamAndReads::readMateBam() {
 GenomicRegionVector BamAndReads::_read_bam(ReadVec &reads, int limit, bool cover) {
 
   GenomicRegionVector black;
+
+  // if the bam is not opened, return
+  if (!fp || !hts_itr)
+    return black;
   
   ReadVec bam_buffer;
 

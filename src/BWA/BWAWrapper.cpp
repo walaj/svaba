@@ -106,6 +106,11 @@ void BWAWrapper::addSequences(const BWAReadVec &seqs, bwaidx_t* idx, SamRecordVe
   for (int i = 0; i < m_blen; i++) {
     //bam1_b * b = malloc(sizeof(bam1_t));
     //sam_parse1(kstring_t *s, bam_hdr_t *h, b)
+
+    // test convert to bam1_t
+    //bam1_t *b = bam_init1();
+    //b->core
+
     sam.push_back(SamRecord(std::string(m_bseqs[i].sam)));
   }
 
