@@ -2,9 +2,9 @@
 #include <iostream>
 #include <unordered_map>
 #include <stdlib.h>
-#include "SnowUtils.h"
+#include "SnowTools/SnowUtils.h"
 #include "api/BamWriter.h"
-#include "zfstream.h"
+
 #include "SnowmanAssemble.h"
 #include "SnowmanOverlapAlgorithm.h"
 #include "SnowmanASQG.h"
@@ -13,7 +13,13 @@
 #include "vcf.h"
 #include <cstdio>
 
+#include "SGACommon.h"
+#include "OverlapCommon.h"
 #include "Coverage.h"
+
+#define NO_LOAD_IDX 1
+
+//#define HAVE_SAMTOOLS 1
 
 // need for SeqItem
 #include "Util.h"
@@ -21,16 +27,25 @@
 #include <signal.h>
 #include <memory>
 
-#define LITTLECHUNK 6000 
+#define LITTLECHUNK 3000 
 #define WINDOW_PAD 300
 
 #define DISC_PAD 400
 #define MIN_PER_CLUST 2
 
+#define MAX_OVERLAPS_PER_ASSEMBLY 200000
+
 #define MATES
 
 using namespace std;
 using namespace BamTools;
+
+#define SIG_CATCH 1
+
+#define CLOCK_COUNTER 1
+#ifdef CLOCK_COUNTER
+static ofstream * clock_counter;
+#endif
 
 // BamMap will store filename + type (e.g. /home/mynormalbam.bam, "n1")
 typedef unordered_map<string, string> BamMap;
@@ -45,8 +60,14 @@ static size_t interupt_counter = 0;
 
 static unique_ptr<PON> pon;
 
-// output writers
+static const std::string POLYA = "AAAAAAAAAAAAAAAAAAAAAAAAA";
+static const std::string POLYT = "TTTTTTTTTTTTTTTTTTTTTTTTT";
+static const std::string POLYC = "CCCCCCCCCCCCCCCCCCCCCCCCC";
+static const std::string POLYG = "GGGGGGGGGGGGGGGGGGGGGGGGG";
+static const std::string POLYAT = "ATATATATATATATATATATATATATATATATATATATAT";
+static const std::string POLYCG = "CGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCG";
 
+// output writers
 static ogzstream * all_align_stream;
 static ogzstream * os_allbps; 
 static ogzstream * os_cigmap; 
@@ -81,7 +102,7 @@ namespace opt {
     static unsigned numBubbleRounds = 3;
     static float divergence = 0.05;
     static float gap_divergence = 0.00;
-    static float error_rate = 0.00; 
+    static float error_rate = 0.05; 
     static bool writeASQG = false;
     static int maxEdges = 128;
     static int numTrimRounds = 0; //
@@ -94,10 +115,14 @@ namespace opt {
     static string outVariantsFile = ""; // dummy
   }
 
-  static string indel_mask = "/xchip/gistic/Jeremiah/Projects/HengLiMask/um75-hs37d5.bed.gz";
+  static bool no_assemble_normal = false;
+
+  static string indel_mask = ""; //"/xchip/gistic/Jeremiah/Projects/HengLiMask/um75-hs37d5.bed.gz";
 
   static bool output_cov = false;
 
+  static bool no_reads = false;
+  
   static int32_t readlen;
 
   static bool no_r2c = false;
@@ -137,10 +162,12 @@ namespace opt {
 
 enum { 
   OPT_ASQG,
-  OPT_DISC_CLUSTER_ONLY
+  OPT_DISC_CLUSTER_ONLY,
+  OPT_NO_READS,
+  OPT_NO_ASSEMBLE_NORMAL
 };
 
-static const char* shortopts = "hzxt:n:p:v:r:g:r:e:g:k:c:a:q:m:";
+static const char* shortopts = "hzxt:n:p:v:r:g:r:e:g:k:c:a:q:m:b:";
 static const struct option longopts[] = {
   { "help",                    no_argument, NULL, 'h' },
   { "tumor-bam",               required_argument, NULL, 't' },
@@ -154,6 +181,8 @@ static const struct option longopts[] = {
   { "rules",                   required_argument, NULL, 'r' },
   { "reference-genome",        required_argument, NULL, 'g' },
   { "no-zip",                  no_argument, NULL, 'z' },
+  { "no-read-tracking",        no_argument, NULL, OPT_NO_READS },
+  { "no-assemble-normal",       no_argument, NULL, OPT_NO_ASSEMBLE_NORMAL },
   { "no-r2c-bam",              no_argument, NULL, 'x' },
   { "write-asqg",              no_argument, NULL, OPT_ASQG   },
   { "error-rate",              required_argument, NULL, 'e'},
@@ -181,6 +210,7 @@ static const char *RUN_USAGE_MESSAGE =
 "  -q, --panel-of-normals               Panel of normals gzipped txt file generated from snowman pon\n"
 "  -m, --indel-mask                     BED-file with blacklisted regions for indel calling. Default /xchip/gistic/Jeremiah/Projects/HengLiMask/um75-hs37d5.bed.gz\n"
 "      --disc-cluster-only              Only run the discordant read clustering module, skip assembly. Default: off\n"
+"      --no-read-tracking               Don't track supporting reads. Reduces file size.\n"
 "  Assembly params\n"
 "      --write-asqg                     Output an ASQG graph file for each 5000bp window. Default: false\n"
 "  -e, --error-rate                     Fractional difference two reads can have to overlap. See SGA param. 0 is fast, but requires exact. Default: 0.05\n"
@@ -241,6 +271,11 @@ void my_handler(int s){
     os_cigmap->close(); 
     contigs_sam->close();
 
+#ifdef CLOCK_COUNTER
+    clock_counter->close();
+    delete clock_counter;
+#endif
+
     delete all_align_stream;
     delete all_disc_stream;
     delete os_coverage;
@@ -254,6 +289,7 @@ void my_handler(int s){
     samFile * sam = sam_open(contig_sam.c_str(), "r");
 #endif
 
+#ifdef HAVE_SAMTOOLS
     // convert SAM to BAM
     string contig_sam = opt::analysis_id + ".contigs.sam";
     string contig_tmp_bam = opt::analysis_id + ".contigs.tmp.bam";
@@ -262,6 +298,8 @@ void my_handler(int s){
     string cmd = "samtools view " + contig_sam + " -h -Sb > " + contig_tmp_bam + "; samtools sort " + contig_tmp_bam + " " + contig_bam_b + "; rm " + contig_tmp_bam + "; samtools index " + contig_bam + "; rm " + contig_sam;
     cout << cmd << endl;
     system(cmd.c_str());
+#endif
+
     // make the VCF file
     if (opt::verbose)
       cout << "...making the VCF files" << endl;
@@ -332,12 +370,14 @@ void sendThreads(GenomicRegionVector &regions_torun) {
 // main function to kick-off snowman
 bool runSnowman(int argc, char** argv) {
 
+#ifdef SIG_CATCH
   // start the interrupt handle
   struct sigaction sigIntHandler;
   sigIntHandler.sa_handler = my_handler;
   sigemptyset(&sigIntHandler.sa_mask);
   sigIntHandler.sa_flags = 0;
   sigaction(SIGINT, &sigIntHandler, NULL);
+#endif
 
   parseRunOptions(argc, argv);
 
@@ -368,7 +408,12 @@ bool runSnowman(int argc, char** argv) {
     cout << "Indel mask BED:      " << opt::indel_mask << endl;
     cout << "Read length:         " << opt::readlen << endl;
     cout << "BGzipping and Tabixing output?: " << (opt::zip ? "ON" : "OFF") << endl;
+    if (opt::no_assemble_normal)
+      cout << "~~~~ Normal assembly turned off ~~~~" << endl;
+    cout << "BGzipping and Tabixing output?: " << (opt::zip ? "ON" : "OFF") << endl;
     cout << "Output r2c.bam?:     " << (opt::no_r2c ? "OFF" : "ON") << endl;
+    if (opt::no_reads)
+      cout << "Skipping read tracking for bps and vcf files" << endl; 
     #ifdef HAVE_HTSLIB
     cout << "Running with HTS-Lib " << endl;
     #endif
@@ -400,7 +445,9 @@ bool runSnowman(int argc, char** argv) {
 
   // read the indel mask
   if (!SnowUtils::read_access_test(opt::indel_mask) && opt::indel_mask.length()) {
+    cerr << "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" << endl;
     cerr << "indel mask " << opt::indel_mask << " does not exist / is not readable. Skipping indel masking."  << endl;
+    cerr << "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" << endl;
     opt::indel_mask = "";
   }
 
@@ -444,7 +491,8 @@ bool runSnowman(int argc, char** argv) {
       cout << "***Running across whole genome***" << endl;
     }
   }  
-  
+
+#ifndef NO_LOAD_IDX  
   // load the index reference genome onto the heap
   if (opt::verbose > 0)
     cout << "Loading the reference BWT index file for: "  << opt::refgenome << endl;
@@ -455,12 +503,16 @@ bool runSnowman(int argc, char** argv) {
     std::cerr << "Could not load the reference: " << opt::refgenome << endl;
     exit(EXIT_FAILURE);
   }
+#endif  
+
+  if (opt::verbose)
+    cout << "Starting detection pipeline." << endl;
+
 
   sendThreads(regions_torun);
   
   // close the BAMs
   my_handler(0);
-
 
   if (opt::verbose > 0) {
     SnowUtils::displayRuntime(start);
@@ -514,6 +566,10 @@ bool grabReads(int refID, int pos1, int pos2, bwaidx_t* idx) {
       num_t_reads += (*bar)[bam.first]->unique_reads;
     }
   }
+
+  // return early if no reads found
+  //if ( (num_n_reads + num_t_reads) == 0)
+  //  return true;
 
   // make the master blacklist
   GenomicRegionVector master_black;
@@ -617,6 +673,16 @@ bool grabReads(int refID, int pos1, int pos2, bwaidx_t* idx) {
 #endif
 
 
+  if (opt::verbose) {
+    string print1 = SnowUtils::AddCommas<int>(pos1);
+    string print2 = SnowUtils::AddCommas<int>(pos2);
+    char buffer[140];
+    sprintf (buffer, "...Got reads from chr%2s:%11s-%11s | T: %5d N: %5d", 
+	     treader_for_convert->GetReferenceData()[refID].RefName.c_str(),print1.c_str(),print2.c_str(),
+	     num_t_reads, num_n_reads);
+    std::cout << string(buffer) << std::endl;
+  }
+  
   // do the assembly
   // loop through each assembly region. There should be 1 to 1 
   // concordance between grv_small and arvec in each BamAndReads
@@ -643,11 +709,6 @@ bool grabReads(int refID, int pos1, int pos2, bwaidx_t* idx) {
 	}
     }
 
-    //debug
-    for (auto& i : bav_join)
-      if (r_qname(i) == "H7AC3ADXX130905:2:1216:15811:65764")
-	cout << "FOUND IT HERE " << endl;
-    
     // make the reads tables
     ReadTable pRT;
     for (auto& i : bav_join) {
@@ -661,10 +722,15 @@ bool grabReads(int refID, int pos1, int pos2, bwaidx_t* idx) {
 
       si.id = sr;
       si.seq = seq;
-      if (seq.length() >= 40)
-	if ((seq.find("TTTTTTTTTTTT") == string::npos) && (seq.find("AAAAAAAAAAAA") == string::npos) && (seq.find("CCCCCCCCCCCC") == string::npos) && (seq.find("GGGGGGGGGGGG") == string::npos) && (seq.find("N") == string::npos))
+      if (seq.length() >= 40 && (!opt::no_assemble_normal || sr.at(0) == 't'))
+	if ((seq.find(POLYT) == string::npos) && 
+	    (seq.find(POLYA) == string::npos) && 
+	    (seq.find(POLYC) == string::npos) && 
+	    (seq.find(POLYG) == string::npos) && 
+	    (seq.find(POLYCG) == string::npos) && 
+	    (seq.find(POLYAT) == string::npos) && 
+	    (seq.find("N") == string::npos))
 	  pRT.addRead(si);
-
     }
 
     ContigVector contigs;
@@ -675,6 +741,11 @@ bool grabReads(int refID, int pos1, int pos2, bwaidx_t* idx) {
     string name = "c_" + to_string(grv_small[i].chr+1) + "_" + to_string(grv_small[i].pos1) + "_" + to_string(grv_small[i].pos2);
 
     if (pRT.getCount() > 1 && pRT.getCount() <= 10000) {
+
+      if (opt::verbose > 4) {
+	cout << "Doing assembly on: " << name << " with " << pRT.getCount() << " reads" << endl; 
+
+      }
 
       // do the first round (on raw reads)
       doAssembly(&pRT, name, contigs0, 0);
@@ -692,9 +763,9 @@ bool grabReads(int refID, int pos1, int pos2, bwaidx_t* idx) {
       // de-dupe assemblies
       st.stop("as");
       
-      if (opt::verbose > 1)
-	cout << "Doing assembly on: " << name << " with " << pRT.getCount() << " reads and " << contigs.size() << " contigs " << endl;
-
+      if (opt::verbose > 2)
+	cout << "Did assembly on: " << name << " with " << pRT.getCount() << " reads and " << contigs.size() << " contigs " << endl;
+      
       // peform alignment of contigs to reference with BWA-MEM
       BWAWrapper wrap;
       BWAReadVec bwarv;
@@ -717,13 +788,16 @@ bool grabReads(int refID, int pos1, int pos2, bwaidx_t* idx) {
 	    }
 
       // mark to remove contigs where the variants are all in the indel mask
-      if (opt::indel_mask.length())
+      if (opt::indel_mask.length()) {
 	for (size_t i = new_alc_start; i < alc.size(); i++)
 	  alc[i].blacklist(&grm_mask);
+	if (opt::verbose > 1)
+	  cout << "Marked indel blacklist from: " << name << " with " << pRT.getCount() << " reads and " << contigs.size() << " contigs " << endl;
+      }
 
 
       st.stop("bw");     
-      
+
       for (size_t i = new_alc_start; i < alc.size(); i++) {
 	if (!alc[i].m_skip && alc[i].hasVariant() && alc[i].getMinMapq() >= 10 && alc[i].getMaxMapq() >= 40) { 
 	  
@@ -732,6 +806,7 @@ bool grabReads(int refID, int pos1, int pos2, bwaidx_t* idx) {
 	}
       }
       st.stop("sw");
+      
     } // end bav_join.size() > 1
   } // end the assembly regions loop
 
@@ -794,9 +869,8 @@ bool grabReads(int refID, int pos1, int pos2, bwaidx_t* idx) {
       i.checkPon(pon);
 
   // get the allelic fractions
-#ifndef FORGORDON
-  Coverage * tcov;
-  Coverage * ncov;
+  Coverage * tcov = NULL;
+  Coverage * ncov = NULL;
   for (auto& bam : opt::bam) {
     if (bam.second == "t")
       tcov = (*bar)[bam.first]->cov;
@@ -806,7 +880,6 @@ bool grabReads(int refID, int pos1, int pos2, bwaidx_t* idx) {
   for (auto& i : bp_glob)
     if (i.hasMinimal() && i.isindel)
       i.addAllelicFraction(tcov, ncov);
-#endif
 
   ////////////////////////////////////
   // MUTEX LOCKED
@@ -821,7 +894,7 @@ bool grabReads(int refID, int pos1, int pos2, bwaidx_t* idx) {
   // send all bps to file
   for (auto& i : bp_glob) {
     if (i.hasMinimal()) {
-      (*os_allbps) << i.toFileString() << endl;
+      (*os_allbps) << i.toFileString(opt::no_reads) << endl;
       if (i.confidence == "PASS" && i.ncigar == 0 && i.nsplit == 0 && i.dc.ncount == 0)
 	cout << i.toPrintString() << endl;
     }
@@ -843,7 +916,7 @@ bool grabReads(int refID, int pos1, int pos2, bwaidx_t* idx) {
   // send all discordant clusters to txt
   for (auto &i : this_disc)
     if (i.second.reads_mapq >= 10 && i.second.mates_mapq >= 10)
-      (*all_disc_stream) << i.second.toFileString() << endl;
+      (*all_disc_stream) << i.second.toFileString(!opt::no_reads) << endl;
 #endif
 
   // send all the variant contigs to a sam file
@@ -865,7 +938,7 @@ bool grabReads(int refID, int pos1, int pos2, bwaidx_t* idx) {
   st.stop("wr");
 
   // display the run time
-  if (opt::verbose > 0) {
+  if (opt::verbose > 0 && (num_t_reads + num_n_reads) > 0) {
     string print1 = SnowUtils::AddCommas<int>(pos1);
     string print2 = SnowUtils::AddCommas<int>(pos2);
     char buffer[140];
@@ -916,6 +989,8 @@ void parseRunOptions(int argc, char** argv) {
 	  opt::chunk = stoi(tmp); break;
 	}
     case OPT_ASQG: opt::assemb::writeASQG = true; break;
+    case OPT_NO_ASSEMBLE_NORMAL: opt::no_assemble_normal = true; break;
+    case OPT_NO_READS: opt::no_reads = true; break;
 	case 't': 
 	  tmp = "";
 	  arg >> tmp;
@@ -933,6 +1008,7 @@ void parseRunOptions(int argc, char** argv) {
       case 'g': arg >> opt::refgenome; break;
       case 'r': arg >> opt::rules; break;
       case OPT_DISC_CLUSTER_ONLY: opt::disc_cluster_only = true; break;
+      default: die= true; 
     }
   }
 
@@ -1052,22 +1128,55 @@ int countJobs(GenomicRegionVector &file_regions, GenomicRegionVector &run_region
 
 // call the assembler
 void doAssembly(ReadTable *pRT, string name, ContigVector &contigs, int pass) {
-
+  
   if (pRT->getCount() == 0)
     return;
+
+#ifdef CLOCK_COUNTER
+  clock_t ct1_before = clock();
+#endif
 
   // forward
   SuffixArray* pSAf = new SuffixArray(pRT, 1, false); //1 is num threads. false is silent/no
   RLBWT *pBWT= new RLBWT(pSAf, pRT);
+  //SBWT *pBWT= new SBWT(pSAf, pRT);
 
   // reverse
   pRT->reverseAll();
   SuffixArray * pSAr = new SuffixArray(pRT, 1, false);
   RLBWT *pRBWT = new RLBWT(pSAr, pRT);
+  //SBWT *pRBWT = new SBWT(pSAr, pRT);
   pRT->reverseAll();
+  
+  // rmdup attempt
+  /*
+  pRT->setZero();
+  SeqItem si2;
+  ReadTable * pRT_nodup = new ReadTable();
+  while(pRT->getRead(si2)) {
+    if (!findOverlapBlocksExactSnow(si2.seq.toString(), pBWT, pRBWT))
+      pRT_nodup->addRead(si2);
+  }
+  if (pRT_nodup->getCount() == 0)
+    return;
+
+  // forward
+  SuffixArray* pSAf_rd = new SuffixArray(pRT_nodup, 1, false); //1 is num threads. false is silent/no
+  RLBWT *pBWT_rd= new RLBWT(pSAf_rd, pRT_nodup);
+
+  // reverse
+  pRT->reverseAll();
+  SuffixArray * pSAr_rd = new SuffixArray(pRT_nodup, 1, false);
+  RLBWT *pRBWT_rd = new RLBWT(pSAr_rd, pRT_nodup);
+  pRT_nodup->reverseAll();
+  */
 
   pSAf->writeIndex();
   pSAr->writeIndex();
+
+#ifdef CLOCK_COUNTER  
+  (*clock_counter) << pass << "," << "suffix" << "," << (clock() - ct1_before)<< "," << pRT->getCount() << std::endl;
+#endif
 
   double errorRate = opt::assemb::error_rate;
   int min_overlap = opt::assemb::minOverlap;
@@ -1085,8 +1194,14 @@ void doAssembly(ReadTable *pRT, string name, ContigVector &contigs, int pass) {
   SnowmanOverlapAlgorithm* pOverlapper = new SnowmanOverlapAlgorithm(pBWT, pRBWT, 
                                                        errorRate, seedLength, 
                                                        seedStride, bIrreducibleOnly);
-  pOverlapper->setExactModeOverlap(false);
-  pOverlapper->setExactModeIrreducible(false);
+
+
+  bool exact = false;
+  //exact = errorRate < 0.001f;
+  //pOverlapper->setExactModeOverlap(opt::assemb::error_rate < 0.001f/*false*/);
+  //pOverlapper->setExactModeIrreducible(opt::assemb::error_rate < 0.001f/*false*/);
+  pOverlapper->setExactModeOverlap(exact);
+  pOverlapper->setExactModeIrreducible(exact);
 
   stringstream hits_stream;
   stringstream asqg_stream;
@@ -1103,13 +1218,19 @@ void doAssembly(ReadTable *pRT, string name, ContigVector &contigs, int pass) {
 
   size_t workid = 0;
   SeqItem si;
+#ifdef CLOCK_COUNTER
+  clock_t ct_before = clock();
+#endif
 
-  while (pRT->getRead(si)) {
+  size_t ocount = 0;
+  while (pRT->getRead(si) && (++ocount < MAX_OVERLAPS_PER_ASSEMBLY)) {
+
     SeqRecord read;
     read.id = si.id;
     read.seq = si.seq;
     OverlapBlockList obl;
-    OverlapResult rr = pOverlapper->overlapReadInexact(read, min_overlap, &obl);
+
+    OverlapResult rr = pOverlapper->overlapRead(read, min_overlap, &obl);
 
     pOverlapper->writeOverlapBlocks(hits_stream, workid, rr.isSubstring, &obl);
 
@@ -1118,7 +1239,11 @@ void doAssembly(ReadTable *pRT, string name, ContigVector &contigs, int pass) {
     record.write(asqg_stream);
 
     workid++;
+
   }
+#ifdef CLOCK_COUNTER  
+  (*clock_counter) << pass << "," <<"overlaps" << "," << (clock() - ct_before)  << "," << pRT->getCount() << std::endl;
+#endif
 
   string line;
   bool bIsSelfCompare = true;
@@ -1164,11 +1289,19 @@ void doAssembly(ReadTable *pRT, string name, ContigVector &contigs, int pass) {
     delete pSAf;
     delete pSAr;
 
+#ifdef CLOCK_COUNTER
+    clock_t ctA_before = clock();
+#endif
+
     // PERFORM THE ASSMEBLY
     assemble(asqg_stream, min_overlap, opt::assemb::maxEdges, opt::assemb::bExact, 
 	     opt::assemb::trimLengthThreshold, opt::assemb::bPerformTR, opt::assemb::bValidate, opt::assemb::numTrimRounds, 
 	     opt::assemb::resolveSmallRepeatLen, opt::assemb::numBubbleRounds, opt::assemb::gap_divergence, 
 	     opt::assemb::divergence, opt::assemb::maxIndelLength, cutoff, name + "_", contigs);
+
+#ifdef CLOCK_COUNTER  
+    (*clock_counter) << pass << "," << "assembly" << "," << (clock() - ctA_before) << "," << pRT->getCount() << std::endl;
+#endif
 
     delete pQueryRIT;
     asqg_stream.str("");
@@ -1641,7 +1774,7 @@ void initializeFiles() {
   string n3 = opt::analysis_id + ".bps.txt.gz";
   string n4 = opt::analysis_id + ".contigs.sam";
   string n5 = opt::analysis_id + ".contigs_all.sam.gz";
-  string n6 = opt::analysis_id + ".cigarmap.gz";
+  string n6 = opt::analysis_id + ".cigarmap.txt.gz";
   string n7 = opt::analysis_id + ".coverage.bed.gz";
   all_align_stream = new ogzstream(n1.c_str(), ios::out);
   if (opt::output_cov)
@@ -1652,6 +1785,10 @@ void initializeFiles() {
   contigs_sam      = new ofstream(n4.c_str(), ios::out);
   contigs_all      = new ogzstream(n5.c_str(), ios::out);
   
+#ifdef CLOCK_COUNTER
+  clock_counter = new ofstream("clock.counter.csv");
+#endif
+
   // write the bp header
   (*os_allbps) << BreakPoint::header() << endl;
   
@@ -1937,3 +2074,85 @@ SeqRecordVector toSeqRecordVector(ReadVec &bav) {
   }
 }
 */  
+
+
+bool findOverlapBlocksExactSnow(const string &w, const BWT* pBWT,
+				const BWT* pRevBWT) {
+
+// The algorithm is as follows:
+// We perform a backwards search using the FM-index for the string w.
+// As we perform the search we collect the intervals 
+// of the significant prefixes (len >= minOverlap) that overlap w.
+  int minOverlap = w.length();
+BWTIntervalPair ranges;
+size_t l = w.length();
+int start = l - 1;
+BWTAlgorithms::initIntervalPair(ranges, w[start], pBWT, pRevBWT);
+    
+// Collect the OverlapBlocks
+for(size_t i = start - 1; i >= 1; --i)
+  {
+    // Compute the range of the suffix w[i, l]
+    BWTAlgorithms::updateBothL(ranges, w[i], pBWT);
+    int overlapLen = l - i;
+    if(overlapLen >= minOverlap)
+      {
+	// Calculate which of the prefixes that match w[i, l] are terminal
+	// These are the proper prefixes (they are the start of a read)
+	BWTIntervalPair probe = ranges;
+	BWTAlgorithms::updateBothL(probe, '$', pBWT);
+            
+	// The probe interval contains the range of proper prefixes
+// 	if(probe.interval[1].isValid())
+// 	  {
+// 	    assert(probe.interval[1].lower > 0);
+// 	    pOverlapList->push_back(OverlapBlock(probe, ranges, overlapLen, 0, af));
+// 	  }
+      }
+  }
+
+// Determine if this sequence is contained and should not be processed further
+BWTAlgorithms::updateBothL(ranges, w[0], pBWT);
+
+// Ranges now holds the interval for the full-length read
+// To handle containments, we output the overlapBlock to the final overlap block list
+// and it will be processed later
+// Two possible containment cases:
+// 1) This read is a substring of some other read
+// 2) This read is identical to some other read
+    
+// Case 1 is indicated by the existance of a non-$ left or right hand extension
+// In this case we return no alignments for the string
+AlphaCount64 left_ext = BWTAlgorithms::getExtCount(ranges.interval[0], pBWT);
+AlphaCount64 right_ext = BWTAlgorithms::getExtCount(ranges.interval[1], pRevBWT);
+if(left_ext.hasDNAChar() || right_ext.hasDNAChar())
+  {
+    return true;
+    //result.isSubstring = true;
+  }
+ else
+   {
+     return false;
+//      BWTIntervalPair probe = ranges;
+//      BWTAlgorithms::updateBothL(probe, '$', pBWT);
+//      if(probe.isValid())
+//        {
+// 	 // terminate the contained block and add it to the contained list
+// 	 BWTAlgorithms::updateBothR(probe, '$', pRevBWT);
+// 	 assert(probe.isValid());
+// 	 pContainList->push_back(OverlapBlock(probe, ranges, w.length(), 0, af));
+//        }
+   }
+
+//OverlapBlockList containedWorkingList;
+//partitionBlockList(w.length(), &workingList, pOverlapList, &containedWorkingList);
+    
+// Terminate the contained blocks
+//terminateContainedBlocks(containedWorkingList);
+    
+// Move the contained blocks to the final contained list
+//pContainList->splice(pContainList->end(), containedWorkingList);
+
+return false;
+
+}

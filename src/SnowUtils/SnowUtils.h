@@ -11,7 +11,7 @@
 #include "reads.h"
 #include "gzstream.h"
 
-#define FORGORDON 1
+//#define FORGORDON 1
 
 typedef std::vector<BamTools::CigarOp> CigarOpVec;
 

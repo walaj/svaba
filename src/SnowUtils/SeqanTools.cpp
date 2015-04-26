@@ -1,3 +1,5 @@
+#ifdef HAVE_SEQAN_BASIC_H
+
 #include "SeqanTools.h"
 #include "SnowUtils.h"
 
@@ -67,3 +69,5 @@ double SeqanTools::SWalign(TSequence &ref,int32_t &pos, string &rseq, int32_t &s
 
   return score;
 }
+
+#endif

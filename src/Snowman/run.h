@@ -2,8 +2,7 @@
 #define SNOWMAN_RUN_H
 
 #include <string>
-#include "SGACommon.h"
-#include "OverlapCommon.h"
+
 #include "ReadTable.h"
 #include <pthread.h>
 #include "workqueue.h"
@@ -16,16 +15,15 @@
 #include "BamAndReads.h"
 #include <time.h>
 #include "BWAWrapper.h"
+
 // needed for seq record vector
 #include "Util.h" 
-
 #include "reads.h"
 
 using namespace std;
 
 typedef unordered_map<string, Read> ReadMap;
 typedef unordered_map<string, unique_ptr<BamAndReads> > BARMap;
-//typedef vector<bam1_t*> bam1_v;
 
 void initializeFiles();
 void addDiscordantPairsBreakpoints(BPVec &bp, DMap& dmap);
@@ -44,6 +42,10 @@ void combineContigsWithDiscordantClusters(DMap &dm, AlignedContigVec &contigs);
 void learnParameters();
 GenomicRegionVector checkReadsMateRegions(GenomicRegionVector mate_final, unique_ptr<BARMap>& bar);
 SeqRecordVector toSeqRecordVector(ReadVec &bav);
+
+//bool findOverlapBlocksExactSnow(const string &w, const BWT* pBWT,
+//				const BWT* pRevBWT);
+
 
 /** @brief p-thread work item that calls Snowman on a small region
 

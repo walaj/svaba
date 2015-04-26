@@ -3,6 +3,7 @@
 
 #include <memory>
 #include <vector>
+#include <unordered_map>
 
 #define HAVE_HTSLIB
 //#define HAVE_BAMTOOLS

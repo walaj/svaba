@@ -12,17 +12,19 @@ namespace bopt {
   static string pon = "";
   static string analysis_id = "noid";
   static bool noreads = false;
+  static string indel_mask = "";
 
   static string ref_index = REFHG19;
 
   static int verbose = 1;
 }
 
-static const char* shortopts = "hxi:a:v:q:g:";
+static const char* shortopts = "hxi:a:v:q:g:m:";
 static const struct option longopts[] = {
   { "help",                    no_argument, NULL, 'h' },
   { "input-bps",               required_argument, NULL, 'i'},
   { "panel-of-normals",        required_argument, NULL, 'q'},
+  { "indel-mask",              required_argument, NULL, 'm'},
   { "reference-genome",        required_argument, NULL, 'g'},
   { "analysis-id",             required_argument, NULL, 'a'},
   { "no-reads",                no_argument, NULL, 'x'},
@@ -44,7 +46,7 @@ static const char *BP_USAGE_MESSAGE =
 "  -q, --panel-of-normals               Panel of normals files generated from snowman pon\n"                       
 "  -a, --id-string                      String specifying the analysis ID to be used as part of ID common.\n"
 "  -x, --no-reads                       Flag to turn off recording of supporting reads. Setting this flag greatly reduces file size.\n"
-
+"  -m, --indel-mask                     BED-file with blacklisted regions for indel calling. Default none\n"
 "\n";
 
 // send breakpoint to a string
@@ -209,11 +211,11 @@ string BreakPoint::toFileString(bool noreads) {
   // check assembly -only ones
   if (num_align > 1 && !hasDiscordant()) {
 
-    if (split_count < 6 && span > 1500) 
+    if (split_count < 6 && (span > 1500 || span == -1))  // large and inter chrom need 7+
       confidence = "NODISC";
     else if (max(gr1.mapq, gr2.mapq) != 60 || min(gr1.mapq, gr2.mapq) <= 50) 
       confidence = "LOWMAPQ";
-    else if ( split_count <= 3 && abs(span) <= 1500)
+    else if ( split_count <= 3 && (span <= 1500 && span != -1) ) // small with little split
       confidence = "WEAKASSEMBLY";
     else if (/*min_end_align_length <= 40 || */(germ && span == -1) || (germ && span > 1000000)) // super short alignemtns are not to be trusted. Also big germline events
       confidence = "WEAKASSEMBLY";
@@ -250,14 +252,24 @@ string BreakPoint::toFileString(bool noreads) {
     // indels
   } else if (num_align == 1) {
 
-    if ( split_count < 4)
+    double max_af = max(af_t, af_n);
+    int cigar_count = ncigar+tcigar; 
+    int max_count = max(split_count, cigar_count);
+    bool blacklist_and_low_count = blacklist && (tsplit + nsplit) < 5 && (tcigar + ncigar) < 5;
+    bool blacklist_and_low_AF = max_af < 0.3 && blacklist;
+
+    if (blacklist && pon > 0)
+      confidence="BLACKLISTANDPON";
+    else if (blacklist_and_low_count || blacklist_and_low_AF)
+      confidence="BLACKLIST";
+    else if ( (max_count < 4 && max_af < 0.3) || (max_count < 3))
       confidence="WEAKASSEMBLY";
-    else if ( (tcigar+ncigar) < 3 && getSpan() < 6)
+    else if ( cigar_count < 3 && getSpan() < 6)
       confidence="WEAKCIGARMATCH";
     else if (gr1.mapq != 60)
       confidence="LOWMAPQ";
     //else if (seq.find("AAAAAAAAAAA") != string::npos || seq.find("TTTTTTTTTTT") != string::npos || seq.find("TGTGTGTGTGTGTGTGTGTGTGTGTG") != string::npos)
-    else if (repeat_seq.length() && (pon > 0))
+    else if (repeat_seq.length() > 1 && pon > 0)
       confidence="REPEAT";
     else
       confidence="PASS";
@@ -323,6 +335,7 @@ string BreakPoint::toFileString(bool noreads) {
      << confidence << sep << evidence << sep
      << pon << sep << (repeat_seq.length() ? repeat_seq : "x") << sep 
      << ncov << sep << tcov << sep << af_n << sep << af_t << sep
+     << blacklist << sep
      << (read_names.length() ? read_names : "x");
 
   return ss.str();
@@ -438,9 +451,6 @@ bool BreakPoint::hasDiscordant() const {
  */
 bool BreakPoint::hasMinimal() const {
 
-  if (skip)
-    return false;
-
   int total = tsplit + nsplit + dc.tcount + dc.ncount;
 
   if (total >= 2)
@@ -466,9 +476,15 @@ void runRefilterBreakpoints(int argc, char** argv) {
     cout << "Input bps file:  " << bopt::input_file << endl;
     cout << "Output bps file: " << bopt::output_file << endl;
     cout << "Panel of normals file: " << bopt::pon << endl;
+    cout << "Indel mask BED:      " << bopt::indel_mask << endl;
     cout << "Analysis id: " << bopt::analysis_id << endl;
   }
 
+  if (!SnowUtils::read_access_test(bopt::input_file)) {
+    std::cerr << "ERROR: Cannot read file " << bopt::input_file  << std::endl;
+    exit(EXIT_FAILURE);
+  }
+  
   // load the reference index
   if (bopt::verbose > 0)
     cout << "attempting to load: " << bopt::ref_index << endl;
@@ -481,9 +497,22 @@ void runRefilterBreakpoints(int argc, char** argv) {
     exit(EXIT_FAILURE);
   }
 
+  // read in the PON
   unique_ptr<PON> pmap;
   BreakPoint::readPON(bopt::pon, pmap);
   
+  // read the indel mask
+  GenomicIntervalTreeMap grm_mask;
+  if (!SnowUtils::read_access_test(bopt::indel_mask) && bopt::indel_mask.length()) {
+    cerr << "indel mask " << bopt::indel_mask << " does not exist / is not readable. Skipping indel masking."  << endl;
+    bopt::indel_mask = "";
+  }
+  if (bopt::indel_mask.length()) {
+    GenomicRegionVector grv_mask;
+    GenomicRegion::regionFileToGRV(bopt::indel_mask, 0, &grv_mask);
+    grm_mask = GenomicRegion::createTreeMap(grv_mask);
+  }
+
   ogzstream oz(bopt::output_file.c_str(), ios::out);
   if (!oz) {
     cerr << "Can't write to output file " << bopt::output_file << endl;
@@ -511,22 +540,26 @@ void runRefilterBreakpoints(int argc, char** argv) {
     // check if in panel of normals
     bp.checkPon(pmap);
 
+    // check for blacklist
+    bp.checkBlacklist(&grm_mask);
+
     // check for repeat sequence
     if (bp.gr1.chr < 24) {
       GenomicRegion gr = bp.gr1;
       gr.pad(20);
       string seqr = getRefSequence(gr, findex);
-      vector<string> repr = {"AAAAAA", "TTTTTT", "CCCCCC", "GGGGGG", 
-			     "TATATATATA", "ATATATATAT", 
-			     "GCGCGCGCGC", "CGCGCGCGCGC", 
-			     "TGTGTGTGTG", "GTGTGTGTGT", 
-			     "TCTCTCTCTC", "CTCTCTCTCT", 
-			     "CACACACACA", "ACACACACCA", 
-			     "GAGAGAGAGA", "AGAGAGAGGA"};
+      vector<string> repr = {"AAAAAAAA", "TTTTTTTT", "CCCCCCCC", "GGGGGGGG", 
+			     "TATATATATATATATA", "ATATATATATATATAT", 
+			     "GCGCGCGCGCGCGCGC", "CGCGCGCGCGCGCGCG", 
+			     "TGTGTGTGTGTGTGTG", "GTGTGTGTGTGTGTGT", 
+			     "TCTCTCTCTCTCTCTC", "CTCTCTCTCTCTCTCT", 
+			     "CACACACACACACACA", "ACACACACACACACAC", 
+			     "GAGAGAGAGAGAGAGA", "AGAGAGAGAGAGAGAG"};
       //cout << "seq " << seqr << endl;
       for (auto& i : repr)
 	if (seqr.find(i) != string::npos)
 	  bp.repeat_seq = i;
+
     }
 
     if (bp.hasMinimal() && bp.gr1.chr < 24 && bp.gr2.chr < 24)
@@ -553,32 +586,46 @@ BreakPoint::BreakPoint(string &line) {
   string val;
   size_t count = 0;
   while (getline(iss, val, '\t')) {
-    switch(++count) {
-    case 1: gr1.chr = stoi(val) - 1; break;
-    case 2: gr1.pos1 = stoi(val); gr1.pos2 = gr1.pos1; break;
-    case 3: gr1.strand = val.at(0); break;
-    case 4: gr2.chr = stoi(val) - 1; break;
-    case 5: gr2.pos1 = stoi(val); gr2.pos2 = gr2.pos1; break;
-    case 6: gr2.strand = val.at(0); break;
-      //case 7: span = stoi(val); break;
-    case 8: gr1.mapq = stoi(val); break;
-    case 9: gr2.mapq = stoi(val); break;
-    case 10: nsplit = stoi(val); break;
-    case 11: tsplit = stoi(val); break;
-    case 12: dc.ncount = stoi(val); break;
-    case 13: dc.tcount = stoi(val); break;
-    case 14: ncigar = stoi(val); break;
-    case 15: tcigar = stoi(val); break;
-    case 16: homology = val; break;
-    case 17: insertion = val; break;
-    case 18: cname = val; break;
-    case 19: num_align = stoi(val); break;
-    case 20: confidence = val; break;
-    case 21: evidence = val; break;
-    case 22: read_names = val; break;
+    try{
+      switch(++count) {
+      case 1: gr1.chr = stoi(val) - 1; break;
+      case 2: gr1.pos1 = stoi(val); gr1.pos2 = gr1.pos1; break;
+      case 3: gr1.strand = val.at(0); break;
+      case 4: gr2.chr = stoi(val) - 1; break;
+      case 5: gr2.pos1 = stoi(val); gr2.pos2 = gr2.pos1; break;
+      case 6: gr2.strand = val.at(0); break;
+	//case 7: span = stoi(val); break;
+      case 8: gr1.mapq = stoi(val); break;
+      case 9: gr2.mapq = stoi(val); break;
+      case 10: nsplit = stoi(val); break;
+      case 11: tsplit = stoi(val); break;
+      case 12: dc.ncount = stoi(val); break;
+      case 13: dc.tcount = stoi(val); break;
+      case 14: ncigar = stoi(val); break;
+      case 15: tcigar = stoi(val); break;
+      case 16: homology = val; break;
+      case 17: insertion = val; break;
+      case 18: cname = val; break;
+      case 19: num_align = stoi(val); break;
+      case 20: confidence = val; break;
+      case 21: evidence = val; break;
+      case 22: pon = stoi(val); break;
+      case 23: repeat_seq = val; break;
+      case 24: ncov = stoi(val); break;
+      case 25: tcov = stoi(val); break;
+	//case 26: n_af = stod(val); break;
+	//case 27: t_af = stod(val); break;
+      case 28: blacklist = (val=="1"); break;
+      case 29: read_names = val; break;
+	
+      }
+    } catch(...) {
+      std::cerr << "caught stoi error on: " << val << std::endl;
+      std::cerr << line << std::endl;
+      exit(1);
     }
   }
-
+    
   if (evidence == "INDEL")
     isindel = true;
 
@@ -605,6 +652,7 @@ void parseBreakOptions(int argc, char** argv) {
     switch (c) {
       case 'h': die = true; break;
       case 'g': arg >> bopt::ref_index; break;
+      case 'm': arg >> bopt::indel_mask; break;
       case 'i': arg >> bopt::input_file; break;
       case 'v': arg >> bopt::verbose; break;
       case 'q': arg >> bopt::pon; break;
@@ -764,7 +812,7 @@ void BreakPoint::readPON(string &file, unique_ptr<PON> &pmap) {
     string key;
     //vector<int> scount;
     int sample_count_total = 0;
-    int read_count_total = 0;
+    //int read_count_total = 0;
     size_t c = 0;
     while (getline(gg, tval, '\t')) {
       c++;
@@ -792,8 +840,10 @@ void BreakPoint::addAllelicFraction(Coverage * t_cov, Coverage * n_cov) {
 
   //assert(gr1.chr == t_cov->id && gr1.chr == n_cov->id);
   
-  tcov = t_cov->getCoverageAtPosition(gr1.pos1); 
-  ncov = n_cov->getCoverageAtPosition(gr1.pos1); 
+  if (t_cov)
+    tcov = t_cov->getCoverageAtPosition(gr1.pos1); 
+  if (n_cov)
+    ncov = n_cov->getCoverageAtPosition(gr1.pos1); 
 
 }
 
@@ -811,15 +861,30 @@ string BreakPoint::toPrintString() const {
 
  
   if (isindel)
-    ss << "Somatic " << (insertion.size() ? "insertion" : "deletion") <<  " at " << gr1 << " contig " << cname 
+    ss << ">>>> Somatic " << (insertion.size() ? "INSERTION" : "DELETION") <<  " of length " << getSpan() << " at " << gr1 << " contig " << cname 
        << " T/N split: " << tsplit << "/" << nsplit << " T/N cigar: " 
-       << tcigar << "/" << ncigar << " T/N AF " << af_t << "/" << af_n << endl;
+       << tcigar << "/" << ncigar << " T/N AF " << af_t << "/" << af_n;
   else
-    ss << "Somatic SV  at " << gr1 << " to " << gr2 << " contig " << cname 
+    ss << ">>>> Somatic STRUCTURAL VAR  at " << gr1 << " to " << gr2 << " contig " << cname 
        << " T/N split: " << tsplit << "/" << nsplit << " T/N discordant: " 
-       << dc.tcount << "/" << dc.ncount << " evidence " << evidence << endl;
+       << dc.tcount << "/" << dc.ncount << " evidence " << evidence;
 
 
   return ss.str();
 
+}
+
+void BreakPoint::checkBlacklist(GenomicIntervalTreeMap * grm) {
+
+  if (!isindel)
+    return;
+
+  GenomicIntervalTreeMap::iterator ff = grm->find(gr1.chr);
+  if (ff != grm->end()) {
+    GenomicIntervalVector grv;
+    ff->second.findOverlapping(gr1.pos1, gr1.pos2, grv);
+    if (grv.size()) { // blacklist found
+      blacklist = true;
+    }
+  }
 }

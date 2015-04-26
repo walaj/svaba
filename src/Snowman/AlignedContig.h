@@ -194,9 +194,9 @@ class AlignedContig {
   /*! @function align reads to contig and modify their tags to show contig mapping
    * Currently this function will attempt a SmithWaterman alignment for all reads
    * that don't have an exact mapping to the contig.
-   * @param reference to a vector of read smart pointers to align and modify
+   * @param bav Vector of read smart pointers to align. Modifies their SW tag
    */
-  void alignReadsToContigs(ReadVec &bav, bool indel = true);
+  void alignReadsToContigs(ReadVec &bav);
 
   //! return the contig sequence as it came off the assembler
   string getSequence() const { assert(m_seq.length()); return m_seq; }

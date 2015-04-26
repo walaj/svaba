@@ -4,13 +4,8 @@
 #include "gzstream.h"
 
 using namespace std;
-//using namespace BamTools;
 
-//static const char TS[] = "TS";
-//static const char TL[] = "TL";
-static size_t debug_count = 0;
-
-  // define what is a valid condition
+// define what is a valid condition
 static const unordered_map<string,bool> valid = 
   { 
   {"duplicate",     true},
@@ -74,25 +69,6 @@ bool MiniRules::isOverlapping(Read &r) {
   return grv.size() > 0;
   
 }
-
-/*bool MiniRules::isOverlapping(bam1_t * b) {
-
-  // if this is a whole genome rule, it overlaps
-  if (m_whole_genome)
-    return true;
-
-  // TODO fix r_mpos(r) + r_length(r) is using wrong length
-
-  // check whether a read (or maybe its mate) hits a rule
-  GenomicIntervalVector grv;
-  if (m_tree.count(b->core.tid) == 1) // check that we have a tree for this chr
-    m_tree[b->core.tid].findOverlapping(b->core.pos, b->core.pos + b->core.l_qseq, grv);
-  if (m_tree.count(b->core.mtid) == 1 && m_applies_to_mate) // check that we have a tree for this chr
-    m_tree[b->core.mtid].findOverlapping (b->core.mtid, b->core.mpos + b->core.l_qseq, grv);
-  return grv.size() > 0;
-  
-  }*/
-
 
 // checks which rule a read applies to (using the hiearchy stored in m_regions).
 // if a read does not satisfy a rule it is excluded.
@@ -199,7 +175,13 @@ void MiniRules::setIntervalTreeMap(string file) {
  
   size_t grv_size = m_grv.size();
   if (grv_size == 0) {
-    cerr << "Warning: No regions dected in file: " << file << endl;
+    cerr << "!!!!!!!!!!!!!!!!!!" << endl;
+    cerr << "!!!!!!!!!!!!!!!!!!" << endl;
+    cerr << "!!!!!!!!!!!!!!!!!!" << endl;
+    cerr << "Warning: No regions detected in file: " << file << endl;
+    cerr << "!!!!!!!!!!!!!!!!!!" << endl;
+    cerr << "!!!!!!!!!!!!!!!!!!" << endl;
+    cerr << "!!!!!!!!!!!!!!!!!!" << endl;
     return;
   }
 

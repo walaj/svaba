@@ -1,5 +1,5 @@
 #include "SnowUtils.h"
-#include <boost/algorithm/string.hpp>
+//#include <boost/algorithm/string.hpp>
 #include <regex>
   
 // get an integer tag that might be separted by "x"
@@ -72,11 +72,31 @@ CigarOpVec SnowUtils::stringToCigar(const std::string& val) {
    
    std::string v = val;
    std::vector<std::string> str_vec; // #2: Search for tokens
-   boost::split(str_vec, v, boost::is_any_of("0123456789"), boost::token_compress_on ); // SplitVec == { "hello abc","ABC","aBc goodbye" }
+   //boost::split(str_vec, v, boost::is_any_of("0123456789"), boost::token_compress_on ); // SplitVec == { "hello abc","ABC","aBc goodbye" }
    
    std::vector<std::string> len_vec; // #2: Search for tokens
-   boost::split(len_vec, v, boost::is_any_of("MIDSHPN"), boost::token_compress_on ); // SplitVec == { "hello abc","ABC","aBc goodbye" }
+   //boost::split(len_vec, v, boost::is_any_of("MIDSHPN"), boost::token_compress_on ); // SplitVec == { "hello abc","ABC","aBc goodbye" }
    
+   // move through and get the values
+   std::string len= "";
+   std::string type = "";
+     for (size_t i = 0; i < val.length(); ++i)
+     {
+       if (val.at(i) == 'M' ||  
+	   val.at(i) == 'I' ||
+	   val.at(i) == 'D' ||
+	   val.at(i) == 'S' ||
+	   val.at(i) == 'H' ||
+	   val.at(i) == 'P' ||
+	   val.at(i) == 'N') {
+	 len_vec.push_back(len);
+	 str_vec.push_back(std::string(&val.at(i)));
+       } else {
+	 len += std::string(&val.at(i));
+       }
+       
+     }
+
    assert(len_vec.size() == str_vec.size());
    assert(len_vec.size());
    
