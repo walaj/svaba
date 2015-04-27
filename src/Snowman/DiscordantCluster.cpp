@@ -1,9 +1,13 @@
 #include "DiscordantCluster.h"
+#include <cassert>
+
+using std::string;
+using std::unordered_map;
 
 void DiscordantCluster::addRead(string name) {
   unordered_map<string, bool>::iterator ff = qnames.find(name);
   if (ff == qnames.end())
-    qnames.insert(pair<string, bool>(name, true));
+    qnames.insert(std::pair<string, bool>(name, true));
   return;
 }
 
@@ -52,9 +56,9 @@ DiscordantCluster::DiscordantCluster(ReadVec &this_reads, ReadVec &all_reads) {
   mates_mapq = getMeanMapq(true);
   
   // set the regions
-  reg1 = GenomicRegion(-1,500000000,-1); // read region
+  reg1 = SnowTools::GenomicRegion(-1,500000000,-1); // read region
   for (auto& i : reads) {
-    reg1.strand = r_strand(i.second); //(!i.second->IsReverseStrand()) ? '+' : '-';
+    reg1.strand = r_strand(i.second) == '+'; //(!i.second->IsReverseStrand()) ? '+' : '-';
     reg1.chr = r_id(i.second); //i.second->RefID;
     if (r_pos(i.second) < reg1.pos1)
       reg1.pos1 = r_pos(i.second); //i.second->Position;
@@ -63,9 +67,9 @@ DiscordantCluster::DiscordantCluster(ReadVec &this_reads, ReadVec &all_reads) {
       reg1.pos2 = endpos;
   }
 
-  reg2 = GenomicRegion(-1,500000000,-1); // mate region
+  reg2 = SnowTools::GenomicRegion(-1,500000000,-1); // mate region
   for (auto& i : mates) {
-    reg2.strand = r_strand(i.second); //(!i.second->IsReverseStrand()) ? '+' : '-';
+    reg2.strand = r_strand(i.second) == '+'; //(!i.second->IsReverseStrand()) ? '+' : '-';
     reg2.chr = r_id(i.second); //i.second->RefID;
     if (r_pos(i.second) < reg2.pos1)
       reg2.pos1 = r_pos(i.second);
@@ -169,7 +173,7 @@ void DiscordantCluster::addMateReads(ReadVec &bav) { // BamAlignmentUPVector &ba
 
 double DiscordantCluster::getMeanMapq(bool mate) const {
   double mean = 0;
-  vector<int> tmapq;
+  std::vector<int> tmapq;
   if (mate) {
     for (auto& i : mates)
       tmapq.push_back(r_mapq(i.second));
@@ -185,7 +189,7 @@ double DiscordantCluster::getMeanMapq(bool mate) const {
 
 double DiscordantCluster::getMeanMapq() const {
   double mean = 0;
-  vector<int> tmapq;
+  std::vector<int> tmapq;
   for (auto& i : mates)
     tmapq.push_back(r_mapq(i.second));
   for (auto& i : reads)
@@ -211,9 +215,12 @@ DiscordantCluster::DiscordantCluster(string tcluster) {
 */
 
 string DiscordantCluster::toRegionString() const {
-  int pos1 = (reg1.strand == '+') ? reg1.pos2 : reg1.pos1;
-  int pos2 = (reg2.strand == '+') ? reg2.pos2 : reg2.pos1;
-  stringstream ss;
+  //int pos1 = (reg1.strand == '+') ? reg1.pos2 : reg1.pos1;
+  //int pos2 = (reg2.strand == '+') ? reg2.pos2 : reg2.pos1;
+  int pos1 = reg1.strand ? reg1.pos2 : reg1.pos1;
+  int pos2 = reg2.strand ? reg2.pos2 : reg2.pos1;
+
+  std::stringstream ss;
   ss << reg1.chr+1 << ":" << pos1 << "(" << reg1.strand << ")" << "-" << 
     reg2.chr+1 << ":" << pos2 << "(" << reg2.strand << ")";
   return ss.str();
@@ -257,7 +264,7 @@ string DiscordantCluster::toFileString(bool with_read_names /* false */) const {
       reads_string = reads_string.substr(0,reads_string.length() - 1);
   }
 
-  stringstream out;
+  std::stringstream out;
   out << reg1.chr+1 << sep << reg1.pos1 << sep << reg1.strand << sep 
       << reg2.chr+1 << sep << reg2.pos1 << sep << reg2.strand << sep 
       << tcount << sep << ncount << sep << reads_mapq << sep 

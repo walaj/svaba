@@ -1,28 +1,26 @@
 #include "run.h"
+
 #include <iostream>
 #include <unordered_map>
 #include <stdlib.h>
-#include "SnowTools/SnowUtils.h"
-#include "api/BamWriter.h"
-
-#include "SnowmanAssemble.h"
-#include "SnowmanOverlapAlgorithm.h"
-#include "SnowmanASQG.h"
-#include "faidx.h"
-#include "gzstream.h"
-#include "vcf.h"
 #include <cstdio>
+#include <getopt.h>
 
-#include "SGACommon.h"
-#include "OverlapCommon.h"
+#include "SnowTools/SnowUtils.h"
+#include "SnowTools/SnowToolsCommon.h"
+#include "SnowTools/gzstream.h"
+#include "SnowTools/MiniRules.h"
+#include "SnowmanAssemblerEngine.h"
+
+#include "faidx.h"
+
+#include "vcf.h"
+
 #include "Coverage.h"
 
-#define NO_LOAD_IDX 1
+#include "SnowmanBamWalker.h"
 
-//#define HAVE_SAMTOOLS 1
-
-// need for SeqItem
-#include "Util.h"
+//#define NO_LOAD_IDX 1
 
 #include <signal.h>
 #include <memory>
@@ -32,8 +30,6 @@
 
 #define DISC_PAD 400
 #define MIN_PER_CLUST 2
-
-#define MAX_OVERLAPS_PER_ASSEMBLY 200000
 
 #define MATES
 
@@ -54,18 +50,13 @@ static int read_counter = 0;
 static int contig_counter = 0;
 static int discordant_counter = 0;
 static pthread_mutex_t snow_lock;
-static GenomicIntervalTreeMap grm_mask;
 
 static size_t interupt_counter = 0;
 
 static unique_ptr<PON> pon;
 
-static const std::string POLYA = "AAAAAAAAAAAAAAAAAAAAAAAAA";
-static const std::string POLYT = "TTTTTTTTTTTTTTTTTTTTTTTTT";
-static const std::string POLYC = "CCCCCCCCCCCCCCCCCCCCCCCCC";
-static const std::string POLYG = "GGGGGGGGGGGGGGGGGGGGGGGGG";
-static const std::string POLYAT = "ATATATATATATATATATATATATATATATATATATATAT";
-static const std::string POLYCG = "CGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCG";
+// mask
+SnowTools::GenomicRegionCollection<SnowTools::GenomicRegion> grv_mask;
 
 // output writers
 static ogzstream * all_align_stream;
@@ -96,24 +87,25 @@ static bool hashits = false;
 
 namespace opt {
 
-  // assembly parameter
   namespace assemb {
     static unsigned minOverlap = 35;
-    static unsigned numBubbleRounds = 3;
-    static float divergence = 0.05;
-    static float gap_divergence = 0.00;
+    //static unsigned numBubbleRounds = 3;
+    //static float divergence = 0.05;
+    //static float gap_divergence = 0.00;
     static float error_rate = 0.05; 
     static bool writeASQG = false;
-    static int maxEdges = 128;
-    static int numTrimRounds = 0; //
-    static int trimLengthThreshold = -1; // doesn't matter
-    static bool bPerformTR = false; // transitivie edge reducetion
-    static bool bValidate = false;
-    static int resolveSmallRepeatLen = -1; 
-    static int maxIndelLength = 20;
-    static bool bExact = true;
-    static string outVariantsFile = ""; // dummy
+    //static int maxEdges = 128;
+    //static int numTrimRounds = 0; //
+    //static int trimLengthThreshold = -1; // doesn't matter
+    //static bool bPerformTR = false; // transitivie edge reducetion
+    //static bool bValidate = false;
+    //static int resolveSmallRepeatLen = -1; 
+    //static int maxIndelLength = 20;
+    //static bool bExact = true;
+    //static string outVariantsFile = ""; // dummy
   }
+
+  static int isize = 1000;
 
   static bool no_assemble_normal = false;
 
@@ -132,7 +124,6 @@ namespace opt {
   static string pon = "";
 
   // parameters for filtering reads
-  static int isize = 1000;
   //static string rules = "global@nbases[0,0];!nm[7,1000]!hardclip;!supplementary;!duplicate;!qcfail;phred[4,100];length[50,300]%region@WG%discordant[0,800];mapq[1,100]%mapq[1,1000];clip[5,100]%ins[1,1000]%del[1,1000]";
   static string rules = "global@nbases[0,0];!hardclip;!supplementary;!duplicate;!qcfail;phred[4,100];%region@WG%discordant[0,1000];mapq[1,1000]%mapq[1,1000];clip[5,1000]%ins[1,1000];mapq[1,100]%del[1,1000];mapq[1,1000]";
 
@@ -144,7 +135,7 @@ namespace opt {
 
   // data
   static BamMap bam;
-  static string refgenome = REFHG19;  
+  static string refgenome = SnowTools::REFHG19;  
   static string analysis_id = "no_id";
 
 
@@ -219,7 +210,7 @@ static const char *RUN_USAGE_MESSAGE =
 
 static struct timespec start;
 
-static MiniRulesCollection * mr;
+static SnowTools::MiniRulesCollection * mr;
 
 // handle a ctrl C
 void my_handler(int s){
@@ -328,7 +319,7 @@ void my_handler(int s){
          << "******************************" << endl;
   else 
     cout << "Snowman stopped due to signal interrupt, but successfully wrote output files"<< endl;
-  SnowUtils::displayRuntime(start);
+  SnowTools::displayRuntime(start);
   cout << endl;
   if (s > 0)
     exit(EXIT_FAILURE); 
@@ -337,7 +328,7 @@ void my_handler(int s){
 
 }
 
-void sendThreads(GenomicRegionVector &regions_torun) {
+void sendThreads(GRC& regions_torun) {
 
   // Create the queue and consumer (worker) threads
   wqueue<SnowmanWorkItem*>  queue;
@@ -349,17 +340,17 @@ void sendThreads(GenomicRegionVector &regions_torun) {
   }
 
   // send the jobs
-  unsigned count = 0;
-  for (GenomicRegionVector::const_iterator it = regions_torun.begin(); it != regions_torun.end(); it++) {
-    count++;
-    SnowmanWorkItem * item     = new SnowmanWorkItem(it->chr, it->pos1, it->pos2, count, idx);
+  size_t count = 0;
+  SnowTools::GenomicRegion it;
+  for (auto& i : regions_torun) {
+    SnowmanWorkItem * item     = new SnowmanWorkItem(SnowTools::GenomicRegion(i.chr, i.pos1, i.pos2), ++count, idx);
     queue.add(item);
   }
 
   // wait for the threads to finish
-    for (unsigned i = 0; i < opt::numThreads; i++) 
+  for (size_t i = 0; i < opt::numThreads; i++) 
     threadqueue[i]->join();
-
+  
     if (idx) {
       bwa_idx_destroy(idx);
       idx = NULL;
@@ -381,7 +372,7 @@ bool runSnowman(int argc, char** argv) {
 
   parseRunOptions(argc, argv);
 
-  treader_for_convert = new BamReader();
+  treader_for_convert = new BamTools::BamReader();
   
   if (!treader_for_convert->Open(opt::bam.begin()->first)) {
     cerr << "Cannot open " << opt::bam.begin()->first << endl;
@@ -395,7 +386,7 @@ bool runSnowman(int argc, char** argv) {
   learnParameters();
 
   // parse the region file, count number of jobs
-  GenomicRegionVector file_regions, regions_torun;
+  GRC file_regions, regions_torun;
   int num_jobs = countJobs(file_regions, regions_torun); 
 
   // override the number of threads if need
@@ -424,11 +415,11 @@ bool runSnowman(int argc, char** argv) {
   }
 
   // import the panel of normals if it exists
-  if (SnowUtils::read_access_test(opt::pon)) {
+  if (SnowTools::read_access_test(opt::pon)) {
     if (opt::verbose) 
       cout << "...importing panel of normals -- " << opt::pon << endl;
     BreakPoint::readPON(opt::pon, pon);
-  } else if (!SnowUtils::read_access_test(opt::pon) && opt::pon.length()) {
+  } else if (!SnowTools::read_access_test(opt::pon) && opt::pon.length()) {
     cerr << "!!!!!!!!!!" << endl << "!!!!!!!!!!" << endl << "!!!!!!!!!!" << endl;
     cerr << "Panel of normals file does not exist or is not readable -- " << opt::pon << endl;
     cerr << "!!!!!!!!!!" << endl << "!!!!!!!!!!" << endl << "!!!!!!!!!!" << endl;
@@ -444,22 +435,18 @@ bool runSnowman(int argc, char** argv) {
   }
 
   // read the indel mask
-  if (!SnowUtils::read_access_test(opt::indel_mask) && opt::indel_mask.length()) {
+  if (!SnowTools::read_access_test(opt::indel_mask) && opt::indel_mask.length()) {
     cerr << "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" << endl;
     cerr << "indel mask " << opt::indel_mask << " does not exist / is not readable. Skipping indel masking."  << endl;
     cerr << "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" << endl;
     opt::indel_mask = "";
   }
 
-  if (opt::indel_mask.length()) {
-    GenomicRegionVector grv_mask;
-    GenomicRegion::regionFileToGRV(opt::indel_mask, 0, &grv_mask);
-    grm_mask = GenomicRegion::createTreeMap(grv_mask);
-  }
-  
+  if (opt::indel_mask.length()) 
+    grv_mask.regionFileToGRV(opt::indel_mask, 0);
 
   // set the MiniRules
-  mr = new MiniRulesCollection(opt::rules);
+  mr = new SnowTools::MiniRulesCollection(opt::rules);
   if (opt::verbose > 0)
     cout << *mr;
 
@@ -468,15 +455,6 @@ bool runSnowman(int argc, char** argv) {
       printf("\n mutex init failed\n");
       return false;
   }
-
-  // Create the queue and consumer (worker) threads
-//   wqueue<SnowmanWorkItem*>  queue;
-//   vector<ConsumerThread<SnowmanWorkItem>*> threadqueue;
-//   for (unsigned i = 0; i < opt::numThreads; i++) {
-//     ConsumerThread<SnowmanWorkItem>* threadr = new ConsumerThread<SnowmanWorkItem>(queue, opt::verbose > 0);
-//     threadr->start();
-//     threadqueue.push_back(threadr);
-//   }
 
   // start the timer
   clock_gettime(CLOCK_MONOTONIC, &start);
@@ -508,14 +486,13 @@ bool runSnowman(int argc, char** argv) {
   if (opt::verbose)
     cout << "Starting detection pipeline." << endl;
 
-
   sendThreads(regions_torun);
   
   // close the BAMs
   my_handler(0);
 
   if (opt::verbose > 0) {
-    SnowUtils::displayRuntime(start);
+    SnowTools::displayRuntime(start);
     cout << endl;
   }
 
@@ -523,7 +500,7 @@ bool runSnowman(int argc, char** argv) {
 
 }
 
-bool grabReads(int refID, int pos1, int pos2, bwaidx_t* idx) {
+bool grabReads(const SnowTools::GenomicRegion &region, bwaidx_t* idx) {
 
   // place to store the contigs that are made and their read alignments
   AlignedContigVec alc;
@@ -535,266 +512,132 @@ bool grabReads(int refID, int pos1, int pos2, bwaidx_t* idx) {
   int num_n_reads = 0, num_t_reads = 0;
   SnowTimer st;
 
-  unique_ptr<BARMap> bar(new BARMap);
-
-  BamQC qc; // debug. This should be a heaped vector
-
-  // TODO make grabReads take GR
-  GenomicRegion gr(refID, pos1, pos2);
-  gr.pos1 = max(1, gr.pos1);
+  std::unordered_map<std::string, SnowmanBamWalker> walkers;
 
   st.start();
-  // get the regions to run
-  GenomicRegionVector grv_small = gr.divideWithOverlaps(LITTLECHUNK, WINDOW_PAD);
-    
-  // Open the BAMs and get the reads. only add to first (anchor)
-  for (auto& bam : opt::bam) {
 
-    // open a new BAM file at this region
-    unique_ptr<BamAndReads> b(new BamAndReads(gr, mr, opt::verbose, bam.first, bam.second, LITTLECHUNK, WINDOW_PAD));
-    //zauto b = make_unique<BamAndReads>(gr, mr, opt::verbose, bam.first, bam.second);
-    (*bar)[bam.first] = move(b);
-    
-    // grab the reads and assign them to assembly regions
-    (*bar)[bam.first]->readBam();
+  // loop through the input bams and get reads
+  for (auto& b : opt::bam)
+    {
+      // opt::bam is <filename, type>
+      walkers[b.first] = SnowmanBamWalker(b.first);
+      walkers[b.first].setBamWalkerRegion(region);
+      walkers[b.first].SetMiniRulesCollection(*mr);
 
-    // add the times
-    assert(bam.second.length() > 0);
-    if (bam.second.at(0) == 'n') {
-      num_n_reads += (*bar)[bam.first]->unique_reads;
-    } else if (bam.second.at(0) == 't') {
-      num_t_reads += (*bar)[bam.first]->unique_reads;
+      // read the reads
+      walkers[b.first].readBam();
     }
-  }
-
-  // return early if no reads found
-  //if ( (num_n_reads + num_t_reads) == 0)
-  //  return true;
-
-  // make the master blacklist
-  GenomicRegionVector master_black;
-  for (auto& bam : opt::bam) {      
-    master_black.insert(master_black.end(), (*bar)[bam.first]->blacklist.begin(), (*bar)[bam.first]->blacklist.end());
-  }
-  master_black = GenomicRegion::mergeOverlappingIntervals(master_black);
-  GenomicIntervalTreeMap black_tree = GenomicRegion::createTreeMap(master_black);
-
-  if (opt::verbose > 1)
-    for (auto& g : master_black)
-      cout << "blacklisting region from assembly in all BAMs " << g << endl;
-  
-  // loop through and remove reads from blacklist
-  if (master_black.size())
-  for (auto& bam : opt::bam) {
-    (*bar)[bam.first]->removeBlacklist(black_tree);
-    }
-
-#ifdef MATES
-  for (auto& bam : opt::bam)
-    (*bar)[bam.first]->calculateMateRegions();
-#endif
 
   st.stop("r");
 
   // make master normal cigarmap
   CigarMap cigmap_n, cigmap_t;
-  for (auto& bam : opt::bam) {
-    if (bam.second.at(0) == 'n') {
-      for (auto& c : (*bar)[bam.first]->cigmap)
+  for (auto& b : opt::bam) {
+    if (b.second.at(0) == 'n') {
+      for (auto& c : walkers[b.first].cigmap)
 	cigmap_n[c.first] += c.second;
-    } else if (bam.second.at(0) == 't') {
-      for (auto& c : (*bar)[bam.first]->cigmap)
+    } else if (b.second.at(0) == 't') {
+      for (auto& c : walkers[b.first].cigmap)
 	cigmap_t[c.first] += c.second;
     }
   }
-    
 
-#ifdef MATES
-
-  GenomicRegionVector mate_comb;
-  for (auto& bam : opt::bam) 
-    mate_comb.insert(mate_comb.begin(), (*bar)[bam.first]->mate_regions.begin(), (*bar)[bam.first]->mate_regions.end());
-  GenomicRegionVector mate_final = GenomicRegion::mergeOverlappingIntervals(checkReadsMateRegions(mate_comb, bar));
+  // get the mates from somatic 3+ mate regions
+  MateRegionVector somatic_mate_regions;
+  for (auto& b : opt::bam)
+    if (b.second.at(0) == 't')
+      somatic_mate_regions.concat(walkers[b.first].mate_regions);
   
-  // print it out
-  if (opt::verbose > 1) {
-    cout << "Looking up in BAM mate regions(" << mate_final.size() << ")" << endl;
-    if (opt::verbose > 2)
-      for (auto &i : mate_final)
-	cout << "    " << i << " width " << i.width() << " tcount " << i.tcount << " ncount " << i.ncount << endl;
-  }
-
-  // grab the mate reads
-  for (auto& bam : opt::bam) {
-    (*bar)[bam.first]->mate_regions = mate_final;
-    (*bar)[bam.first]->readMateBam();
-
-    // add the times
-    assert(bam.second.length() > 0);
-    if (bam.second.at(0) == 'n') {
-      num_n_reads += (*bar)[bam.first]->mate_unique_reads;
-    } else if (bam.second.at(0) == 't') {
-      num_t_reads += (*bar)[bam.first]->mate_unique_reads;
+  // add these regions to the walker and get the reads
+  for (auto& b : opt::bam)
+    {
+      walkers[b.first].setBamWalkerRegions(somatic_mate_regions.asGenomicRegionVector());
+      walkers[b.first].get_coverage = false;
+      walkers[b.first].get_mate_regions = false;
+      walkers[b.first].readBam();
     }
-
-    if (opt::verbose > 1) 
-      cout << bam.first << " " << *(*bar)[bam.first] << endl;
-  }
   st.stop("m");
-
-  // do the discordant read clustering. Put all reads in one vector,
-  // and dedupe doubles
+			
+  // do the discordant read clustering. Put all reads in one vector, and dedupe doubles
   unordered_map<string,bool> dd;
 
   ReadVec reads_fdisc;
-  for (auto& bam : opt::bam) {
-    for (auto& v : (*bar)[bam.first]->arvec)
-      for (auto& r : v->reads) {
-	string tmp;
-	r_get_Z_tag(r, "SR", tmp);
-	if (dd.count(tmp) == 0) 
-	  reads_fdisc.push_back(r);
-	dd[tmp] = true;
-      }
+  for (auto& b : opt::bam) {
+    for (auto& r : walkers[b.first].reads) {
+      string tmp;
+      r_get_Z_tag(r, "SR", tmp);
+      if (dd.count(tmp) == 0) 
+	reads_fdisc.push_back(r);
+      dd[tmp] = true;
+    }
   }
 
-  //debug
-  /*BamWriter writ;
-  writ.Open("tmp.bam", treader_for_convert->GetHeaderText(), treader_for_convert->GetReferenceData());
-  for (auto& r : reads_fdisc)
-    writ.SaveAlignment(*r);
-  writ.Close();
-  */
-
   // cluster the discordant reads
-  DMap this_disc = clusterDiscordantReads(reads_fdisc, gr);
+  DMap this_disc = clusterDiscordantReads(reads_fdisc, region);
   st.stop("cl");
-  
-#endif
-
 
   if (opt::verbose) {
-    string print1 = SnowUtils::AddCommas<int>(pos1);
-    string print2 = SnowUtils::AddCommas<int>(pos2);
+    string print1 = SnowTools::AddCommas<int>(region.pos1);
+    string print2 = SnowTools::AddCommas<int>(region.pos2);
     char buffer[140];
     sprintf (buffer, "...Got reads from chr%2s:%11s-%11s | T: %5d N: %5d", 
-	     treader_for_convert->GetReferenceData()[refID].RefName.c_str(),print1.c_str(),print2.c_str(),
+	     treader_for_convert->GetReferenceData()[region.chr].RefName.c_str(),print1.c_str(),print2.c_str(),
 	     num_t_reads, num_n_reads);
     std::cout << string(buffer) << std::endl;
   }
   
-  // do the assembly
-  // loop through each assembly region. There should be 1 to 1 
-  // concordance between grv_small and arvec in each BamAndReads
-  for (size_t i = 0; i < grv_small.size(); i++) {
-    
-    // be extra careful, check for dupes
-    // slow-ish, but just in case for weird mate overlaps
-    // If not, program crashes in SGA
-    unordered_map<string, bool> dupe_check; 
+  // set the regions to run
+  GRC grv_small(LITTLECHUNK, WINDOW_PAD, region);
+
+  // loop through the regions and do the assembly
+  for (auto& g : grv_small) {
     
     ReadVec bav_join;
-    for (auto& bam : *bar) {
-      if (bam.second->arvec[i]->reads.size() > 0)
-	for (auto& read : bam.second->arvec[i]->reads) {
-	  string tmp;
-	  r_get_Z_tag(read, "SR", tmp);
-	  //read->GetTag("SR", tmp);
-	  if (dupe_check.count(tmp) == 1)
-	    ;//cerr << "Unexpected duplicate: " << read->RefID << ":" << read->Position << " mate: " << read->MateRefID << ":" << read->MatePosition << " sr: " << tmp << endl;
-	  else {
-	    dupe_check[tmp] = true;
-	    bav_join.push_back(read);
+    for (auto& b : walkers)
+      {
+	for (auto& r : b.second.reads)
+	  {
+	    SnowTools::GenomicRegion read(r_id(r), r_pos(r), r_pos(r));
+	    SnowTools::GenomicRegion mate(r_mid(r), r_mpos(r), r_mpos(r));
+	    if (g.getOverlap(read) || g.getOverlap(mate))
+	      bav_join.push_back(r);
 	  }
-	}
-    }
-
-    // make the reads tables
-    ReadTable pRT;
-    for (auto& i : bav_join) {
-      SeqItem si;
-      string sr, seq = "";
-      r_get_SR(i, sr);
-      r_get_trimmed_seq(i, seq); 
-      assert(sr.length());
-      assert(seq.length());
-      r_get_trimmed_seq(i, seq);
-
-      si.id = sr;
-      si.seq = seq;
-      if (seq.length() >= 40 && (!opt::no_assemble_normal || sr.at(0) == 't'))
-	if ((seq.find(POLYT) == string::npos) && 
-	    (seq.find(POLYA) == string::npos) && 
-	    (seq.find(POLYC) == string::npos) && 
-	    (seq.find(POLYG) == string::npos) && 
-	    (seq.find(POLYCG) == string::npos) && 
-	    (seq.find(POLYAT) == string::npos) && 
-	    (seq.find("N") == string::npos))
-	  pRT.addRead(si);
-    }
-
-    ContigVector contigs;
-    ContigVector contigs1;
-    ContigVector contigs0;
-
-    // do the first round of assembly
-    string name = "c_" + to_string(grv_small[i].chr+1) + "_" + to_string(grv_small[i].pos1) + "_" + to_string(grv_small[i].pos2);
-
-    if (pRT.getCount() > 1 && pRT.getCount() <= 10000) {
-
-      if (opt::verbose > 4) {
-	cout << "Doing assembly on: " << name << " with " << pRT.getCount() << " reads" << endl; 
-
       }
 
-      // do the first round (on raw reads)
-      doAssembly(&pRT, name, contigs0, 0);
-      
-      for (size_t yy = 1; yy != 2; yy++) {
+    // set the contig uid
+    std::string name = "c_" + std::to_string(g.chr+1) + "_" + std::to_string(g.pos1) + "_" + std::to_string(g.pos2);
 
-	// do the second round (on assembled contigs)
-	ReadTable pRTc0(contigs0);
-	contigs.clear();
-	doAssembly(&pRTc0, name, contigs, yy);      
-	contigs0 = contigs;
-
-      }
+    // do the assemblies
+    SnowmanAssemblerEngine engine(name, opt::assemb::error_rate, opt::assemb::minOverlap, opt::readlen);
+    engine.fillReadTable(bav_join);
+    engine.performAssembly();
+    st.stop("as");
       
-      // de-dupe assemblies
-      st.stop("as");
-      
-      if (opt::verbose > 2)
-	cout << "Did assembly on: " << name << " with " << pRT.getCount() << " reads and " << contigs.size() << " contigs " << endl;
-      
-      // peform alignment of contigs to reference with BWA-MEM
-      BWAWrapper wrap;
-      BWAReadVec bwarv;
-      SamRecordVec samv;
-      for (auto& i : contigs) 
-	bwarv.push_back(BWARead(i.getID(), i.getSeq()));
-      wrap.addSequences(bwarv, idx, samv);
-
-      // make aligned contigs from SAM records
-      size_t new_alc_start = alc.size();
-      for (auto& r : samv) 
-	alc.push_back(AlignedContig(r.record, treader_for_convert, grv_small[i], cigmap_n, cigmap_t));
-
-      // dedupe
+    // peform alignment of contigs to reference with BWA-MEM
+    BWAWrapper wrap;
+    BWAReadVec bwarv;
+    SamRecordVec samv;
+    for (auto& i : engine.getContigs()) 
+      bwarv.push_back(BWARead(i.getID(), i.getSeq()));
+    wrap.addSequences(bwarv, idx, samv);
+    
+    // make aligned contigs from SAM records
+    size_t new_alc_start = alc.size();
+    for (auto& r : samv) 
+      alc.push_back(AlignedContig(r.record, treader_for_convert, g, cigmap_n, cigmap_t));
+    
+      // dedupe the contigs
       for (size_t i = new_alc_start; i < alc.size(); i++) 
 	for (size_t j = new_alc_start; j < alc.size(); j++) 
 	  if (alc[i].hasVariant() && alc[j].hasVariant() && !alc[i].m_skip && !alc[j].m_skip && i != j)
-	    if (alc[i].isWorse(alc[j])) {
+	    if (alc[i].isWorse(alc[j])) 
 	      alc[i].m_skip = true;
-	    }
+      
 
       // mark to remove contigs where the variants are all in the indel mask
-      if (opt::indel_mask.length()) {
+      if (opt::indel_mask.length()) 
 	for (size_t i = new_alc_start; i < alc.size(); i++)
-	  alc[i].blacklist(&grm_mask);
-	if (opt::verbose > 1)
-	  cout << "Marked indel blacklist from: " << name << " with " << pRT.getCount() << " reads and " << contigs.size() << " contigs " << endl;
-      }
-
+	  alc[i].blacklist(grv_mask);
 
       st.stop("bw");     
 
@@ -807,15 +650,11 @@ bool grabReads(int refID, int pos1, int pos2, bwaidx_t* idx) {
       }
       st.stop("sw");
       
-    } // end bav_join.size() > 1
   } // end the assembly regions loop
 
-
-#ifdef MATES
   // combine discordant reads with breaks
   combineContigsWithDiscordantClusters(this_disc, alc);
   st.stop("cl");
-#endif
 
   // get the breakpoints
   //BPVec bp_glob;
@@ -827,23 +666,16 @@ bool grabReads(int refID, int pos1, int pos2, bwaidx_t* idx) {
     }
   }
 
-#ifdef MATES
   // add discordant reads
   addDiscordantPairsBreakpoints(bp_glob, this_disc);
     
-  // add the clusters to the map
-  //for (auto& i : this_disc)
-  //  (*dmap)[i.first] = i.second;
-  discordant_counter += this_disc.size();
-#endif
-  
   // store the reads in a map of read2contig alignment
   // TODO fancy combine
   for (auto& it : alc) 
     if (!it.m_skip)
       for (auto& r : it.m_bamreads) 
 	this_r2c[to_string(r_flag(r)) + r_qname(r)] = r;
-#ifdef MATES
+
   // add in the reads from the discordant
   for (auto& i : this_disc) { 
     if (i.second.reads_mapq >= 10 && i.second.mates_mapq >= 10) {
@@ -853,8 +685,8 @@ bool grabReads(int refID, int pos1, int pos2, bwaidx_t* idx) {
 	this_r2c[to_string(r_flag(r.second)) + r_qname(r.second)] = r.second;
     }
   }
-#endif
-  read_counter += this_r2c.size();
+
+
 
   if (!hashits)
   for (auto& i : alc)
@@ -871,11 +703,11 @@ bool grabReads(int refID, int pos1, int pos2, bwaidx_t* idx) {
   // get the allelic fractions
   Coverage * tcov = NULL;
   Coverage * ncov = NULL;
-  for (auto& bam : opt::bam) {
-    if (bam.second == "t")
-      tcov = (*bar)[bam.first]->cov;
-    if (bam.second == "n")
-      ncov = (*bar)[bam.first]->cov;
+  for (auto& b : opt::bam) {
+    if (b.second.at(0) == 't')
+      tcov = &walkers[b.first].cov;
+    if (b.second.at(0) == 'n')
+      ncov = &walkers[b.first].cov;
   }
   for (auto& i : bp_glob)
     if (i.hasMinimal() && i.isindel)
@@ -886,6 +718,9 @@ bool grabReads(int refID, int pos1, int pos2, bwaidx_t* idx) {
   ////////////////////////////////////
   // write to the global contig out
   pthread_mutex_lock(&snow_lock);  
+
+  read_counter += this_r2c.size();
+  discordant_counter += this_disc.size();
   
   // write the r2c
   if (!opt::no_r2c)
@@ -932,23 +767,24 @@ bool grabReads(int refID, int pos1, int pos2, bwaidx_t* idx) {
 
   // write the coverage file
   if (opt::output_cov)
-    for (auto& bam : opt::bam) 
-      if (bam.second == "t")
-	(*os_coverage) << (*(*bar)[bam.first]->cov);
+    for (auto& b : opt::bam) 
+      if (b.second.at(0) == 't')
+	(*os_coverage) << walkers[b.first].cov;
   st.stop("wr");
 
   // display the run time
   if (opt::verbose > 0 && (num_t_reads + num_n_reads) > 0) {
-    string print1 = SnowUtils::AddCommas<int>(pos1);
-    string print2 = SnowUtils::AddCommas<int>(pos2);
+    string print1 = SnowTools::AddCommas<int>(region.pos1);
+    string print2 = SnowTools::AddCommas<int>(region.pos2);
     char buffer[140];
     sprintf (buffer, "Ran chr%2s:%11s-%11s | T: %5d N: %5d C: %5d R: %5d D: %5d | ", 
-	     treader_for_convert->GetReferenceData()[refID].RefName.c_str(),print1.c_str(),print2.c_str(),
+	     treader_for_convert->GetReferenceData()[region.chr].RefName.c_str(),print1.c_str(),print2.c_str(),
 	     num_t_reads, num_n_reads, 
 	     contig_counter, read_counter, discordant_counter);
+
     cout << string(buffer) << st << " | ";
-    SnowUtils::displayRuntime(start);
-    //int perc = SnowUtils::percentCalc<int>(CHR_LEN[refID] + pos2, 3100000000);
+    SnowTools::displayRuntime(start);
+    //int perc = SnowTools::percentCalc<int>(CHR_LEN[refID] + pos2, 3100000000);
     //cout << " % of WG done: " << perc << "%" << endl;
     cout << endl;
   }
@@ -1002,7 +838,6 @@ void parseRunOptions(int argc, char** argv) {
 	  opt::bam[tmp] = "n"; 
 	  break;
       case 'v': arg >> opt::verbose; break;
-      case 'i': arg >> opt::isize; break;
       case 'k': arg >> opt::regionFile; break;
       case 'e': arg >> opt::assemb::error_rate; break;
       case 'g': arg >> opt::refgenome; break;
@@ -1043,16 +878,13 @@ void parseRunOptions(int argc, char** argv) {
     }
 }
 
-// just get a count of how many jobs to run. Useful for limiting threads
-// also set the regions
-int countJobs(GenomicRegionVector &file_regions, GenomicRegionVector &run_regions/*, GenomicRegionVector &cov_regions*/) {
+// just get a count of how many jobs to run. Useful for limiting threads. Also set the regions
+int countJobs(GRC &file_regions, GRC &run_regions) {
 
   // open the region file if it exists
   bool rgfile = opt::regionFile.compare("x") != 0;
   if (rgfile) 
-    GenomicRegion::regionFileToGRV(opt::regionFile, 0, &file_regions);
-  //else if (!opt::ignore_skip_cent)
-  //  file_regions = GenomicRegion::non_centromeres; // from GenomicRegion.cpp
+    file_regions.regionFileToGRV(opt::regionFile, 0);
   else {
 
 #ifdef HAVE_BAMTOOLS
@@ -1072,7 +904,6 @@ int countJobs(GenomicRegionVector &file_regions, GenomicRegionVector &run_region
     }
 #endif
 
-  //  file_regions = GenomicRegion::getWholeGenome();
   }
 
   if (file_regions.size() == 0) {
@@ -1094,27 +925,31 @@ int countJobs(GenomicRegionVector &file_regions, GenomicRegionVector &run_region
   bool stoploop = false;
   while (jj < file_regions.size()) {
 
+    int fr_pos1 = file_regions.at(jj).pos1;
+    int fr_pos2 = file_regions.at(jj).pos2;
+    int fr_chr = file_regions.at(jj).chr;
+
     // if regions are greater than chunk, breakup
-    if ( (file_regions[jj].pos2 - file_regions[jj].pos1) > opt::chunk) {
-      startr = max(1,file_regions[jj].pos1-thispad);
+    if ( (fr_pos2 - fr_pos1) > opt::chunk) {
+      startr = max(1,fr_pos1-thispad);
       endr = startr + opt::chunk;
 
       do {
-        GenomicRegion grr(file_regions[jj].chr, startr, endr);
-		run_regions.push_back(grr);
-
-		if (endr == file_regions[jj].pos2)
-	  		stoploop = true;
-
-		kk++;
-		endr   = min(file_regions[jj].pos2, (kk+1)*opt::chunk + file_regions[jj].pos1 + thispad);
-		startr = min(file_regions[jj].pos2,  kk*opt::chunk + file_regions[jj].pos1);
-		//cov_endr   = min(file_regions[jj].pos2, (kk+1)*opt::chunk + file_regions[jj].pos1);
-
+	SnowTools::GenomicRegion grr(fr_chr, startr, endr);
+	run_regions.add(grr);
+	
+	if (endr == fr_pos2)
+	  stoploop = true;
+	
+	kk++;
+	endr   = min(fr_pos2, (kk+1)*opt::chunk + fr_pos1 + thispad);
+	startr = min(fr_pos2,  kk*opt::chunk + fr_pos1);
+	//cov_endr   = min(file_regions[jj].pos2, (kk+1)*opt::chunk + file_regions[jj].pos1);
+	
       } while (!stoploop);
-
+      
     } else { // region size is below chunk
-      run_regions.push_back(file_regions[jj]);
+      run_regions.add(file_regions.at(jj));
       //cov_regions.push_back(file_regions[jj]);
     }
     jj++;
@@ -1126,199 +961,6 @@ int countJobs(GenomicRegionVector &file_regions, GenomicRegionVector &run_region
 
 }
 
-// call the assembler
-void doAssembly(ReadTable *pRT, string name, ContigVector &contigs, int pass) {
-  
-  if (pRT->getCount() == 0)
-    return;
-
-#ifdef CLOCK_COUNTER
-  clock_t ct1_before = clock();
-#endif
-
-  // forward
-  SuffixArray* pSAf = new SuffixArray(pRT, 1, false); //1 is num threads. false is silent/no
-  RLBWT *pBWT= new RLBWT(pSAf, pRT);
-  //SBWT *pBWT= new SBWT(pSAf, pRT);
-
-  // reverse
-  pRT->reverseAll();
-  SuffixArray * pSAr = new SuffixArray(pRT, 1, false);
-  RLBWT *pRBWT = new RLBWT(pSAr, pRT);
-  //SBWT *pRBWT = new SBWT(pSAr, pRT);
-  pRT->reverseAll();
-  
-  // rmdup attempt
-  /*
-  pRT->setZero();
-  SeqItem si2;
-  ReadTable * pRT_nodup = new ReadTable();
-  while(pRT->getRead(si2)) {
-    if (!findOverlapBlocksExactSnow(si2.seq.toString(), pBWT, pRBWT))
-      pRT_nodup->addRead(si2);
-  }
-  if (pRT_nodup->getCount() == 0)
-    return;
-
-  // forward
-  SuffixArray* pSAf_rd = new SuffixArray(pRT_nodup, 1, false); //1 is num threads. false is silent/no
-  RLBWT *pBWT_rd= new RLBWT(pSAf_rd, pRT_nodup);
-
-  // reverse
-  pRT->reverseAll();
-  SuffixArray * pSAr_rd = new SuffixArray(pRT_nodup, 1, false);
-  RLBWT *pRBWT_rd = new RLBWT(pSAr_rd, pRT_nodup);
-  pRT_nodup->reverseAll();
-  */
-
-  pSAf->writeIndex();
-  pSAr->writeIndex();
-
-#ifdef CLOCK_COUNTER  
-  (*clock_counter) << pass << "," << "suffix" << "," << (clock() - ct1_before)<< "," << pRT->getCount() << std::endl;
-#endif
-
-  double errorRate = opt::assemb::error_rate;
-  int min_overlap = opt::assemb::minOverlap;
-  int cutoff = 0;
-  if (pass > 0) {
-    min_overlap = 50;
-    errorRate = 0.05;
-    cutoff = opt::readlen + 30;
-  }
-
-  int seedLength = min_overlap;
-  int seedStride = seedLength;
-  bool bIrreducibleOnly = true; // default
-
-  SnowmanOverlapAlgorithm* pOverlapper = new SnowmanOverlapAlgorithm(pBWT, pRBWT, 
-                                                       errorRate, seedLength, 
-                                                       seedStride, bIrreducibleOnly);
-
-
-  bool exact = false;
-  //exact = errorRate < 0.001f;
-  //pOverlapper->setExactModeOverlap(opt::assemb::error_rate < 0.001f/*false*/);
-  //pOverlapper->setExactModeIrreducible(opt::assemb::error_rate < 0.001f/*false*/);
-  pOverlapper->setExactModeOverlap(exact);
-  pOverlapper->setExactModeIrreducible(exact);
-
-  stringstream hits_stream;
-  stringstream asqg_stream;
-
-  SnowmanASQG::HeaderRecord headerRecord;
-  headerRecord.setOverlapTag(min_overlap);
-  headerRecord.setErrorRateTag(errorRate);
-  headerRecord.setInputFileTag("");
-  headerRecord.setContainmentTag(true); // containments are always present
-  headerRecord.setTransitiveTag(!bIrreducibleOnly);
-  headerRecord.write(asqg_stream);    
-
-  pRT->setZero();
-
-  size_t workid = 0;
-  SeqItem si;
-#ifdef CLOCK_COUNTER
-  clock_t ct_before = clock();
-#endif
-
-  size_t ocount = 0;
-  while (pRT->getRead(si) && (++ocount < MAX_OVERLAPS_PER_ASSEMBLY)) {
-
-    SeqRecord read;
-    read.id = si.id;
-    read.seq = si.seq;
-    OverlapBlockList obl;
-
-    OverlapResult rr = pOverlapper->overlapRead(read, min_overlap, &obl);
-
-    pOverlapper->writeOverlapBlocks(hits_stream, workid, rr.isSubstring, &obl);
-
-    SnowmanASQG::VertexRecord record(read.id, read.seq.toString());
-    record.setSubstringTag(rr.isSubstring);
-    record.write(asqg_stream);
-
-    workid++;
-
-  }
-#ifdef CLOCK_COUNTER  
-  (*clock_counter) << pass << "," <<"overlaps" << "," << (clock() - ct_before)  << "," << pRT->getCount() << std::endl;
-#endif
-
-  string line;
-  bool bIsSelfCompare = true;
-  ReadInfoTable* pQueryRIT = new ReadInfoTable(pRT);
-
-  while(getline(hits_stream, line)) {
-    size_t readIdx;
-    size_t totalEntries;
-    bool isSubstring; 
-    OverlapVector ov;
-    OverlapCommon::parseHitsString(line, pQueryRIT, pQueryRIT, pSAf, pSAr, bIsSelfCompare, readIdx, totalEntries, ov, isSubstring);
-    for(OverlapVector::iterator iter = ov.begin(); iter != ov.end(); ++iter)
-    {
-       SnowmanASQG::EdgeRecord edgeRecord(*iter);
-       edgeRecord.write(asqg_stream);
-    }
-
-  }
-
-  // optionally output the graph structure
-  if (opt::assemb::writeASQG) {
-
-    // write ASQG to file for visualization
-    stringstream asqgfile;
-    asqgfile << name << "pass_" << pass << ".asqg";
-    ofstream ofile(asqgfile.str(), ios::out);
-    ofile << asqg_stream.str();
-    ofile.close();
-
-    // write the hits stream file
-    stringstream hitsfile;
-    hitsfile << name << "pass_" << pass << ".hits";
-    ofstream ofile_hits(hitsfile.str(), ios::out);
-    ofile_hits << hits_stream.str();
-    ofile_hits.close();
-
-   }
-
-    // Get the number of strings in the BWT, this is used to pre-allocated the read table
-    delete pOverlapper;
-    delete pBWT; 
-    delete pRBWT;
-    delete pSAf;
-    delete pSAr;
-
-#ifdef CLOCK_COUNTER
-    clock_t ctA_before = clock();
-#endif
-
-    // PERFORM THE ASSMEBLY
-    assemble(asqg_stream, min_overlap, opt::assemb::maxEdges, opt::assemb::bExact, 
-	     opt::assemb::trimLengthThreshold, opt::assemb::bPerformTR, opt::assemb::bValidate, opt::assemb::numTrimRounds, 
-	     opt::assemb::resolveSmallRepeatLen, opt::assemb::numBubbleRounds, opt::assemb::gap_divergence, 
-	     opt::assemb::divergence, opt::assemb::maxIndelLength, cutoff, name + "_", contigs);
-
-#ifdef CLOCK_COUNTER  
-    (*clock_counter) << pass << "," << "assembly" << "," << (clock() - ctA_before) << "," << pRT->getCount() << std::endl;
-#endif
-
-    delete pQueryRIT;
-    asqg_stream.str("");
-    hits_stream.str("");
-
-    // print out some results
-    if (opt::verbose > 4) {
-      if (contigs.size() >= 1) {
-	cout << "Contig Count: " << contigs.size() << " at " << name << endl;
-	if (opt::verbose > 3)
-	  for (ContigVector::iterator i = contigs.begin(); i != contigs.end(); i++) 
-	    cout << "   " << i->getID() << " " << i->getSeq().length() << " " << i->getSeq() << std::endl;
-      }
-    }
-
-
-}
 
 /**
  * Merge breaks found by assembly with breaks from discordant clusters
@@ -1341,9 +983,9 @@ void combineContigsWithDiscordantClusters(DMap &dm, AlignedContigVec &contigs) {
       count++;
       
       // check the global break
-      GenomicRegion bp1 = i.m_global_bp.gr1; 
+      SnowTools::GenomicRegion bp1 = i.m_global_bp.gr1; 
       bp1.pad(padr);
-      GenomicRegion bp2 = i.m_global_bp.gr2; 
+      SnowTools::GenomicRegion bp2 = i.m_global_bp.gr2; 
       bp2.pad(padr);
       
       for (auto &kt : dm) { 
@@ -1433,7 +1075,7 @@ void writeR2C(ReadMap &r2c) {
 }
 
 // cluster the discordant reads
-DMap clusterDiscordantReads(ReadVec &bav, const GenomicRegion &interval) {
+DMap clusterDiscordantReads(ReadVec &bav, const SnowTools::GenomicRegion &interval) {
 
   // remove any reads that are not present twice or have sufficient isize
   unordered_map<string, int> tmp_map;
@@ -1709,10 +1351,10 @@ void cleanR2CBam() {
       a.GetTag("SW",sw);
       a.GetTag("AL",al);
 
-      SnowUtils::SmartAddTag(map[tmp],"CN",cn);
-      SnowUtils::SmartAddTag(map[tmp],"AL",al);
-      SnowUtils::SmartAddTag(map[tmp],"SW",sw);
-      SnowUtils::SmartAddTag(map[tmp],"DC",dc);
+      SnowTools::SmartAddTag(map[tmp],"CN",cn);
+      SnowTools::SmartAddTag(map[tmp],"AL",al);
+      SnowTools::SmartAddTag(map[tmp],"SW",sw);
+      SnowTools::SmartAddTag(map[tmp],"DC",dc);
 
     }
   }
@@ -1867,6 +1509,7 @@ void learnParameters() {
 
 
 // check reads against mate regions
+/*
 GenomicRegionVector checkReadsMateRegions(GenomicRegionVector mate_final, unique_ptr<BARMap>& bar) {
 
   GenomicRegionVector new_mate_final;
@@ -1886,23 +1529,22 @@ GenomicRegionVector checkReadsMateRegions(GenomicRegionVector mate_final, unique
     }
   }
   
-  /*
-  for (auto& i : mate_final) { // loop through the mate regions
-    for (auto& bam : opt::bam) { // loop through each BAM
+//   for (auto& i : mate_final) { // loop through the mate regions
+//     for (auto& bam : opt::bam) { // loop through each BAM
       
-      //for (auto& v : (*bar)[bam.first]->arvec) { // loop through all the assembly regions
-      //for (auto& r : v->reads) { // loop through the 
-	  if () {
-	    if (i.getOverlap(GenomicRegion(r_mid(r), r_mpos(r), r_mpos(r))) > 0) {
-	      if (bam.second.at(0) == 'n') 
-		i.ncount++;
-	      else
-		i.tcount++;
-	    }
-	    //}
-	  //}
-      }
-      } */
+//       //for (auto& v : (*bar)[bam.first]->arvec) { // loop through all the assembly regions
+//       //for (auto& r : v->reads) { // loop through the 
+// 	  if () {
+// 	    if (i.getOverlap(GenomicRegion(r_mid(r), r_mpos(r), r_mpos(r))) > 0) {
+// 	      if (bam.second.at(0) == 'n') 
+// 		i.ncount++;
+// 	      else
+// 		i.tcount++;
+// 	    }
+// 	    //}
+// 	  //}
+//       }
+//       } 
 
   for (auto& i : mate_final) {
     if (opt::verbose > 3)
@@ -1930,7 +1572,7 @@ GenomicRegionVector checkReadsMateRegions(GenomicRegionVector mate_final, unique
 
   return new_mate_final;
 }
-
+*/
 
 
 /*
@@ -2075,7 +1717,7 @@ SeqRecordVector toSeqRecordVector(ReadVec &bav) {
 }
 */  
 
-
+/*
 bool findOverlapBlocksExactSnow(const string &w, const BWT* pBWT,
 				const BWT* pRevBWT) {
 
@@ -2156,3 +1798,5 @@ if(left_ext.hasDNAChar() || right_ext.hasDNAChar())
 return false;
 
 }
+
+*/

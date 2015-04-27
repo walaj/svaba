@@ -2,7 +2,8 @@
 #define BAM_AND_READS_H
 
 #include <vector>
-#include "GenomicRegion.h"
+#include "SnowTools/GenomicRegion.h"
+#include "SnowTools/GenomicRegionVector.h"
 #include "VariantBamReader.h"
 #include "MiniRules.h"
 #include <time.h>
@@ -29,10 +30,12 @@ struct AssemblyRegion {
   ReadVec reads;
   GenomicRegion region;
 
-  GenomicRegionVector partner_windows;
-  GenomicIntervalTreeMap tree_pw;
+  //GenomicRegionVector partner_windows;
+  std::vector<GenomicRegion> partner_windows;
+  GenomicRegionVector partner_windows_full;
+  //GenomicIntervalTreeMap tree_pw;
 
-  void removeBlacklist(GenomicIntervalTreeMap &bt);
+  void removeBlacklist(GenomicIntervalVector &grv);
 };
 
 typedef vector<AssemblyRegion> AssemblyRegionVector;
@@ -74,7 +77,7 @@ struct BamAndReads {
 
   GenomicRegionVector blacklist;
 
-  void removeBlacklist(GenomicIntervalTreeMap &bt);
+  void removeBlacklist(GenomicRegionVector &grv);
 
   int read_time = 0; // timer in seconds for reading BAM
   int unique_reads = 0; // total number of unique reads to be assembled
@@ -84,9 +87,7 @@ struct BamAndReads {
   int mate_unique_reads = 0; // total number of unique reads to be assembled
   int mate_reads = 0; // total number of reads to be assembled (allows doubles, etc)
 
-#ifndef FORGORDON
   Coverage * cov = NULL;
-#endif
 
 #ifdef HAVE_HTSLIB
   // hts
@@ -100,12 +101,13 @@ struct BamAndReads {
 
   // what interval is this defined on
   GenomicRegion interval;
-  GenomicIntervalTreeMap tree;
+  //GenomicIntervalTreeMap tree;
+  GenomicRegionVector tree;
 
   CigarMap cigmap;
 
   GenomicRegionVector mate_regions;
-  GenomicIntervalTreeMap tree_with_mate;
+  //GenomicIntervalTreeMap tree_with_mate;
 
   // define how to read the bam
   MiniRulesCollection * mr;

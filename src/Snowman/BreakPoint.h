@@ -4,20 +4,25 @@
 #include <cstdlib>
 #include <string>
 #include <unordered_map>
-#include "GenomicRegion.h"
+
+#include "SnowTools/GenomicRegion.h"
+#include "SnowTools/GenomicRegionCollection.h"
+#include "SnowTools/HTSTools.h"
+
 #include "DiscordantCluster.h"
 #include "Coverage.h"
 
-#include "reads.h"
 
-using namespace std;
+using std::vector;
+using std::unordered_map;
+using std::cout;
+using std::cerr;
+using std::string;
+using std::stringstream;
 
 struct BreakPoint;
 typedef vector<BreakPoint> BPVec;
 typedef unordered_map<string, size_t> PON;
-//typedef unordered_map<string, BreakPoint> BPMap;
-//typedef shared_ptr<BamAlignment> BamAlignmentUP;
-//typedef vector<BamAlignmentUP> BamAlignmentUPVector;
 
 /**
  *
@@ -45,16 +50,22 @@ struct BreakPoint {
   DiscordantCluster dc;
 
   // breakpoints on the reference
-  GenomicRegion gr1;
-  GenomicRegion gr2;
+  SnowTools::GenomicRegion gr1;
+  SnowTools::GenomicRegion gr2;
 
   string read_names;
 
   size_t tcov = 0;
   size_t ncov = 0;
 
+  int mapq1 = 0;
+  int mapq2 = 0;
+
   int cpos1 = 0;  
   int cpos2 = 0;
+
+  int nm1 = 0;
+  int nm2 = 0;
 
   string seq;
 
@@ -104,7 +115,7 @@ struct BreakPoint {
   unsigned num_dups = 0;
    
   //Window window;
-  GenomicRegion window;
+  SnowTools::GenomicRegion window;
 
   //int span;
 
@@ -161,7 +172,7 @@ struct BreakPoint {
    * If the BreakPoint object is not an indel, no action is taken. 
    * @param grm An interval tree map created from a BED file containing blacklist regions
    */
-  void checkBlacklist(GenomicIntervalTreeMap *grm);
+  void checkBlacklist(SnowTools::GenomicRegionCollection<SnowTools::GenomicRegion> &grv);
 
   /*! Compute the allelic fraction (tumor and normal) for this BreakPoint.
    *
@@ -235,7 +246,7 @@ struct BreakPoint {
   friend ostream& operator<<(std::ostream& out, const BreakPoint& bp) { out << bp.toString(); return out; }
 
   // print to file
-  void printToFile(ofstream &of, const BamAlignmentVector &bamreads);
+  //void printToFile(ofstream &of, const BamAlignmentVector &bamreads);
 
 };
 

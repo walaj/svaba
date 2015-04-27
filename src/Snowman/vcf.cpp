@@ -6,12 +6,13 @@
 #include <time.h>
 #include <sstream>
 #include <regex>
-#include "GenomicRegion.h"
-#include "SnowUtils.h"
-#include "gzstream.h"
-#include "vcf2.h"
 
-#include "reads.h"
+#include "SnowTools/SnowUtils.h"
+#include "SnowTools/SnowToolsCommon.h"
+#include "SnowTools/gzstream.h"
+#include "SnowTools/GenomicRegionCollection.h"
+
+//#include "SnowTools/reads.h"
 #include "htslib/tbx.h"
 #include "htslib/bgzf.h"
 
@@ -64,7 +65,7 @@ namespace vopt {
   static string tumor = "tumor";
   static string analysis_id = "no_id";
 
-  static string ref_index = REFHG19;
+  static string ref_index = SnowTools::REFHG19;
 
   static int pad = 100;
   //static string outvcf = "vars.vcf";
@@ -240,25 +241,25 @@ void parseVCFOptions(int argc, char** argv) {
     }*/
   
   // make sure that the csv exists
-  if (vopt::csv != "" && !SnowUtils::existTest(vopt::csv)) {
+  if (vopt::csv != "" && !SnowTools::read_access_test(vopt::csv)) {
     die = true;
     cerr << "CSV file " << vopt::csv << " does not exist " << endl;
   }
 
   // make sure that the inputs exist
-  if (!SnowUtils::existTest(vopt::dranger) && vopt::dranger != "") {
+  if (!SnowTools::read_access_test(vopt::dranger) && vopt::dranger != "") {
     die = true;
     cerr << "############Supplied dRanger VCF does not exist: " << vopt::dranger << endl;
   }
-  if (!SnowUtils::existTest(vopt::brass) && vopt::brass != "") {
+  if (!SnowTools::read_access_test(vopt::brass) && vopt::brass != "") {
     die = true;
     cerr << "############Supplied Brass VCF does not exist: " << vopt::brass << endl;
   }
-  if (!SnowUtils::existTest(vopt::snowman) && vopt::snowman != "") {
+  if (!SnowTools::read_access_test(vopt::snowman) && vopt::snowman != "") {
     die = true;
     cerr << "############Supplied snowman VCF does not exist: " << vopt::snowman << endl;
   }
-  if (!SnowUtils::existTest(vopt::delly) && vopt::delly != "") {
+  if (!SnowTools::read_access_test(vopt::delly) && vopt::delly != "") {
     die = true;
     cerr << "############Supplied DELLY VCF does not exist: " << vopt::delly << endl;
   }
@@ -476,7 +477,7 @@ VCFEntry::VCFEntry(string line, string method) {
 
   smatch match;
   if (regex_search(line, match, reg)) {
-    chr = GenomicRegion::chrToNumber(match[1].str());
+    chr = SnowTools::GenomicRegion::chrToNumber(match[1].str());
     pos = stoi(match[2].str());
     id  = match[3].str();
     ref = match[4].str();
@@ -489,7 +490,7 @@ VCFEntry::VCFEntry(string line, string method) {
     samp2 = match[11].str();
 
     // scrub the chr from alt
-    alt = SnowUtils::scrubString(alt, "chr");
+    alt = SnowTools::scrubString(alt, "chr");
 
   } else {
     cerr << "VCF line " << line << " not matched" << endl;
@@ -549,7 +550,7 @@ std::ostream& operator<<(std::ostream& out, const VCFEntry& v) {
     info = info.substr(0, info.length() - 1);
 
   string sep = "\t";
-  out << GenomicRegion::chrToString(v.chr) << sep 
+  out << SnowTools::GenomicRegion::chrToString(v.chr) << sep 
       << v.pos << sep << v.id << sep << v.ref << sep << v.alt << sep << v.qual << sep
       << v.filter << sep << info << sep << v.format << sep << v.samp1 << sep << v.samp2;
 
@@ -778,9 +779,9 @@ VCFFile mergeVCFFiles(VCFFile const &v1, VCFFile const &v2) {
   //out.filename = vopt::outvcf;
 
   total = final_map.size();
-  int dperc = SnowUtils::percentCalc<int>(dprivate, total);
-  int sperc = SnowUtils::percentCalc<int>(sprivate, total);
-  int operc = SnowUtils::percentCalc<int>(ocount, total);
+  int dperc = SnowTools::percentCalc<int>(dprivate, total);
+  int sperc = SnowTools::percentCalc<int>(sprivate, total);
+  int operc = SnowTools::percentCalc<int>(ocount, total);
 
   // print some statistics
   if (vopt::verbose > 0) {
@@ -795,9 +796,9 @@ VCFFile mergeVCFFiles(VCFFile const &v1, VCFFile const &v2) {
     cout << buffer << endl;
   }
 
-  ospan = SnowUtils::cutLastChar(ospan);
-  sspan = SnowUtils::cutLastChar(sspan);
-  dspan = SnowUtils::cutLastChar(dspan);
+  ospan = SnowTools::cutLastChar(ospan);
+  sspan = SnowTools::cutLastChar(sspan);
+  dspan = SnowTools::cutLastChar(dspan);
 
   // write the stats file
   ofstream out_stat;
@@ -973,10 +974,10 @@ VCFFile::VCFFile(string file, const char* index, char sep, string analysis_id) {
       val_counter++;
       //cout << val_counter << " " << val << endl;
       switch (val_counter) {
-      case 1 : vcf1.chr = GenomicRegion::chrToNumber(val); break;
+      case 1 : vcf1.chr = SnowTools::GenomicRegion::chrToNumber(val); break;
       case 2 : vcf1.pos = stoi(val); break;
       case 3 : strand1 = val; break;
-      case 4 : vcf2.chr = GenomicRegion::chrToNumber(val); break;
+      case 4 : vcf2.chr = SnowTools::GenomicRegion::chrToNumber(val); break;
       case 5 : vcf2.pos = stoi(val); break;
       case 6 : strand2 = val; break;
       case 7: info_fields["SPAN"] = val; break;
@@ -1120,8 +1121,8 @@ VCFFile::VCFFile(string file, const char* index, char sep, string analysis_id) {
       //vcf2.samp1 = to_string(numn) + ":" + info_fields["NDISC"] + ":" + info_fields["NSPLIT"] + ":" + new_readid_n; 
       
       // grab the reference sequence
-      GenomicRegion gr1(vcf1.chr, vcf1.pos, vcf1.pos);
-      GenomicRegion gr2(vcf2.chr, vcf2.pos, vcf2.pos);
+      SnowTools::GenomicRegion gr1(vcf1.chr, vcf1.pos, vcf1.pos);
+      SnowTools::GenomicRegion gr2(vcf2.chr, vcf2.pos, vcf2.pos);
       if (vcf1.chr < 24 && vcf2.chr < 24) { // TODO FIX 
 	vcf1.ref = getRefSequence(gr1, findex);
 	vcf2.ref = getRefSequence(gr2, findex);
@@ -1129,8 +1130,8 @@ VCFFile::VCFFile(string file, const char* index, char sep, string analysis_id) {
       
       // set the reference position for making ALT tag
       stringstream ptag1, ptag2;
-      ptag1 << GenomicRegion::chrToString(vcf2.chr) << ":" << vcf2.pos;
-      ptag2 << GenomicRegion::chrToString(vcf1.chr) << ":" << vcf1.pos;
+      ptag1 << SnowTools::GenomicRegion::chrToString(vcf2.chr) << ":" << vcf2.pos;
+      ptag2 << SnowTools::GenomicRegion::chrToString(vcf1.chr) << ":" << vcf1.pos;
       
       //
       string insertion = vcf1.info_fields["INSERTION"];
@@ -1252,7 +1253,7 @@ VCFFile::VCFFile(string file, const char* index, char sep, string analysis_id) {
 
 	// get the reference
 	//vcf1.pos--; 
-	GenomicRegion ref(vcf1.chr, vcf1.pos, vcf2.pos-1);
+	SnowTools::GenomicRegion ref(vcf1.chr, vcf1.pos, vcf2.pos-1);
 	if (vcf1.chr < 24) {
 	  vcf1.ref = getRefSequence(ref, findex);
 	}
@@ -1266,7 +1267,7 @@ VCFFile::VCFFile(string file, const char* index, char sep, string analysis_id) {
 	//vcf1.info_fields["SPAN"] = to_string(abs(vcf1.pos - vcf2.pos) - 1);
 
 	// get the reference
-	GenomicRegion ref(vcf1.chr, vcf1.pos, vcf2.pos-1); //-1 so we don't include the final unaltered base
+	SnowTools::GenomicRegion ref(vcf1.chr, vcf1.pos, vcf2.pos-1); //-1 so we don't include the final unaltered base
 	if (vcf1.chr < 24) 
 	  vcf1.ref = getRefSequence(ref, findex);
 
@@ -1309,10 +1310,10 @@ VCFFile::VCFFile(string file, const char* index, char sep, string analysis_id) {
 }
 
 // return a sequence from the reference
-string getRefSequence(const GenomicRegion &gr, faidx_t * fi) {
+string getRefSequence(const SnowTools::GenomicRegion &gr, faidx_t * fi) {
 
   int len;
-  string chrstring = GenomicRegion::chrToString(gr.chr);
+  string chrstring = SnowTools::GenomicRegion::chrToString(gr.chr);
   char * seq = faidx_fetch_seq(fi, const_cast<char*>(chrstring.c_str()), gr.pos1-1, gr.pos2-1, &len);
   
   if (seq) {
@@ -1384,14 +1385,14 @@ template<typename T> T mergeHeaderMaps(T const &m1, T const &m2) {
 // find if one VCFEntryPair (breakpoint pair) overlaps with another
 bool VCFEntryPair::getOverlaps(int pad, VCFEntryPair &v) {
 
-  GenomicRegion gr1(e1.chr, e1.pos, e1.pos);
+  SnowTools::GenomicRegion gr1(e1.chr, e1.pos, e1.pos);
   gr1.pad(pad);
-  GenomicRegion gr2(e2.chr, e2.pos, e2.pos);
+  SnowTools::GenomicRegion gr2(e2.chr, e2.pos, e2.pos);
   gr2.pad(pad);
 
-  GenomicRegion t1(v.e1.chr, v.e1.pos, v.e1.pos);
+  SnowTools::GenomicRegion t1(v.e1.chr, v.e1.pos, v.e1.pos);
   t1.pad(pad);
-  GenomicRegion t2(v.e2.chr, v.e2.pos, v.e2.pos);
+  SnowTools::GenomicRegion t2(v.e2.chr, v.e2.pos, v.e2.pos);
   t2.pad(pad);
   
   if (!(t1 <= t2 && gr1 <= gr2)) {
@@ -1536,8 +1537,8 @@ string VCFEntryPair::toCSVString() const {
   if (readid.length() > 0)
     readid = readid.substr(0, readid.length() - 1);
   
-  ss << GenomicRegion::chrToString(e1.chr) << sep << e1.pos << sep << strand1 << sep 
-     << GenomicRegion::chrToString(e2.chr) << sep << e2.pos << sep << strand2;
+  ss << SnowTools::GenomicRegion::chrToString(e1.chr) << sep << e1.pos << sep << strand1 << sep 
+     << SnowTools::GenomicRegion::chrToString(e2.chr) << sep << e2.pos << sep << strand2;
   for (InfoMap::const_iterator it = union_info_fields.begin(); it != union_info_fields.end(); it++) {
     InfoMap::const_iterator ff = e1.info_fields.find(it->first);
     ss << sep;
@@ -1594,40 +1595,29 @@ FormatRecordMap FormatStringToFormatRecordMap(string format, string samp1, strin
 
 }
 
-
-/**
- *
- */
-VCFEntry::VCFEntry(unordered_map<string,string> &inf) {
-
-  
-
-
-
-}
-
 // deduplicate
 void VCFFile::deduplicate() {
 
   if (vopt::verbose)
     cout << "deduping events" << endl;
 
-  GenomicRegionVector grv;
+  SnowTools::GenomicRegionCollection<SnowTools::GenomicRegion> grv;
 
   // create the interval tree
   for (auto i : entry_pairs) { // todo add 
-    grv.push_back(GenomicRegion(i.second.e1.chr, i.second.e1.pos, i.second.e1.pos));
-    grv.push_back(GenomicRegion(i.second.e2.chr, i.second.e2.pos, i.second.e2.pos));
+    grv.add(SnowTools::GenomicRegion(i.second.e1.chr, i.second.e1.pos, i.second.e1.pos));
+    grv.add(SnowTools::GenomicRegion(i.second.e2.chr, i.second.e2.pos, i.second.e2.pos));
   }
+  grv.createTreeMap();
 
   // interval tree
-  GenomicIntervalTreeMap tree = GenomicRegion::createTreeMap(grv);
+  SnowTools::GenomicIntervalTreeMap tree = grv.m_tree;
 
   size_t count = 0;
 
   for (auto i : entry_pairs) {
     count++;
-    GenomicIntervalVector giv;
+    SnowTools::GenomicIntervalVector giv;
     tree[i.second.e1.chr].findContained(i.second.e1.pos-vopt::pad, i.second.e1.pos+vopt::pad, giv);
     tree[i.second.e2.chr].findContained(i.second.e2.pos-vopt::pad, i.second.e2.pos+vopt::pad, giv);
 

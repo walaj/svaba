@@ -5,6 +5,8 @@
 #include <iostream>
 #include <sstream>
 
+#include "AssemblyBamWalker.h"
+
 enum { 
   OPT_NO_READS
 };
@@ -75,7 +77,10 @@ void runAssembly2VCF(int argc, char** argv)
   // parse the options
   parseAssembly2VCFOptions(argc, argv);
 
-  // read in the 
+  // read in the assembly bam file
+  AssemblyBamWalker awalk(opt::assembly_bam);
+
+  
 
 }
 
