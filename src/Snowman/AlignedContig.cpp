@@ -1,14 +1,10 @@
 #include "AlignedContig.h"
 #include <regex>
-#include "GenomicRegion.h"
 #include <unordered_map>
-#include "api/algorithms/Sort.h"
-#include "SnowUtils.h"
 #include "SeqanTools.h"
 
 using namespace std;
 using namespace BamTools;
-
 
 /* HENG LI CODE FROM SAMTOOLS -> BAM_IMPORT.C  */
 #ifndef kroundup32
@@ -30,7 +26,7 @@ static inline uint8_t *alloc_data(bam1_t *b, int size)
 //#define SWALIGN 1
 #endif
 
-void AlignedContig::addAlignment(const BamTools::BamAlignment &align, const GenomicRegion &window,
+void AlignedContig::addAlignment(const BamTools::BamAlignment &align, const SnowTools::GenomicRegion &window,
 				 const CigarMap &nmap, const CigarMap &tmap) { 
 
   AlignmentFragment tal(align, window, nmap, tmap); 
@@ -41,12 +37,12 @@ void AlignedContig::addAlignment(const BamTools::BamAlignment &align, const Geno
 
 }
 
-void AlignedContig::printContigFasta(ofstream &ostream) const {
-  ostream << ">" << getContigName() << endl;
-  ostream << getSequence() << endl;
+void AlignedContig::printContigFasta(std::ofstream& os) const {
+  os << ">" << getContigName() << endl;
+  os << getSequence() << endl;
 }
 
-void AlignedContig::blacklist(GenomicIntervalTreeMap * grm) {
+void AlignedContig::blacklist(SnowTools::GenomicRegionCollection<SnowTools::GenomicRegion> &grv) {
 
  if (m_skip)
     return;
@@ -54,7 +50,7 @@ void AlignedContig::blacklist(GenomicIntervalTreeMap * grm) {
  // loop through the indel breaks and blacklist
  for (auto& i : m_align) 
    for (auto& j : i.indel_breaks) 
-     j.checkBlacklist(grm);
+     j.checkBlacklist(grv);
 
 }
 
@@ -132,12 +128,12 @@ ostream& operator<<(ostream& out, const AlignedContig &ac) {
      int32_t rc;
      r_get_int32_tag(i, "RC", rc);
      if (rc)
-       SnowUtils::rcomplement(seq);
+       SnowTools::rcomplement(seq);
 
      // get the more complex tags (since there can be multiple annotations per tag)
-     vector<int> posvec = SnowUtils::GetIntTag(i, "AL");
-     vector<int> swvec = SnowUtils::GetIntTag(i, "SW");
-     vector<string> cnvec = SnowUtils::GetStringTag(i, "CN");
+     vector<int> posvec = SnowTools::GetIntTag(i, "AL");
+     vector<int> swvec = SnowTools::GetIntTag(i, "SW");
+     vector<string> cnvec = SnowTools::GetStringTag(i, "CN");
      assert(posvec.size() == swvec.size());
      assert(cnvec.size() == posvec.size());
      size_t kk = 0;
@@ -212,10 +208,13 @@ void AlignedContig::setMultiMapBreakPairs() {
   // walk along the ordered contig list and make the breakpoint pairs  
   for (AlignmentFragmentVector::iterator it = m_align.begin(); it != m_align.end() - 1; it++) {
     
-    bp.gr1 = GenomicRegion(it->align.RefID, it->gbreak2, it->gbreak2);
-    bp.gr2 = GenomicRegion((it+1)->align.RefID, (it+1)->gbreak1, (it+1)->gbreak1);
-    bp.gr1.strand = it->align.IsReverseStrand() ? '-' : '+';
-    bp.gr2.strand = (it+1)->align.IsReverseStrand() ? '+' : '-';
+    bp.gr1 = SnowTools::GenomicRegion(it->align.RefID, it->gbreak2, it->gbreak2);
+    bp.gr2 = SnowTools::GenomicRegion((it+1)->align.RefID, (it+1)->gbreak1, (it+1)->gbreak1);
+    //bp.gr1.strand = it->align.IsReverseStrand() ? '-' : '+';
+    //bp.gr2.strand = (it+1)->align.IsReverseStrand() ? '+' : '-';
+    bp.gr1.strand = !it->align.IsReverseStrand();
+    bp.gr2.strand = (it+1)->align.IsReverseStrand();
+
     
     bp.cpos1 = it->break2; // take the right-most breakpoint as the first
     bp.cpos2 = (it+1)->break1;  // take the left-most of the next one
@@ -224,10 +223,10 @@ void AlignedContig::setMultiMapBreakPairs() {
     assert(bp.cpos2 < 10000);
 
     // set the mapq
-    bp.gr1.mapq = it->align.MapQuality;
-    bp.gr2.mapq = (it+1)->align.MapQuality;
+    bp.mapq1 = it->align.MapQuality;
+    bp.mapq2 = (it+1)->align.MapQuality;
     
-    assert(bp.gr1.mapq < 1000 && bp.gr2.mapq < 1000);
+    assert(bp.mapq1 < 1000 && bp.mapq2 < 1000);
     
     // set the local
     bp.local1 = it->local;
@@ -245,10 +244,10 @@ void AlignedContig::setMultiMapBreakPairs() {
     int nmtag;
     if (!it->align.GetTag("NM", nmtag))
       nmtag = 0;
-    bp.gr1.nm = nmtag;
+    bp.nm1 = nmtag;
     if (!(it+1)->align.GetTag("NM", nmtag))
       nmtag = 0;
-    bp.gr2.nm = nmtag;
+    bp.nm2 = nmtag;
     
     // set the insertion / homology
     try {
@@ -310,8 +309,11 @@ void AlignedContig::setMultiMapBreakPairs() {
    //m_global_bp.refID2 = m_align[bend].align.RefID; 
 
    // set the strands
-   m_global_bp.gr1.strand = m_align[bstart].align.IsReverseStrand() ? '-' : '+';
-   m_global_bp.gr2.strand = m_align[bend].align.IsReverseStrand()   ? '+' : '-';
+   //m_global_bp.gr1.strand = m_align[bstart].align.IsReverseStrand() ? '-' : '+';
+   //m_global_bp.gr2.strand = m_align[bend].align.IsReverseStrand()   ? '+' : '-';
+   m_global_bp.gr1.strand = !m_align[bstart].align.IsReverseStrand();
+   m_global_bp.gr2.strand = m_align[bend].align.IsReverseStrand();
+
 
    // set the splits
    //m_global_bp.nsplit1 = m_align[bstart].nsplit2;
@@ -323,10 +325,10 @@ void AlignedContig::setMultiMapBreakPairs() {
    //m_global_bp.tsplit = min(m_global_bp.tsplit1, m_global_bp.tsplit2);
 
    // set the mapping quality
-   m_global_bp.gr1.mapq = m_align[bstart].align.MapQuality;
-   m_global_bp.gr2.mapq = m_align[bend].align.MapQuality;
+   m_global_bp.mapq1 = m_align[bstart].align.MapQuality;
+   m_global_bp.mapq2 = m_align[bend].align.MapQuality;
 
-   if (m_global_bp.gr1.mapq > 60 || m_global_bp.gr2.mapq > 60) {
+   if (m_global_bp.mapq1 > 60 || m_global_bp.mapq2 > 60) {
      cerr << "bad mapq GLOBAL" << endl;
      cerr << m_global_bp.toString() << endl;
      cerr << " m_align size " << m_align.size() << " bstart " << bstart << " bend " << bend << endl;
@@ -363,7 +365,7 @@ string AlignedContig::printDiscordantClusters() const {
 }
 
 // make an aligned contig from a sam record
-AlignedContig::AlignedContig(const string &sam, const BamReader * reader, const GenomicRegion &twindow,
+AlignedContig::AlignedContig(const string &sam, const BamReader * reader, const SnowTools::GenomicRegion &twindow,
 			     const CigarMap &nmap, const CigarMap &tmap) {
   
   window = twindow;
@@ -411,7 +413,7 @@ AlignedContig::AlignedContig(const string &sam, const BamReader * reader, const 
 
       // deal with the cigar
       if (i == 5 && val != "*") 
-	a.CigarData = SnowUtils::stringToCigar(val);
+	a.CigarData = BamToolsUtils::stringToCigar(val);
 
       // process the tags
       //if (i > 10) 
@@ -512,7 +514,7 @@ void AlignedContig::alignReadsToContigs(ReadVec &bav) {
       } 
       if (!addread) {
 	RQB = QB;
-	SnowUtils::rcomplement(RQB);
+	SnowTools::rcomplement(RQB);
 	pos = m_seq.find(RQB);
 	if (pos != string::npos) {
 	  aligned_pos = pos;
@@ -533,8 +535,8 @@ void AlignedContig::alignReadsToContigs(ReadVec &bav) {
       
       // reverse complement the attempts
       if (!addread) {
-	SnowUtils::rcomplement(sub1);
-	SnowUtils::rcomplement(sub2);
+	SnowTools::rcomplement(sub1);
+	SnowTools::rcomplement(sub2);
       }
       
       // forwards SW didn't make it, try reverse
@@ -553,9 +555,9 @@ void AlignedContig::alignReadsToContigs(ReadVec &bav) {
       // add some tags. remove others
       if (addread) {
 	
-	SnowUtils::SmartAddTag(j, "AL", to_string(aligned_pos));
-	SnowUtils::SmartAddTag(j, "CN", getContigName());
-	SnowUtils::SmartAddTag(j, "SW", to_string(score));
+	SnowTools::SmartAddTag(j, "AL", to_string(aligned_pos));
+	SnowTools::SmartAddTag(j, "CN", getContigName());
+	SnowTools::SmartAddTag(j, "SW", to_string(score));
 	
 	int tt = isrev ? 1 : 0;
 	r_add_int32_tag(j, "RC", tt); // flag for rev comp
@@ -569,7 +571,7 @@ void AlignedContig::alignReadsToContigs(ReadVec &bav) {
   
 }
 
-AlignmentFragment::AlignmentFragment(const BamTools::BamAlignment &talign, const GenomicRegion &window, 
+AlignmentFragment::AlignmentFragment(const BamTools::BamAlignment &talign, const SnowTools::GenomicRegion &window, 
 				     const CigarMap &nmap, const CigarMap &tmap) {
   
   
@@ -582,16 +584,16 @@ AlignmentFragment::AlignmentFragment(const BamTools::BamAlignment &talign, const
 
   cigar = align.CigarData;
 
-  GenomicRegion tmpw = window;
+  SnowTools::GenomicRegion tmpw = window;
   tmpw.pad(1000);
 
-  if (tmpw.getOverlap(GenomicRegion(align.RefID, align.Position, align.Position)))
+  if (tmpw.getOverlap(SnowTools::GenomicRegion(align.RefID, align.Position, align.Position)))
     local = true;
 
   // orient cigar so it is on the contig orientation. 
   // need to do this to get the right ordering of the contig fragments below
   if (talign.IsReverseStrand())
-    SnowUtils::flipCigar(cigar);
+    BamToolsUtils::flipCigar(cigar);
 
   // find the start position of alignment ON CONTIG
   start = 0; 
@@ -625,7 +627,7 @@ AlignmentFragment::AlignmentFragment(const BamTools::BamAlignment &talign, const
   assert(break1 < 10000);
   assert(break2 < 10000);
   if (break1 < 0)
-    cout << "break " << break1 << " cigar "  << SnowUtils::cigarToString(cigar) << " frag " << *this << endl;
+    cout << "break " << break1 << " cigar "  << BamToolsUtils::cigarToString(cigar) << " frag " << *this << endl;
   assert(break1 >= 0);
   assert(break2 >= 0);
   
@@ -661,7 +663,7 @@ ostream& operator<<(ostream &out, const AlignmentFragment &c) {
   
   // print the info
   out << "    " << c.align.RefID + 1 << ":" << c.align.Position 
-      << " MAPQ: " << c.align.MapQuality << " OrientedCigar: " << SnowUtils::cigarToString(c.align.CigarData)
+      << " MAPQ: " << c.align.MapQuality << " OrientedCigar: " << BamToolsUtils::cigarToString(c.align.CigarData)
 	  << " Start: " << c.start
 	  << " Breaks: " << c.break1 << " " << c.break2 
       << " GenomeBreaks: " << c.gbreak1 << " " << c.gbreak2 << " cname " << c.m_name;
@@ -709,8 +711,8 @@ bool AlignedContig::isWorse(const AlignedContig &ac) const {
   if (!same)
     return false;
     
-  int mapq_this = max(bpv1.back()->gr1.mapq, bpv1.back()->gr2.mapq);
-  int mapq_that = max(bpv2.back()->gr1.mapq, bpv2.back()->gr2.mapq);
+  int mapq_this = max(bpv1.back()->mapq1, bpv1.back()->mapq2);
+  int mapq_that = max(bpv2.back()->mapq1, bpv2.back()->mapq2);
 
   if (mapq_this < mapq_that) {
     return true;
@@ -752,7 +754,7 @@ bool AlignmentFragment::parseIndelBreak(BreakPoint &bp) {
 
   // reject if last alignment is I or D
   CigarOpVec tmpcig = cigar;
-  SnowUtils::flipCigar(tmpcig);
+  BamToolsUtils::flipCigar(tmpcig);
   for (auto& i : tmpcig) {
     if (i.Type == 'D' || i.Type == 'I') {
       cerr << "rejcting cigar for ending in I or D" << endl;
@@ -808,10 +810,10 @@ bool AlignmentFragment::parseIndelBreak(BreakPoint &bp) {
   bp.cpos2 = -1;
   bp.num_align = 1;
   bp.cname = m_name;
-  bp.gr1.mapq = align.MapQuality;
-  bp.gr2.mapq = align.MapQuality;
-  bp.gr1.strand = '+';
-  bp.gr2.strand = '-';
+  bp.mapq1 = align.MapQuality;
+  bp.mapq2 = align.MapQuality;
+  bp.gr1.strand = true;
+  bp.gr2.strand = false;
 
   assert(bp.cname.length());
 

@@ -5,7 +5,7 @@
 #include <time.h>
 #include <ctime>
 #include <vector>
-#include "GenomicRegion.h"
+//#include "GenomicRegion.h"
 #include <unistd.h>
 
 #include "reads.h"

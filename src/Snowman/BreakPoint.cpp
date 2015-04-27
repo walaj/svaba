@@ -1,6 +1,10 @@
 #include "BreakPoint.h"
+
 #include <getopt.h>
-#include "gzstream.h"
+
+#include "SnowTools/gzstream.h"
+#include "SnowTools/SnowToolsCommon.h"
+
 #include "vcf.h"
 
 #define SPLIT_BUFF 12
@@ -14,7 +18,7 @@ namespace bopt {
   static bool noreads = false;
   static string indel_mask = "";
 
-  static string ref_index = REFHG19;
+  static string ref_index = SnowTools::REFHG19;
 
   static int verbose = 1;
 }
@@ -54,7 +58,7 @@ string BreakPoint::toString() const {
     stringstream out;
     out << cname << " " << gr1.chr+1 << ":" << gr1.pos1 << " to " << gr2.chr+1 << ":" << gr2.pos1 <<
       " Span: " << getSpan() << " MAPQ: " << 
-       gr1.mapq << "/" << gr2.mapq << " homology: " << 
+       mapq1 << "/" << mapq2 << " homology: " << 
        homology << " insertion: " << insertion << " NumDups: " << num_dups << " Nsplit: " << 
        nsplit << " Tsplit: " << tsplit << " Tdisc: " << dc.tcount << " Ndisc: " << dc.ncount 
 	<< " Ncigar " << ncigar << " Tcigar " << tcigar<< " cname " << cname; // << " isBest: " << isBest;
@@ -72,7 +76,7 @@ void BreakPoint::order() {
     if (gr1 < gr2)
       return;
 
-    GenomicRegion tmp = gr1;
+    SnowTools::GenomicRegion tmp = gr1;
     gr1 = gr2;
     gr2 = tmp;
     unsigned tmptsplit1 = tsplit1;  tsplit1 = tsplit2;  tsplit2 = tmptsplit1;
@@ -99,8 +103,8 @@ bool BreakPoint::isGoodSomatic(int mapq, size_t tsplit_cutoff, size_t nsplit_cut
   //int tmp_mapq1 = local1 ? 100 : mapq1; 
   //int tmp_mapq2 = local2 ? 100 : mapq2;
   
-  int tmp_mapq1 = gr1.mapq;
-  int tmp_mapq2 = gr2.mapq;
+  int tmp_mapq1 = mapq1;
+  int tmp_mapq2 = mapq2;
 
   // if the matching length is good enough, keep it
   tmp_mapq1 = matchlen1 > 250 ? 100 : tmp_mapq1;
@@ -110,7 +114,7 @@ bool BreakPoint::isGoodSomatic(int mapq, size_t tsplit_cutoff, size_t nsplit_cut
   bool qual = (min(tmp_mapq1, tmp_mapq2) >= mapq) || dc.tcount >= 1;
 
   // if it has split and discordant support, forget about mapq if it's high enoguh
-  qual = qual || (min(tsplit1, tsplit2) >= 1 && dc.tcount >= 3 && max(gr1.mapq, gr2.mapq) >= 30);
+  qual = qual || (min(tsplit1, tsplit2) >= 1 && dc.tcount >= 3 && max(mapq1, mapq2) >= 30);
 
   //bool enough_tum_reads = static_cast<double>(tall)/static_cast<double>(nall) >= 2 && max(tsplit1, tsplit2) > 0 && max(nsplit1, nsplit2) == 0 && tall >= 5;
   
@@ -134,10 +138,10 @@ bool BreakPoint::isGoodGermline(int mapq, size_t allsplit) const {
 
   // be extra extra careful for germline inter-chrom
   bool inter_ok = (gr1.chr == gr2.chr) || 
-    ( (gr1.mapq == 60 && gr2.mapq == 60) && (gr1.nm < 5 && gr2.nm < 5)  && (matchlen1 > 70 && matchlen2 > 70)  && total_disc_count >= 6 && dc.getMeanMapq() > 20);
+    ( (mapq1 == 60 && mapq2 == 60) && (nm1 < 5 && nm2 < 5)  && (matchlen1 > 70 && matchlen2 > 70)  && total_disc_count >= 6 && dc.getMeanMapq() > 20);
 
-  int tmp_mapq1 = gr1.mapq;
-  int tmp_mapq2 = gr2.mapq;
+  int tmp_mapq1 = mapq1;
+  int tmp_mapq2 = mapq2;
 
   // if the matching length is good enough, keep it
   tmp_mapq1 = matchlen1 > 250 ? 100 : tmp_mapq1;
@@ -213,7 +217,7 @@ string BreakPoint::toFileString(bool noreads) {
 
     if (split_count < 6 && (span > 1500 || span == -1))  // large and inter chrom need 7+
       confidence = "NODISC";
-    else if (max(gr1.mapq, gr2.mapq) != 60 || min(gr1.mapq, gr2.mapq) <= 50) 
+    else if (max(mapq1, mapq2) != 60 || min(mapq1, mapq2) <= 50) 
       confidence = "LOWMAPQ";
     else if ( split_count <= 3 && (span <= 1500 && span != -1) ) // small with little split
       confidence = "WEAKASSEMBLY";
@@ -226,9 +230,9 @@ string BreakPoint::toFileString(bool noreads) {
   } else if (num_align > 1 && hasDiscordant()) {
 
     double min_disc_mapq = min(dc.getMeanMapq(true), dc.getMeanMapq(false));
-    int min_assm_mapq = min(gr1.mapq, gr2.mapq);
+    int min_assm_mapq = min(mapq1, mapq2);
     //double max_disc_mapq = max(dc.getMeanMapq(true), dc.getMeanMapq(false));
-    int max_assm_mapq = max(gr1.mapq, gr2.mapq);
+    int max_assm_mapq = max(mapq1, mapq2);
     
     if ( (min_disc_mapq < 10 && min_assm_mapq < 30) || (max_assm_mapq < 40))
       confidence = "LOWMAPQ";
@@ -242,7 +246,7 @@ string BreakPoint::toFileString(bool noreads) {
     // score ones with discordant only
   } else if (num_align == 0) {
 
-    if (min(gr1.mapq, gr2.mapq) < 30 || max(gr1.mapq, gr2.mapq) <= 36) // mapq here is READ mapq (37 max)
+    if (min(mapq1, mapq2) < 30 || max(mapq1, mapq2) <= 36) // mapq here is READ mapq (37 max)
       confidence = "LOWMAPQ";
     else if ( disc_count < 8 || (dc.ncount > 0 && disc_count < 12) )  // be stricter about germline disc only
       confidence = "WEAKDISC";
@@ -266,7 +270,7 @@ string BreakPoint::toFileString(bool noreads) {
       confidence="WEAKASSEMBLY";
     else if ( cigar_count < 3 && getSpan() < 6)
       confidence="WEAKCIGARMATCH";
-    else if (gr1.mapq != 60)
+    else if (mapq1 != 60)
       confidence="LOWMAPQ";
     //else if (seq.find("AAAAAAAAAAA") != string::npos || seq.find("TTTTTTTTTTT") != string::npos || seq.find("TGTGTGTGTGTGTGTGTGTGTGTGTG") != string::npos)
     else if (repeat_seq.length() > 1 && pon > 0)
@@ -320,10 +324,10 @@ string BreakPoint::toFileString(bool noreads) {
   }
 
   // TODO convert chr to string with treader
-  ss << gr1.chr+1 << sep << gr1.pos1 << sep << gr1.strand << sep 
-     << gr2.chr+1 << sep << gr2.pos1 << sep << gr2.strand << sep 
+  ss << gr1.chr+1 << sep << gr1.pos1 << sep << (gr1.strand ? '+' : '-') << sep 
+     << gr2.chr+1 << sep << gr2.pos1 << sep << (gr2.strand ? '+' : '-') << sep 
      << getSpan() << sep
-     << gr1.mapq <<  sep << gr2.mapq << sep 
+     << mapq1 <<  sep << mapq2 << sep 
      << nsplit << sep << tsplit << sep
      << discordant_norm << sep << discordant_tum << sep
      << ncigar << sep << tcigar << sep
@@ -375,7 +379,7 @@ string BreakPoint::toFileString(bool noreads) {
   if ((tsplit + nsplit) < 6 && span > 1500 && !hasDiscordant()) 
     confidence = "NODISC";
   // assembly break, low mapq, no discordant
-  else if ((tsplit + nsplit) != 0 && gr1.mapq != 60 && gr2.mapq != 60 && !hasDiscordant())
+  else if ((tsplit + nsplit) != 0 && mapq1 != 60 && mapq2 != 60 && !hasDiscordant())
     confidence = "LOWMAPQ";
   // discordant only
   else if ((tsplit + nsplit) == 0 && hasDiscordant() && (dc.tcount + dc.ncount) < 6)
@@ -426,9 +430,9 @@ string BreakPoint::toFileString(bool noreads) {
 BreakPoint::BreakPoint(DiscordantCluster tdc) {
 
   dc = tdc;
-  gr1.pos1 = (tdc.reg1.strand == '+') ? tdc.reg1.pos2 : tdc.reg1.pos1;
+  gr1.pos1 = (tdc.reg1.strand) ? tdc.reg1.pos2 : tdc.reg1.pos1;
   gr1.pos2 = gr1.pos1;
-  gr2.pos1 = (tdc.reg2.strand == '+') ? tdc.reg2.pos2 : tdc.reg2.pos1;
+  gr2.pos1 = (tdc.reg2.strand) ? tdc.reg2.pos2 : tdc.reg2.pos1;
   gr2.pos2 = gr2.pos1;
   gr1.chr = tdc.reg1.chr;
   gr2.chr = tdc.reg2.chr;
@@ -436,8 +440,8 @@ BreakPoint::BreakPoint(DiscordantCluster tdc) {
   gr1.strand = tdc.reg1.strand;
   gr2.strand = tdc.reg2.strand;
   
-  gr1.mapq = tdc.getMeanMapq(false); 
-  gr2.mapq = tdc.getMeanMapq(true); // mate
+  mapq1 = tdc.getMeanMapq(false); 
+  mapq2 = tdc.getMeanMapq(true); // mate
 
 }
 
@@ -480,7 +484,7 @@ void runRefilterBreakpoints(int argc, char** argv) {
     cout << "Analysis id: " << bopt::analysis_id << endl;
   }
 
-  if (!SnowUtils::read_access_test(bopt::input_file)) {
+  if (!SnowTools::read_access_test(bopt::input_file)) {
     std::cerr << "ERROR: Cannot read file " << bopt::input_file  << std::endl;
     exit(EXIT_FAILURE);
   }
@@ -502,16 +506,15 @@ void runRefilterBreakpoints(int argc, char** argv) {
   BreakPoint::readPON(bopt::pon, pmap);
   
   // read the indel mask
-  GenomicIntervalTreeMap grm_mask;
-  if (!SnowUtils::read_access_test(bopt::indel_mask) && bopt::indel_mask.length()) {
+  //GenomicIntervalTreeMap grm_mask;
+  if (!SnowTools::read_access_test(bopt::indel_mask) && bopt::indel_mask.length()) {
     cerr << "indel mask " << bopt::indel_mask << " does not exist / is not readable. Skipping indel masking."  << endl;
     bopt::indel_mask = "";
   }
-  if (bopt::indel_mask.length()) {
-    GenomicRegionVector grv_mask;
-    GenomicRegion::regionFileToGRV(bopt::indel_mask, 0, &grv_mask);
-    grm_mask = GenomicRegion::createTreeMap(grv_mask);
-  }
+
+  SnowTools::GenomicRegionCollection<SnowTools::GenomicRegion> grv_mask;
+  if (bopt::indel_mask.length()) 
+    grv_mask.regionFileToGRV(bopt::indel_mask, 0);
 
   ogzstream oz(bopt::output_file.c_str(), ios::out);
   if (!oz) {
@@ -541,11 +544,11 @@ void runRefilterBreakpoints(int argc, char** argv) {
     bp.checkPon(pmap);
 
     // check for blacklist
-    bp.checkBlacklist(&grm_mask);
+    bp.checkBlacklist(grv_mask);
 
     // check for repeat sequence
     if (bp.gr1.chr < 24) {
-      GenomicRegion gr = bp.gr1;
+      SnowTools::GenomicRegion gr = bp.gr1;
       gr.pad(20);
       string seqr = getRefSequence(gr, findex);
       vector<string> repr = {"AAAAAAAA", "TTTTTTTT", "CCCCCCCC", "GGGGGGGG", 
@@ -590,13 +593,13 @@ BreakPoint::BreakPoint(string &line) {
       switch(++count) {
       case 1: gr1.chr = stoi(val) - 1; break;
       case 2: gr1.pos1 = stoi(val); gr1.pos2 = gr1.pos1; break;
-      case 3: gr1.strand = val.at(0); break;
+      case 3: gr1.strand = val.at(0)=='+'; break;
       case 4: gr2.chr = stoi(val) - 1; break;
       case 5: gr2.pos1 = stoi(val); gr2.pos2 = gr2.pos1; break;
-      case 6: gr2.strand = val.at(0); break;
+      case 6: gr2.strand = val.at(0)=='+'; break;
 	//case 7: span = stoi(val); break;
-      case 8: gr1.mapq = stoi(val); break;
-      case 9: gr2.mapq = stoi(val); break;
+      case 8: mapq1 = stoi(val); break;
+      case 9: mapq2 = stoi(val); break;
       case 10: nsplit = stoi(val); break;
       case 11: tsplit = stoi(val); break;
       case 12: dc.ncount = stoi(val); break;
@@ -697,8 +700,8 @@ void BreakPoint::splitCoverage(ReadVec &bav) {
     r_get_trimmed_seq(j, seq);
     assert(seq.length() > 0);
     
-    string qname = SnowUtils::GetStringTag(j, "CN").back();
-    int pos = SnowUtils::GetIntTag(j, "AL").back();
+    string qname = SnowTools::GetStringTag(j, "CN").back();
+    int pos = SnowTools::GetIntTag(j, "AL").back();
     
     if (qname != cname)
       cerr << "qname " << qname << "cname " << cname << endl;
@@ -740,7 +743,7 @@ void BreakPoint::splitCoverage(ReadVec &bav) {
       
     }
   }
-  //cout << "tsplit1 " << tsplit1 << " nsplit1 " << nsplit1 << " tsplit2 " << tsplit2 << " nsplit2 " << nsplit2 << " mapq1 " << gr1.mapq << " gr2.mapq " << gr2.mapq << " cname " << cname << " bp " << *this << endl;
+  //cout << "tsplit1 " << tsplit1 << " nsplit1 " << nsplit1 << " tsplit2 " << tsplit2 << " nsplit2 " << nsplit2 << " mapq1 " << mapq1 << " mapq2 " << mapq2 << " cname " << cname << " bp " << *this << endl;
 }
 
 string BreakPoint::getHashString() const {
@@ -874,17 +877,21 @@ string BreakPoint::toPrintString() const {
 
 }
 
-void BreakPoint::checkBlacklist(GenomicIntervalTreeMap * grm) {
+void BreakPoint::checkBlacklist(SnowTools::GenomicRegionCollection<SnowTools::GenomicRegion> &grv) {
 
   if (!isindel)
     return;
 
-  GenomicIntervalTreeMap::iterator ff = grm->find(gr1.chr);
-  if (ff != grm->end()) {
-    GenomicIntervalVector grv;
-    ff->second.findOverlapping(gr1.pos1, gr1.pos2, grv);
-    if (grv.size()) { // blacklist found
-      blacklist = true;
-    }
-  }
+  if (grv.findOverlapping(gr1))
+    blacklist = true;
+
+//   GenomicIntervalTreeMap::iterator ff = grm->find(gr1.chr);
+//   if (ff != grm->end()) {
+//     GenomicIntervalVector grv;
+//     ff->second.findOverlapping(gr1.pos1, gr1.pos2, grv);
+//     if (grv.size()) { // blacklist found
+//       blacklist = true;
+//     }
+//   }
+
 }

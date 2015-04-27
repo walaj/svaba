@@ -2,45 +2,50 @@
 #define SNOWMAN_RUN_H
 
 #include <string>
+#include <vector>
+#include <pthread.h>
+#include <ctime>
 
 #include "ReadTable.h"
-#include <pthread.h>
 #include "workqueue.h"
-#include <vector>
+
+#include "BamToolsUtils.h"
+#include "SnowTools/GenomicRegion.h"
+#include "SnowTools/GenomicRegionCollection.h"
+#include "SnowTools/SnowUtils.h"
+
 #include "contigs.h"
-#include "api/algorithms/Sort.h"
-#include "GenomicRegion.h"
 #include "AlignedContig.h"
 #include "DiscordantCluster.h"
-#include "BamAndReads.h"
-#include <time.h>
+#include "SnowmanBamWalker.h"
+
 #include "BWAWrapper.h"
 
 // needed for seq record vector
 #include "Util.h" 
-#include "reads.h"
 
 using namespace std;
+using SnowTools::GRC;
+using SnowTools::GR;
 
 typedef unordered_map<string, Read> ReadMap;
-typedef unordered_map<string, unique_ptr<BamAndReads> > BARMap;
+//typedef unordered_map<string, unique_ptr<BamAndReads> > BARMap;
 
 void initializeFiles();
 void addDiscordantPairsBreakpoints(BPVec &bp, DMap& dmap);
-GenomicRegionVector calculateClusters(ReadVec &bav);
-DMap clusterDiscordantReads(ReadVec &bav, const GenomicRegion &interval);
+GRC calculateClusters(ReadVec &bav);
+DMap clusterDiscordantReads(ReadVec &bav, const GR& interval);
 bool _cluster(vector<ReadVec> &cvec, ReadVec &clust, Read &a, bool mate);
-bool grabReads(int refID, int pos1, int pos2, bwaidx_t* idx);
+bool grabReads(const GR &egion, bwaidx_t* idx);
 bool runSnowman(int argc, char** argv);
 void parseRunOptions(int argc, char** argv);
 void writeR2C(ReadMap &r2c);
 void _convertToDiscordantCluster(DMap &dd, vector<ReadVec> cvec, ReadVec &bav);
 void doAssembly(ReadTable *pRT, std::string name, ContigVector &contigs, int pass);
-int countJobs(GenomicRegionVector &file_regions, GenomicRegionVector &run_regions);
-void cleanR2CBam();
+int countJobs(GRC& file_regions, GRC& run_regions);
 void combineContigsWithDiscordantClusters(DMap &dm, AlignedContigVec &contigs);
 void learnParameters();
-GenomicRegionVector checkReadsMateRegions(GenomicRegionVector mate_final, unique_ptr<BARMap>& bar);
+//SnowTools::GenomicRegionCollection<SnowTools::GenomicRegion> checkReadsMateRegions(SnowTools::GenomicRegionCollection<SnowTools::GenomicRegion> mate_final, unique_ptr<BARMap>& bar);
 SeqRecordVector toSeqRecordVector(ReadVec &bav);
 
 //bool findOverlapBlocksExactSnow(const string &w, const BWT* pBWT,
@@ -56,23 +61,18 @@ SeqRecordVector toSeqRecordVector(ReadVec &bav);
 class SnowmanWorkItem {
 
 private:
-  int m_refid; 
-  int m_pos1;
-  int m_pos2;
+  SnowTools::GenomicRegion m_gr;
   int m_number;  
   bwaidx_t * m_idx;
    
 public:
-  SnowmanWorkItem(int refid, int start, int end, int number, bwaidx_t* idx)  
-    : m_refid(refid), m_pos1(start), m_pos2(end), m_number(number), m_idx(idx) {}
+  SnowmanWorkItem(const SnowTools::GenomicRegion& gr, int number, bwaidx_t* idx)  
+    : m_gr(gr), m_number(number), m_idx(idx) {}
   ~SnowmanWorkItem() {}
  
   int getNumber() { return m_number; }
-  int getRefID() { return m_refid; }
-  int getPos1() { return m_pos1; }
-  int getPos2() { return m_pos2; }
 
-  bool run() { return grabReads(m_refid, m_pos1, m_pos2, m_idx); }
+  bool run() { return grabReads(m_gr, m_idx); }
 
 };
 
@@ -89,7 +89,7 @@ typedef std::binary_function<Read, Read, bool> AlignmentSortBase;
 struct ByMatePosition : public AlignmentSortBase {
   
   // ctor
-  ByMatePosition(const Algorithms::Sort::Order& order = Algorithms::Sort::AscendingOrder)
+  ByMatePosition(const BamTools::Algorithms::Sort::Order& order = BamTools::Algorithms::Sort::AscendingOrder)
     : m_order(order) { }
   
   // comparison function
@@ -101,17 +101,17 @@ struct ByMatePosition : public AlignmentSortBase {
     
     // if on same reference, sort on position
     if ( r_mid(lhs) == r_mid(rhs) )
-      return Algorithms::Sort::sort_helper(m_order, r_mpos(lhs), r_mpos(rhs));
+      return BamTools::Algorithms::Sort::sort_helper(m_order, r_mpos(lhs), r_mpos(rhs));
     
     // otherwise sort on reference ID
-    return Algorithms::Sort::sort_helper(m_order, r_mid(lhs), r_mid(rhs));
+    return BamTools::Algorithms::Sort::sort_helper(m_order, r_mid(lhs), r_mid(rhs));
   }
   // used by BamMultiReader internals
   static inline bool UsesCharData(void) { return false; }
   
   // data members
   private:
-  const Algorithms::Sort::Order m_order;
+  const BamTools::Algorithms::Sort::Order m_order;
 };
 
 // define a sorter to sort by the Mate Position
@@ -119,7 +119,7 @@ typedef std::binary_function<Read, Read, bool> AlignmentSortBase;
 struct ByReadPosition : public AlignmentSortBase {
   
   // ctor
-  ByReadPosition(const Algorithms::Sort::Order& order = Algorithms::Sort::AscendingOrder)
+  ByReadPosition(const BamTools::Algorithms::Sort::Order& order = BamTools::Algorithms::Sort::AscendingOrder)
     : m_order(order) { }
   
   // comparison function
@@ -131,17 +131,17 @@ struct ByReadPosition : public AlignmentSortBase {
     
     // if on same reference, sort on position
     if ( r_id(lhs) == r_id(rhs) )
-      return Algorithms::Sort::sort_helper(m_order, r_pos(lhs), r_pos(rhs));
+      return BamTools::Algorithms::Sort::sort_helper(m_order, r_pos(lhs), r_pos(rhs));
     
     // otherwise sort on reference ID
-    return Algorithms::Sort::sort_helper(m_order, r_id(lhs), r_id(rhs));
+    return BamTools::Algorithms::Sort::sort_helper(m_order, r_id(lhs), r_id(rhs));
   }
   // used by BamMultiReader internals
   static inline bool UsesCharData(void) { return false; }
   
   // data members
   private:
-  const Algorithms::Sort::Order m_order;
+  const BamTools::Algorithms::Sort::Order m_order;
 };
 
 // define a sorter to sort by the Mate Position
@@ -149,7 +149,7 @@ typedef std::binary_function<Read, Read, bool> AlignmentSortBase;
 struct ByReadAndMatePosition : public AlignmentSortBase {
   
   // ctor
-  ByReadAndMatePosition(const Algorithms::Sort::Order& order = Algorithms::Sort::AscendingOrder)
+  ByReadAndMatePosition(const BamTools::Algorithms::Sort::Order& order = BamTools::Algorithms::Sort::AscendingOrder)
     : m_order(order) { }
 
   // comparison function
@@ -184,17 +184,17 @@ struct ByReadAndMatePosition : public AlignmentSortBase {
     
     // if on same reference, sort on position
     if ( Lref == Rref )
-      return Algorithms::Sort::sort_helper(m_order, Lpos, Rpos);
+      return BamTools::Algorithms::Sort::sort_helper(m_order, Lpos, Rpos);
     
     // otherwise sort on reference ID
-    return Algorithms::Sort::sort_helper(m_order, Lref, Rref);
+    return BamTools::Algorithms::Sort::sort_helper(m_order, Lref, Rref);
   }
   // used by BamMultiReader internals
   static inline bool UsesCharData(void) { return false; }
   
   // data members
   private:
-  const Algorithms::Sort::Order m_order;
+  const BamTools::Algorithms::Sort::Order m_order;
 };
 
 
@@ -238,12 +238,12 @@ struct SnowTimer {
     auto its = st.times.find("sw");
 
     sprintf (buffer, "R: %2d%% M: %2d%% D: %2d%% A: %2d%% B: %2d%% S: %2d%%", 
-	     SnowUtils::percentCalc<double>(itr->second, total_time),
-	     SnowUtils::percentCalc<double>(itm->second, total_time),
-	     SnowUtils::percentCalc<double>(itc->second, total_time),
-	     SnowUtils::percentCalc<double>(ita->second, total_time),
-	     SnowUtils::percentCalc<double>(itb->second, total_time),
-	     SnowUtils::percentCalc<double>(its->second, total_time));
+	     SnowTools::percentCalc<double>(itr->second, total_time),
+	     SnowTools::percentCalc<double>(itm->second, total_time),
+	     SnowTools::percentCalc<double>(itc->second, total_time),
+	     SnowTools::percentCalc<double>(ita->second, total_time),
+	     SnowTools::percentCalc<double>(itb->second, total_time),
+	     SnowTools::percentCalc<double>(its->second, total_time));
     out << string(buffer);
     return out;
   }

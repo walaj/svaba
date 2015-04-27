@@ -4,7 +4,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
-#include "GenomicRegion.h"
+#include "SnowTools/GenomicRegion.h"
 #include "AlignedContig.h"
 #include "faidx.h"
 
@@ -22,7 +22,7 @@ typedef unordered_map<string, pair<string,string>> FormatRecordMap;
 
 void runVCF(int argc, char** argv);
 void parseVCFOptions(int argc, char** argv);
-string getRefSequence(const GenomicRegion &gr, faidx_t *fi);
+string getRefSequence(const SnowTools::GenomicRegion &gr, faidx_t *fi);
 
 // structure to store a VCF header
 struct VCFHeader {
@@ -67,7 +67,6 @@ struct VCFEntry {
   VCFEntry() {}
   ~VCFEntry() {}
   VCFEntry(string line, string method);
-  VCFEntry(unordered_map<string,string> &inf);
 
   int chr = 0;
   int pos = 0;

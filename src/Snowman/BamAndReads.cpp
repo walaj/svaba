@@ -1,5 +1,5 @@
 #include "BamAndReads.h"
-#include "SnowUtils.h"
+#include "SnowTools/SnowUtils.h"
 
 using namespace std;
 
@@ -12,11 +12,11 @@ using namespace std;
 // divide the larger BAM chunk into smaller reigons for smaller assemblies
 void BamAndReads::divideIntoRegions() {
 
-  GenomicRegionVector grv = interval.divideWithOverlaps(littlechunk, window_pad);
+  tree = GenomicRegionVector(divideWithOverlaps(littlechunk, window_pad, interval);
   
-  tree = GenomicRegion::createTreeMap(grv);
+			  //tree = GenomicRegion::createTreeMap(grv);
   
-  for (auto i : grv) {
+  for (auto& i : grv) {
     AssemblyRegionUP ar(new AssemblyRegion(i));
     arvec.push_back(move(ar));
   }
@@ -33,8 +33,9 @@ void BamAndReads::readBam() {
 
   ReadVec this_reads;
   GenomicRegionVector black = _read_bam(this_reads, -1, true);
-
-  blacklist.insert(blacklist.end(), black.begin(), black.end());
+  
+  blacklist.concat(black);
+  //blacklist.insert(blacklist.end(), black.begin(), black.end());
 
   // transfer to assembly regions, place on heap
   for (auto& i : this_reads)
@@ -62,33 +63,68 @@ void BamAndReads::addRead(Read &r) {
   m_all_non_mate_reads[sr] = r;
 
   unique_reads++;
+  
+  // make the regions for this read and mate
+  GenomicRegion mate_read(r_mid(r), r_mpos(r), r_mpos(r));
+  std::vector<GenomicRegion> grv = {GenomicRegion(r_id(r), r_pos(r), r_pos(r)), mate_read};
+  GenomicRegionVector read_and_mate_regions(grv);
 
-  GenomicIntervalVector giv; 
+  // find which assembly regions in this interval overlap with read or mate
+  GenomicRegionVector overlaps;
+  std::vector<size_t> query_id, subject_id;
+  overlaps = tree.findOverlaps(grv, query_id, subject_id);
 
+  std::sort(query_id.begin(), query_id.end());
+  int prev_val = -1;
+  for (size_t i = 0; i < query_id.size(); ++i)
+    {
+      if (query_id[i] != prev_val) // haven't already added to this interval
+	{
+	  ++reads;
+	  arvec[i]->reads.push_back(r);
+
+	  // check that this is a region outside of the interval
+	  if (!arvec[i].region.getOverlaps(mate_read))
+	    if (r_mid(r) < 24 && r_mapq(r) > 0) // only add to possible partners if on normal chr and read itself has good mapq
+	      i->partner_windows.push_back(GenomicRegion(r_mid(r), r_mpos(r)-BUFF, r_mpos(r)+BUFF));
+	      //i->partner_windows.add(GenomicRegion(r_mid(r), r_mpos(r)-BUFF, r_mpos(r)+BUFF));
+	}
+    }
   // check read itself
-  tree[r_id(r)].findOverlapping(r_pos(r), r_pos(r), giv);
-  size_t num_read_intervals = giv.size();
+  //tree[r_id(r)].findOverlapping(r_pos(r), r_pos(r), giv);
+  //size_t num_read_intervals = giv.size();
+  //std::vector<size_t> read_query_id, read_subject_id;
+  //GenomicRegionVector read_overlaps = tree.findOverlaps(GenomicRegionVector(GenomicRegion(r_id(r), r_pos(r), r_pos(r))), read_query_id, read_subject_id);
 
   // check mate to see if we should add this read to mates region too
   // if mate is in an interval, don't add to "partner windows" because we will read this already
   // "partner" windows is for pairmate regions to retreive separately.
-  if (r_is_mapped(r) && r_mpos(r) >= interval.pos1 && r_mpos(r) <= interval.pos2 && r_mid(r) == interval.chr)
-    tree[r_mid(r)].findOverlapping(r_mpos(r), r_mpos(r), giv);  
-  bool mate_in_interval = giv.size() > num_read_intervals;
+
+  //std::vector<size_t> query_id, subject_id;
+  //GenomicRegionVector overlaps;
+  //if (r_is_mapped(r) && r_mpos(r) >= interval.pos1 && r_mpos(r) <= interval.pos2 && r_mid(r) == interval.chr)
+  //  overlaps = tree.findOverlaps(GenomicRegionVector(GenomicRegion(r_mid(r), r_mpos(r), r_mpos(r))), query_id, subject_id)
+    //  tree[r_mid(r)].findOverlapping(r_mpos(r), r_mpos(r), giv);  
+    
+  //bool mate_in_interval = giv.size() > num_read_intervals;
+  //bool mate_in_diff_interval = overlaps.size() > read_overlaps.size();
 
   // loop through assembly regions, and then place the read there if it or its mate hits
   // TODO break if already found all
-  for (auto& i : arvec) 
-    for (auto& j : giv)
-      if (i->region.pos1 == j.start) { // read or mate hits this assembly region
-        reads++;
-	i->reads.push_back(r);
+
+  
+  
+  //for (auto& i : arvec) 
+  //  for (auto& j : giv)
+  //    if (i->region.pos1 == j.start) { // read or mate hits this assembly region
+  //      reads++;
+  //	i->reads.push_back(r);
 	
 	// add the partner window to this assembly region
-	if (!mate_in_interval && r_is_mmapped(r) && (r_mapq(r) > 0) && r_mid(r) < 24) // the mate is NOT in an assembly window. It's a partner to look up
-	  i->partner_windows.push_back(GenomicRegion(r_mid(r), r_mpos(r)-BUFF, r_mpos(r)+BUFF));
-	break;
-      }
+  //	if (!mate_in_diff_interval && r_is_mmapped(r) && (r_mapq(r) > 0) && r_mid(r) < 24) // the mate is NOT in an assembly window. It's a partner to look up
+    //  i->partner_windows.push_back(GenomicRegion(r_mid(r), r_mpos(r)-BUFF, r_mpos(r)+BUFF));
+  //break;
+  //  }
 }
 
 /*
@@ -151,7 +187,6 @@ void BamAndReads::addMateRead(BamAlignment &a) {
 
 }
 */
-
 // use the interval tree to see if a read should be added to different regions
 void BamAndReads::addMateRead(Read &r) {
 
@@ -165,15 +200,16 @@ void BamAndReads::addMateRead(Read &r) {
   // loop through assembly regions
   // if a read overlaps a partner window for this AssemblyRegion, add it
   for (auto& i : arvec) {
-    GenomicIntervalVector giv;
-    i->tree_pw[r_id(r)].findOverlapping(r_pos(r), r_pos(r), giv);
+    //GenomicIntervalVector giv;
+    //i->tree_pw[r_id(r)].findOverlapping(r_pos(r), r_pos(r), giv);
 
-    if (giv.size() > 0) {
-      i->reads.push_back(r);
-      mate_reads++;
-    }
+    if (i->partner_windows_full.findOverlapping(GenomicRegion(r_id(r), r_pos(r), r_pos(r))))
+      {
+	i->reads.push_back(r);
+	mate_reads++;
+      }
   }
-
+  
 }
 
 
@@ -269,17 +305,21 @@ ostream& operator<<(ostream &out, BamAndReads &bar) {
 
 void BamAndReads::calculateMateRegions() {
 
-  GenomicRegionVector grv;
+  std::vector<GenomicRegion> grv;
 
   for (auto& i : arvec) {
     
+    i->partner_windows_full = GenomicRegionVector(i->partner_windows);
+    i->partner_windows_full.mergeOverlappingIntervals();
+    i->partner_window_full.createTreeMap();
+    
     // merge the partner windows to find what regions to read
-    i->partner_windows = GenomicRegion::mergeOverlappingIntervals(i->partner_windows);
+    //i->partner_windows = GenomicRegion::mergeOverlappingIntervals(i->partner_windows);
     // make the tree
-    i->tree_pw = GenomicRegion::createTreeMap(i->partner_windows);
+    //i->tree_pw = GenomicRegion::createTreeMap(i->partner_windows);
     
     // make a growing list all partner regions
-    for (auto& q : i->partner_windows) {
+    for (auto& q : i->partner_windows_full) {
       if (q.width() > (BUFF * 2+1)) { // BUFF * 2 + 1 is width if only one read. 
 	q.pad(500);
 	grv.push_back(q);
@@ -288,7 +328,8 @@ void BamAndReads::calculateMateRegions() {
   }
 
   // merge them down
-  grv = GenomicRegion::mergeOverlappingIntervals(grv);
+  GenomicRegionVector grv_full(grv);
+  //grv = GenomicRegion::mergeOverlappingIntervals(grv);
   
   if (verbose > 3) {
     cout << "Calculated mate regions" << endl;
@@ -304,7 +345,8 @@ void BamAndReads::calculateMateRegions() {
     }
     }*/
 
-  mate_regions.insert(mate_regions.begin(), grv.begin(), grv.end());
+  mate_regions.concat(grv);
+  //mate_regions.insert(mate_regions.begin(), grv.begin(), grv.end());
 
 }
 
@@ -358,7 +400,7 @@ void BamAndReads::readMateBam() {
 // 
 GenomicRegionVector BamAndReads::_read_bam(ReadVec &reads, int limit, bool cover) {
 
-  GenomicRegionVector black;
+  std::vector<GenomicRegion> black;
 
   // if the bam is not opened, return
   if (!fp || !hts_itr)
@@ -372,7 +414,7 @@ GenomicRegionVector BamAndReads::_read_bam(ReadVec &reads, int limit, bool cover
 
   int pileup = 0;
 #ifdef HAVE_HTSLIB
-  void *dum; // needed by hts_itr_next, for some reason...
+  void *dum = 0; // needed by hts_itr_next, for some reason...
 #endif 
 
   for (;;) {
@@ -391,11 +433,9 @@ GenomicRegionVector BamAndReads::_read_bam(ReadVec &reads, int limit, bool cover
     
     bool validr = !r_is_dup(r) && !r_is_qc_fail(r);
     
-#ifndef FORGORDON
     // get the coverage
     if (cover && validr && r_is_primary(r))
       cov->addRead(r);
-#endif
 
     // immediately add cigar
     if (r_cig_size(r) > 1 && validr) {
@@ -475,8 +515,9 @@ GenomicRegionVector BamAndReads::_read_bam(ReadVec &reads, int limit, bool cover
 	for (auto& i : bam_buffer) {
 	  if (pos_width <= MATE_LOOKUP_WID) { // if the buffer have ~10x weird read coverage or higher, check for weird discordance
 	    if (r_is_pmapped(i))
-	      grv_tmp.push_back(GenomicRegion(r_mid(i), r_mpos(i) - 5000, r_mpos(i) + 5000));
-	    grv_tmp = GenomicRegion::mergeOverlappingIntervals(grv_tmp);
+	      grv_tmp.add_simple(GenomicRegion(r_mid(i), r_mpos(i) - 5000, r_mpos(i) + 5000));
+	    //grv_tmp = GenomicRegion::mergeOverlappingIntervals(grv_tmp);
+	    grv_tmp.mergeOverlappingIntervals();
 	  }
 	}
 	  
@@ -527,15 +568,16 @@ GenomicRegionVector BamAndReads::_read_bam(ReadVec &reads, int limit, bool cover
     //addRead(it);
   }
 
-  return black;
+  
+  return GenomicRegionVector(black);
 }
 
-void BamAndReads::removeBlacklist(GenomicIntervalTreeMap &bt) {
+void BamAndReads::removeBlacklist(GenomicRegionVector &grv) {
 
   size_t before = 0, after = 0;
   for (auto& v : arvec) {
     before += v->reads.size();
-    v->removeBlacklist(bt);
+    v->removeBlacklist(grv);
     after += v->reads.size();
   }
 
@@ -544,19 +586,24 @@ void BamAndReads::removeBlacklist(GenomicIntervalTreeMap &bt) {
 
 }
 
-void AssemblyRegion::removeBlacklist(GenomicIntervalTreeMap &bt) {
+void AssemblyRegion::removeBlacklist(GenomicRegionVector &grv) {
 
   ReadVec new_reads;
   GenomicRegionVector new_partner_windows;
 
   for (auto& r : reads) {
-    GenomicIntervalVector giv;
-    bt[r_id(r)].findOverlapping(r_pos(r), r_pos(r), giv);
-    bt[r_mid(r)].findOverlapping(r_mpos(r), r_mpos(r), giv);
-    if (giv.size() == 0) {
-      new_reads.push_back(r);
+    //GenomicIntervalVector giv;
+    size_t num_overlaps = grv.findOverlapping(GenomicRegion(r_id(r), r_pos(r), r_pos(r)));
+    num_overlaps += grv.findOverlapping(GenomicRegion(r_mid(r), r_mpos(r), r_mpos(r)));
+    
+    //bt[r_id(r)].findOverlapping(r_pos(r), r_pos(r), giv);
+    //bt[r_mid(r)].findOverlapping(r_mpos(r), r_mpos(r), giv);
+    if (num_overlaps == 0) {
+      new_reads.add_simple(r);
     }
   }
+  
+  new_reads.createTreeMap();
 
   reads = new_reads;
   new_reads.clear();

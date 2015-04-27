@@ -1,27 +1,23 @@
 #ifndef ALIGNED_CONTIG_H
 #define ALIGNED_CONTIG_H
 
-#include "Util.h" //TODO
-#include "GenomicRegion.h"
 #include <algorithm>
+
+#include "SnowTools/GenomicRegion.h"
+#include "SnowTools/GenomicRegionCollection.h"
+#include "SnowTools/SnowUtils.h"
+
+#include "BamToolsUtils.h"
 #include "BreakPoint.h"
-#include "AuxUtils.h"
-#include "api/BamReader.h"
-#include "api/BamWriter.h"
-#include "api/algorithms/Sort.h"
-#include "SnowUtils.h"
 
-#include "reads.h"
+using SnowTools::GRC;
 
-using namespace std;
-
-typedef vector<BamTools::CigarOp> CigarOpVec;
-typedef unordered_map<string, size_t> CigarMap;
+typedef std::vector<BamTools::CigarOp> CigarOpVec;
+typedef std::unordered_map<std::string, size_t> CigarMap;
 
 class AlignedContig;
-typedef unordered_map<string, AlignedContig> ContigMap;
-typedef vector<AlignedContig> AlignedContigVec;
-
+typedef std::unordered_map<std::string, AlignedContig> ContigMap;
+typedef std::vector<AlignedContig> AlignedContigVec;
 
 /*! This class contains a single alignment fragment from a contig to
  * the reference. For a multi-part mapping of a contig to the reference,
@@ -35,13 +31,13 @@ struct AlignmentFragment {
    * @param const reference to a BamAlignment
    * @param const reference to a GenomicRegion window where this contig was assembled from
    */
-  AlignmentFragment(const BamTools::BamAlignment &talign, const GenomicRegion &window, const CigarMap &nmap, const CigarMap &tmap);
+  AlignmentFragment(const BamTools::BamAlignment &talign, const SnowTools::GenomicRegion &window, const CigarMap &nmap, const CigarMap &tmap);
   
   //! sort AlignmentFragment objects by start position
   bool operator < (const AlignmentFragment& str) const { return (start < str.start); }
 
   //! print the AlignmentFragment
-  friend ostream& operator<<(ostream &out, const AlignmentFragment& c); 
+  friend std::ostream& operator<<(std::ostream &out, const AlignmentFragment& c); 
 
   /*! @function
    * @abstract Parse an alignment frag for a breakpoint
@@ -78,9 +74,9 @@ struct AlignmentFragment {
 
   bool local = false; /**< boolean to note whether this fragment aligns to same location is was assembled from */
 
-  string m_name; // name of the entire contig
+  std::string m_name; // name of the entire contig
   
-  string m_seq; // sequence of the entire contig
+  std::string m_seq; // sequence of the entire contig
 
 };
 
@@ -92,7 +88,7 @@ struct AlignmentFragment {
   };*/
 
 //! vector of AlignmentFragment objects
-typedef vector<AlignmentFragment> AlignmentFragmentVector;
+typedef std::vector<AlignmentFragment> AlignmentFragmentVector;
 
 /*! Contains the mapping of an aligned contig to the reference genome,
  * along with pointer to all of the reads aligned to this contig, and a 
@@ -107,14 +103,14 @@ class AlignedContig {
   /*! Constructor which parses an alignment record from BWA (a potentially multi-line SAM record)
    * @param const reference to a string representing a SAM alignment (contains newlines if multi-part alignment)
    * @param const pointer to a BamReader, which is used to convert chr ids to strings (e.g. X, Y)
-   * @param const reference to a GenomicRegion window specifying where in the reference this contig was assembled from.
+   * @param const reference to a SnowTools::GenomicRegion window specifying where in the reference this contig was assembled from.
    */
-  AlignedContig(const std::string &sam, const BamTools::BamReader * reader, const GenomicRegion &twindow, 
+  AlignedContig(const std::string &sam, const BamTools::BamReader * reader, const SnowTools::GenomicRegion &twindow, 
 		const CigarMap &nmap, const CigarMap &tmap);
 
-  string samrecord; /**< the original SAM record */
+  std::string samrecord; /**< the original SAM record */
 
-  GenomicRegion window; /**< reference window from where this contig was assembled */
+  SnowTools::GenomicRegion window; /**< reference window from where this contig was assembled */
 
   /*! @function Determine if this contig has identical breaks and is better than another.
    * @param const reference to another AlignedContig
@@ -126,7 +122,7 @@ class AlignedContig {
     @param  b  pointer to an alignment
     @return    boolean true if query is on the reverse strand
   */
-  void addAlignment(const BamTools::BamAlignment &align, const GenomicRegion &window, 
+  void addAlignment(const BamTools::BamAlignment &align, const SnowTools::GenomicRegion &window, 
 		    const CigarMap &nmap, const CigarMap &tmap);
 
   //! add a discordant cluster that maps to same regions as this contig
@@ -135,10 +131,10 @@ class AlignedContig {
   /*! @function loop through the vector of DiscordantCluster objects
    * associated with this contig and print
    */
-  string printDiscordantClusters() const;
+  std::string printDiscordantClusters() const;
 
   //! return the name of the contig
-  string getContigName() const { assert(m_align.size()); return m_align[0].align.Name; }
+  std::string getContigName() const { assert(m_align.size()); return m_align[0].align.Name; }
 
   /*! @function get the maximum mapping quality from all alignments
    * @return int max mapq
@@ -170,9 +166,9 @@ class AlignedContig {
   
   /*! Checks if any of the indel breaks are in a blacklist. If so, mark the
    * breakpoints of the indels for skipping. That is, hasMinmal() will return false;
-   * @param grm Inteval tree map of the blacklisted regions
+   * @param grv The blaclist regions
    */
-  void blacklist(GenomicIntervalTreeMap * grm);
+  void blacklist(GRC& grv);
 
   /*! @function if this is a Discovar contig, extract
    * the tumor and normal read support
@@ -185,7 +181,7 @@ class AlignedContig {
   /*! @function dump the contigs to a fasta
    * @param ostream to write to
    */
-  void printContigFasta(ofstream &ostream) const;
+  void printContigFasta(std::ofstream &os) const;
 
   /*! @function set the breakpoints on the reference by combining multi-mapped contigs
    */
@@ -199,15 +195,15 @@ class AlignedContig {
   void alignReadsToContigs(ReadVec &bav);
 
   //! return the contig sequence as it came off the assembler
-  string getSequence() const { assert(m_seq.length()); return m_seq; }
+  std::string getSequence() const { assert(m_seq.length()); return m_seq; }
 
   //! detemine if the contig contains a subsequence
-  bool hasSubSequence(const string& subseq) const { 
-    return (m_seq.find(subseq) != string::npos);
+  bool hasSubSequence(const std::string& subseq) const { 
+    return (m_seq.find(subseq) != std::string::npos);
   }
   
   //! print this contig
-  friend ostream& operator<<(ostream &out, const AlignedContig &ac);
+  friend std::ostream& operator<<(std::ostream &out, const AlignedContig &ac);
 
   /*! @function query if this contig contains a potential variant (indel or multi-map)
    * @return true if there is multimapping or an indel
@@ -217,10 +213,10 @@ class AlignedContig {
   /*! @function retrieves all of the breakpoints by combining indels with global mutli-map break
    * @return vector of ind
    */
-  vector<BreakPoint> getAllBreakPoints() const;
-  vector<const BreakPoint*> getAllBreakPointPointers() const ;
+  std::vector<BreakPoint> getAllBreakPoints() const;
+  std::vector<const BreakPoint*> getAllBreakPointPointers() const ;
 
-  vector<BreakPoint> m_local_breaks; // store all of the multi-map BreakPoints for this contigs 
+  std::vector<BreakPoint> m_local_breaks; // store all of the multi-map BreakPoints for this contigs 
 
   BreakPoint m_global_bp;  // store the single spanning BreakPoing for this contig e
 
@@ -236,17 +232,17 @@ class AlignedContig {
 
   bool m_tried_align_reads = false; // flag to specify whether we tried to align reads.
 
-  string m_seq = ""; // sequence of contig as it came off of assembler
+  std::string m_seq = ""; // sequence of contig as it came off of assembler
 
-  vector<DiscordantCluster> m_dc; // collection of all discordant clusters that map to same location as this contig
+  std::vector<DiscordantCluster> m_dc; // collection of all discordant clusters that map to same location as this contig
 
 };
 
 struct PlottedRead {
 
   int pos;
-  string seq;
-  string info;
+  std::string seq;
+  std::string info;
 
   bool operator<(const PlottedRead& pr) const {
     return (pos < pr.pos);
@@ -254,11 +250,11 @@ struct PlottedRead {
 
 };
 
-typedef vector<PlottedRead> PlottedReadVector;
+typedef std::vector<PlottedRead> PlottedReadVector;
 
 struct PlottedReadLine {
 
-  vector<PlottedRead*> read_vec;
+  std::vector<PlottedRead*> read_vec;
   int available = 0;
   int contig_len = 0;
 
@@ -271,16 +267,16 @@ struct PlottedReadLine {
     return (r.pos >= available);
   }
 
-  friend ostream& operator<<(ostream& out, const PlottedReadLine &r) {
+  friend std::ostream& operator<<(std::ostream& out, const PlottedReadLine &r) {
     int last_loc = 0;
     for (auto& i : r.read_vec) {
       assert(i->pos - last_loc >= 0);
-      out << string(i->pos - last_loc, ' ') << i->seq;
+      out << std::string(i->pos - last_loc, ' ') << i->seq;
       last_loc = i->pos + i->seq.length();
     }
     int name_buff = r.contig_len - last_loc;
     assert(name_buff < 10000);
-    out << string(max(name_buff, 5), ' ');
+    out << std::string(max(name_buff, 5), ' ');
     for (auto& i : r.read_vec) { // add the data
       out << i->info << ",";
     }
@@ -289,7 +285,7 @@ struct PlottedReadLine {
 
 };
 
-typedef vector<PlottedReadLine> PlottedReadLineVector;
+typedef std::vector<PlottedReadLine> PlottedReadLineVector;
 
 
 

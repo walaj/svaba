@@ -1,12 +1,12 @@
 #include "genpon.h"
+
 #include <getopt.h>
 #include <string>
 #include <unordered_map>
-#include <memory>
-#include "gzstream.h"
 #include <sstream>
-//#include "reads.h"
-#include "SnowUtils.h"
+
+#include "SnowTools/gzstream.h"
+#include "SnowTools/SnowUtils.h"
 
 using namespace std;
 
@@ -165,7 +165,7 @@ void runGeneratePON(int argc, char** argv) {
   cout << "PON output file: " << popt::output_file << endl;
   cout << "Collapse PON:    " << (popt::collapse ? "ON" : "OFF") << endl;
 
-  bool list_exist = SnowUtils::read_access_test(popt::file_list);
+  bool list_exist = SnowTools::read_access_test(popt::file_list);
   if (list_exist) {
     if (popt::verbose)
       cout << "...combining PON" << endl;

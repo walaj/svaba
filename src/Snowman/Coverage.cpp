@@ -1,5 +1,7 @@
 #include "Coverage.h"
 
+#include "SnowTools/SnowToolsCommon.h"
+
 Coverage::Coverage(int tid, int tstart, int tend) : id(tid), start(tstart), end(tend) {
   assert(end > start);
   v = uint16_sp(new std::vector<uint16_t>(tend - tstart,0));
@@ -12,7 +14,7 @@ void Coverage::addRead(Read &r) {
     size_t p = r->core.pos - start;
     size_t e = bam_endpos(r.get()) - start;
     while (p <= e) {
-      if (v->at(p) < 65536)
+      if (v->at(p) < 60000)
 	v->at(p)++;
       ++p;
 	  
@@ -22,11 +24,6 @@ void Coverage::addRead(Read &r) {
 	      << " is greater than expected max of " << v->size() << " -- skipping" << std::endl;
 
   }
-
-}
-
-void Coverage::combineCoverage(Coverage &cov) {
-
 
 }
 
@@ -46,7 +43,7 @@ std::ostream& operator<<(std::ostream &out, const Coverage &c) {
   return out;
 }
 
-uint16_t Coverage::getCoverageAtPosition(int pos) const {
+uint16_t Coverage::getCoverageAtPosition(size_t pos) const {
 
   if (pos < start || pos > end) {
     std::cerr << "Coverage query out of bounds for location " << id << ":" << pos << std::endl;
