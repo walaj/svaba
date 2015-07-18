@@ -21,20 +21,26 @@
 <a href="classAlignedContig-members.html">List of all members.</a><table border="0" cellpadding="0" cellspacing="0">
 <tr><td></td></tr>
 <tr><td colspan="2"><br><h2>Public Member Functions</h2></td></tr>
-<tr><td class="memItemLeft" nowrap align="right" valign="top">&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="classAlignedContig.html#e1ec35beab154579c8ead94db3fbe878">AlignedContig</a> (const std::string &amp;sam, const BamTools::BamReader *reader, const GenomicRegion &amp;twindow)</td></tr>
+<tr><td class="memItemLeft" nowrap align="right" valign="top">&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="classAlignedContig.html#bee5720be1588fc0f5e2033c68e47f4b">AlignedContig</a> (const std::string &amp;sam, const BamTools::BamReader *reader, const SnowTools::GenomicRegion &amp;twindow, const CigarMap &amp;nmap, const CigarMap &amp;tmap)</td></tr>
 
-<tr><td class="memItemLeft" nowrap align="right" valign="top">bool&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="classAlignedContig.html#781ebb77816d73494cfbe9ace9c48b19">isBetter</a> (const <a class="el" href="classAlignedContig.html">AlignedContig</a> &amp;ac) const </td></tr>
+<tr><td class="memItemLeft" nowrap align="right" valign="top"><a class="anchor" name="4b4f577516be62f5f0799f66427cdf84"></a><!-- doxytag: member="AlignedContig::AlignedContig" ref="4b4f577516be62f5f0799f66427cdf84" args="(const BamTools::BamAlignment &amp;a)" -->
+&nbsp;</td><td class="memItemRight" valign="bottom"><b>AlignedContig</b> (const BamTools::BamAlignment &amp;a)</td></tr>
 
-<tr><td class="memItemLeft" nowrap align="right" valign="top">void&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="classAlignedContig.html#e5820e5d748334e78e3130d14f96bb7e">addAlignment</a> (const BamTools::BamAlignment align)</td></tr>
+<tr><td class="memItemLeft" nowrap align="right" valign="top">bool&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="classAlignedContig.html#9d4ebb5861cf988ffe1e9aa22715da7f">isWorse</a> (const <a class="el" href="classAlignedContig.html">AlignedContig</a> &amp;ac) const </td></tr>
+
+<tr><td class="memItemLeft" nowrap align="right" valign="top">void&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="classAlignedContig.html#adc92b588d491d20316f23d3adebe27c">addAlignment</a> (const BamTools::BamAlignment &amp;align, const SnowTools::GenomicRegion &amp;<a class="el" href="classAlignedContig.html#a94a9f382b760c02333dd2b3085c8c8d">window</a>, const CigarMap &amp;nmap, const CigarMap &amp;tmap)</td></tr>
+
+<tr><td class="memItemLeft" nowrap align="right" valign="top"><a class="anchor" name="bedec8ec48a3179f35d813fb7c013694"></a><!-- doxytag: member="AlignedContig::addAlignment" ref="bedec8ec48a3179f35d813fb7c013694" args="(const BamTools::BamAlignment &amp;align)" -->
+void&nbsp;</td><td class="memItemRight" valign="bottom"><b>addAlignment</b> (const BamTools::BamAlignment &amp;align)</td></tr>
 
 <tr><td class="memItemLeft" nowrap align="right" valign="top"><a class="anchor" name="88a303a9bc8cc07a7efa4548cb73e5fd"></a><!-- doxytag: member="AlignedContig::addDiscordantCluster" ref="88a303a9bc8cc07a7efa4548cb73e5fd" args="(DiscordantCluster dc)" -->
 void&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="classAlignedContig.html#88a303a9bc8cc07a7efa4548cb73e5fd">addDiscordantCluster</a> (DiscordantCluster dc)</td></tr>
 
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">add a discordant cluster that maps to same regions as this contig <br></td></tr>
-<tr><td class="memItemLeft" nowrap align="right" valign="top">string&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="classAlignedContig.html#0697440ffb027292e93402077e2ef730">printDiscordantClusters</a> () const </td></tr>
+<tr><td class="memItemLeft" nowrap align="right" valign="top">std::string&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="classAlignedContig.html#d92b57eafadc8f619a2d9a68a3fee37b">printDiscordantClusters</a> () const </td></tr>
 
-<tr><td class="memItemLeft" nowrap align="right" valign="top"><a class="anchor" name="9c5e01eb031057bac726cbe43bc00a91"></a><!-- doxytag: member="AlignedContig::getContigName" ref="9c5e01eb031057bac726cbe43bc00a91" args="() const " -->
-string&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="classAlignedContig.html#9c5e01eb031057bac726cbe43bc00a91">getContigName</a> () const </td></tr>
+<tr><td class="memItemLeft" nowrap align="right" valign="top"><a class="anchor" name="87074cde30e8ecc61ab848969a7ecc9d"></a><!-- doxytag: member="AlignedContig::getContigName" ref="87074cde30e8ecc61ab848969a7ecc9d" args="() const " -->
+std::string&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="classAlignedContig.html#87074cde30e8ecc61ab848969a7ecc9d">getContigName</a> () const </td></tr>
 
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">return the name of the contig <br></td></tr>
 <tr><td class="memItemLeft" nowrap align="right" valign="top">int&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="classAlignedContig.html#6e859c97339b1211923816d20d76380c">getMaxMapq</a> () const </td></tr>
@@ -43,40 +49,54 @@ string&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="cl
 
 <tr><td class="memItemLeft" nowrap align="right" valign="top">void&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="classAlignedContig.html#e5681bd6d2185c4f274d68f83404e072">splitCoverage</a> ()</td></tr>
 
-<tr><td class="memItemLeft" nowrap align="right" valign="top">bool&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="classAlignedContig.html#dabfd701ff3236edc4c30400d0eacb8b">parseDiscovarName</a> (const std::string &amp;name, int &amp;tumor, int &amp;normal)</td></tr>
+<tr><td class="memItemLeft" nowrap align="right" valign="top">void&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="classAlignedContig.html#b3889f82451c51a0a8c2946019af6c1a">blacklist</a> (GRC &amp;grv)</td></tr>
 
-<tr><td class="memItemLeft" nowrap align="right" valign="top">void&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="classAlignedContig.html#30b1451c696a746fd6441b2e79d7287b">printContigFasta</a> (ofstream &amp;ostream) const </td></tr>
+<tr><td class="memItemLeft" nowrap align="right" valign="top">bool&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="classAlignedContig.html#af0765a3cf966158ce94a423682f4e4a">parseDiscovarName</a> (size_t &amp;tumor, size_t &amp;normal)</td></tr>
 
-<tr><td class="memItemLeft" nowrap align="right" valign="top">void&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="classAlignedContig.html#2ae9d56426ad1838b1ac38010110c1a4">getBreakPairs</a> ()</td></tr>
+<tr><td class="memItemLeft" nowrap align="right" valign="top">void&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="classAlignedContig.html#de3eff377e9359b6a0a82075530ca638">printContigFasta</a> (std::ofstream &amp;os) const </td></tr>
 
-<tr><td class="memItemLeft" nowrap align="right" valign="top">void&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="classAlignedContig.html#5ab132cacd9cb27eda2e48107f724346">alignReadsToContigs</a> (ReadVec &amp;bav, bool indel=true)</td></tr>
+<tr><td class="memItemLeft" nowrap align="right" valign="top">void&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="classAlignedContig.html#d6d2f1dd0a149612a5c9d803a9b6ba85">setMultiMapBreakPairs</a> ()</td></tr>
 
-<tr><td class="memItemLeft" nowrap align="right" valign="top"><a class="anchor" name="d935f14d74760679d68d12de51658e76"></a><!-- doxytag: member="AlignedContig::getSequence" ref="d935f14d74760679d68d12de51658e76" args="() const " -->
-string&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="classAlignedContig.html#d935f14d74760679d68d12de51658e76">getSequence</a> () const </td></tr>
+<tr><td class="memItemLeft" nowrap align="right" valign="top">void&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="classAlignedContig.html#0ad74ad41bc628ebb08ba95c1b6e6376">alignReadsToContigs</a> (ReadVec &amp;bav)</td></tr>
+
+<tr><td class="memItemLeft" nowrap align="right" valign="top"><a class="anchor" name="54f942ec1c6d4d9f5c5473d145f5fb8a"></a><!-- doxytag: member="AlignedContig::getSequence" ref="54f942ec1c6d4d9f5c5473d145f5fb8a" args="() const " -->
+std::string&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="classAlignedContig.html#54f942ec1c6d4d9f5c5473d145f5fb8a">getSequence</a> () const </td></tr>
 
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">return the contig sequence as it came off the assembler <br></td></tr>
-<tr><td class="memItemLeft" nowrap align="right" valign="top"><a class="anchor" name="0ce031bcb39c98838a3a8f2cd3c0aec9"></a><!-- doxytag: member="AlignedContig::hasSubSequence" ref="0ce031bcb39c98838a3a8f2cd3c0aec9" args="(const string &amp;subseq) const " -->
-bool&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="classAlignedContig.html#0ce031bcb39c98838a3a8f2cd3c0aec9">hasSubSequence</a> (const string &amp;subseq) const </td></tr>
+<tr><td class="memItemLeft" nowrap align="right" valign="top"><a class="anchor" name="f440054db1ee3fabbf7c21a7f6ae5d20"></a><!-- doxytag: member="AlignedContig::hasSubSequence" ref="f440054db1ee3fabbf7c21a7f6ae5d20" args="(const std::string &amp;subseq) const " -->
+bool&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="classAlignedContig.html#f440054db1ee3fabbf7c21a7f6ae5d20">hasSubSequence</a> (const std::string &amp;subseq) const </td></tr>
 
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">detemine if the contig contains a subsequence <br></td></tr>
+<tr><td class="memItemLeft" nowrap align="right" valign="top">bool&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="classAlignedContig.html#840897416cdf4e5444b94b3ecfb303ca">hasVariant</a> () const </td></tr>
+
+<tr><td class="memItemLeft" nowrap align="right" valign="top">std::vector&lt; BreakPoint &gt;&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="classAlignedContig.html#0e801da1a6657287362fc291c72a40f3">getAllBreakPoints</a> () const </td></tr>
+
+<tr><td class="memItemLeft" nowrap align="right" valign="top"><a class="anchor" name="eb8f9a66cb13b2e2faa56bacf63cf4ad"></a><!-- doxytag: member="AlignedContig::getAllBreakPointPointers" ref="eb8f9a66cb13b2e2faa56bacf63cf4ad" args="() const " -->
+std::vector&lt; const BreakPoint * &gt;&nbsp;</td><td class="memItemRight" valign="bottom"><b>getAllBreakPointPointers</b> () const </td></tr>
+
 <tr><td colspan="2"><br><h2>Public Attributes</h2></td></tr>
-<tr><td class="memItemLeft" nowrap align="right" valign="top">bool&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="classAlignedContig.html#547fb82eb3f773ccae6024d7bcedc494">hasvariant</a> = false</td></tr>
+<tr><td class="memItemLeft" nowrap align="right" valign="top">std::string&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="classAlignedContig.html#a3b7e07742b8d626591bd2078be88920">samrecord</a></td></tr>
 
-<tr><td class="memItemLeft" nowrap align="right" valign="top">vector&lt; BreakPoint &gt;&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="classAlignedContig.html#0a75d1617e18ec6ecf9a75c23e857e0a">break_vec</a></td></tr>
+<tr><td class="memItemLeft" nowrap align="right" valign="top">SnowTools::GenomicRegion&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="classAlignedContig.html#a94a9f382b760c02333dd2b3085c8c8d">window</a></td></tr>
 
-<tr><td class="memItemLeft" nowrap align="right" valign="top">BreakPoint global_bp ReadVec&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="classAlignedContig.html#9a88bc9f7ccfc84d4b1970e7807da501">m_bamreads</a></td></tr>
+<tr><td class="memItemLeft" nowrap align="right" valign="top"><a class="anchor" name="bf3da53e79235032f52481056f2ad1e1"></a><!-- doxytag: member="AlignedContig::m_local_breaks" ref="bf3da53e79235032f52481056f2ad1e1" args="" -->
+std::vector&lt; BreakPoint &gt;&nbsp;</td><td class="memItemRight" valign="bottom"><b>m_local_breaks</b></td></tr>
 
-<tr><td class="memItemLeft" nowrap align="right" valign="top">AlignmentFragmentVector&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="classAlignedContig.html#6372374f9b177011a2c6b43bab9cd4f7">m_align</a></td></tr>
+<tr><td class="memItemLeft" nowrap align="right" valign="top"><a class="anchor" name="aaf8303226b21cd895ff11d55ab0914c"></a><!-- doxytag: member="AlignedContig::m_global_bp" ref="aaf8303226b21cd895ff11d55ab0914c" args="" -->
+BreakPoint&nbsp;</td><td class="memItemRight" valign="bottom"><b>m_global_bp</b></td></tr>
 
-<tr><td class="memItemLeft" nowrap align="right" valign="top">string&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="classAlignedContig.html#37e6ebd38f55f70588af30d3e2c7c86a">samrecord</a></td></tr>
+<tr><td class="memItemLeft" nowrap align="right" valign="top"><a class="anchor" name="af838fff09dd3164c41035afd6b18c27"></a><!-- doxytag: member="AlignedContig::m_bamreads" ref="af838fff09dd3164c41035afd6b18c27" args="" -->
+ReadVec&nbsp;</td><td class="memItemRight" valign="bottom"><b>m_bamreads</b></td></tr>
 
-<tr><td class="memItemLeft" nowrap align="right" valign="top">GenomicRegion&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="classAlignedContig.html#71791399da2317c67cc00e79a661d171">window</a></td></tr>
+<tr><td class="memItemLeft" nowrap align="right" valign="top"><a class="anchor" name="6485296807f802f3fe2b049d24b47dac"></a><!-- doxytag: member="AlignedContig::m_skip" ref="6485296807f802f3fe2b049d24b47dac" args="" -->
+bool&nbsp;</td><td class="memItemRight" valign="bottom"><b>m_skip</b> = false</td></tr>
 
-<tr><td class="memItemLeft" nowrap align="right" valign="top">bool&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="classAlignedContig.html#7044897c1ad6ee628d96fe7f393a761d">skip</a> = false</td></tr>
+<tr><td class="memItemLeft" nowrap align="right" valign="top"><a class="anchor" name="6372374f9b177011a2c6b43bab9cd4f7"></a><!-- doxytag: member="AlignedContig::m_align" ref="6372374f9b177011a2c6b43bab9cd4f7" args="" -->
+AlignmentFragmentVector&nbsp;</td><td class="memItemRight" valign="bottom"><b>m_align</b></td></tr>
 
 <tr><td colspan="2"><br><h2>Friends</h2></td></tr>
-<tr><td class="memItemLeft" nowrap align="right" valign="top"><a class="anchor" name="82e5ee6f02c601eca5855698a7c397c8"></a><!-- doxytag: member="AlignedContig::operator&lt;&lt;" ref="82e5ee6f02c601eca5855698a7c397c8" args="(ostream &amp;out, const AlignedContig &amp;ac)" -->
-ostream &amp;&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="classAlignedContig.html#82e5ee6f02c601eca5855698a7c397c8">operator&lt;&lt;</a> (ostream &amp;out, const <a class="el" href="classAlignedContig.html">AlignedContig</a> &amp;ac)</td></tr>
+<tr><td class="memItemLeft" nowrap align="right" valign="top"><a class="anchor" name="064b72b01461a676f213a56f80f67d87"></a><!-- doxytag: member="AlignedContig::operator&lt;&lt;" ref="064b72b01461a676f213a56f80f67d87" args="(std::ostream &amp;out, const AlignedContig &amp;ac)" -->
+std::ostream &amp;&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" href="classAlignedContig.html#064b72b01461a676f213a56f80f67d87">operator&lt;&lt;</a> (std::ostream &amp;out, const <a class="el" href="classAlignedContig.html">AlignedContig</a> &amp;ac)</td></tr>
 
 <tr><td class="mdescLeft">&nbsp;</td><td class="mdescRight">print this contig <br></td></tr>
 </table>
@@ -84,7 +104,7 @@ ostream &amp;&nbsp;</td><td class="memItemRight" valign="bottom"><a class="el" h
 Contains the mapping of an aligned contig to the reference genome, along with pointer to all of the reads aligned to this contig, and a store of all of the breakpoints associated with this contig 
 <p>
 <hr><h2>Constructor &amp; Destructor Documentation</h2>
-<a class="anchor" name="e1ec35beab154579c8ead94db3fbe878"></a><!-- doxytag: member="AlignedContig::AlignedContig" ref="e1ec35beab154579c8ead94db3fbe878" args="(const std::string &amp;sam, const BamTools::BamReader *reader, const GenomicRegion &amp;twindow)" -->
+<a class="anchor" name="bee5720be1588fc0f5e2033c68e47f4b"></a><!-- doxytag: member="AlignedContig::AlignedContig" ref="bee5720be1588fc0f5e2033c68e47f4b" args="(const std::string &amp;sam, const BamTools::BamReader *reader, const SnowTools::GenomicRegion &amp;twindow, const CigarMap &amp;nmap, const CigarMap &amp;tmap)" -->
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
@@ -103,8 +123,20 @@ Contains the mapping of an aligned contig to the reference genome, along with po
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">const GenomicRegion &amp;&nbsp;</td>
-          <td class="paramname"> <em>twindow</em></td><td>&nbsp;</td>
+          <td class="paramtype">const SnowTools::GenomicRegion &amp;&nbsp;</td>
+          <td class="paramname"> <em>twindow</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const CigarMap &amp;&nbsp;</td>
+          <td class="paramname"> <em>nmap</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const CigarMap &amp;&nbsp;</td>
+          <td class="paramname"> <em>tmap</em></td><td>&nbsp;</td>
         </tr>
         <tr>
           <td></td>
@@ -120,24 +152,45 @@ Constructor which parses an alignment record from BWA (a potentially multi-line 
   <table border="0" cellspacing="2" cellpadding="0">
     <tr><td valign="top"></td><td valign="top"><em>const</em>&nbsp;</td><td>reference to a string representing a SAM alignment (contains newlines if multi-part alignment) </td></tr>
     <tr><td valign="top"></td><td valign="top"><em>const</em>&nbsp;</td><td>pointer to a BamReader, which is used to convert chr ids to strings (e.g. X, Y) </td></tr>
-    <tr><td valign="top"></td><td valign="top"><em>const</em>&nbsp;</td><td>reference to a GenomicRegion window specifying where in the reference this contig was assembled from. </td></tr>
+    <tr><td valign="top"></td><td valign="top"><em>const</em>&nbsp;</td><td>reference to a SnowTools::GenomicRegion window specifying where in the reference this contig was assembled from. </td></tr>
   </table>
 </dl>
 
 </div>
 </div><p>
 <hr><h2>Member Function Documentation</h2>
-<a class="anchor" name="e5820e5d748334e78e3130d14f96bb7e"></a><!-- doxytag: member="AlignedContig::addAlignment" ref="e5820e5d748334e78e3130d14f96bb7e" args="(const BamTools::BamAlignment align)" -->
+<a class="anchor" name="adc92b588d491d20316f23d3adebe27c"></a><!-- doxytag: member="AlignedContig::addAlignment" ref="adc92b588d491d20316f23d3adebe27c" args="(const BamTools::BamAlignment &amp;align, const SnowTools::GenomicRegion &amp;window, const CigarMap &amp;nmap, const CigarMap &amp;tmap)" -->
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
           <td class="memname">void AlignedContig::addAlignment           </td>
           <td>(</td>
-          <td class="paramtype">const BamTools::BamAlignment&nbsp;</td>
-          <td class="paramname"> <em>align</em>          </td>
-          <td>&nbsp;)&nbsp;</td>
-          <td width="100%"></td>
+          <td class="paramtype">const BamTools::BamAlignment &amp;&nbsp;</td>
+          <td class="paramname"> <em>align</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const SnowTools::GenomicRegion &amp;&nbsp;</td>
+          <td class="paramname"> <em>window</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const CigarMap &amp;&nbsp;</td>
+          <td class="paramname"> <em>nmap</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const CigarMap &amp;&nbsp;</td>
+          <td class="paramname"> <em>tmap</em></td><td>&nbsp;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td></td><td width="100%"></td>
         </tr>
       </table>
 </div>
@@ -153,7 +206,7 @@ Get whether the query is on the reverse strand <dl compact><dt><b>Parameters:</b
 
 </div>
 </div><p>
-<a class="anchor" name="5ab132cacd9cb27eda2e48107f724346"></a><!-- doxytag: member="AlignedContig::alignReadsToContigs" ref="5ab132cacd9cb27eda2e48107f724346" args="(ReadVec &amp;bav, bool indel=true)" -->
+<a class="anchor" name="0ad74ad41bc628ebb08ba95c1b6e6376"></a><!-- doxytag: member="AlignedContig::alignReadsToContigs" ref="0ad74ad41bc628ebb08ba95c1b6e6376" args="(ReadVec &amp;bav)" -->
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
@@ -161,40 +214,7 @@ Get whether the query is on the reverse strand <dl compact><dt><b>Parameters:</b
           <td class="memname">void AlignedContig::alignReadsToContigs           </td>
           <td>(</td>
           <td class="paramtype">ReadVec &amp;&nbsp;</td>
-          <td class="paramname"> <em>bav</em>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">bool&nbsp;</td>
-          <td class="paramname"> <em>indel</em> = <code>true</code></td><td>&nbsp;</td>
-        </tr>
-        <tr>
-          <td></td>
-          <td>)</td>
-          <td></td><td></td><td width="100%"></td>
-        </tr>
-      </table>
-</div>
-<div class="memdoc">
-
-<p>
-align reads to contig and modify their tags to show contig mapping Currently this function will attempt a SmithWaterman alignment for all reads that don't have an exact mapping to the contig. <dl compact><dt><b>Parameters:</b></dt><dd>
-  <table border="0" cellspacing="2" cellpadding="0">
-    <tr><td valign="top"></td><td valign="top"><em>reference</em>&nbsp;</td><td>to a vector of read smart pointers to align and modify </td></tr>
-  </table>
-</dl>
-
-</div>
-</div><p>
-<a class="anchor" name="2ae9d56426ad1838b1ac38010110c1a4"></a><!-- doxytag: member="AlignedContig::getBreakPairs" ref="2ae9d56426ad1838b1ac38010110c1a4" args="()" -->
-<div class="memitem">
-<div class="memproto">
-      <table class="memname">
-        <tr>
-          <td class="memname">void AlignedContig::getBreakPairs           </td>
-          <td>(</td>
-          <td class="paramname">          </td>
+          <td class="paramname"> <em>bav</em>          </td>
           <td>&nbsp;)&nbsp;</td>
           <td width="100%"></td>
         </tr>
@@ -203,7 +223,57 @@ align reads to contig and modify their tags to show contig mapping Currently thi
 <div class="memdoc">
 
 <p>
-set the breakpoints on the reference by combining multi-mapped contigs 
+align reads to contig and modify their tags to show contig mapping Currently this function will attempt a SmithWaterman alignment for all reads that don't have an exact mapping to the contig. <dl compact><dt><b>Parameters:</b></dt><dd>
+  <table border="0" cellspacing="2" cellpadding="0">
+    <tr><td valign="top"></td><td valign="top"><em>bav</em>&nbsp;</td><td>Vector of read smart pointers to align. Modifies their SW tag </td></tr>
+  </table>
+</dl>
+
+</div>
+</div><p>
+<a class="anchor" name="b3889f82451c51a0a8c2946019af6c1a"></a><!-- doxytag: member="AlignedContig::blacklist" ref="b3889f82451c51a0a8c2946019af6c1a" args="(GRC &amp;grv)" -->
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void AlignedContig::blacklist           </td>
+          <td>(</td>
+          <td class="paramtype">GRC &amp;&nbsp;</td>
+          <td class="paramname"> <em>grv</em>          </td>
+          <td>&nbsp;)&nbsp;</td>
+          <td width="100%"></td>
+        </tr>
+      </table>
+</div>
+<div class="memdoc">
+
+<p>
+Checks if any of the indel breaks are in a blacklist. If so, mark the breakpoints of the indels for skipping. That is, hasMinmal() will return false; <dl compact><dt><b>Parameters:</b></dt><dd>
+  <table border="0" cellspacing="2" cellpadding="0">
+    <tr><td valign="top"></td><td valign="top"><em>grv</em>&nbsp;</td><td>The blaclist regions </td></tr>
+  </table>
+</dl>
+
+</div>
+</div><p>
+<a class="anchor" name="0e801da1a6657287362fc291c72a40f3"></a><!-- doxytag: member="AlignedContig::getAllBreakPoints" ref="0e801da1a6657287362fc291c72a40f3" args="() const " -->
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">std::vector&lt;BreakPoint&gt; AlignedContig::getAllBreakPoints           </td>
+          <td>(</td>
+          <td class="paramname">          </td>
+          <td>&nbsp;)&nbsp;</td>
+          <td width="100%"> const</td>
+        </tr>
+      </table>
+</div>
+<div class="memdoc">
+
+<p>
+retrieves all of the breakpoints by combining indels with global mutli-map break <dl compact><dt><b>Returns:</b></dt><dd>vector of ind </dd></dl>
+
 </div>
 </div><p>
 <a class="anchor" name="6e859c97339b1211923816d20d76380c"></a><!-- doxytag: member="AlignedContig::getMaxMapq" ref="6e859c97339b1211923816d20d76380c" args="() const " -->
@@ -246,12 +316,32 @@ get the minimum mapping quality from all alignments <dl compact><dt><b>Returns:<
 
 </div>
 </div><p>
-<a class="anchor" name="781ebb77816d73494cfbe9ace9c48b19"></a><!-- doxytag: member="AlignedContig::isBetter" ref="781ebb77816d73494cfbe9ace9c48b19" args="(const AlignedContig &amp;ac) const " -->
+<a class="anchor" name="840897416cdf4e5444b94b3ecfb303ca"></a><!-- doxytag: member="AlignedContig::hasVariant" ref="840897416cdf4e5444b94b3ecfb303ca" args="() const " -->
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">bool AlignedContig::isBetter           </td>
+          <td class="memname">bool AlignedContig::hasVariant           </td>
+          <td>(</td>
+          <td class="paramname">          </td>
+          <td>&nbsp;)&nbsp;</td>
+          <td width="100%"> const</td>
+        </tr>
+      </table>
+</div>
+<div class="memdoc">
+
+<p>
+query if this contig contains a potential variant (indel or multi-map) <dl compact><dt><b>Returns:</b></dt><dd>true if there is multimapping or an indel </dd></dl>
+
+</div>
+</div><p>
+<a class="anchor" name="9d4ebb5861cf988ffe1e9aa22715da7f"></a><!-- doxytag: member="AlignedContig::isWorse" ref="9d4ebb5861cf988ffe1e9aa22715da7f" args="(const AlignedContig &amp;ac) const " -->
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool AlignedContig::isWorse           </td>
           <td>(</td>
           <td class="paramtype">const <a class="el" href="classAlignedContig.html">AlignedContig</a> &amp;&nbsp;</td>
           <td class="paramname"> <em>ac</em>          </td>
@@ -272,26 +362,20 @@ Determine if this contig has identical breaks and is better than another. <dl co
 
 </div>
 </div><p>
-<a class="anchor" name="dabfd701ff3236edc4c30400d0eacb8b"></a><!-- doxytag: member="AlignedContig::parseDiscovarName" ref="dabfd701ff3236edc4c30400d0eacb8b" args="(const std::string &amp;name, int &amp;tumor, int &amp;normal)" -->
+<a class="anchor" name="af0765a3cf966158ce94a423682f4e4a"></a><!-- doxytag: member="AlignedContig::parseDiscovarName" ref="af0765a3cf966158ce94a423682f4e4a" args="(size_t &amp;tumor, size_t &amp;normal)" -->
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
           <td class="memname">bool AlignedContig::parseDiscovarName           </td>
           <td>(</td>
-          <td class="paramtype">const std::string &amp;&nbsp;</td>
-          <td class="paramname"> <em>name</em>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">int &amp;&nbsp;</td>
+          <td class="paramtype">size_t &amp;&nbsp;</td>
           <td class="paramname"> <em>tumor</em>, </td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">int &amp;&nbsp;</td>
+          <td class="paramtype">size_t &amp;&nbsp;</td>
           <td class="paramname"> <em>normal</em></td><td>&nbsp;</td>
         </tr>
         <tr>
@@ -306,7 +390,6 @@ Determine if this contig has identical breaks and is better than another. <dl co
 <p>
 if this is a Discovar contig, extract the tumor and normal read support <dl compact><dt><b>Parameters:</b></dt><dd>
   <table border="0" cellspacing="2" cellpadding="0">
-    <tr><td valign="top"></td><td valign="top"><em>const</em>&nbsp;</td><td>string reference to contig name to be parsed </td></tr>
     <tr><td valign="top"></td><td valign="top"><em>reference</em>&nbsp;</td><td>to int to fill for normal support </td></tr>
     <tr><td valign="top"></td><td valign="top"><em>reference</em>&nbsp;</td><td>to int to fill for tumor support </td></tr>
   </table>
@@ -315,15 +398,15 @@ if this is a Discovar contig, extract the tumor and normal read support <dl comp
 
 </div>
 </div><p>
-<a class="anchor" name="30b1451c696a746fd6441b2e79d7287b"></a><!-- doxytag: member="AlignedContig::printContigFasta" ref="30b1451c696a746fd6441b2e79d7287b" args="(ofstream &amp;ostream) const " -->
+<a class="anchor" name="de3eff377e9359b6a0a82075530ca638"></a><!-- doxytag: member="AlignedContig::printContigFasta" ref="de3eff377e9359b6a0a82075530ca638" args="(std::ofstream &amp;os) const " -->
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
           <td class="memname">void AlignedContig::printContigFasta           </td>
           <td>(</td>
-          <td class="paramtype">ofstream &amp;&nbsp;</td>
-          <td class="paramname"> <em>ostream</em>          </td>
+          <td class="paramtype">std::ofstream &amp;&nbsp;</td>
+          <td class="paramname"> <em>os</em>          </td>
           <td>&nbsp;)&nbsp;</td>
           <td width="100%"> const</td>
         </tr>
@@ -340,12 +423,12 @@ dump the contigs to a fasta <dl compact><dt><b>Parameters:</b></dt><dd>
 
 </div>
 </div><p>
-<a class="anchor" name="0697440ffb027292e93402077e2ef730"></a><!-- doxytag: member="AlignedContig::printDiscordantClusters" ref="0697440ffb027292e93402077e2ef730" args="() const " -->
+<a class="anchor" name="d92b57eafadc8f619a2d9a68a3fee37b"></a><!-- doxytag: member="AlignedContig::printDiscordantClusters" ref="d92b57eafadc8f619a2d9a68a3fee37b" args="() const " -->
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">string AlignedContig::printDiscordantClusters           </td>
+          <td class="memname">std::string AlignedContig::printDiscordantClusters           </td>
           <td>(</td>
           <td class="paramname">          </td>
           <td>&nbsp;)&nbsp;</td>
@@ -357,6 +440,25 @@ dump the contigs to a fasta <dl compact><dt><b>Parameters:</b></dt><dd>
 
 <p>
 loop through the vector of DiscordantCluster objects associated with this contig and print 
+</div>
+</div><p>
+<a class="anchor" name="d6d2f1dd0a149612a5c9d803a9b6ba85"></a><!-- doxytag: member="AlignedContig::setMultiMapBreakPairs" ref="d6d2f1dd0a149612a5c9d803a9b6ba85" args="()" -->
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void AlignedContig::setMultiMapBreakPairs           </td>
+          <td>(</td>
+          <td class="paramname">          </td>
+          <td>&nbsp;)&nbsp;</td>
+          <td width="100%"></td>
+        </tr>
+      </table>
+</div>
+<div class="memdoc">
+
+<p>
+set the breakpoints on the reference by combining multi-mapped contigs 
 </div>
 </div><p>
 <a class="anchor" name="e5681bd6d2185c4f274d68f83404e072"></a><!-- doxytag: member="AlignedContig::splitCoverage" ref="e5681bd6d2185c4f274d68f83404e072" args="()" -->
@@ -379,72 +481,12 @@ loop through all of the breakpoints and calculate the split read support for eac
 </div>
 </div><p>
 <hr><h2>Member Data Documentation</h2>
-<a class="anchor" name="0a75d1617e18ec6ecf9a75c23e857e0a"></a><!-- doxytag: member="AlignedContig::break_vec" ref="0a75d1617e18ec6ecf9a75c23e857e0a" args="" -->
+<a class="anchor" name="a3b7e07742b8d626591bd2078be88920"></a><!-- doxytag: member="AlignedContig::samrecord" ref="a3b7e07742b8d626591bd2078be88920" args="" -->
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">vector&lt;BreakPoint&gt; <a class="el" href="classAlignedContig.html#0a75d1617e18ec6ecf9a75c23e857e0a">AlignedContig::break_vec</a>          </td>
-        </tr>
-      </table>
-</div>
-<div class="memdoc">
-
-<p>
-store all of the multi-map BreakPoints for this contigs 
-</div>
-</div><p>
-<a class="anchor" name="547fb82eb3f773ccae6024d7bcedc494"></a><!-- doxytag: member="AlignedContig::hasvariant" ref="547fb82eb3f773ccae6024d7bcedc494" args="" -->
-<div class="memitem">
-<div class="memproto">
-      <table class="memname">
-        <tr>
-          <td class="memname">bool <a class="el" href="classAlignedContig.html#547fb82eb3f773ccae6024d7bcedc494">AlignedContig::hasvariant</a> = false          </td>
-        </tr>
-      </table>
-</div>
-<div class="memdoc">
-
-<p>
-flag to specify whether this alignment has some potential variant (e.g. not full match to ref) 
-</div>
-</div><p>
-<a class="anchor" name="6372374f9b177011a2c6b43bab9cd4f7"></a><!-- doxytag: member="AlignedContig::m_align" ref="6372374f9b177011a2c6b43bab9cd4f7" args="" -->
-<div class="memitem">
-<div class="memproto">
-      <table class="memname">
-        <tr>
-          <td class="memname">AlignmentFragmentVector <a class="el" href="classAlignedContig.html#6372374f9b177011a2c6b43bab9cd4f7">AlignedContig::m_align</a>          </td>
-        </tr>
-      </table>
-</div>
-<div class="memdoc">
-
-<p>
-store all of the individual alignment fragments 
-</div>
-</div><p>
-<a class="anchor" name="9a88bc9f7ccfc84d4b1970e7807da501"></a><!-- doxytag: member="AlignedContig::m_bamreads" ref="9a88bc9f7ccfc84d4b1970e7807da501" args="" -->
-<div class="memitem">
-<div class="memproto">
-      <table class="memname">
-        <tr>
-          <td class="memname">BreakPoint global_bp ReadVec <a class="el" href="classAlignedContig.html#9a88bc9f7ccfc84d4b1970e7807da501">AlignedContig::m_bamreads</a>          </td>
-        </tr>
-      </table>
-</div>
-<div class="memdoc">
-
-<p>
-&lt; store the single spanning BreakPoing for this contig store smart pointers to all of the reads that align to this contig 
-</div>
-</div><p>
-<a class="anchor" name="37e6ebd38f55f70588af30d3e2c7c86a"></a><!-- doxytag: member="AlignedContig::samrecord" ref="37e6ebd38f55f70588af30d3e2c7c86a" args="" -->
-<div class="memitem">
-<div class="memproto">
-      <table class="memname">
-        <tr>
-          <td class="memname">string <a class="el" href="classAlignedContig.html#37e6ebd38f55f70588af30d3e2c7c86a">AlignedContig::samrecord</a>          </td>
+          <td class="memname">std::string <a class="el" href="classAlignedContig.html#a3b7e07742b8d626591bd2078be88920">AlignedContig::samrecord</a>          </td>
         </tr>
       </table>
 </div>
@@ -454,27 +496,12 @@ store all of the individual alignment fragments
 the original SAM record 
 </div>
 </div><p>
-<a class="anchor" name="7044897c1ad6ee628d96fe7f393a761d"></a><!-- doxytag: member="AlignedContig::skip" ref="7044897c1ad6ee628d96fe7f393a761d" args="" -->
+<a class="anchor" name="a94a9f382b760c02333dd2b3085c8c8d"></a><!-- doxytag: member="AlignedContig::window" ref="a94a9f382b760c02333dd2b3085c8c8d" args="" -->
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">bool <a class="el" href="classAlignedContig.html#7044897c1ad6ee628d96fe7f393a761d">AlignedContig::skip</a> = false          </td>
-        </tr>
-      </table>
-</div>
-<div class="memdoc">
-
-<p>
-flag to specify that we should minimally process and simply dump to contigs_all.sam 
-</div>
-</div><p>
-<a class="anchor" name="71791399da2317c67cc00e79a661d171"></a><!-- doxytag: member="AlignedContig::window" ref="71791399da2317c67cc00e79a661d171" args="" -->
-<div class="memitem">
-<div class="memproto">
-      <table class="memname">
-        <tr>
-          <td class="memname">GenomicRegion <a class="el" href="classAlignedContig.html#71791399da2317c67cc00e79a661d171">AlignedContig::window</a>          </td>
+          <td class="memname">SnowTools::GenomicRegion <a class="el" href="classAlignedContig.html#a94a9f382b760c02333dd2b3085c8c8d">AlignedContig::window</a>          </td>
         </tr>
       </table>
 </div>
@@ -486,7 +513,7 @@ reference window from where this contig was assembled
 </div><p>
 <hr>The documentation for this class was generated from the following file:<ul>
 <li>/xchip/gistic/Jeremiah/GIT/SnowmanSV/src/Snowman/<a class="el" href="AlignedContig_8h-source.html">AlignedContig.h</a></ul>
-<hr size="1"><address style="align: right;"><small>Generated on Mon Mar 9 18:51:05 2015 for SnowmanSV by&nbsp;
+<hr size="1"><address style="align: right;"><small>Generated on Thu May 7 11:02:27 2015 for SnowmanSV by&nbsp;
 <a href="http://www.doxygen.org/index.html">
 <img src="doxygen.png" alt="doxygen" align="middle" border="0"></a> 1.4.7 </small></address>
 </body>

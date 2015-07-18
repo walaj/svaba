@@ -26,6 +26,8 @@ namespace BamToolsUtils {
   std::string cigarToString(const CigarOpVec &cig);
 
   void flipCigar(CigarOpVec &cig);
+
+  bool parseXP2BamAlignment(const std::string& xp, std::vector<BamTools::BamAlignment>& a);
 }
 
 #endif

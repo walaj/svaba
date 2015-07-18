@@ -21,7 +21,7 @@
 #include <stdio.h>
 #include <time.h>
 #include <queue>
-#include "MkqsThread.h"
+//#include "MkqsThread.h"
 
 #define mkqs_swap(a, b) { T tmp = x[a]; x[a] = x[b]; x[b] = tmp; }
 
@@ -144,7 +144,7 @@ void mkqs2(T* a, int n, int depth, const PrimarySorter& primarySorter, const Fin
 
 // Parallel multikey quicksort. It performs mkqs but will
 // subdivide the array to sort into sub jobs which can be sorted using threads.
-template<typename T, typename PrimarySorter, typename FinalSorter>
+/*template<typename T, typename PrimarySorter, typename FinalSorter>
 void parallel_mkqs(T* pData, int n, int numThreads, const PrimarySorter& primarySorter, const FinalSorter& finalSorter)
 {
     typedef MkqsJob<T> Job;
@@ -253,12 +253,13 @@ void parallel_mkqs(T* pData, int n, int numThreads, const PrimarySorter& primary
         exit(EXIT_FAILURE);
     }
 }
-
+*/
 //
 // Perform a partial sort of the data using the mkqs algorithm
 // Iterative sort jobs are created and added to pQueue which is
 // protected by pQueueMutex. After addition, pQueueSem is updated.
 //
+/*
 template<typename T, class PrimarySorter, class FinalSorter>
 void parallel_mkqs_process(MkqsJob<T>& job, 
                            std::queue<MkqsJob<T> >* pQueue, 
@@ -345,5 +346,6 @@ void parallel_mkqs_process(MkqsJob<T>& job,
     // Unlock the mutex
     pthread_mutex_unlock(pQueueMutex);
 }
+*/
 #endif
 

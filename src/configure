@@ -865,13 +865,10 @@ Optional Features:
 Optional Packages:
   --with-PACKAGE[=ARG]    use PACKAGE [ARG=yes]
   --without-PACKAGE       do not use PACKAGE (same as --with-PACKAGE=no)
-  --with-bamtools=PATH    specify directory containing the bamtools library
+  --with-boost=PATH       specify directory containing the bamtools library
                           (http://github.com/pezmaster31/bamtools)
-  --with-seqan=PATH       specify directory containing the seqan library
-                          (http://trac.seqan.de)
   --with-samtools=PATH    specify directory containing the Samtools library
   --with-snowtools=PATH   specify directory containing the SnowTools library
-  --with-htslib=PATH      specify directory containing the Heng Li's HTSlib)
 
 Some influential environment variables:
   CXX         C++ compiler command
@@ -4319,26 +4316,35 @@ _ACEOF
 fi
 
 
+
+# Check whether --with-boost or --without-boost was given.
+if test "${with_boost+set}" = set; then
+  withval="$with_boost"
+
+fi;
+if test "$with_boost" -a -d "$with_boost"; then
+    boost_include="-I$with_boost"
+else
+    boostr=/xchip/gistic/Jeremiah/boost_1_58_0
+    boost_include="-I$boostr"
+fi
+
 # Check for the bamtools library pathz
 # Bamtools has two different path formats
 # If it is built in place the files will be in {path}/lib/ and {path}/include/
 # If it is installed (with make install) it will be in {path}/include/bamtools
 # and {path}/lib/bamtools. Both variants are handled here
+#AC_ARG_WITH(bamtools, AS_HELP_STRING([--with-bamtools=PATH],
+#	[specify directory containing the bamtools library (http://github.com/pezmaster31/bamtools)]))
 
-# Check whether --with-bamtools or --without-bamtools was given.
-if test "${with_bamtools+set}" = set; then
-  withval="$with_bamtools"
-
-fi;
-
-if test "$with_bamtools" -a -d "$with_bamtools"; then
-    bamtools_ldflags="-Wl,-rpath,$with_bamtools/lib -L$with_bamtools/lib -Wl,-rpath,$with_bamtools/lib/bamtools -L$with_bamtools/lib/bamtools"
-    bamtools_include="-I$with_bamtools/include -I$with_bamtools/include/bamtools"
-else
-    bamt=/broad/software/free/Linux/redhat_5_x86_64/pkgs/pezmaster31_bamtools-6708a21
-    bamtools_ldflags="-Wl,-rpath,$bamt/lib -L$bamt/lib -Wl,-rpath,$bamt/lib/bamtools -L$bamt/lib/bamtools"
-    bamtools_include="-I$bamt/include -I$bamt/include/bamtools"
-fi
+#if test "$with_bamtools" -a -d "$with_bamtools"; then
+#    bamtools_ldflags="-Wl,-rpath,$with_bamtools/lib -L$with_bamtools/lib -Wl,-rpath,$with_bamtools/lib/bamtools -L$with_bamtools/lib/bamtools"
+#    bamtools_include="-I$with_bamtools/include -I$with_bamtools/include/bamtools"
+#else
+ #   bamt=/broad/software/free/Linux/redhat_5_x86_64/pkgs/pezmaster31_bamtools-6708a21
+ #   bamtools_ldflags="-Wl,-rpath,$bamt/lib -L$bamt/lib -Wl,-rpath,$bamt/lib/bamtools -L$bamt/lib/bamtools"
+ #   bamtools_include="-I$bamt/include -I$bamt/include/bamtools"
+#fi
 
 ##AC_ARG_WITH(boost, AS_HELP_STRING([--with-boost=PATH],
 ##	[specify directory containing the Boost library ()]))
@@ -4354,18 +4360,14 @@ fi
 ##fi
 
 # Check for the seqan library paths
-
-# Check whether --with-seqan or --without-seqan was given.
-if test "${with_seqan+set}" = set; then
-  withval="$with_seqan"
-
-fi;
-
-if test "$with_seqan" -a -d "$with_seqan"; then
-    seqan_include="-I$with_seqan/include"
-##else
+#AC_ARG_WITH(seqan, AS_HELP_STRING([--with-seqan=PATH],
+	#[specify directory containing the seqan library (http://trac.seqan.de)]))
+#
+#if test "$with_seqan" -a -d "$with_seqan"; then
+#    seqan_include="-I$with_seqan/include"
+###else
 ##    seqan_include="-I/xchip/gistic/Jeremiah/seqan-trunk/core/include"
-fi
+#fi
 
 ### CHECK FOR SAMTOOLS
 
@@ -4384,7 +4386,6 @@ else
     samtools_libs="-lbam"
 fi
 
-
 ### CHECK FOR SNOW TOOLS
 
 # Check whether --with-snowtools or --without-snowtools was given.
@@ -4394,30 +4395,27 @@ if test "${with_snowtools+set}" = set; then
 fi;
 if test "$with_snowtools" -a -d "$with_snowtools"; then
     snowtools_ldflags="-L$with_snowtools"
-    snowtools_include="-Iwith_snowtools"
+    snowtools_include="-I$with_snowtools -I$with_snowtools/multifast-v1.4.2 -I$with_snowtools/htslib"
     snowtools_libs="-lsnowtools"
 else
-    snowtools_ldflags="-L /xchip/gistic/Jeremiah/GIT/isva/SnowTools/src"
-    snowtools_include="-I /xchip/gistic/Jeremiah/GIT/isva/SnowTools/src"
-    snowtools_libs="-lsnowtools"
+    broad_st="/xchip/gistic/Jeremiah/GIT/SnowTools/src"
+    snowtools_ldflags="-L$broad_st -Wl,-rpath,$broad_st/htslib -L$broad_st/htslib -L$broad_st/bwa"
+    snowtools_include="-I$broad_st -I$broad_st/multifast-v1.4.2 -I$broad_st/htslib"
+    snowtools_libs="-lhts -lbwa -lsnowtools"
 fi
 
 # Check for the hts library paths
+#AC_ARG_WITH(htslib, AS_HELP_STRING([--with-htslib=PATH],
+#	[specify directory containing the Heng Li's HTSlib)]))
 
-# Check whether --with-htslib or --without-htslib was given.
-if test "${with_htslib+set}" = set; then
-  withval="$with_htslib"
-
-fi;
-
-if test "$with_htslib" -a -d "$with_htslib"; then
-    htslib_include="-I$with_htslib"
-    htslib_ldflags="-Wl,-rpath,$with_htslib -L$with_htslib"
-else
-    htslibr=/xchip/gistic/Jeremiah/htslib-1.1
-    htslib_include="-I$htslibr"
-    htslib_ldflags="-Wl,-rpath,$htslibr -L$htslibr"
-fi
+#if test "$with_htslib" -a -d "$with_htslib"; then
+#    htslib_include="-I$with_htslib"
+#    htslib_ldflags="-Wl,-rpath,$with_htslib -L$with_htslib"
+#else
+#    htslibr=/xchip/gistic/Jeremiah/GIT/SnowTools/src/htslib
+#    htslib_include="-I$htslibr"
+#    htslib_ldflags="-Wl,-rpath,$htslibr -L$htslibr"
+#fi
 
 # Only fail on warnings when the --enable-development flag is passed into configure
 # Check whether --enable-development or --disable-development was given.
@@ -4436,13 +4434,13 @@ CXXFLAGS="-O3"
 
 CFLAGS="-O3"
 
-CPPFLAGS="$CPPFLAGS $snowtools_include $htslib_include $bamtools_include $samtools_include $seqan_include"
+CPPFLAGS="$CPPFLAGS $snowtools_include $samtools_include $boost_include"
 
-LDFLAGS="$snowtools_ldflags $bamtools_ldflags $htslib_ldflags $samtools_ldflags $LDFLAGS"
+LDFLAGS="$snowtools_ldflags $samtools_ldflags $LDFLAGS"
 
 
 # We always need to specify to link in bamtools
-LIBS="$LIBS $snowtools_libs -lbamtools -lhts $samtools_libs"
+LIBS="$LIBS $snowtools_libs $samtools_libs"
 
 
 
@@ -4610,318 +4608,13 @@ done
 
 
 # Make sure the bamtools headers can be found
-
-for ac_header in api/BamReader.h
-do
-as_ac_Header=`echo "ac_cv_header_$ac_header" | $as_tr_sh`
-if eval "test \"\${$as_ac_Header+set}\" = set"; then
-  echo "$as_me:$LINENO: checking for $ac_header" >&5
-echo $ECHO_N "checking for $ac_header... $ECHO_C" >&6
-if eval "test \"\${$as_ac_Header+set}\" = set"; then
-  echo $ECHO_N "(cached) $ECHO_C" >&6
-fi
-echo "$as_me:$LINENO: result: `eval echo '${'$as_ac_Header'}'`" >&5
-echo "${ECHO_T}`eval echo '${'$as_ac_Header'}'`" >&6
-else
-  # Is the header compilable?
-echo "$as_me:$LINENO: checking $ac_header usability" >&5
-echo $ECHO_N "checking $ac_header usability... $ECHO_C" >&6
-cat >conftest.$ac_ext <<_ACEOF
-/* confdefs.h.  */
-_ACEOF
-cat confdefs.h >>conftest.$ac_ext
-cat >>conftest.$ac_ext <<_ACEOF
-/* end confdefs.h.  */
-$ac_includes_default
-#include <$ac_header>
-_ACEOF
-rm -f conftest.$ac_objext
-if { (eval echo "$as_me:$LINENO: \"$ac_compile\"") >&5
-  (eval $ac_compile) 2>conftest.er1
-  ac_status=$?
-  grep -v '^ *+' conftest.er1 >conftest.err
-  rm -f conftest.er1
-  cat conftest.err >&5
-  echo "$as_me:$LINENO: \$? = $ac_status" >&5
-  (exit $ac_status); } &&
-	 { ac_try='test -z "$ac_cxx_werror_flag"
-			 || test ! -s conftest.err'
-  { (eval echo "$as_me:$LINENO: \"$ac_try\"") >&5
-  (eval $ac_try) 2>&5
-  ac_status=$?
-  echo "$as_me:$LINENO: \$? = $ac_status" >&5
-  (exit $ac_status); }; } &&
-	 { ac_try='test -s conftest.$ac_objext'
-  { (eval echo "$as_me:$LINENO: \"$ac_try\"") >&5
-  (eval $ac_try) 2>&5
-  ac_status=$?
-  echo "$as_me:$LINENO: \$? = $ac_status" >&5
-  (exit $ac_status); }; }; then
-  ac_header_compiler=yes
-else
-  echo "$as_me: failed program was:" >&5
-sed 's/^/| /' conftest.$ac_ext >&5
-
-ac_header_compiler=no
-fi
-rm -f conftest.err conftest.$ac_objext conftest.$ac_ext
-echo "$as_me:$LINENO: result: $ac_header_compiler" >&5
-echo "${ECHO_T}$ac_header_compiler" >&6
-
-# Is the header present?
-echo "$as_me:$LINENO: checking $ac_header presence" >&5
-echo $ECHO_N "checking $ac_header presence... $ECHO_C" >&6
-cat >conftest.$ac_ext <<_ACEOF
-/* confdefs.h.  */
-_ACEOF
-cat confdefs.h >>conftest.$ac_ext
-cat >>conftest.$ac_ext <<_ACEOF
-/* end confdefs.h.  */
-#include <$ac_header>
-_ACEOF
-if { (eval echo "$as_me:$LINENO: \"$ac_cpp conftest.$ac_ext\"") >&5
-  (eval $ac_cpp conftest.$ac_ext) 2>conftest.er1
-  ac_status=$?
-  grep -v '^ *+' conftest.er1 >conftest.err
-  rm -f conftest.er1
-  cat conftest.err >&5
-  echo "$as_me:$LINENO: \$? = $ac_status" >&5
-  (exit $ac_status); } >/dev/null; then
-  if test -s conftest.err; then
-    ac_cpp_err=$ac_cxx_preproc_warn_flag
-    ac_cpp_err=$ac_cpp_err$ac_cxx_werror_flag
-  else
-    ac_cpp_err=
-  fi
-else
-  ac_cpp_err=yes
-fi
-if test -z "$ac_cpp_err"; then
-  ac_header_preproc=yes
-else
-  echo "$as_me: failed program was:" >&5
-sed 's/^/| /' conftest.$ac_ext >&5
-
-  ac_header_preproc=no
-fi
-rm -f conftest.err conftest.$ac_ext
-echo "$as_me:$LINENO: result: $ac_header_preproc" >&5
-echo "${ECHO_T}$ac_header_preproc" >&6
-
-# So?  What about this header?
-case $ac_header_compiler:$ac_header_preproc:$ac_cxx_preproc_warn_flag in
-  yes:no: )
-    { echo "$as_me:$LINENO: WARNING: $ac_header: accepted by the compiler, rejected by the preprocessor!" >&5
-echo "$as_me: WARNING: $ac_header: accepted by the compiler, rejected by the preprocessor!" >&2;}
-    { echo "$as_me:$LINENO: WARNING: $ac_header: proceeding with the compiler's result" >&5
-echo "$as_me: WARNING: $ac_header: proceeding with the compiler's result" >&2;}
-    ac_header_preproc=yes
-    ;;
-  no:yes:* )
-    { echo "$as_me:$LINENO: WARNING: $ac_header: present but cannot be compiled" >&5
-echo "$as_me: WARNING: $ac_header: present but cannot be compiled" >&2;}
-    { echo "$as_me:$LINENO: WARNING: $ac_header:     check for missing prerequisite headers?" >&5
-echo "$as_me: WARNING: $ac_header:     check for missing prerequisite headers?" >&2;}
-    { echo "$as_me:$LINENO: WARNING: $ac_header: see the Autoconf documentation" >&5
-echo "$as_me: WARNING: $ac_header: see the Autoconf documentation" >&2;}
-    { echo "$as_me:$LINENO: WARNING: $ac_header:     section \"Present But Cannot Be Compiled\"" >&5
-echo "$as_me: WARNING: $ac_header:     section \"Present But Cannot Be Compiled\"" >&2;}
-    { echo "$as_me:$LINENO: WARNING: $ac_header: proceeding with the preprocessor's result" >&5
-echo "$as_me: WARNING: $ac_header: proceeding with the preprocessor's result" >&2;}
-    { echo "$as_me:$LINENO: WARNING: $ac_header: in the future, the compiler will take precedence" >&5
-echo "$as_me: WARNING: $ac_header: in the future, the compiler will take precedence" >&2;}
-    (
-      cat <<\_ASBOX
-## --------------------------------------- ##
-## Report this to jwala@broadinstitute.org ##
-## --------------------------------------- ##
-_ASBOX
-    ) |
-      sed "s/^/$as_me: WARNING:     /" >&2
-    ;;
-esac
-echo "$as_me:$LINENO: checking for $ac_header" >&5
-echo $ECHO_N "checking for $ac_header... $ECHO_C" >&6
-if eval "test \"\${$as_ac_Header+set}\" = set"; then
-  echo $ECHO_N "(cached) $ECHO_C" >&6
-else
-  eval "$as_ac_Header=\$ac_header_preproc"
-fi
-echo "$as_me:$LINENO: result: `eval echo '${'$as_ac_Header'}'`" >&5
-echo "${ECHO_T}`eval echo '${'$as_ac_Header'}'`" >&6
-
-fi
-if test `eval echo '${'$as_ac_Header'}'` = yes; then
-  cat >>confdefs.h <<_ACEOF
-#define `echo "HAVE_$ac_header" | $as_tr_cpp` 1
-_ACEOF
-
-else
-  { { echo "$as_me:$LINENO: error: The bamtools library must be installed (http://github.com/pezmaster31/bamtools). You can specify its path with the --with-bamtools=PATH option" >&5
-echo "$as_me: error: The bamtools library must be installed (http://github.com/pezmaster31/bamtools). You can specify its path with the --with-bamtools=PATH option" >&2;}
-   { (exit 1); exit 1; }; }
-fi
-
-done
-
+#AC_CHECK_HEADERS([api/BamReader.h],,[AC_MSG_ERROR([The bamtools library must be installed (http://github.com/pezmaster31/bamtools). You can specify its path with the --with-bamtools=PATH option])])
 
 # Make sure Boost can be found
 ##AC_CHECK_HEADERS([boost/algorithm/string.hpp],,[AC_MSG_ERROR([The Boost library must be installed (). You can specify its path with the --with-boost=PATH option])])
 
 # Make sure the seqan headers can be found
-
-for ac_header in seqan/basic.h
-do
-as_ac_Header=`echo "ac_cv_header_$ac_header" | $as_tr_sh`
-if eval "test \"\${$as_ac_Header+set}\" = set"; then
-  echo "$as_me:$LINENO: checking for $ac_header" >&5
-echo $ECHO_N "checking for $ac_header... $ECHO_C" >&6
-if eval "test \"\${$as_ac_Header+set}\" = set"; then
-  echo $ECHO_N "(cached) $ECHO_C" >&6
-fi
-echo "$as_me:$LINENO: result: `eval echo '${'$as_ac_Header'}'`" >&5
-echo "${ECHO_T}`eval echo '${'$as_ac_Header'}'`" >&6
-else
-  # Is the header compilable?
-echo "$as_me:$LINENO: checking $ac_header usability" >&5
-echo $ECHO_N "checking $ac_header usability... $ECHO_C" >&6
-cat >conftest.$ac_ext <<_ACEOF
-/* confdefs.h.  */
-_ACEOF
-cat confdefs.h >>conftest.$ac_ext
-cat >>conftest.$ac_ext <<_ACEOF
-/* end confdefs.h.  */
-$ac_includes_default
-#include <$ac_header>
-_ACEOF
-rm -f conftest.$ac_objext
-if { (eval echo "$as_me:$LINENO: \"$ac_compile\"") >&5
-  (eval $ac_compile) 2>conftest.er1
-  ac_status=$?
-  grep -v '^ *+' conftest.er1 >conftest.err
-  rm -f conftest.er1
-  cat conftest.err >&5
-  echo "$as_me:$LINENO: \$? = $ac_status" >&5
-  (exit $ac_status); } &&
-	 { ac_try='test -z "$ac_cxx_werror_flag"
-			 || test ! -s conftest.err'
-  { (eval echo "$as_me:$LINENO: \"$ac_try\"") >&5
-  (eval $ac_try) 2>&5
-  ac_status=$?
-  echo "$as_me:$LINENO: \$? = $ac_status" >&5
-  (exit $ac_status); }; } &&
-	 { ac_try='test -s conftest.$ac_objext'
-  { (eval echo "$as_me:$LINENO: \"$ac_try\"") >&5
-  (eval $ac_try) 2>&5
-  ac_status=$?
-  echo "$as_me:$LINENO: \$? = $ac_status" >&5
-  (exit $ac_status); }; }; then
-  ac_header_compiler=yes
-else
-  echo "$as_me: failed program was:" >&5
-sed 's/^/| /' conftest.$ac_ext >&5
-
-ac_header_compiler=no
-fi
-rm -f conftest.err conftest.$ac_objext conftest.$ac_ext
-echo "$as_me:$LINENO: result: $ac_header_compiler" >&5
-echo "${ECHO_T}$ac_header_compiler" >&6
-
-# Is the header present?
-echo "$as_me:$LINENO: checking $ac_header presence" >&5
-echo $ECHO_N "checking $ac_header presence... $ECHO_C" >&6
-cat >conftest.$ac_ext <<_ACEOF
-/* confdefs.h.  */
-_ACEOF
-cat confdefs.h >>conftest.$ac_ext
-cat >>conftest.$ac_ext <<_ACEOF
-/* end confdefs.h.  */
-#include <$ac_header>
-_ACEOF
-if { (eval echo "$as_me:$LINENO: \"$ac_cpp conftest.$ac_ext\"") >&5
-  (eval $ac_cpp conftest.$ac_ext) 2>conftest.er1
-  ac_status=$?
-  grep -v '^ *+' conftest.er1 >conftest.err
-  rm -f conftest.er1
-  cat conftest.err >&5
-  echo "$as_me:$LINENO: \$? = $ac_status" >&5
-  (exit $ac_status); } >/dev/null; then
-  if test -s conftest.err; then
-    ac_cpp_err=$ac_cxx_preproc_warn_flag
-    ac_cpp_err=$ac_cpp_err$ac_cxx_werror_flag
-  else
-    ac_cpp_err=
-  fi
-else
-  ac_cpp_err=yes
-fi
-if test -z "$ac_cpp_err"; then
-  ac_header_preproc=yes
-else
-  echo "$as_me: failed program was:" >&5
-sed 's/^/| /' conftest.$ac_ext >&5
-
-  ac_header_preproc=no
-fi
-rm -f conftest.err conftest.$ac_ext
-echo "$as_me:$LINENO: result: $ac_header_preproc" >&5
-echo "${ECHO_T}$ac_header_preproc" >&6
-
-# So?  What about this header?
-case $ac_header_compiler:$ac_header_preproc:$ac_cxx_preproc_warn_flag in
-  yes:no: )
-    { echo "$as_me:$LINENO: WARNING: $ac_header: accepted by the compiler, rejected by the preprocessor!" >&5
-echo "$as_me: WARNING: $ac_header: accepted by the compiler, rejected by the preprocessor!" >&2;}
-    { echo "$as_me:$LINENO: WARNING: $ac_header: proceeding with the compiler's result" >&5
-echo "$as_me: WARNING: $ac_header: proceeding with the compiler's result" >&2;}
-    ac_header_preproc=yes
-    ;;
-  no:yes:* )
-    { echo "$as_me:$LINENO: WARNING: $ac_header: present but cannot be compiled" >&5
-echo "$as_me: WARNING: $ac_header: present but cannot be compiled" >&2;}
-    { echo "$as_me:$LINENO: WARNING: $ac_header:     check for missing prerequisite headers?" >&5
-echo "$as_me: WARNING: $ac_header:     check for missing prerequisite headers?" >&2;}
-    { echo "$as_me:$LINENO: WARNING: $ac_header: see the Autoconf documentation" >&5
-echo "$as_me: WARNING: $ac_header: see the Autoconf documentation" >&2;}
-    { echo "$as_me:$LINENO: WARNING: $ac_header:     section \"Present But Cannot Be Compiled\"" >&5
-echo "$as_me: WARNING: $ac_header:     section \"Present But Cannot Be Compiled\"" >&2;}
-    { echo "$as_me:$LINENO: WARNING: $ac_header: proceeding with the preprocessor's result" >&5
-echo "$as_me: WARNING: $ac_header: proceeding with the preprocessor's result" >&2;}
-    { echo "$as_me:$LINENO: WARNING: $ac_header: in the future, the compiler will take precedence" >&5
-echo "$as_me: WARNING: $ac_header: in the future, the compiler will take precedence" >&2;}
-    (
-      cat <<\_ASBOX
-## --------------------------------------- ##
-## Report this to jwala@broadinstitute.org ##
-## --------------------------------------- ##
-_ASBOX
-    ) |
-      sed "s/^/$as_me: WARNING:     /" >&2
-    ;;
-esac
-echo "$as_me:$LINENO: checking for $ac_header" >&5
-echo $ECHO_N "checking for $ac_header... $ECHO_C" >&6
-if eval "test \"\${$as_ac_Header+set}\" = set"; then
-  echo $ECHO_N "(cached) $ECHO_C" >&6
-else
-  eval "$as_ac_Header=\$ac_header_preproc"
-fi
-echo "$as_me:$LINENO: result: `eval echo '${'$as_ac_Header'}'`" >&5
-echo "${ECHO_T}`eval echo '${'$as_ac_Header'}'`" >&6
-
-fi
-if test `eval echo '${'$as_ac_Header'}'` = yes; then
-  cat >>confdefs.h <<_ACEOF
-#define `echo "HAVE_$ac_header" | $as_tr_cpp` 1
-_ACEOF
-
-else
-  { echo "$as_me:$LINENO: WARNING: The seqan library must be installed (http://trac.seqan.de) for full functionality. You can specify its path with the --with-seqan=PATH option" >&5
-echo "$as_me: WARNING: The seqan library must be installed (http://trac.seqan.de) for full functionality. You can specify its path with the --with-seqan=PATH option" >&2;}
-fi
-
-done
-
+##AC_CHECK_HEADERS([seqan/basic.h],,[AC_MSG_WARN([The seqan library must be installed (http://trac.seqan.de) for full functionality. You can specify its path with the --with-seqan=PATH option])])
 
 # Make sure the HTSlib headers can be found
 
@@ -5238,7 +4931,7 @@ done
 ## Make sure the samtools headers can be found
 ##AC_CHECK_HEADERS([sam.h],,[AC_MSG_ERROR([The Samtools library must be installed. You can specify its path with the --with-samtools=PATH option])])
 
-                                                                                                                                                                ac_config_files="$ac_config_files Makefile SGA/Thirdparty/Makefile SGA/Util/Makefile SGA/SQG/Makefile SGA/Bigraph/Makefile SGA/Algorithm/Makefile SGA/StringGraph/Makefile SGA/Concurrency/Makefile SGA/SuffixTools/Makefile SGA/GraphDiff/Makefile SGA/Scaffold/Makefile SGA/SGA/Makefile SnowUtils/Makefile BWA/Makefile BedTools/Makefile Snowman/Makefile"
+                                                                                          ac_config_files="$ac_config_files Makefile SGA/Util/Makefile SGA/SQG/Makefile SGA/Bigraph/Makefile SGA/Algorithm/Makefile SGA/StringGraph/Makefile SGA/SuffixTools/Makefile SGA/SGA/Makefile Snowman/Makefile"
 
 
 cat >confcache <<\_ACEOF
@@ -5798,20 +5491,13 @@ do
   case "$ac_config_target" in
   # Handling of arguments.
   "Makefile" ) CONFIG_FILES="$CONFIG_FILES Makefile" ;;
-  "SGA/Thirdparty/Makefile" ) CONFIG_FILES="$CONFIG_FILES SGA/Thirdparty/Makefile" ;;
   "SGA/Util/Makefile" ) CONFIG_FILES="$CONFIG_FILES SGA/Util/Makefile" ;;
   "SGA/SQG/Makefile" ) CONFIG_FILES="$CONFIG_FILES SGA/SQG/Makefile" ;;
   "SGA/Bigraph/Makefile" ) CONFIG_FILES="$CONFIG_FILES SGA/Bigraph/Makefile" ;;
   "SGA/Algorithm/Makefile" ) CONFIG_FILES="$CONFIG_FILES SGA/Algorithm/Makefile" ;;
   "SGA/StringGraph/Makefile" ) CONFIG_FILES="$CONFIG_FILES SGA/StringGraph/Makefile" ;;
-  "SGA/Concurrency/Makefile" ) CONFIG_FILES="$CONFIG_FILES SGA/Concurrency/Makefile" ;;
   "SGA/SuffixTools/Makefile" ) CONFIG_FILES="$CONFIG_FILES SGA/SuffixTools/Makefile" ;;
-  "SGA/GraphDiff/Makefile" ) CONFIG_FILES="$CONFIG_FILES SGA/GraphDiff/Makefile" ;;
-  "SGA/Scaffold/Makefile" ) CONFIG_FILES="$CONFIG_FILES SGA/Scaffold/Makefile" ;;
   "SGA/SGA/Makefile" ) CONFIG_FILES="$CONFIG_FILES SGA/SGA/Makefile" ;;
-  "SnowUtils/Makefile" ) CONFIG_FILES="$CONFIG_FILES SnowUtils/Makefile" ;;
-  "BWA/Makefile" ) CONFIG_FILES="$CONFIG_FILES BWA/Makefile" ;;
-  "BedTools/Makefile" ) CONFIG_FILES="$CONFIG_FILES BedTools/Makefile" ;;
   "Snowman/Makefile" ) CONFIG_FILES="$CONFIG_FILES Snowman/Makefile" ;;
   "depfiles" ) CONFIG_COMMANDS="$CONFIG_COMMANDS depfiles" ;;
   "config.h" ) CONFIG_HEADERS="$CONFIG_HEADERS config.h" ;;

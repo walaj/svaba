@@ -108,8 +108,8 @@ void saca_induced_copying(SuffixArray* pSA, const ReadTable* pRT, int numThreads
 
     if(numThreads <= 1)
         mkqs2(&pSA->m_data[0], n1, 0, radix_compare, index_compare);
-    else
-        parallel_mkqs(&pSA->m_data[0], n1, numThreads, radix_compare, index_compare);
+    //else
+    //    parallel_mkqs(&pSA->m_data[0], n1, numThreads, radix_compare, index_compare);
     
     //if(!silent)
     //    std::cout << "[saca] mkqs finished\n";

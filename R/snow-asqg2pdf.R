@@ -4,7 +4,9 @@ library(optparse)
 
 option_list = list(
     make_option(c("-i", "--input"),  type = "character", default = NULL,  help = "Input asqg file from snowman run --write-asqg or sga"),
-    make_option(c("-o", "--output"), type = "character", default = "graph.pdf",  help = "Output pdf to write the graph")
+    make_option(c("-o", "--output"), type = "character", default = "graph.pdf",  help = "Output pdf to write the graph"),
+    make_option(c("-d", "--height"), type = "numeric", default = 20,  help = "Height"),
+    make_option(c("-w", "--width"), type = "numeric", default = 20,  help = "Width")
 )
 
 parseobj = OptionParser(option_list=option_list)
@@ -50,7 +52,7 @@ V(g)$color = "blue"
 ## format the edges
 E(g)$lab <- tab.e$overlap_end2 - tab.e$overlap_start2
 
-pdf(opt$output, height=40, width=40)
+pdf(opt$output, height=opt$height, width=opt$width)
 plot(g, vertex.color=V(g)$color, vertex.label=V(g)$names, edge.label=E(g)$lab, vertex.size=2)
 dev.off()
 

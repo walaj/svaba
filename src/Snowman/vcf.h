@@ -5,8 +5,8 @@
 #include <unordered_map>
 #include <vector>
 #include "SnowTools/GenomicRegion.h"
-#include "AlignedContig.h"
-#include "faidx.h"
+#include "SnowTools/AlignedContig.h"
+//#include "faidx.h"
 
 using namespace std;
 

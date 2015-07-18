@@ -80,7 +80,9 @@ void runAssembly2VCF(int argc, char** argv)
   // read in the assembly bam file
   AssemblyBamWalker awalk(opt::assembly_bam);
 
+  std::cout << awalk << std::endl;
   
+  awalk.walkDiscovar();
 
 }
 

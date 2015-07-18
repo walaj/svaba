@@ -2,9 +2,9 @@ noinst_LIBRARIES = libsuffixtools.a
 
 libsuffixtools_a_CPPFLAGS = \
 	-I$(top_srcdir)/SGA/Util \
-	-I$(top_srcdir)/SGA/Thirdparty \
-	-I$(top_srcdir)/SGA/Bigraph \
-	-I$(top_srcdir)/SGA/Concurrency
+##	-I$(top_srcdir)/SGA/Thirdparty \
+	-I$(top_srcdir)/SGA/Bigraph 
+##	-I$(top_srcdir)/SGA/Concurrency
 
 libsuffixtools_a_SOURCES = STCommon.cpp STCommon.h \
                            STGlobals.h \
@@ -14,13 +14,13 @@ libsuffixtools_a_SOURCES = STCommon.cpp STCommon.h \
                            InverseSuffixArray.cpp InverseSuffixArray.h \
                            SACAInducedCopying.h SACAInducedCopying.cpp \
                            BWTAlgorithms.h BWTAlgorithms.cpp \
-						   BWTDiskConstruction.h BWTDiskConstruction.cpp \
+##						   BWTDiskConstruction.h BWTDiskConstruction.cpp \
 						   BWTReader.h BWTReader.cpp \
 						   BWTWriter.h BWTWriter.cpp \
 						   SAReader.h SAReader.cpp \
 						   SAWriter.h SAWriter.cpp \
-						   GapArray.h GapArray.cpp \
-						   RankProcess.h RankProcess.cpp \
+##						   GapArray.h GapArray.cpp \
+##						   RankProcess.h RankProcess.cpp \
                            SBWT.h SBWT.cpp \
                            RLBWT.h RLBWT.cpp \
                            BWTReader.h BWTReader.cpp \
@@ -30,11 +30,11 @@ libsuffixtools_a_SOURCES = STCommon.cpp STCommon.h \
                            BWTWriterAscii.h BWTWriterAscii.cpp \
                            BWTReaderAscii.h BWTReaderAscii.cpp \
                            BWTIntervalCache.h BWTIntervalCache.cpp \
-                           QuickBWT.h QuickBWT.cpp \
+ ##                          QuickBWT.h QuickBWT.cpp \
                            SampledSuffixArray.h SampledSuffixArray.cpp \
-                           BWTCABauerCoxRosone.h BWTCABauerCoxRosone.cpp \
-                           BWTCARopebwt.h BWTCARopebwt.cpp \
-                           PopulationIndex.h PopulationIndex.cpp \
+##                           BWTCABauerCoxRosone.h BWTCABauerCoxRosone.cpp \
+##                           BWTCARopebwt.h BWTCARopebwt.cpp \
+##                           PopulationIndex.h PopulationIndex.cpp \
                            BWT.h \
                            BWTInterval.h \
                            BWTIndexSet.h \
