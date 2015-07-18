@@ -4,16 +4,20 @@
 #include <vector>
 #include <unordered_map>
 
+#include "KmerFilter.h"
 #include "SnowTools/BamWalker.h"
-#include "SnowTools/GenomicRegionCollection.h"
-#include "SnowTools/GenomicRegion.h"
-#include "SnowTools/HTSTools.h"
+#include "SnowTools/STCoverage.h"
+#include "SnowTools/BWAWrapper.h"
 
-#include "Coverage.cpp"
 #include "htslib/khash.h"
+
+#define GET_COVERAGE 1
 
 typedef std::unordered_map<std::string, size_t> CigarMap;
 using SnowTools::GRC;
+using SnowTools::BamReadVector;
+using SnowTools::STCoverage;
+using SnowTools::BamRead;
 
 class MateRegion: public SnowTools::GenomicRegion
 {
@@ -35,11 +39,13 @@ class SnowmanBamWalker: public SnowTools::BamWalker
 
   SnowmanBamWalker(const std::string& in) : SnowTools::BamWalker(in) {}
 
-  void readBam();
+    void readBam(SnowTools::BWAWrapper * b = nullptr);
 
-  void addCigar(Read &r);
+    void filterMicrobial(SnowTools::BWAWrapper * b);
 
-  bool checkIfDuplicate(Read &r);
+  void addCigar(BamRead &r);
+
+  bool checkIfDuplicate(BamRead &r);
 
   void subSampleToWeirdCoverage(double max_coverage);
 
@@ -50,30 +56,36 @@ class SnowmanBamWalker: public SnowTools::BamWalker
   bool get_coverage = true;
   bool get_mate_regions = true;
 
-  ReadVec reads;
+  SnowTools::GRC blacklist;
 
-  Coverage cov, weird_cov;
-  
+  //ReadVec reads;
+  BamReadVector reads;
+
+  STCoverage cov, weird_cov;
+
   CigarMap cigmap;
   
+  SnowTools::GenomicRegion coverage_region;
+
   size_t max_weird_cov = 100;
 
   MateRegionVector mate_regions;
 
+  SnowTools::ReadCount rc;
+
+  std::string prefix = ""; // eg. tumor, normal
+
+  size_t max_cov = 100;
  private:
 
   // might want these in case we are looking for duplicates
   std::unordered_map<std::string, bool> name_map;
   std::unordered_map<std::string, bool> seq_map;
 
-  std::string prefix = ""; // eg. tumor, normal
-
   size_t m_limit = 0;
 
   uint32_t m_seed = 1337;
-  
-  size_t max_cov = 100;
-    
+
 };
 
 #endif

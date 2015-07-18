@@ -46,6 +46,7 @@ RLBWT::RLBWT(const SuffixArray* pSA, const ReadTable* pRT)
     // Set up the bwt string and suffix array from the cycled strings
     for(size_t i = 0; i < n; ++i)
     {
+
         SAElem saElem = pSA->get(i);
         const SeqItem& si = pRT->getRead(saElem.getID());
 

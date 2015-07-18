@@ -24,7 +24,7 @@ class ReadTable
   ReadTable() : idx(0), m_pIndex(NULL) {}
     //ReadTable(std::string* seq, std::string * id, int length);
     ReadTable(SeqRecordVector &srv);
-    ReadTable(const vector<Contig> &contigs);
+    ReadTable(const ContigVector &contigs);
     ReadTable(std::string filename, uint32_t reader_flags = 0);
     ~ReadTable();
 
@@ -59,6 +59,8 @@ class ReadTable
     // I/O
     friend std::ostream& operator<<(std::ostream& out, const ReadTable& rt);
 
+    //Jeremiah
+    void setReadSequence(const std::string& seqr);
 
  private:
     ReadVector m_table;

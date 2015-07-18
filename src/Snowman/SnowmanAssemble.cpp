@@ -9,44 +9,13 @@
 #include <iostream>
 #include <fstream>
 #include "Util.h"
-#include "assemble.h"
+#include "SnowmanAssemble.h"
 #include "SGUtil.h"
 #include "SGAlgorithms.h"
 #include "SGVisitors.h"
 #include "EncodedString.h"
 #include <unistd.h>
 #include <string>
-
-namespace opt
-{
-    static unsigned int verbose;
-    static std::string asqgFile;
-    static std::string outContigsFile;
-    static std::string outVariantsFile;
-    static std::string outGraphFile;
-
-    static unsigned int minOverlap;
-    static bool bEdgeStats = false;
-    static bool bSmoothGraph = false;
-    static int resolveSmallRepeatLen = -1;
-    static size_t maxEdges = 128;
-
-    // Trim parameters
-    static int numTrimRounds = 10;
-    static size_t trimLengthThreshold = 300;
-    
-    // Bubble parameters
-    static int numBubbleRounds = 3;
-    static double maxBubbleDivergence = 0.05f;
-    static double maxBubbleGapDivergence = 0.01f;
-    static int maxIndelLength = 20;
-
-    // 
-    static bool bValidate;
-    static bool bExact = true;
-    static bool bPerformTR = false;
-}
-
 
 void assemble(std::stringstream& asqg_stream, int minOverlap, int maxEdges, bool bExact, 
 	      int trimLengthThreshold, bool bPerformTR, bool bValidate, int numTrimRounds, 
@@ -55,20 +24,21 @@ void assemble(std::stringstream& asqg_stream, int minOverlap, int maxEdges, bool
               ContigVector &contigs)
 {
 
-    StringGraph* pGraph = SGUtil::loadASQG(asqg_stream, minOverlap, true, maxEdges);
-
-    if(bExact)
-        pGraph->setExactMode(true);
-    //pGraph->printMemSize();
-
-    // Visitor functors
-    SGTransitiveReductionVisitor trVisit;
-    SGGraphStatsVisitor statsVisit;
-    SGTrimVisitor trimVisit(trimLengthThreshold);
-    SGContainRemoveVisitor containVisit;
-    SGValidateStructureVisitor validationVisit;
-
-    // Pre-assembly graph stats
+  AssemblyOptions ao;
+  
+  StringGraph* pGraph = SGUtil::loadASQG(asqg_stream, minOverlap, true, maxEdges);
+  
+  if(bExact)
+    pGraph->setExactMode(true);
+  
+  // Visitor functors
+  SGTransitiveReductionVisitor trVisit;
+  SGGraphStatsVisitor statsVisit;
+  SGTrimVisitor trimVisit(trimLengthThreshold);
+  SGContainRemoveVisitor containVisit;
+  SGValidateStructureVisitor validationVisit;
+  
+  // Pre-assembly graph stats
     //std::cout << "[Stats] Input graph:\n";
     //pGraph->visit(statsVisit);    
 
@@ -162,13 +132,13 @@ void assemble(std::stringstream& asqg_stream, int minOverlap, int maxEdges, bool
     if(numBubbleRounds > 0)
     {
         //std::cout << "\nPerforming variation smoothing\n";
-        SGSmoothingVisitor smoothingVisit(opt::outVariantsFile, maxBubbleGapDivergence, maxBubbleDivergence, maxIndelLength);
-        int numSmooth = numBubbleRounds;
-        while(numSmooth-- > 0)
-            pGraph->visit(smoothingVisit);
-        pGraph->simplify();
+      SGSmoothingVisitor smoothingVisit(ao.outVariantsFile, maxBubbleGapDivergence, maxBubbleDivergence, maxIndelLength);
+      int numSmooth = numBubbleRounds;
+      while(numSmooth-- > 0)
+	pGraph->visit(smoothingVisit);
+      pGraph->simplify();
     }
-
+    
     /* std::cerr << prefix << " NumBubble2: " << numBubbleRounds << "\n\n\n\n";
     vt = pGraph->getVertexMap();
     std::cerr << "MapSize: " << vt.size() << std::endl;

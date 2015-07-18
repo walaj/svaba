@@ -3,7 +3,6 @@
 
 #include <vector>
 #include <string>
-#include "api/BamReader.h"
 #include <unordered_map>
 #include "EncodedString.h"
 
@@ -24,12 +23,13 @@ class Contig {
 
   size_t getLength() const { return m_seq.length(); }
   
-  void clearReads() {
-    m_bamalignments.clear();
-  }
+  //void clearReads() {
+  //  m_bamalignments.clear();
+  //}
   
   // remove unneccesary tags to save space
-  void clearFinalTags() {
+  /*  void clearFinalTags() {
+
     vector<BamTools::BamAlignment>::iterator it = m_bamalignments.begin();
     for (; it != m_bamalignments.end(); it++) {
       it->RemoveTag("J2");
@@ -43,30 +43,30 @@ class Contig {
       it->EditTag("JW", "Z", jw);
       
       //SVBamReader::clearFinalTags(it);
-    }
-  }
+      }
+      }*/
 
   string getID() const { return m_name; }
 
   string getSeq() const { return m_seq.toString(); }
 
-  void addRead(BamTools::BamAlignment read, const int align, bool isInContig);
+  //void addRead(BamTools::BamAlignment read, const int align, bool isInContig);
 
-  void addRead(BamTools::BamAlignment read) { m_bamalignments.push_back(read); }
+  //void addRead(BamTools::BamAlignment read) { m_bamalignments.push_back(read); }
 
-  vector<BamTools::BamAlignment> getBamAlignments() const { return m_bamalignments; }
+  //vector<BamTools::BamAlignment> getBamAlignments() const { return m_bamalignments; }
 
-  void printBamAlignments() const;
+  //void printBamAlignments() const;
 
-  int getReadCount() const {
-    return m_bamalignments.size();
-  }
+  //int getReadCount() const {
+  //  return m_bamalignments.size();
+  //}
 
-  int getContigReadCount() const {
-    return m_contig_read_count;
-  }
+  //int getContigReadCount() const {
+  //  return m_contig_read_count;
+  //}
 
-  int getContigTumorReadCount() const {
+  /*int getContigTumorReadCount() const {
     int out = 0;
     for (vector<BamTools::BamAlignment>::const_iterator it = m_bamalignments.begin(); it != m_bamalignments.end(); it++) {
       string tmp;
@@ -77,7 +77,7 @@ class Contig {
 	out++;
     }
     return out;
-  }
+    }*/
 
 
   bool operator < (const Contig &c) const { 
@@ -91,7 +91,7 @@ class Contig {
    string m_name;
    //string m_seq;
    DNAEncodedString m_seq;
-   vector<BamTools::BamAlignment> m_bamalignments;
+   //vector<BamTools::BamAlignment> m_bamalignments;
    int m_contig_read_count = 0; // count of reads that actually built contig
 
 };

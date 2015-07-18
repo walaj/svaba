@@ -9,7 +9,12 @@
 #include <iostream>
 #include <algorithm>
 #include "ReadTable.h"
-#include "SeqReader.h"
+
+//JEREMIAH
+void ReadTable::setReadSequence(const std::string& seqr) {
+  assert(m_table[idx-1].seq.length() == seqr.length());
+  m_table[idx-1].seq = seqr;
+}
 
 // JEREMIAH
 ReadTable::ReadTable(SeqRecordVector &srv)
@@ -32,7 +37,7 @@ ReadTable::ReadTable(const ContigVector &contigs)
     si.id = it->getID();
     m_table.push_back(si);
   }
-
+  
 }
 
 
@@ -101,8 +106,8 @@ size_t ReadTable::getReadLength(size_t idx) const
 const SeqItem& ReadTable::getRead(size_t idx) const
 {
   if (idx >= m_table.size()) {
-    cerr << "idx " << idx << " m_table.size() " << m_table.size() << endl;
-    exit(EXIT_SUCCESS);
+    std::cerr << "idx " << idx << " m_table.size() " << m_table.size() << std::endl;
+    assert(idx <= m_table.size());
   }
   assert(idx < m_table.size());
   return m_table[idx];

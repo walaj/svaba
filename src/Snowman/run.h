@@ -9,44 +9,44 @@
 #include "ReadTable.h"
 #include "workqueue.h"
 
-#include "BamToolsUtils.h"
+//#include "BamToolsUtils.h"
 #include "SnowTools/GenomicRegion.h"
 #include "SnowTools/GenomicRegionCollection.h"
 #include "SnowTools/SnowUtils.h"
+#include "SnowTools/BWAWrapper.h"
 
 #include "contigs.h"
-#include "AlignedContig.h"
-#include "DiscordantCluster.h"
+#include "SnowTools/AlignedContig.h"
+#include "SnowTools/DiscordantCluster.h"
 #include "SnowmanBamWalker.h"
-
-#include "BWAWrapper.h"
 
 // needed for seq record vector
 #include "Util.h" 
 
 using namespace std;
 using SnowTools::GRC;
-using SnowTools::GR;
+using SnowTools::GenomicRegion;
+using SnowTools::BamRead;
 
-typedef unordered_map<string, Read> ReadMap;
+typedef unordered_map<string, BamRead> ReadMap;
 //typedef unordered_map<string, unique_ptr<BamAndReads> > BARMap;
 
 void initializeFiles();
-void addDiscordantPairsBreakpoints(BPVec &bp, DMap& dmap);
-GRC calculateClusters(ReadVec &bav);
-DMap clusterDiscordantReads(ReadVec &bav, const GR& interval);
-bool _cluster(vector<ReadVec> &cvec, ReadVec &clust, Read &a, bool mate);
-bool grabReads(const GR &egion, bwaidx_t* idx);
+//void addDiscordantPairsBreakpoints(BPVec &bp, DMap& dmap);
+//GRC calculateClusters(ReadVec &bav);
+//DMap clusterDiscordantReads(ReadVec &bav, const GR& interval);
+//bool _cluster(vector<ReadVec> &cvec, ReadVec &clust, Read &a, bool mate);
+bool grabReads(const GenomicRegion &region, bwaidx_t* idx);
 bool runSnowman(int argc, char** argv);
 void parseRunOptions(int argc, char** argv);
 void writeR2C(ReadMap &r2c);
-void _convertToDiscordantCluster(DMap &dd, vector<ReadVec> cvec, ReadVec &bav);
+//void _convertToDiscordantCluster(DMap &dd, vector<ReadVec> cvec, ReadVec &bav);
 void doAssembly(ReadTable *pRT, std::string name, ContigVector &contigs, int pass);
-int countJobs(GRC& file_regions, GRC& run_regions);
-void combineContigsWithDiscordantClusters(DMap &dm, AlignedContigVec &contigs);
+//int countJobs(GRC& file_regions, GRC& run_regions);
+//void combineContigsWithDiscordantClusters(DMap &dm, AlignedContigVec &contigs);
 void learnParameters();
 //SnowTools::GenomicRegionCollection<SnowTools::GenomicRegion> checkReadsMateRegions(SnowTools::GenomicRegionCollection<SnowTools::GenomicRegion> mate_final, unique_ptr<BARMap>& bar);
-SeqRecordVector toSeqRecordVector(ReadVec &bav);
+//SeqRecordVector toSeqRecordVector(ReadVec &bav);
 
 //bool findOverlapBlocksExactSnow(const string &w, const BWT* pBWT,
 //				const BWT* pRevBWT);
@@ -84,6 +84,7 @@ template<typename T> inline double calc_sd(vector<T> vec) {
 }
 
 
+/*
 // define a sorter to sort by the Mate Position
 typedef std::binary_function<Read, Read, bool> AlignmentSortBase;
 struct ByMatePosition : public AlignmentSortBase {
@@ -196,7 +197,7 @@ struct ByReadAndMatePosition : public AlignmentSortBase {
   private:
   const BamTools::Algorithms::Sort::Order m_order;
 };
-
+*/
 
 // make a structure to store timing opt
 struct SnowTimer {

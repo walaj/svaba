@@ -1830,7 +1830,18 @@ void VCFFile::writeSVs(string basename, bool zip) const {
   // print out the entries
   for (auto& i : tmpvec) { 
     if (i.filter == "PASS" || vopt::include_nonpass) {
-      if ( (i.info_fields["NDISC"] == "0" && i.info_fields["NSPLIT"] == "0") || (ismerged)) {
+
+      size_t tsplit = i.info_fields.count("TSPLIT") ? stoi(i.info_fields["TSPLIT"]) : 0;
+      size_t nsplit = i.info_fields.count("NSPLIT") ? stoi(i.info_fields["NSPLIT"]) : 0;
+      size_t tdisc = i.info_fields.count("TDISC") ? stoi(i.info_fields["TDISC"]) : 0;
+      size_t ndisc = i.info_fields.count("NDISC") ? stoi(i.info_fields["NDISC"]) : 0;
+
+      double somatic_ratio = 100;
+      size_t ncount = max(nsplit, ndisc);
+      if (ncount > 0)
+	somatic_ratio = (max(tsplit,tdisc)) / ncount;
+
+      if ( (somatic_ratio >= 12 && ncount < 2) || (ismerged)) {
 	if (zip) {
 	  stringstream ss;
 	  ss << i << endl;

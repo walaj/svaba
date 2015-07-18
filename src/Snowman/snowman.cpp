@@ -62,12 +62,10 @@
 
 #include <string>
 #include <iostream>
-#include "run.h"
+#include "run_snowman.h"
 #include "vcf.h"
 #include <vector>
-#include "BreakPoint.h"
 #include "genpon.h"
-#include "assembly2vcf.h"
 
 #define AUTHOR "Jeremiah Wala <jwala@broadinstitute.org>"
 
@@ -99,17 +97,17 @@ int main(int argc, char** argv) {
       return 0;
     } else if (command == "run") {
       runSnowman(argc -1, argv + 1);
-    } else if (command == "refilter") {
+    } /*else if (command == "refilter") {
       runRefilterBreakpoints(argc-1, argv+1);
-    } else if (command == "pon") {
+      } */else if (command == "pon") {
       runGeneratePON(argc-1, argv+1);
     }
     else if (command == "vcf") {
       runVCF(argc-1, argv+1);
     } 
-    else if (command == "assembly2vcf") {
-      runAssembly2VCF(argc-1, argv+1);
-    }
+    //else if (command == "assembly2vcf") {
+    //  runAssembly2VCF(argc-1, argv+1);
+    //}
     else {
       std::cerr << SNOWMAN_USAGE_MESSAGE;
       return 0;

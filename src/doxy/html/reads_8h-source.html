@@ -15,140 +15,140 @@
 <a name="l00002"></a>00002 <span class="preprocessor"></span><span class="preprocessor">#define SNOW_READS_H</span>
 <a name="l00003"></a>00003 <span class="preprocessor"></span>
 <a name="l00004"></a>00004 <span class="preprocessor">#include &lt;memory&gt;</span>
-<a name="l00005"></a>00005 
-<a name="l00006"></a>00006 <span class="preprocessor">#define HAVE_HTSLIB</span>
-<a name="l00007"></a>00007 <span class="preprocessor"></span><span class="comment">//#define HAVE_BAMTOOLS</span>
-<a name="l00008"></a>00008 
-<a name="l00009"></a>00009 <span class="preprocessor">#ifdef HAVE_HTSLIB</span>
-<a name="l00010"></a>00010 <span class="preprocessor"></span>
-<a name="l00011"></a>00011 <span class="preprocessor">#include "htslib/hts.h"</span>
-<a name="l00012"></a>00012 <span class="preprocessor">#include "htslib/sam.h"</span>
-<a name="l00013"></a>00013 <span class="preprocessor">#include "htslib/bgzf.h"</span>
-<a name="l00014"></a>00014 <span class="preprocessor">#include "htslib/kstring.h"</span>
-<a name="l00015"></a>00015 
-<a name="l00016"></a>00016 <span class="keyword">static</span> <span class="keyword">const</span> <span class="keywordtype">char</span> BASES[16] = {<span class="charliteral">' '</span>, <span class="charliteral">'A'</span>, <span class="charliteral">'C'</span>, <span class="charliteral">' '</span>,
-<a name="l00017"></a>00017                                <span class="charliteral">'G'</span>, <span class="charliteral">' '</span>, <span class="charliteral">' '</span>, <span class="charliteral">' '</span>, 
-<a name="l00018"></a>00018                                <span class="charliteral">'T'</span>, <span class="charliteral">' '</span>, <span class="charliteral">' '</span>, <span class="charliteral">' '</span>, 
-<a name="l00019"></a>00019                                <span class="charliteral">' '</span>, <span class="charliteral">' '</span>, <span class="charliteral">' '</span>, <span class="charliteral">'N'</span>};
-<a name="l00020"></a>00020 
-<a name="l00021"></a>00021 
-<a name="l00022"></a>00022 <span class="comment">// custom deleter</span>
+<a name="l00005"></a>00005 <span class="preprocessor">#include &lt;vector&gt;</span>
+<a name="l00006"></a>00006 <span class="preprocessor">#include &lt;unordered_map&gt;</span>
+<a name="l00007"></a>00007 
+<a name="l00008"></a>00008 <span class="preprocessor">#define HAVE_HTSLIB</span>
+<a name="l00009"></a>00009 <span class="preprocessor"></span><span class="comment">//#define HAVE_BAMTOOLS</span>
+<a name="l00010"></a>00010 
+<a name="l00011"></a>00011 <span class="preprocessor">#ifdef HAVE_HTSLIB</span>
+<a name="l00012"></a>00012 <span class="preprocessor"></span>
+<a name="l00013"></a>00013 <span class="preprocessor">#include "htslib/hts.h"</span>
+<a name="l00014"></a>00014 <span class="preprocessor">#include "htslib/sam.h"</span>
+<a name="l00015"></a>00015 <span class="preprocessor">#include "htslib/bgzf.h"</span>
+<a name="l00016"></a>00016 <span class="preprocessor">#include "htslib/kstring.h"</span>
+<a name="l00017"></a>00017 
+<a name="l00018"></a>00018 <span class="keyword">static</span> <span class="keyword">const</span> <span class="keywordtype">char</span> BASES[16] = {<span class="charliteral">' '</span>, <span class="charliteral">'A'</span>, <span class="charliteral">'C'</span>, <span class="charliteral">' '</span>,
+<a name="l00019"></a>00019                                <span class="charliteral">'G'</span>, <span class="charliteral">' '</span>, <span class="charliteral">' '</span>, <span class="charliteral">' '</span>, 
+<a name="l00020"></a>00020                                <span class="charliteral">'T'</span>, <span class="charliteral">' '</span>, <span class="charliteral">' '</span>, <span class="charliteral">' '</span>, 
+<a name="l00021"></a>00021                                <span class="charliteral">' '</span>, <span class="charliteral">' '</span>, <span class="charliteral">' '</span>, <span class="charliteral">'N'</span>};
+<a name="l00022"></a>00022 
 <a name="l00023"></a>00023 <span class="keyword">struct </span>free_delete {
 <a name="l00024"></a>00024   <span class="keywordtype">void</span> operator()(<span class="keywordtype">void</span>* x) { bam_destroy1((bam1_t*)x); }
 <a name="l00025"></a>00025 };
 <a name="l00026"></a>00026 
 <a name="l00027"></a>00027 <span class="keyword">typedef</span> std::shared_ptr&lt;bam1_t&gt; Read;
 <a name="l00028"></a>00028 <span class="keyword">typedef</span> std::vector&lt;Read&gt; ReadVec;
-<a name="l00029"></a>00029 <span class="keyword">typedef</span> std::unordered_map&lt;std::string, Read&gt; ReadHash;
-<a name="l00030"></a>00030 
-<a name="l00031"></a>00031 <span class="keyword">typedef</span> bam1_t* RawRead;
-<a name="l00032"></a>00032 <span class="preprocessor">#define r_is_rev(b) ((b)-&gt;core.flag&amp;BAM_FREVERSE) != 0)</span>
-<a name="l00033"></a>00033 <span class="preprocessor"></span><span class="preprocessor">#define r_is_mrev(b) ((b)-&gt;core.flag&amp;BAM_FMREVERSE) != 0)</span>
-<a name="l00034"></a>00034 <span class="preprocessor"></span><span class="preprocessor">#define r_pos(b) ((b)-&gt;core.pos)</span>
-<a name="l00035"></a>00035 <span class="preprocessor"></span><span class="preprocessor">#define r_mpos(b) ((b)-&gt;core.mpos)</span>
-<a name="l00036"></a>00036 <span class="preprocessor"></span><span class="preprocessor">#define r_id(b) ((b)-&gt;core.tid)</span>
-<a name="l00037"></a>00037 <span class="preprocessor"></span><span class="preprocessor">#define r_mid(b) ((b)-&gt;core.mtid)</span>
-<a name="l00038"></a>00038 <span class="preprocessor"></span><span class="preprocessor">#define r_is_mapped(b) (!((b)-&gt;core.flag&amp;BAM_FUNMAP))</span>
-<a name="l00039"></a>00039 <span class="preprocessor"></span><span class="preprocessor">#define r_is_mmapped(b) (!((b)-&gt;core.flag&amp;BAM_FMUNMAP))</span>
-<a name="l00040"></a>00040 <span class="preprocessor"></span><span class="preprocessor">#define r_mapq(b) ((b)-&gt;core.qual)</span>
-<a name="l00041"></a>00041 <span class="preprocessor"></span><span class="preprocessor">#define r_cig_size(b) ((b)-&gt;core.n_cigar)</span>
-<a name="l00042"></a>00042 <span class="preprocessor"></span><span class="preprocessor">#define r_is_first(b) ((b)-&gt;core.flag&amp;BAM_FREAD1)</span>
-<a name="l00043"></a>00043 <span class="preprocessor"></span><span class="preprocessor">#define r_qname(b) (std::string(bam_get_qname((b).get())))</span>
-<a name="l00044"></a>00044 <span class="preprocessor"></span><span class="preprocessor">#define r_remove_tag(b, t) do { uint8_t *p  = bam_aux_get((b).get(), t); if (p) bam_aux_del((b).get(), p); } while(0)</span>
-<a name="l00045"></a>00045 <span class="preprocessor"></span>
-<a name="l00046"></a>00046 <span class="preprocessor">#define r_flag(b) ((b)-&gt;core.flag)</span>
-<a name="l00047"></a>00047 <span class="preprocessor"></span><span class="preprocessor">#define r_is_pmapped(b) (!((b)-&gt;core.flag&amp;BAM_FUNMAP) &amp;&amp; !((b)-&gt;core.flag&amp;BAM_FMUNMAP))</span>
-<a name="l00048"></a>00048 <span class="preprocessor"></span><span class="preprocessor">#define r_length(b) ((b)-&gt;core.l_qseq)</span>
-<a name="l00049"></a>00049 <span class="preprocessor"></span><span class="preprocessor">#define r_isize(b) ((b)-&gt;core.isize)</span>
-<a name="l00050"></a>00050 <span class="preprocessor"></span><span class="preprocessor">#define r_seq(b, s) do { uint8_t * p = bam_get_seq(b); char c[(b)-&gt;core.l_qseq+1]; for (int ww = 0; ww &lt; (b)-&gt;core.l_qseq; ww++) { c[ww] = BASES[bam_seqi(p, ww)]; } c[(b)-&gt;core.l_qseq] = '\0'; s = std::string(c); } while(0)</span>
-<a name="l00051"></a>00051 <span class="preprocessor"></span><span class="preprocessor">#define r_get_clip(b, p) do { uint32_t* c = bam_get_cigar(b); for (int ww = 0; ww &lt; (b)-&gt;core.n_cigar; ww++) if (c[ww] &amp; BAM_CSOFT_CLIP || c[ww] &amp; BAM_CHARD_CLIP) p += bam_cigar_oplen(c[ww]); } while(0)</span>
-<a name="l00052"></a>00052 <span class="preprocessor"></span>
-<a name="l00053"></a>00053 <span class="preprocessor">#define r_get_Z_tag(b, t, v) do { uint8_t* p = bam_aux_get((b).get(), t); if (p) v = bam_aux2Z(p); else v = ""; } while(0) </span>
-<a name="l00054"></a>00054 <span class="preprocessor"></span><span class="preprocessor">#define r_get_SR(b, v) do { uint8_t* p = bam_aux_get((b).get(), "SR"); assert(p); v = bam_aux2Z(p); } while(0) </span>
-<a name="l00055"></a>00055 <span class="preprocessor"></span><span class="preprocessor">#define r_get_int32_tag(b, t, v) do { uint8_t* p = bam_aux_get((b).get(), t); if (p) v = bam_aux2i(p); else v = 0; } while(0) </span>
-<a name="l00056"></a>00056 <span class="preprocessor"></span>
-<a name="l00057"></a>00057 <span class="preprocessor">#define r_cig_type(b, i) (bam_cigar_opchr(bam_get_cigar((b).get())[i]))</span>
-<a name="l00058"></a>00058 <span class="preprocessor"></span><span class="preprocessor">#define r_cig_len(b, i) (bam_cigar_oplen(bam_get_cigar((b).get())[i]))</span>
-<a name="l00059"></a>00059 <span class="preprocessor"></span>
-<a name="l00060"></a>00060 <span class="preprocessor">#define r_add_Z_tag(b, t, v) bam_aux_append((b).get(), t, 'Z', (v).length()+1, (uint8_t*)(v).c_str())</span>
-<a name="l00061"></a>00061 <span class="preprocessor"></span><span class="preprocessor">#define r_add_int32_tag(b, t, v) bam_aux_append((b).get(), t, 'i', 4, (uint8_t*)&amp;(v))</span>
-<a name="l00062"></a>00062 <span class="preprocessor"></span><span class="preprocessor">#define r_count_nbases(b, n) do { uint8_t* p = bam_get_seq(b); for (int ww = 0; ww &lt; (b)-&gt;core.l_qseq; ww++) if (bam_seqi(p,ww) == 15) n++; } while(0)</span>
-<a name="l00063"></a>00063 <span class="preprocessor"></span><span class="preprocessor">#define r_count_sub_nbases(b, n, s, e) do { uint8_t* p = bam_get_seq(b); for (int ww = (s); ww &lt; (e); ww++) if (bam_seqi(p,ww) == 15) n++; } while(0)</span>
-<a name="l00064"></a>00064 <span class="preprocessor"></span>
-<a name="l00065"></a>00065 <span class="preprocessor">#define r_is_rstrand(b) (((b)-&gt;core.flag&amp;BAM_FREVERSE) &gt; 0) </span>
-<a name="l00066"></a>00066 <span class="preprocessor"></span><span class="preprocessor">#define r_is_mrstrand(b) (((b)-&gt;core.flag&amp;BAM_FMREVERSE) &gt; 0)</span>
-<a name="l00067"></a>00067 <span class="preprocessor"></span><span class="preprocessor">#define r_is_dup(b) (((b)-&gt;core.flag&amp;BAM_FDUP) &gt; 0)</span>
-<a name="l00068"></a>00068 <span class="preprocessor"></span><span class="preprocessor">#define r_is_primary(b) (!((b)-&gt;core.flag&amp;BAM_FSECONDARY))</span>
-<a name="l00069"></a>00069 <span class="preprocessor"></span><span class="preprocessor">#define r_is_qc_fail(b) (((b)-&gt;core.flag&amp;BAM_FQCFAIL) &gt; 0)</span>
-<a name="l00070"></a>00070 <span class="preprocessor"></span><span class="preprocessor">#define r_strand(b) ((b)-&gt;core.flag&amp;BAM_FREVERSE ? '-' : '+')</span>
-<a name="l00071"></a>00071 <span class="preprocessor"></span><span class="comment">//#define r_strand(b) ((b)-&gt;core.flag&amp;BAM_FREVERSE ? '-' : '+')</span>
-<a name="l00072"></a>00072 <span class="comment">//#define r_mstrand(b) ((b)-&gt;core.flag&amp;FMREVERSE ? '-' : '+')</span>
-<a name="l00073"></a>00073 <span class="preprocessor">#define r_endpos(b) (bam_endpos((b).get()))</span>
-<a name="l00074"></a>00074 <span class="preprocessor"></span>
-<a name="l00075"></a>00075 <span class="preprocessor">#define GET_READ(x) bam1_t* b = bam_init1(); if (hts_itr_next(fp, hts_itr, b, dum) &lt;= 0) { bam_destroy1(b); break; } x = std::shared_ptr&lt;bam1_t&gt; (b, free_delete());</span>
-<a name="l00076"></a>00076 <span class="preprocessor"></span>
-<a name="l00077"></a>00077 <span class="preprocessor">#include "api/BamReader.h"</span>
-<a name="l00078"></a>00078 <span class="preprocessor">#include "api/BamWriter.h"</span>
-<a name="l00079"></a>00079 
-<a name="l00080"></a>00080 <span class="preprocessor">#endif</span>
-<a name="l00081"></a>00081 <span class="preprocessor"></span>
-<a name="l00082"></a>00082 <span class="preprocessor">#ifdef HAVE_BAMTOOLS</span>
-<a name="l00083"></a>00083 <span class="preprocessor"></span>
-<a name="l00084"></a>00084 <span class="keyword">typedef</span> BamTools::BamAlignment RawRead;
-<a name="l00085"></a>00085 <span class="keyword">typedef</span> std::shared_ptr&lt;BamTools::BamAlignment&gt; Read;
-<a name="l00086"></a>00086 <span class="keyword">typedef</span> std::vector&lt;BamTools::BamAlignment&gt; BamAlignmentVector;
-<a name="l00087"></a>00087 <span class="keyword">typedef</span> std::vector&lt;Read&gt; ReadVec;
-<a name="l00088"></a>00088 <span class="preprocessor">#define r_is_rev(b) ((b)-&gt;IsReverse())</span>
-<a name="l00089"></a>00089 <span class="preprocessor"></span><span class="preprocessor">#define r_is_mrev(b) ((b)-&gt;IsMateReverse())</span>
-<a name="l00090"></a>00090 <span class="preprocessor"></span><span class="preprocessor">#define r_pos(b) ((b)-&gt;Position)</span>
-<a name="l00091"></a>00091 <span class="preprocessor"></span><span class="preprocessor">#define r_mpos(b) ((b)-&gt;MatePosition)</span>
-<a name="l00092"></a>00092 <span class="preprocessor"></span><span class="preprocessor">#define r_id(b) ((b)-&gt;RefID)</span>
-<a name="l00093"></a>00093 <span class="preprocessor"></span><span class="preprocessor">#define r_mid(b) ((b)-&gt;MateRefID)</span>
-<a name="l00094"></a>00094 <span class="preprocessor"></span><span class="preprocessor">#define r_is_mapped(b) (!(b)-&gt;IsMapped())</span>
-<a name="l00095"></a>00095 <span class="preprocessor"></span><span class="preprocessor">#define r_is_mmapped(b) (!(b)-&gt;IsMateMapped())</span>
-<a name="l00096"></a>00096 <span class="preprocessor"></span><span class="preprocessor">#define r_mapq(b) (!(b)-&gt;MapQuality)</span>
-<a name="l00097"></a>00097 <span class="preprocessor"></span><span class="preprocessor">#define r_cig_size(b) ((b)-&gt;CigarData.size())</span>
-<a name="l00098"></a>00098 <span class="preprocessor"></span><span class="preprocessor">#define r_is_first(b) ((b)-&gt;IsFirstMate())</span>
-<a name="l00099"></a>00099 <span class="preprocessor"></span><span class="preprocessor">#define r_qname(b) ((b)-&gt;Name)</span>
-<a name="l00100"></a>00100 <span class="preprocessor"></span><span class="preprocessor">#define r_seq(b, s) (s = (b)-&gt;QueryBases)</span>
-<a name="l00101"></a>00101 <span class="preprocessor"></span><span class="preprocessor">#define r_flag(b) ((b)-&gt;AlignmentFlag)</span>
-<a name="l00102"></a>00102 <span class="preprocessor"></span><span class="preprocessor">#define r_is_pmapped(b) ((b)-&gt;IsMateMapped() &amp;&amp; b-&gt;IsMapped())</span>
-<a name="l00103"></a>00103 <span class="preprocessor"></span><span class="preprocessor">#define r_length(b) ((b)-&gt;Length)</span>
-<a name="l00104"></a>00104 <span class="preprocessor"></span><span class="preprocessor">#define r_isize(b) ((b)-&gt;InsertSize)</span>
-<a name="l00105"></a>00105 <span class="preprocessor"></span>
-<a name="l00106"></a>00106 <span class="preprocessor">#define r_is_rstrand(b) ((b)-&gt;IsReverseStrand())</span>
-<a name="l00107"></a>00107 <span class="preprocessor"></span><span class="preprocessor">#define r_is_mrstrand(b) ((b)-&gt;IsMateReverseStrand())</span>
-<a name="l00108"></a>00108 <span class="preprocessor"></span><span class="preprocessor">#define r_is_dup(b) ((b)-&gt;IsDuplicate())</span>
-<a name="l00109"></a>00109 <span class="preprocessor"></span><span class="preprocessor">#define r_is_primary(b) ((b)-&gt;IsPrimaryAlignment())</span>
-<a name="l00110"></a>00110 <span class="preprocessor"></span><span class="preprocessor">#define r_is_qc_fail(b) ((b)-&gt;IsFailedQC())</span>
-<a name="l00111"></a>00111 <span class="preprocessor"></span><span class="preprocessor">#define r_endpos(b) ((b)-&gt;GetEndPosition())</span>
+<a name="l00029"></a>00029 
+<a name="l00030"></a>00030 <span class="keyword">typedef</span> bam1_t* RawRead;
+<a name="l00031"></a>00031 <span class="preprocessor">#define r_is_rev(b) (((b)-&gt;core.flag&amp;BAM_FREVERSE) != 0)</span>
+<a name="l00032"></a>00032 <span class="preprocessor"></span><span class="preprocessor">#define r_is_mrev(b) (((b)-&gt;core.flag&amp;BAM_FMREVERSE) != 0)</span>
+<a name="l00033"></a>00033 <span class="preprocessor"></span><span class="preprocessor">#define r_pos(b) ((b)-&gt;core.pos)</span>
+<a name="l00034"></a>00034 <span class="preprocessor"></span><span class="preprocessor">#define r_mpos(b) ((b)-&gt;core.mpos)</span>
+<a name="l00035"></a>00035 <span class="preprocessor"></span><span class="preprocessor">#define r_id(b) ((b)-&gt;core.tid)</span>
+<a name="l00036"></a>00036 <span class="preprocessor"></span><span class="preprocessor">#define r_mid(b) ((b)-&gt;core.mtid)</span>
+<a name="l00037"></a>00037 <span class="preprocessor"></span><span class="preprocessor">#define r_is_mapped(b) (!((b)-&gt;core.flag&amp;BAM_FUNMAP))</span>
+<a name="l00038"></a>00038 <span class="preprocessor"></span><span class="preprocessor">#define r_is_mmapped(b) (!((b)-&gt;core.flag&amp;BAM_FMUNMAP))</span>
+<a name="l00039"></a>00039 <span class="preprocessor"></span><span class="preprocessor">#define r_mapq(b) ((b)-&gt;core.qual)</span>
+<a name="l00040"></a>00040 <span class="preprocessor"></span><span class="preprocessor">#define r_cig_size(b) ((b)-&gt;core.n_cigar)</span>
+<a name="l00041"></a>00041 <span class="preprocessor"></span><span class="preprocessor">#define r_is_first(b) ((b)-&gt;core.flag&amp;BAM_FREAD1)</span>
+<a name="l00042"></a>00042 <span class="preprocessor"></span><span class="preprocessor">#define r_qname(b) (std::string(bam_get_qname((b).get())))</span>
+<a name="l00043"></a>00043 <span class="preprocessor"></span><span class="preprocessor">#define r_remove_tag(b, t) do { uint8_t *p  = bam_aux_get((b).get(), t); if (p) bam_aux_del((b).get(), p); } while(0)</span>
+<a name="l00044"></a>00044 <span class="preprocessor"></span><span class="preprocessor">#define r_flag(b) ((b)-&gt;core.flag)</span>
+<a name="l00045"></a>00045 <span class="preprocessor"></span><span class="preprocessor">#define r_is_pmapped(b) (!((b)-&gt;core.flag&amp;BAM_FUNMAP) &amp;&amp; !((b)-&gt;core.flag&amp;BAM_FMUNMAP))</span>
+<a name="l00046"></a>00046 <span class="preprocessor"></span><span class="preprocessor">#define r_length(b) ((b)-&gt;core.l_qseq)</span>
+<a name="l00047"></a>00047 <span class="preprocessor"></span><span class="preprocessor">#define r_isize(b) ((b)-&gt;core.isize)</span>
+<a name="l00048"></a>00048 <span class="preprocessor"></span><span class="preprocessor">#define r_seq(b, s) do { uint8_t * p = bam_get_seq(b); char c[(b)-&gt;core.l_qseq+1]; for (int ww = 0; ww &lt; (b)-&gt;core.l_qseq; ww++) { c[ww] = BASES[bam_seqi(p, ww)]; } c[(b)-&gt;core.l_qseq] = '\0'; s = std::string(c); } while(0)</span>
+<a name="l00049"></a>00049 <span class="preprocessor"></span><span class="preprocessor">#define r_get_clip(b, p) do { uint32_t* c = bam_get_cigar(b); for (int ww = 0; ww &lt; (b)-&gt;core.n_cigar; ww++) if (c[ww] &amp; BAM_CSOFT_CLIP || c[ww] &amp; BAM_CHARD_CLIP) p += bam_cigar_oplen(c[ww]); } while(0)</span>
+<a name="l00050"></a>00050 <span class="preprocessor"></span>
+<a name="l00051"></a>00051 <span class="preprocessor">#define r_get_Z_tag(b, t, v) do { uint8_t* p = bam_aux_get((b).get(), t); if (p) v = bam_aux2Z(p); else v = ""; } while(0) </span>
+<a name="l00052"></a>00052 <span class="preprocessor"></span><span class="preprocessor">#define r_get_SR(b, v) do { uint8_t* p = bam_aux_get((b).get(), "SR"); assert(p); v = bam_aux2Z(p); } while(0) </span>
+<a name="l00053"></a>00053 <span class="preprocessor"></span><span class="preprocessor">#define r_get_int32_tag(b, t, v) do { uint8_t* p = bam_aux_get((b).get(), t); if (p) v = bam_aux2i(p); else v = 0; } while(0) </span>
+<a name="l00054"></a>00054 <span class="preprocessor"></span>
+<a name="l00055"></a>00055 <span class="preprocessor">#define r_cig_type(b, i) (bam_cigar_opchr(bam_get_cigar((b).get())[i]))</span>
+<a name="l00056"></a>00056 <span class="preprocessor"></span><span class="preprocessor">#define r_cig_len(b, i) (bam_cigar_oplen(bam_get_cigar((b).get())[i]))</span>
+<a name="l00057"></a>00057 <span class="preprocessor"></span>
+<a name="l00058"></a>00058 <span class="preprocessor">#define r_add_Z_tag(b, t, v) bam_aux_append((b).get(), t, 'Z', (v).length()+1, (uint8_t*)(v).c_str())</span>
+<a name="l00059"></a>00059 <span class="preprocessor"></span><span class="preprocessor">#define r_add_int32_tag(b, t, v) bam_aux_append((b).get(), t, 'i', 4, (uint8_t*)&amp;(v))</span>
+<a name="l00060"></a>00060 <span class="preprocessor"></span><span class="preprocessor">#define r_count_nbases(b, n) do { uint8_t* p = bam_get_seq(b); for (int ww = 0; ww &lt; (b)-&gt;core.l_qseq; ww++) if (bam_seqi(p,ww) == 15) n++; } while(0)</span>
+<a name="l00061"></a>00061 <span class="preprocessor"></span><span class="preprocessor">#define r_count_sub_nbases(b, n, s, e) do { uint8_t* p = bam_get_seq(b); for (int ww = (s); ww &lt; (e); ww++) if (bam_seqi(p,ww) == 15) n++; } while(0)</span>
+<a name="l00062"></a>00062 <span class="preprocessor"></span>
+<a name="l00063"></a>00063 <span class="preprocessor">#define r_is_rstrand(b) (((b)-&gt;core.flag&amp;BAM_FREVERSE) &gt; 0) </span>
+<a name="l00064"></a>00064 <span class="preprocessor"></span><span class="preprocessor">#define r_is_mrstrand(b) (((b)-&gt;core.flag&amp;BAM_FMREVERSE) &gt; 0)</span>
+<a name="l00065"></a>00065 <span class="preprocessor"></span><span class="preprocessor">#define r_is_dup(b) (((b)-&gt;core.flag&amp;BAM_FDUP) &gt; 0)</span>
+<a name="l00066"></a>00066 <span class="preprocessor"></span><span class="preprocessor">#define r_is_primary(b) (!((b)-&gt;core.flag&amp;BAM_FSECONDARY))</span>
+<a name="l00067"></a>00067 <span class="preprocessor"></span><span class="preprocessor">#define r_is_qc_fail(b) (((b)-&gt;core.flag&amp;BAM_FQCFAIL) &gt; 0)</span>
+<a name="l00068"></a>00068 <span class="preprocessor"></span><span class="preprocessor">#define r_strand(b) ((b)-&gt;core.flag&amp;BAM_FREVERSE ? '-' : '+')</span>
+<a name="l00069"></a>00069 <span class="preprocessor"></span><span class="preprocessor">#define r_endpos(b) (bam_endpos((b).get()))</span>
+<a name="l00070"></a>00070 <span class="preprocessor"></span>
+<a name="l00071"></a>00071 <span class="preprocessor">#define GET_READ(x) bam1_t* b = bam_init1(); if (hts_itr == 0) { if (bam_read1(fp, b) &lt; 0) { bam_destroy1(b); break; } } else if (hts_itr_next(fp, hts_itr, b, dum) &lt;= 0) { bam_destroy1(b); break; } x = std::shared_ptr&lt;bam1_t&gt; (b, free_delete());</span>
+<a name="l00072"></a>00072 <span class="preprocessor"></span>
+<a name="l00073"></a>00073 
+<a name="l00074"></a>00074 <span class="preprocessor">#endif</span>
+<a name="l00075"></a>00075 <span class="preprocessor"></span>
+<a name="l00076"></a>00076 <span class="preprocessor">#ifdef HAVE_BAMTOOLS</span>
+<a name="l00077"></a>00077 <span class="preprocessor"></span>
+<a name="l00078"></a>00078 <span class="preprocessor">#include "api/BamReader.h"</span>
+<a name="l00079"></a>00079 <span class="preprocessor">#include "api/BamWriter.h"</span>
+<a name="l00080"></a>00080 
+<a name="l00081"></a>00081 <span class="keyword">typedef</span> BamTools::BamAlignment RawRead;
+<a name="l00082"></a>00082 <span class="keyword">typedef</span> std::shared_ptr&lt;BamTools::BamAlignment&gt; Read;
+<a name="l00083"></a>00083 <span class="keyword">typedef</span> std::vector&lt;BamTools::BamAlignment&gt; BamAlignmentVector;
+<a name="l00084"></a>00084 <span class="keyword">typedef</span> std::vector&lt;Read&gt; ReadVec;
+<a name="l00085"></a>00085 <span class="preprocessor">#define r_is_rev(b) ((b)-&gt;IsReverse())</span>
+<a name="l00086"></a>00086 <span class="preprocessor"></span><span class="preprocessor">#define r_is_mrev(b) ((b)-&gt;IsMateReverse())</span>
+<a name="l00087"></a>00087 <span class="preprocessor"></span><span class="preprocessor">#define r_pos(b) ((b)-&gt;Position)</span>
+<a name="l00088"></a>00088 <span class="preprocessor"></span><span class="preprocessor">#define r_mpos(b) ((b)-&gt;MatePosition)</span>
+<a name="l00089"></a>00089 <span class="preprocessor"></span><span class="preprocessor">#define r_id(b) ((b)-&gt;RefID)</span>
+<a name="l00090"></a>00090 <span class="preprocessor"></span><span class="preprocessor">#define r_mid(b) ((b)-&gt;MateRefID)</span>
+<a name="l00091"></a>00091 <span class="preprocessor"></span><span class="preprocessor">#define r_is_mapped(b) (!(b)-&gt;IsMapped())</span>
+<a name="l00092"></a>00092 <span class="preprocessor"></span><span class="preprocessor">#define r_is_mmapped(b) (!(b)-&gt;IsMateMapped())</span>
+<a name="l00093"></a>00093 <span class="preprocessor"></span><span class="preprocessor">#define r_mapq(b) (!(b)-&gt;MapQuality)</span>
+<a name="l00094"></a>00094 <span class="preprocessor"></span><span class="preprocessor">#define r_cig_size(b) ((b)-&gt;CigarData.size())</span>
+<a name="l00095"></a>00095 <span class="preprocessor"></span><span class="preprocessor">#define r_is_first(b) ((b)-&gt;IsFirstMate())</span>
+<a name="l00096"></a>00096 <span class="preprocessor"></span><span class="preprocessor">#define r_qname(b) ((b)-&gt;Name)</span>
+<a name="l00097"></a>00097 <span class="preprocessor"></span><span class="preprocessor">#define r_seq(b, s) (s = (b)-&gt;QueryBases)</span>
+<a name="l00098"></a>00098 <span class="preprocessor"></span><span class="preprocessor">#define r_flag(b) ((b)-&gt;AlignmentFlag)</span>
+<a name="l00099"></a>00099 <span class="preprocessor"></span><span class="preprocessor">#define r_is_pmapped(b) ((b)-&gt;IsMateMapped() &amp;&amp; b-&gt;IsMapped())</span>
+<a name="l00100"></a>00100 <span class="preprocessor"></span><span class="preprocessor">#define r_length(b) ((b)-&gt;Length)</span>
+<a name="l00101"></a>00101 <span class="preprocessor"></span><span class="preprocessor">#define r_isize(b) ((b)-&gt;InsertSize)</span>
+<a name="l00102"></a>00102 <span class="preprocessor"></span>
+<a name="l00103"></a>00103 <span class="preprocessor">#define r_is_rstrand(b) ((b)-&gt;IsReverseStrand())</span>
+<a name="l00104"></a>00104 <span class="preprocessor"></span><span class="preprocessor">#define r_is_mrstrand(b) ((b)-&gt;IsMateReverseStrand())</span>
+<a name="l00105"></a>00105 <span class="preprocessor"></span><span class="preprocessor">#define r_is_dup(b) ((b)-&gt;IsDuplicate())</span>
+<a name="l00106"></a>00106 <span class="preprocessor"></span><span class="preprocessor">#define r_is_primary(b) ((b)-&gt;IsPrimaryAlignment())</span>
+<a name="l00107"></a>00107 <span class="preprocessor"></span><span class="preprocessor">#define r_is_qc_fail(b) ((b)-&gt;IsFailedQC())</span>
+<a name="l00108"></a>00108 <span class="preprocessor"></span><span class="preprocessor">#define r_endpos(b) ((b)-&gt;GetEndPosition())</span>
+<a name="l00109"></a>00109 <span class="preprocessor"></span>
+<a name="l00110"></a>00110 <span class="preprocessor">#define r_cig_type(b, i) ((b)-&gt;CigarData[i].Type)</span>
+<a name="l00111"></a>00111 <span class="preprocessor"></span><span class="preprocessor">#define r_cig_len(b, i) ((b)-&gt;CigarData[i].Length)</span>
 <a name="l00112"></a>00112 <span class="preprocessor"></span>
-<a name="l00113"></a>00113 <span class="preprocessor">#define r_cig_type(b, i) ((b)-&gt;CigarData[i].Type)</span>
-<a name="l00114"></a>00114 <span class="preprocessor"></span><span class="preprocessor">#define r_cig_len(b, i) ((b)-&gt;CigarData[i].Length)</span>
-<a name="l00115"></a>00115 <span class="preprocessor"></span>
-<a name="l00116"></a>00116 <span class="preprocessor">#define r_get_int32_tag(b, t, v) if (!(b)-&gt;GetTag(t, v)) v = 0</span>
-<a name="l00117"></a>00117 <span class="preprocessor"></span><span class="preprocessor">#define r_get_Z_tag(b, t, v) if (!(b)-&gt;GetTag(t, v)) v = ""</span>
-<a name="l00118"></a>00118 <span class="preprocessor"></span><span class="preprocessor">#define r_get_SR(b, v) assert((b)-&gt;GetTag("SR", v))</span>
-<a name="l00119"></a>00119 <span class="preprocessor"></span>
-<a name="l00120"></a>00120 <span class="preprocessor">#define GET_READ(x) BamTools::BamAlignment a; if (!reader-&gt;GetNextAlignment(a)) break; x = std::shared_ptr&lt;BamTools::BamAlignment&gt;(new BamTools::BamAlignment(a)) </span>
-<a name="l00121"></a>00121 <span class="preprocessor"></span>
-<a name="l00122"></a>00122 <span class="preprocessor">#define r_remove_tag(b, t) (b)-&gt;RemoveTag(t);</span>
-<a name="l00123"></a>00123 <span class="preprocessor"></span><span class="preprocessor">#define r_add_Z_tag(b, t, v) ((b)-&gt;AddTag(t, "Z", v))</span>
-<a name="l00124"></a>00124 <span class="preprocessor"></span><span class="preprocessor">#define r_add_int32_tag(b, t, v) (b)-&gt;AddTag(t, "i", v)</span>
-<a name="l00125"></a>00125 <span class="preprocessor"></span>
-<a name="l00126"></a>00126 <span class="preprocessor">#define r_get_clip(b, p) do { for (auto&amp; i : (b)-&gt;CigarData) if (i.Type == 'S' || i.Type == 'H') p += i.Length; } while (0)</span>
-<a name="l00127"></a>00127 <span class="preprocessor"></span><span class="preprocessor">#define r_count_nbases(b, n) n = count((b)-&gt;QueryBases.begin(), (b)-&gt;QueryBases.end(), 'N')</span>
-<a name="l00128"></a>00128 <span class="preprocessor"></span><span class="preprocessor">#define r_count_sub_nbases(b, n, s, e) n = count((b)-&gt;QueryBases.begin()+s, (b)-&gt;QueryBases.begin() + e, 'N')</span>
+<a name="l00113"></a>00113 <span class="preprocessor">#define r_get_int32_tag(b, t, v) if (!(b)-&gt;GetTag(t, v)) v = 0</span>
+<a name="l00114"></a>00114 <span class="preprocessor"></span><span class="preprocessor">#define r_get_Z_tag(b, t, v) if (!(b)-&gt;GetTag(t, v)) v = ""</span>
+<a name="l00115"></a>00115 <span class="preprocessor"></span><span class="preprocessor">#define r_get_SR(b, v) assert((b)-&gt;GetTag("SR", v))</span>
+<a name="l00116"></a>00116 <span class="preprocessor"></span>
+<a name="l00117"></a>00117 <span class="preprocessor">#define GET_READ(x) BamTools::BamAlignment a; if (!reader-&gt;GetNextAlignment(a)) break; x = std::shared_ptr&lt;BamTools::BamAlignment&gt;(new BamTools::BamAlignment(a)) </span>
+<a name="l00118"></a>00118 <span class="preprocessor"></span>
+<a name="l00119"></a>00119 <span class="preprocessor">#define r_remove_tag(b, t) (b)-&gt;RemoveTag(t);</span>
+<a name="l00120"></a>00120 <span class="preprocessor"></span><span class="preprocessor">#define r_add_Z_tag(b, t, v) ((b)-&gt;AddTag(t, "Z", v))</span>
+<a name="l00121"></a>00121 <span class="preprocessor"></span><span class="preprocessor">#define r_add_int32_tag(b, t, v) (b)-&gt;AddTag(t, "i", v)</span>
+<a name="l00122"></a>00122 <span class="preprocessor"></span>
+<a name="l00123"></a>00123 <span class="preprocessor">#define r_get_clip(b, p) do { for (auto&amp; i : (b)-&gt;CigarData) if (i.Type == 'S' || i.Type == 'H') p += i.Length; } while (0)</span>
+<a name="l00124"></a>00124 <span class="preprocessor"></span><span class="preprocessor">#define r_count_nbases(b, n) n = count((b)-&gt;QueryBases.begin(), (b)-&gt;QueryBases.end(), 'N')</span>
+<a name="l00125"></a>00125 <span class="preprocessor"></span><span class="preprocessor">#define r_count_sub_nbases(b, n, s, e) n = count((b)-&gt;QueryBases.begin()+s, (b)-&gt;QueryBases.begin() + e, 'N')</span>
+<a name="l00126"></a>00126 <span class="preprocessor"></span>
+<a name="l00127"></a>00127 <span class="preprocessor">#define r_strand(b) ((b)-&gt;IsReverseStrand() ? '-' : '+')</span>
+<a name="l00128"></a>00128 <span class="preprocessor"></span><span class="preprocessor">#define r_mstrand(b) ((b)-&gt;IsMateReverseStrand() ? '-' : '+')</span>
 <a name="l00129"></a>00129 <span class="preprocessor"></span>
-<a name="l00130"></a>00130 <span class="preprocessor">#define r_strand(b) ((b)-&gt;IsReverseStrand() ? '-' : '+')</span>
-<a name="l00131"></a>00131 <span class="preprocessor"></span><span class="preprocessor">#define r_mstrand(b) ((b)-&gt;IsMateReverseStrand() ? '-' : '+')</span>
-<a name="l00132"></a>00132 <span class="preprocessor"></span>
-<a name="l00133"></a>00133 <span class="preprocessor">#endif</span>
-<a name="l00134"></a>00134 <span class="preprocessor"></span>
-<a name="l00135"></a>00135 <span class="preprocessor">#define r_get_trimmed_seq(b, s) do { int32_t ts, tl; r_get_int32_tag(b, "TS", ts);  r_get_int32_tag(b, "TL", tl); r_seq(b, s); if (tl != 0 &amp;&amp; tl != r_length(b))  s = s.substr(ts, tl); } while (0) </span>
-<a name="l00136"></a>00136 <span class="preprocessor"></span>
+<a name="l00130"></a>00130 <span class="preprocessor">#endif</span>
+<a name="l00131"></a>00131 <span class="preprocessor"></span>
+<a name="l00132"></a>00132 
+<a name="l00133"></a>00133 <span class="preprocessor">#define r_get_trimmed_seq(b, s) do { int32_t ts, tl; r_get_int32_tag(b, "TS", ts);  r_get_int32_tag(b, "TL", tl); r_seq(b, s); if (tl != 0 &amp;&amp; tl != r_length(b))  s = s.substr(ts, tl); } while (0) </span>
+<a name="l00134"></a>00134 <span class="preprocessor"></span><span class="keyword">typedef</span> std::unordered_map&lt;std::string, Read&gt; ReadHash;
+<a name="l00135"></a>00135 
+<a name="l00136"></a>00136 
 <a name="l00137"></a>00137 <span class="preprocessor">#endif</span>
-</pre></div><hr size="1"><address style="align: right;"><small>Generated on Mon Mar 9 18:51:05 2015 for SnowmanSV by&nbsp;
+</pre></div><hr size="1"><address style="align: right;"><small>Generated on Thu May 7 11:02:26 2015 for SnowmanSV by&nbsp;
 <a href="http://www.doxygen.org/index.html">
 <img src="doxygen.png" alt="doxygen" align="middle" border="0"></a> 1.4.7 </small></address>
 </body>

@@ -5,7 +5,9 @@
 \subsection*{Public Member Functions}
 \begin{CompactItemize}
 \item 
-\bf{Alignment\-Fragment} (const Bam\-Tools::Bam\-Alignment \&talign, const Genomic\-Region \&window)
+\bf{Alignment\-Fragment} (const Bam\-Tools::Bam\-Alignment \&talign, const Snow\-Tools::Genomic\-Region \&window, const Cigar\-Map \&nmap, const Cigar\-Map \&tmap)
+\item 
+\bf{Alignment\-Fragment} (const Bam\-Tools::Bam\-Alignment \&talign)
 \item 
 bool \bf{operator$<$} (const \bf{Alignment\-Fragment} \&str) const \label{structAlignmentFragment_3390f9643c090deb68c35d7acb8fc1fc}
 
@@ -17,30 +19,17 @@ void \bf{indel\-Cigar\-Matches} (const Cigar\-Map \&nmap, const Cigar\-Map \&tma
 \subsection*{Public Attributes}
 \begin{CompactItemize}
 \item 
-int \bf{break1} = -1
+friend \textbf{Aligned\-Contig}\label{structAlignmentFragment_edef99ff208f5f4f3ef25e1c0f0b7794}
+
 \item 
-int \bf{break2} = -1
+BPVec \bf{indel\_\-breaks}
 \item 
-int \bf{gbreak1} = -1
-\item 
-int \bf{gbreak2} = -1
-\item 
-Bam\-Tools::Bam\-Alignment \bf{align}
-\item 
-Fragment\-Break \bf{frag\_\-multi}
-\item 
-Break\-Vec \bf{indel\_\-breaks}
-\item 
-size\_\-t \bf{start}
-\item 
-bool \bf{local} = false
-\item 
-size\_\-t \bf{idx} = 0
+Cigar\-Op\-Vec \bf{cigar}
 \end{CompactItemize}
 \subsection*{Friends}
 \begin{CompactItemize}
 \item 
-ostream \& \bf{operator$<$$<$} (ostream \&out, const \bf{Alignment\-Fragment} \&c)\label{structAlignmentFragment_d1147db3a281b23181691c444ddd9b3a}
+std::ostream \& \bf{operator$<$$<$} (std::ostream \&out, const \bf{Alignment\-Fragment} \&c)\label{structAlignmentFragment_676e73e1e49f68934294ec9e42775ea7}
 
 \begin{CompactList}\small\item\em print the \doxyref{Alignment\-Fragment}{p.}{structAlignmentFragment} \item\end{CompactList}\end{CompactItemize}
 
@@ -53,7 +42,17 @@ This class contains a single alignment fragment from a contig to the reference. 
 \subsection{Constructor \& Destructor Documentation}
 \index{AlignmentFragment@{Alignment\-Fragment}!AlignmentFragment@{AlignmentFragment}}
 \index{AlignmentFragment@{AlignmentFragment}!AlignmentFragment@{Alignment\-Fragment}}
-\subsubsection{\setlength{\rightskip}{0pt plus 5cm}Alignment\-Fragment::Alignment\-Fragment (const Bam\-Tools::Bam\-Alignment \& {\em talign}, const Genomic\-Region \& {\em window})}\label{structAlignmentFragment_e6f66071197d27a416648ee695697ce9}
+\subsubsection{\setlength{\rightskip}{0pt plus 5cm}Alignment\-Fragment::Alignment\-Fragment (const Bam\-Tools::Bam\-Alignment \& {\em talign}, const Snow\-Tools::Genomic\-Region \& {\em window}, const Cigar\-Map \& {\em nmap}, const Cigar\-Map \& {\em tmap})}\label{structAlignmentFragment_a051a74a7e0ea3b7b2144e8a8722b868}
+
+
+Construct an \doxyref{Alignment\-Fragment}{p.}{structAlignmentFragment} from a BWA alignment \begin{Desc}
+\item[Parameters:]
+\begin{description}
+\item[{\em const}]reference to a Bam\-Alignment \item[{\em const}]reference to a Genomic\-Region window where this contig was assembled from \end{description}
+\end{Desc}
+\index{AlignmentFragment@{Alignment\-Fragment}!AlignmentFragment@{AlignmentFragment}}
+\index{AlignmentFragment@{AlignmentFragment}!AlignmentFragment@{Alignment\-Fragment}}
+\subsubsection{\setlength{\rightskip}{0pt plus 5cm}Alignment\-Fragment::Alignment\-Fragment (const Bam\-Tools::Bam\-Alignment \& {\em talign})}\label{structAlignmentFragment_39dbc1c9beb7bbc48c20d6c3e579515e}
 
 
 Construct an \doxyref{Alignment\-Fragment}{p.}{structAlignmentFragment} from a BWA alignment \begin{Desc}
@@ -89,57 +88,17 @@ Parse an alignment frag for a breakpoint \begin{Desc}
 
 
 \subsection{Member Data Documentation}
-\index{AlignmentFragment@{Alignment\-Fragment}!align@{align}}
-\index{align@{align}!AlignmentFragment@{Alignment\-Fragment}}
-\subsubsection{\setlength{\rightskip}{0pt plus 5cm}Bam\-Tools::Bam\-Alignment \bf{Alignment\-Fragment::align}}\label{structAlignmentFragment_d2a7023a7ae508ff77e831ca89d3e961}
+\index{AlignmentFragment@{Alignment\-Fragment}!cigar@{cigar}}
+\index{cigar@{cigar}!AlignmentFragment@{Alignment\-Fragment}}
+\subsubsection{\setlength{\rightskip}{0pt plus 5cm}Cigar\-Op\-Vec \bf{Alignment\-Fragment::cigar}}\label{structAlignmentFragment_71ade1628a087b1e6b9cb44f5498ce07}
 
 
-BWA alignment to reference \index{AlignmentFragment@{Alignment\-Fragment}!break1@{break1}}
-\index{break1@{break1}!AlignmentFragment@{Alignment\-Fragment}}
-\subsubsection{\setlength{\rightskip}{0pt plus 5cm}int \bf{Alignment\-Fragment::break1} = -1}\label{structAlignmentFragment_f4de0f7f3ad1e5b038676e7c8a0bfa04}
-
-
-0-based breakpoint 1 on contig \index{AlignmentFragment@{Alignment\-Fragment}!break2@{break2}}
-\index{break2@{break2}!AlignmentFragment@{Alignment\-Fragment}}
-\subsubsection{\setlength{\rightskip}{0pt plus 5cm}int \bf{Alignment\-Fragment::break2} = -1}\label{structAlignmentFragment_7be1ed5f36448ecab07458fc316b4a74}
-
-
-0-based breakpoint 2 on contig \index{AlignmentFragment@{Alignment\-Fragment}!frag_multi@{frag\_\-multi}}
-\index{frag_multi@{frag\_\-multi}!AlignmentFragment@{Alignment\-Fragment}}
-\subsubsection{\setlength{\rightskip}{0pt plus 5cm}Fragment\-Break \bf{Alignment\-Fragment::frag\_\-multi}}\label{structAlignmentFragment_4bd6349ac2ef548df340a137f5e61dbf}
-
-
-fragment break for left-right ends \index{AlignmentFragment@{Alignment\-Fragment}!gbreak1@{gbreak1}}
-\index{gbreak1@{gbreak1}!AlignmentFragment@{Alignment\-Fragment}}
-\subsubsection{\setlength{\rightskip}{0pt plus 5cm}int \bf{Alignment\-Fragment::gbreak1} = -1}\label{structAlignmentFragment_15f8803f65c4ceab24ff96662d2540e0}
-
-
-0-based breakpoint 1 on reference chr \index{AlignmentFragment@{Alignment\-Fragment}!gbreak2@{gbreak2}}
-\index{gbreak2@{gbreak2}!AlignmentFragment@{Alignment\-Fragment}}
-\subsubsection{\setlength{\rightskip}{0pt plus 5cm}int \bf{Alignment\-Fragment::gbreak2} = -1}\label{structAlignmentFragment_628bac75419eabb9bc10b1629fb150ea}
-
-
-0-based breakpoint 1 on reference chr \index{AlignmentFragment@{Alignment\-Fragment}!idx@{idx}}
-\index{idx@{idx}!AlignmentFragment@{Alignment\-Fragment}}
-\subsubsection{\setlength{\rightskip}{0pt plus 5cm}size\_\-t \bf{Alignment\-Fragment::idx} = 0}\label{structAlignmentFragment_bda1bb25cb9f18c843128871e8926faa}
-
-
-index of the cigar where the last indel was taken from \index{AlignmentFragment@{Alignment\-Fragment}!indel_breaks@{indel\_\-breaks}}
+cigar oriented to assembled orientation \index{AlignmentFragment@{Alignment\-Fragment}!indel_breaks@{indel\_\-breaks}}
 \index{indel_breaks@{indel\_\-breaks}!AlignmentFragment@{Alignment\-Fragment}}
-\subsubsection{\setlength{\rightskip}{0pt plus 5cm}Break\-Vec \bf{Alignment\-Fragment::indel\_\-breaks}}\label{structAlignmentFragment_f4bc01e9d0c44ce0e511541a02eddb91}
+\subsubsection{\setlength{\rightskip}{0pt plus 5cm}BPVec \bf{Alignment\-Fragment::indel\_\-breaks}}\label{structAlignmentFragment_ac682403ada3b71a173ae7e97488116c}
 
 
-indel variants on this alignment \index{AlignmentFragment@{Alignment\-Fragment}!local@{local}}
-\index{local@{local}!AlignmentFragment@{Alignment\-Fragment}}
-\subsubsection{\setlength{\rightskip}{0pt plus 5cm}bool \bf{Alignment\-Fragment::local} = false}\label{structAlignmentFragment_946672bc322d17c6ee20056fc0a32460}
-
-
-boolean to note whether this fragment aligns to same location is was assembled from \index{AlignmentFragment@{Alignment\-Fragment}!start@{start}}
-\index{start@{start}!AlignmentFragment@{Alignment\-Fragment}}
-\subsubsection{\setlength{\rightskip}{0pt plus 5cm}size\_\-t \bf{Alignment\-Fragment::start}}\label{structAlignmentFragment_d7cf825ae4214c91abe1bbd35efa3763}
-
-
-the start position of this alignment on the reference. 
+indel variants on this alignment 
 
 The documentation for this struct was generated from the following file:\begin{CompactItemize}
 \item 

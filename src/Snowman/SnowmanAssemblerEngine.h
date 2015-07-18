@@ -1,10 +1,11 @@
 #ifndef SNOWMAN_ASSEMBLER_ENGINE_H__
 #define SNOWMAN_ASSEMBLER_ENGINE_H__
 
-#include "SnowTools/HTSTools.h"
 #include "Util.h"
 #include "ReadTable.h"
 #include "contigs.h"
+
+#include "SnowTools/BamRead.h"
 
 class SnowmanAssemblerEngine
 {
@@ -12,7 +13,7 @@ class SnowmanAssemblerEngine
   
   SnowmanAssemblerEngine(const std::string& id, double er, size_t mo, size_t rl) : m_id(id), m_error_rate(er), m_min_overlap(mo), m_readlen(rl) {}
     
-    void fillReadTable(ReadVec& r);
+    void fillReadTable(SnowTools::BamReadVector& r);
 
     bool performAssembly();
 
@@ -30,7 +31,7 @@ class SnowmanAssemblerEngine
     size_t m_readlen;
   
     size_t numBubbleRounds = 3;
-    float divergence = 0.05;
+    float divergence = 0.00; //0.05
     float gap_divergence = 0.00;
     int maxEdges = 128;
     int numTrimRounds = 0; //
@@ -46,7 +47,7 @@ class SnowmanAssemblerEngine
 
     ReadTable m_pRT;
     
-    ReadVec m_reads;
+    SnowTools::BamReadVector m_reads;
     
     ContigVector m_contigs;
 
