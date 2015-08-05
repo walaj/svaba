@@ -16,6 +16,7 @@
 #include "SnowmanAssemblerEngine.h"
 #include "SnowTools/AlignedContig.h"
 #include "SnowTools/DiscordantCluster.h"
+#include "SnowTools/DBSnpFilter.h"
 
 #define LITTLECHUNK 6000 
 #define WINDOW_PAD 300
@@ -38,6 +39,7 @@ static SnowTools::BWAWrapper * main_bwa;
 static SnowTools::MiniRulesCollection * mr;
 static SnowTools::GRC blacklist;
 static SnowTools::GRC indel_blacklist_mask;
+static SnowTools::DBSnpFilter * dbsnp_filter;
 
 // output files
 static ogzstream * all_align;
@@ -92,6 +94,8 @@ namespace opt {
   static std::string regionFile = "";
   static std::string blacklist = ""; //"/xchip/gistic/Jeremiah/Projects/HengLiMask/um75-hs37d5.bed.gz";
 
+  static std::string dbsnp = ""; // /xchip/gistic/Jeremiah/SnowmanFilters/dbsnp_138.b37_indel.vcf
+
   // filters on when / how to assemble
   static bool disc_cluster_only = false;
 
@@ -105,7 +109,7 @@ enum {
   OPT_MAX_COV
 };
 
-static const char* shortopts = "hzxt:n:p:v:r:G:r:e:g:k:c:a:q:m:b:M:";
+static const char* shortopts = "hzxt:n:p:v:r:G:r:e:g:k:c:a:q:m:b:M:D:";
 static const struct option longopts[] = {
   { "help",                    no_argument, NULL, 'h' },
   { "tumor-bam",               required_argument, NULL, 't' },
@@ -119,6 +123,7 @@ static const struct option longopts[] = {
   { "rules",                   required_argument, NULL, 'r' },
   { "reference-genome",        required_argument, NULL, 'G' },
   { "microbial-genome",        required_argument, NULL, 'M' },
+  { "dbsnp-vcf",               required_argument, NULL, 'D' },
   { "g-zip",                  no_argument, NULL, 'z' },
   { "read-tracking",           no_argument, NULL, OPT_READ_TRACK },
   { "no-assemble-normal",       no_argument, NULL, OPT_NO_ASSEMBLE_NORMAL },
@@ -172,6 +177,7 @@ void runSnowman(int argc, char** argv) {
     "-----------------------------------------------------------------" << std::endl;
   std::cerr << 
     "***************************** PARAMS ****************************" << std::endl << 
+    "    DBSNP Database file: " << opt::dbsnp << std::endl << 
     "    Max cov to assemble: " << opt::max_cov << std::endl << 
     "    ErrorRate: " << (opt::assemb::error_rate < 0.001f ? "EXACT (0)" : std::to_string(opt::assemb::error_rate)) << std::endl;
   if (opt::assemb::writeASQG)
@@ -223,6 +229,13 @@ void runSnowman(int argc, char** argv) {
     std::cerr << "...reading blacklist from " << opt::blacklist << std::endl;
     blacklist.regionFileToGRV(opt::blacklist, 0, bwalker.header());
     std::cerr << "...read in " << blacklist.size() << " blacklist regions " << std::endl;
+  }
+
+  // open the DBSnpFilter
+  if (opt::dbsnp.length()) {
+    std::cerr << "...loading the DB Snp database" << std::endl;
+    dbsnp_filter = new SnowTools::DBSnpFilter(opt::dbsnp);
+    std::cerr << (*dbsnp_filter) << std::endl;
   }
 
   // set the MiniRules to be applied to each region
@@ -363,6 +376,7 @@ void parseRunOptions(int argc, char** argv) {
       case 'e': arg >> opt::assemb::error_rate; break;
       case 'G': arg >> opt::refgenome; break;
       case 'M': arg >> opt::microbegenome; break;
+      case 'D': arg >> opt::dbsnp; break;
       case 'r': arg >> opt::rules; break;
       case OPT_DISC_CLUSTER_ONLY: opt::disc_cluster_only = true; break;
       default: die= true; 
@@ -560,9 +574,9 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 	    (indel_blacklist_mask.size() == 0 || indel_blacklist_mask.findOverlapping(i) == 0))
 	  somatic_mate_regions.add(i); //concat(walkers[b.first].mate_regions);
 
-  if (opt::verbose > 1)
-    for (auto& i : somatic_mate_regions)
-      (*mates_file) << "   somatic mate region " << i << " somatic count " << i.count << std::endl;
+  //if (opt::verbose > 1)
+  for (auto& i : somatic_mate_regions)
+    (*mates_file) << "   somatic mate region " << i << " somatic count " << i.count << std::endl;
 
   // add these regions to the walker and get the reads
   tcount = 0; ncount = 0;
@@ -587,7 +601,8 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
   num_t_reads += tcount;
   num_n_reads += ncount;
 
-  std::cerr << "           " << tcount << "/" << ncount << " Tumor/Normal mate reads in " << somatic_mate_regions.size() << " regions spanning " << somatic_mate_regions.width() << " bases" << std::endl;
+  if (somatic_mate_regions.size())
+    std::cerr << "           " << tcount << "/" << ncount << " Tumor/Normal mate reads in " << somatic_mate_regions.size() << " regions spanning " << somatic_mate_regions.width() << " bases" << std::endl;
 
   st.stop("m");
 #endif
@@ -603,7 +618,6 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
       }
 
   // do the discordant read clustering
-  std::cerr << "...doing the discordant clustering" << std::endl;
   SnowTools::DiscordantClusterMap dmap = SnowTools::DiscordantCluster::clusterReads(bav_join, region);
 
   // 
@@ -659,34 +673,40 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 	    //if (g.getOverlap(read) || g.getOverlap(mate)) {
 
 	    // align locally
-	    BamReadVector tmp_loc;
-	    int dum;
-	    std::string seqr = r.GetZTag("KC");
-	    if (!seqr.length())
-	      seqr = r.QualityTrimmedSequence(4, dum);
-	    local_bwa.alignSingleSequence(seqr, r.Qname(), tmp_loc, false);
-	    
-	    //std::cout << std::endl << r << std::endl;
-	    //if (tmp_loc.size()) 
-	    //  std::cout << tmp_loc[0] << std::endl;
-	    //else
-	    //  std::cout << "NO LOCAL ALIGNMENT" << std::endl;
-	    
-	    ++num_total;
-	    ++num_kept;
+	    if (false) {
+	      BamReadVector tmp_loc;
+	      int dum;
+	      std::string seqr = r.GetZTag("KC");
+	      if (!seqr.length())
+		seqr = r.QualityTrimmedSequence(4, dum);
+	      local_bwa.alignSingleSequence(seqr, r.Qname(), tmp_loc, false);
+	      
+	      //std::cout << std::endl << r << std::endl;
+	      //if (tmp_loc.size()) 
+	      //  std::cout << tmp_loc[0] << std::endl;
+	      //else
+	      //  std::cout << "NO LOCAL ALIGNMENT" << std::endl;
+	      
+	      ++num_total;
+	      ++num_kept;
+	      
+	      // if it mismatches at all, add
+	      if (tmp_loc.size() == 0)
+		bav_this.push_back(r);
+	      else if (tmp_loc[0].CigarSize() != 1) // remove full matches
+		bav_this.push_back(r);
+	      //else if (std::abs(r.InsertSize()) > 1000 || !r.MappedFlag())
+	      //  bav_this.push_back(r);
+	      else
+		--num_kept;
 
-	    // if it mismatches at all, add
-	    if (tmp_loc.size() == 0)
-	      bav_this.push_back(r);
-	    else if (tmp_loc[0].CigarSize() != 1) // remove full matches
-	      bav_this.push_back(r);
-	    //else if (std::abs(r.InsertSize()) > 1000 || !r.MappedFlag())
-	    //  bav_this.push_back(r);
-	    else
-	      --num_kept;
-	    //else
-	    //  std::cout << "REMOVING " << r << std::endl;
 
+	    } else {
+	      bav_this.push_back(r);
+	    }
+	      //else
+	      //  std::cout << "REMOVING " << r << std::endl;
+	      
 	  }
       }
       if (opt::verbose > 1)
@@ -760,10 +780,18 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
     //}
   }
 
+  // repeat sequence filter
+  for (auto& i : bp_glob)
+    i.repeatFilter(findex);
+
+  // db snp filter
+  for (auto & i : bp_glob) {
+    dbsnp_filter->queryBreakpoint(i);
+  }
+
   // add in the discordant clusters as breakpoints
   for (auto& i : dmap) {
     // DiscordantCluster not associated with assembly BP and has 2+ read support
-    std::cerr << " assoc contig " << i.second.hasAssociatedAssemblyContig() << std::endl;
     if (!i.second.hasAssociatedAssemblyContig() && (i.second.tcount + i.second.ncount) > 1) {
       SnowTools::BreakPoint tmpbp(i.second);
       bp_glob.push_back(tmpbp);
@@ -776,8 +804,8 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 
 
   // add the coverage data to breaks for allelic fraction computation
-  SnowTools::STCoverage * t_cov;
-  SnowTools::STCoverage * n_cov;
+  SnowTools::STCoverage * t_cov = nullptr;
+  SnowTools::STCoverage * n_cov = nullptr;
   for (auto& b : opt::bam) {
     if (b.second.at(0) == 't')
       t_cov = &walkers[b.first].cov;

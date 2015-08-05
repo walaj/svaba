@@ -1002,7 +1002,8 @@ VCFFile::VCFFile(string file, const char* index, char sep, string analysis_id) {
       case 26: info_fields["NFRAC"] = val; break;
       case 27: info_fields["TFRAC"] = val; break;
       case 28: info_fields["BLACKLIST"] = val; break;
-      case 29: readid = val; break;
+      case 29: info_fields["DBSNP"] = val; break;
+      case 30: readid = val; break;
       }
     }
 
@@ -1017,6 +1018,10 @@ VCFFile::VCFFile(string file, const char* index, char sep, string analysis_id) {
     //string nalt = to_string(stoi(info_fields["TSPLIT"]) + stoi(info_fields["TDISC"]));
     string nalt_rp = info_fields["TDISC"];
     string nalt_sp = info_fields["TSPLIT"];
+
+    // remove empty fields
+    if (info_fields["DBSNP"] == "x")
+      info_fields.erase("DBSNP");
 
     // treak indels separatley
     if (info_fields["EVDNC"] != "INDEL" && (vcf1.filter == "PASS" || vopt::include_nonpass)) {
@@ -1711,6 +1716,10 @@ void VCFFile::writeIndels(string basename, bool zip) const {
       size_t ncount = max(nsplit,ncigar);
       if (ncount > 0)
 	somatic_ratio = (max(tsplit,tcigar)) / ncount;
+
+      // if it's DB SNp, it's germline
+      if (i.info_fields.count("DBSNP"))
+	somatic_ratio = 0;
 
       if (somatic_ratio >= 20 && ncount < 2 && pon <= 1 && naf < 0.05) { // ok if its just one...
 	//out_s << i << endl;

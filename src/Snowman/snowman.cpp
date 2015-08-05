@@ -66,6 +66,7 @@
 #include "vcf.h"
 #include <vector>
 #include "genpon.h"
+#include "benchmark.h"
 
 #define AUTHOR "Jeremiah Wala <jwala@broadinstitute.org>"
 
@@ -79,6 +80,7 @@ static const char *SNOWMAN_USAGE_MESSAGE =
 "Usage: snowman <command> [options]\n\n"
 "Commands:\n"
 "           run            Run Snowman SV and Indel detection on BAM(s)\n"
+"           benchmark      Run benchmarking tests for Snowman\n"
 "           assembly2vcf   Run Snowman filtering on BWA-MEM aligned assembly (eg Discovar, SGA, etc) and aligned reads\n"
 "           vcf            Tools for handling VCF files from Snowman and from supported other callers\n"
 "           refilter       Refilter the Snowman breakpoints with additional/different criteria to created filtered VCF and breakpoints file.\n"
@@ -97,9 +99,9 @@ int main(int argc, char** argv) {
       return 0;
     } else if (command == "run") {
       runSnowman(argc -1, argv + 1);
-    } /*else if (command == "refilter") {
-      runRefilterBreakpoints(argc-1, argv+1);
-      } */else if (command == "pon") {
+    } else if (command == "benchmark") {
+      runBenchmark(argc-1, argv+1);
+    } else if (command == "pon") {
       runGeneratePON(argc-1, argv+1);
     }
     else if (command == "vcf") {

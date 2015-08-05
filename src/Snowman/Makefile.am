@@ -39,5 +39,5 @@ snowman_SOURCES = snowman.cpp workqueue.h SnowmanAssemblerEngine.cpp \
 ##		zfstream.h zfstream.cpp \
 		SnowmanOverlapAlgorithm.h SnowmanOverlapAlgorithm.cpp SnowmanASQG.h SnowmanASQG.cpp \
 		SnowmanAssemble.h SnowmanAssemble.cpp run_snowman.cpp genpon.cpp \
-		KmerFilter.cpp SnowmanBamWalker.cpp 	
+		KmerFilter.cpp SnowmanBamWalker.cpp benchmark.cpp
 
