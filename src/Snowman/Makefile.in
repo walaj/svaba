@@ -20,7 +20,7 @@ VPATH = @srcdir@
 pkgdatadir = $(datadir)/@PACKAGE@
 pkglibdir = $(libdir)/@PACKAGE@
 pkgincludedir = $(includedir)/@PACKAGE@
-top_builddir = ..
+top_builddir = ../..
 am__cd = CDPATH="$${ZSH_VERSION+.}$(PATH_SEPARATOR)" && cd
 INSTALL = @INSTALL@
 install_sh_DATA = $(install_sh) -c -m 644
@@ -35,7 +35,7 @@ NORMAL_UNINSTALL = :
 PRE_UNINSTALL = :
 POST_UNINSTALL = :
 bin_PROGRAMS = snowman$(EXEEXT)
-subdir = Snowman
+subdir = src/Snowman
 DIST_COMMON = $(srcdir)/Makefile.am $(srcdir)/Makefile.in
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
 am__aclocal_m4_deps = $(top_srcdir)/configure.ac
@@ -56,13 +56,16 @@ am_snowman_OBJECTS = snowman-snowman.$(OBJEXT) \
 	snowman-KmerFilter.$(OBJEXT) \
 	snowman-SnowmanBamWalker.$(OBJEXT) snowman-benchmark.$(OBJEXT)
 snowman_OBJECTS = $(am_snowman_OBJECTS)
-snowman_DEPENDENCIES = $(top_builddir)/SGA/SGA/libsga.a \
-	$(top_builddir)/SGA/StringGraph/libstringgraph.a \
-	$(top_builddir)/SGA/Algorithm/libalgorithm.a \
-	$(top_builddir)/SGA/SuffixTools/libsuffixtools.a \
-	$(top_builddir)/SGA/Bigraph/libbigraph.a \
-	$(top_builddir)/SGA/Util/libutil.a \
-	$(top_builddir)/SGA/SQG/libsqg.a
+snowman_DEPENDENCIES = $(top_builddir)/src/SGA/SGA/libsga.a \
+	$(top_builddir)/SnowTools/bwa/libbwa.a \
+	$(top_builddir)/SnowTools/htslib/libhts.a \
+	$(top_builddir)/SnowTools/src/libsnowtools.a \
+	$(top_builddir)/src/SGA/StringGraph/libstringgraph.a \
+	$(top_builddir)/src/SGA/Algorithm/libalgorithm.a \
+	$(top_builddir)/src/SGA/SuffixTools/libsuffixtools.a \
+	$(top_builddir)/src/SGA/Bigraph/libbigraph.a \
+	$(top_builddir)/src/SGA/Util/libutil.a \
+	$(top_builddir)/src/SGA/SQG/libsqg.a
 DEFAULT_INCLUDES = -I. -I$(srcdir) -I$(top_builddir)
 depcomp = $(SHELL) $(top_srcdir)/depcomp
 am__depfiles_maybe = depfiles
@@ -113,6 +116,9 @@ LDFLAGS = @LDFLAGS@
 LIBOBJS = @LIBOBJS@
 LIBS = @LIBS@
 LTLIBOBJS = @LTLIBOBJS@
+MAINT = @MAINT@
+MAINTAINER_MODE_FALSE = @MAINTAINER_MODE_FALSE@
+MAINTAINER_MODE_TRUE = @MAINTAINER_MODE_TRUE@
 MAKEINFO = @MAKEINFO@
 OBJEXT = @OBJEXT@
 PACKAGE = @PACKAGE@
@@ -161,22 +167,29 @@ sharedstatedir = @sharedstatedir@
 sysconfdir = @sysconfdir@
 target_alias = @target_alias@
 snowman_CPPFLAGS = \
-	-I$(top_srcdir)/SGA/Util \
-	-I$(top_srcdir)/SGA/Bigraph \
-	-I$(top_srcdir)/SGA/SuffixTools \
-	-I$(top_srcdir)/SGA/StringGraph \
-	-I$(top_srcdir)/SGA/Algorithm \
-	-I$(top_srcdir)/SGA/SQG \
-	-I$(top_srcdir)/SGA/SGA 
+	-I$(top_srcdir)/src/SGA/Util \
+	-I$(top_srcdir)/src/SGA/Bigraph \
+	-I$(top_srcdir)/src/SGA/SuffixTools \
+	-I$(top_srcdir)/src/SGA/StringGraph \
+	-I$(top_srcdir)/src/SGA/Algorithm \
+	-I$(top_srcdir)/src/SGA/SQG \
+	-I$(top_srcdir)/src/SGA/SGA \
+	-I$(top_srcdir)/SnowTools/src \
+	-I$(top_srcdir)/SnowTools \
+	-I$(top_srcdir)/SnowTools/htslib \
+	-I$(top_srcdir)/SnowTools/multifast-v1.4.2
 
 snowman_LDADD = \
-	$(top_builddir)/SGA/SGA/libsga.a \
-	$(top_builddir)/SGA/StringGraph/libstringgraph.a \
-	$(top_builddir)/SGA/Algorithm/libalgorithm.a \
-	$(top_builddir)/SGA/SuffixTools/libsuffixtools.a \
-	$(top_builddir)/SGA/Bigraph/libbigraph.a \
-	$(top_builddir)/SGA/Util/libutil.a \
-	$(top_builddir)/SGA/SQG/libsqg.a 
+	$(top_builddir)/src/SGA/SGA/libsga.a \
+	$(top_builddir)/SnowTools/bwa/libbwa.a \
+	$(top_builddir)/SnowTools/htslib/libhts.a \
+	$(top_builddir)/SnowTools/src/libsnowtools.a \
+	$(top_builddir)/src/SGA/StringGraph/libstringgraph.a \
+	$(top_builddir)/src/SGA/Algorithm/libalgorithm.a \
+	$(top_builddir)/src/SGA/SuffixTools/libsuffixtools.a \
+	$(top_builddir)/src/SGA/Bigraph/libbigraph.a \
+	$(top_builddir)/src/SGA/Util/libutil.a \
+	$(top_builddir)/src/SGA/SQG/libsqg.a 
 
 snowman_LDFLAGS = -pthread -std=c++11
 snowman_SOURCES = snowman.cpp workqueue.h SnowmanAssemblerEngine.cpp \
@@ -189,7 +202,7 @@ all: all-am
 
 .SUFFIXES:
 .SUFFIXES: .cpp .o .obj
-$(srcdir)/Makefile.in:  $(srcdir)/Makefile.am  $(am__configure_deps)
+$(srcdir)/Makefile.in: @MAINTAINER_MODE_TRUE@ $(srcdir)/Makefile.am  $(am__configure_deps)
 	@for dep in $?; do \
 	  case '$(am__configure_deps)' in \
 	    *$$dep*) \
@@ -198,9 +211,9 @@ $(srcdir)/Makefile.in:  $(srcdir)/Makefile.am  $(am__configure_deps)
 	      exit 1;; \
 	  esac; \
 	done; \
-	echo ' cd $(top_srcdir) && $(AUTOMAKE) --foreign  Snowman/Makefile'; \
+	echo ' cd $(top_srcdir) && $(AUTOMAKE) --foreign  src/Snowman/Makefile'; \
 	cd $(top_srcdir) && \
-	  $(AUTOMAKE) --foreign  Snowman/Makefile
+	  $(AUTOMAKE) --foreign  src/Snowman/Makefile
 .PRECIOUS: Makefile
 Makefile: $(srcdir)/Makefile.in $(top_builddir)/config.status
 	@case '$?' in \
@@ -214,9 +227,9 @@ Makefile: $(srcdir)/Makefile.in $(top_builddir)/config.status
 $(top_builddir)/config.status: $(top_srcdir)/configure $(CONFIG_STATUS_DEPENDENCIES)
 	cd $(top_builddir) && $(MAKE) $(AM_MAKEFLAGS) am--refresh
 
-$(top_srcdir)/configure:  $(am__configure_deps)
+$(top_srcdir)/configure: @MAINTAINER_MODE_TRUE@ $(am__configure_deps)
 	cd $(top_builddir) && $(MAKE) $(AM_MAKEFLAGS) am--refresh
-$(ACLOCAL_M4):  $(am__aclocal_m4_deps)
+$(ACLOCAL_M4): @MAINTAINER_MODE_TRUE@ $(am__aclocal_m4_deps)
 	cd $(top_builddir) && $(MAKE) $(AM_MAKEFLAGS) am--refresh
 install-binPROGRAMS: $(bin_PROGRAMS)
 	@$(NORMAL_INSTALL)

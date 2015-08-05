@@ -1,36 +1,35 @@
 bin_PROGRAMS = snowman
 
 snowman_CPPFLAGS = \
-	-I$(top_srcdir)/SGA/Util \
-	-I$(top_srcdir)/SGA/Bigraph \
-	-I$(top_srcdir)/SGA/SuffixTools \
-	-I$(top_srcdir)/SGA/StringGraph \
-##	-I$(top_srcdir)/SGA/Concurrency \
-	-I$(top_srcdir)/SGA/Algorithm \
-	-I$(top_srcdir)/SGA/SQG \
-##	-I$(top_srcdir)/SGA/Scaffold \
-##	-I$(top_srcdir)/SGA/GraphDiff \
-	-I$(top_srcdir)/SGA/SGA 
-##	-I$(top_srcdir)/SGA/Thirdparty \
-##	-I$(top_srcdir)/BWA \
-##	-I$(top_srcdir)/ThirdParty \
-##	-I$(top_srcdir)/bwa
+	-I$(top_srcdir)/src/SGA/Util \
+	-I$(top_srcdir)/src/SGA/Bigraph \
+	-I$(top_srcdir)/src/SGA/SuffixTools \
+	-I$(top_srcdir)/src/SGA/StringGraph \
+##	-I$(top_srcdir)/src/SGA/Concurrency \
+	-I$(top_srcdir)/src/SGA/Algorithm \
+	-I$(top_srcdir)/src/SGA/SQG \
+##	-I$(top_srcdir)/src/SGA/Scaffold \
+##	-I$(top_srcdir)/src/SGA/GraphDiff \
+	-I$(top_srcdir)/src/SGA/SGA \
+	-I$(top_srcdir)/SnowTools/src \
+	-I$(top_srcdir)/SnowTools \
+	-I$(top_srcdir)/SnowTools/htslib \
+	-I$(top_srcdir)/SnowTools/multifast-v1.4.2
 
 snowman_LDADD = \
-	$(top_builddir)/SGA/SGA/libsga.a \
-##	$(top_builddir)/SGA/Scaffold/libscaffold.a \
-##	$(top_builddir)/SGA/GraphDiff/libgraphdiff.a \
-	$(top_builddir)/SGA/StringGraph/libstringgraph.a \
-##	$(top_builddir)/SGA/Concurrency/libconcurrency.a \
-	$(top_builddir)/SGA/Algorithm/libalgorithm.a \
-	$(top_builddir)/SGA/SuffixTools/libsuffixtools.a \
-	$(top_builddir)/SGA/Bigraph/libbigraph.a \
-	$(top_builddir)/SGA/Util/libutil.a \
-	$(top_builddir)/SGA/SQG/libsqg.a 
-##	$(top_builddir)/SGA/Thirdparty/libthirdparty.a \
-##	$(top_builddir)/BWA/libbwawrapper.a \
-##	$(top_builddir)/bwa/libbwa.a \
-##	$(top_builddir)/ThirdParty/libahocorasick.a
+	$(top_builddir)/src/SGA/SGA/libsga.a \
+	$(top_builddir)/SnowTools/bwa/libbwa.a \
+	$(top_builddir)/SnowTools/htslib/libhts.a \
+	$(top_builddir)/SnowTools/src/libsnowtools.a \
+##	$(top_builddir)/src/SGA/Scaffold/libscaffold.a \
+##	$(top_builddir)/src/SGA/GraphDiff/libgraphdiff.a \
+	$(top_builddir)/src/SGA/StringGraph/libstringgraph.a \
+##	$(top_builddir)/src/SGA/Concurrency/libconcurrency.a \
+	$(top_builddir)/src/SGA/Algorithm/libalgorithm.a \
+	$(top_builddir)/src/SGA/SuffixTools/libsuffixtools.a \
+	$(top_builddir)/src/SGA/Bigraph/libbigraph.a \
+	$(top_builddir)/src/SGA/Util/libutil.a \
+	$(top_builddir)/src/SGA/SQG/libsqg.a 
 
 snowman_LDFLAGS = -pthread -std=c++11
 

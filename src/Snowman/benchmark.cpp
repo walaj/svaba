@@ -3,12 +3,14 @@
 #include <getopt.h>
 #include <iostream>
 #include <string>
+#include <sstream>
 
+#include "SnowTools/SnowToolsCommon.h"
 
 namespace opt {
 
   static std::string refgenome = SnowTools::REFHG19;  
-
+  static int mode = 0;
 }
 
 enum { 
@@ -60,11 +62,16 @@ void parseBenchmarkOptions(int argc, char** argv) {
     std::istringstream arg(optarg != NULL ? optarg : "");
     switch (c) {
     case 'h': die = true; break;
-    case OPT_ASSEMBLY: opt::run_mode = OPT_ASSEMBLY; break;
+    case OPT_ASSEMBLY: opt::mode = OPT_ASSEMBLY; break;
     case 'G': arg >> opt::refgenome; break;
     default: die= true; 
     }
   }
-  
+
+  if (die) {
+    std::cerr << "\n" << BENCHMARK_USAGE_MESSAGE;
+    exit(EXIT_FAILURE);
+  }
+
 
 }

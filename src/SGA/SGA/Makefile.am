@@ -1,16 +1,16 @@
 noinst_LIBRARIES = libsga.a
 
 libsga_a_CPPFLAGS = \
-	-I$(top_srcdir)/SGA/Util \
-	-I$(top_srcdir)/SGA/Bigraph \
-	-I$(top_srcdir)/SGA/SuffixTools \
-	-I$(top_srcdir)/SGA/StringGraph \
-	-I$(top_srcdir)/SGA/Concurrency \
-	-I$(top_srcdir)/SGA/Algorithm \
-	-I$(top_srcdir)/SGA/SQG \
-	-I$(top_srcdir)/SGA/Scaffold \
-	-I$(top_srcdir)/SGA/GraphDiff \
-	-I$(top_srcdir)/SGA/Thirdparty
+	-I$(top_srcdir)/sga/SGA/Util \
+	-I$(top_srcdir)/sga/SGA/Bigraph \
+	-I$(top_srcdir)/sga/SGA/SuffixTools \
+	-I$(top_srcdir)/sga/SGA/StringGraph \
+	-I$(top_srcdir)/sga/SGA/Concurrency \
+	-I$(top_srcdir)/sga/SGA/Algorithm \
+	-I$(top_srcdir)/sga/SGA/SQG \
+	-I$(top_srcdir)/sga/SGA/Scaffold \
+	-I$(top_srcdir)/sga/SGA/GraphDiff \
+	-I$(top_srcdir)/sga/SGA/Thirdparty
 
 libsga_a_SOURCES = index.cpp index.h \
               overlap.cpp overlap.h \
