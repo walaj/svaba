@@ -1,11 +1,11 @@
 noinst_LIBRARIES = libalgorithm.a
 
 libalgorithm_a_CPPFLAGS = \
-	-I$(top_srcdir)/SGA/Bigraph \
-	-I$(top_srcdir)/SGA/Util \
-	-I$(top_srcdir)/SGA/StringGraph \
-	-I$(top_srcdir)/SGA/SQG \
-	-I$(top_srcdir)/SGA/SuffixTools
+	-I$(top_srcdir)/src/SGA/Bigraph \
+	-I$(top_srcdir)/src/SGA/Util \
+	-I$(top_srcdir)/src/SGA/StringGraph \
+	-I$(top_srcdir)/src/SGA/SQG \
+	-I$(top_srcdir)/src/SGA/SuffixTools
 ##	-I$(top_srcdir)/SGA/Thirdparty \
 ##	-I$(top_srcdir)/SGA/GraphDiff \
 ##    -I$(top_srcdir)/SGA/Concurrency
