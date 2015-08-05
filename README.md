@@ -1,6 +1,8 @@
 Snowman - Structural Variation detection by String Graph Assembly
 ==========================================
 
+<img src="https://raw.githubusercontent.com/jwalabroad/SnowmanSV/master/labels_sm.png" width="150">
+
 Snowman is a method for detecting structural variations in whole genome sequencing data, using a custom application of the SGA string graph assembly algorithm. Snowman was designed to work with cancer genomes, but is able to call both somatic and germline variants.
 
 --------
