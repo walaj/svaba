@@ -1,0 +1,3 @@
+[submodule "SnowTools"]
+	path = SnowTools
+	url = https://github.com/jwalabroad/SnowTools.git
