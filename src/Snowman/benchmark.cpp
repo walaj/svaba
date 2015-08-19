@@ -21,6 +21,7 @@
 
 #include "SnowTools/BWAWrapper.h"
 #include "SnowTools/AlignedContig.h"
+#include "SnowTools/Fractions.h"
 
 
 static std::vector<double> snv_error_rates;
@@ -28,7 +29,9 @@ static std::vector<double> del_error_rates;
 static std::vector<double> ins_error_rates;
 static std::vector<double> coverages;
 static std::vector<double> fractions;
+
 static SnowTools::GRC regions;
+static SnowTools::Fractions fractions_bed;
 static SnowTools::BamWalker bwalker;
 static faidx_t * findex;
 
@@ -53,6 +56,8 @@ namespace opt {
   static int nindels = 10;
 
   static std::string string_id = "noid";
+
+  static std::string frac_bed_file;
 
 }
 
@@ -150,29 +155,37 @@ void runBenchmark(int argc, char** argv) {
     bwalker = SnowTools::BamWalker(opt::bam);
   
   // parse the region file
-  if (SnowTools::read_access_test(opt::regionFile))
-    regions.regionFileToGRV(opt::regionFile, 0);
-  // samtools format
-  else if (opt::regionFile.find(":") != std::string::npos && opt::regionFile.find("-") != std::string::npos) {
-    if (!bwalker.header()) {
-      std::cerr << "Error: To parse a samtools style string, need a BAM header. Input bam with -b" << std::endl;
+  if (opt::regionFile.length()) {
+    if (SnowTools::read_access_test(opt::regionFile))
+      regions.regionFileToGRV(opt::regionFile, 0, bwalker.header());
+    // samtools format
+    else if (opt::regionFile.find(":") != std::string::npos && opt::regionFile.find("-") != std::string::npos) {
+      if (!bwalker.header()) {
+	std::cerr << "Error: To parse a samtools style string, need a BAM header. Input bam with -b" << std::endl;
+	exit(EXIT_FAILURE);
+      }
+      regions.add(SnowTools::GenomicRegion(opt::regionFile, bwalker.header()));    
+    } else {
+      std::cerr << "Can't parse the regions. Input as BED file or Samtools style string (requires BAM with -b to for header info)" << std::endl;
       exit(EXIT_FAILURE);
     }
-    regions.add(SnowTools::GenomicRegion(opt::regionFile, bwalker.header()));    
-  } else {
-    std::cerr << "Can't parse the regions. Input as BED file or Samtools style string (requires BAM with -b to for header info)" << std::endl;
-    exit(EXIT_FAILURE);
-  }
-  if (!regions.size()) {
-    std::cerr << "ERROR: Must input a region to run on " << std::endl;
-    exit(EXIT_FAILURE);
+    if (!regions.size()) {
+      std::cerr << "ERROR: Must input a region to run on " << std::endl;
+      exit(EXIT_FAILURE);
+    }
   }
 
-  // seed the seet
+  // seed the RNG
   if (opt::seed == 0)
     opt::seed = (unsigned)time(NULL);
   srand(opt::seed);
   std::cerr << "   Seed: " << opt::seed << std::endl;
+
+  // read the fractions file
+  if (opt::frac_bed_file.length() && opt::mode == OPT_SPLITBAM) {
+    fractions_bed.readFromBed(opt::frac_bed_file, bwalker.header());
+    //  fractions_bed.readBEDfile(opt::frac_bed_file.length(), 0, bwalker.header());
+  }
 
   // 
   if (opt::mode == OPT_ASSEMBLY)
@@ -272,18 +285,24 @@ void splitBam() {
 
   BamSplitter bs(opt::bam, opt::seed);
 
-  std::vector<std::string> fnames;
-  for (auto& i : fractions)
-    fnames.push_back(opt::string_id + to_string(i) + "_subsampled.bam");
-  
-  bs.setWriters(fnames, fractions);
-  
+  // set the regions to split on
+  if (regions.size()) 
+    bs.setBamWalkerRegions(regions.asGenomicRegionVector());
 
-  assert(regions.size());
 
-  bs.setBamWalkerRegions(regions.asGenomicRegionVector());
-  
-  bs.splitBam();
+  if (fractions_bed.size()) {
+    bs.fractionateBam(opt::string_id + ".fractioned.bam", fractions_bed);
+  } else {
+
+    // set the output bams
+    std::vector<std::string> fnames;
+    for (auto& i : fractions)
+      fnames.push_back(opt::string_id + to_string(i) + "_subsampled.bam");
+    
+    bs.setWriters(fnames, fractions);
+    bs.splitBam();
+  }
+
 }
 
 void assemblyTest() {
@@ -497,7 +516,12 @@ void assemblyTest() {
   del_error_rates = parseErrorRates(del_er);
   ins_error_rates = parseErrorRates(ins_er);
   coverages = parseErrorRates(covs);
-  fractions = parseErrorRates(frac);
+
+  // parse the fractions string or read file
+  if (!SnowTools::read_access_test(frac))
+    fractions = parseErrorRates(frac);
+  else
+    opt::frac_bed_file = frac;
 
   // set the default error rates
   if (!snv_error_rates.size())
@@ -508,8 +532,8 @@ void assemblyTest() {
     ins_error_rates.push_back(DEFAULT_INS_RATE);
   if (!coverages.size())
     coverages.push_back(DEFAULT_COV);
-  if (!fractions.size() && opt::mode == OPT_SPLITBAM) {
-    std::cerr << "Error: Must specify fractions to split into with -f (e.g. -f 0.1,0.8)" << std::endl;
+  if ((!fractions.size() && !opt::frac_bed_file.length()) && opt::mode == OPT_SPLITBAM) {
+    std::cerr << "Error: Must specify fractions to split into with -f (e.g. -f 0.1,0.8), or as BED file" << std::endl;
     exit(EXIT_FAILURE);
   }
   

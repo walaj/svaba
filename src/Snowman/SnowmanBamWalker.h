@@ -8,6 +8,7 @@
 #include "SnowTools/BamWalker.h"
 #include "SnowTools/STCoverage.h"
 #include "SnowTools/BWAWrapper.h"
+#include "SnowTools/Fractions.h"
 
 #include "htslib/khash.h"
 
