@@ -1319,7 +1319,8 @@ string getRefSequence(const SnowTools::GenomicRegion &gr, faidx_t * fi) {
 
   int len;
   string chrstring = SnowTools::GenomicRegion::chrToString(gr.chr);
-  char * seq = faidx_fetch_seq(fi, const_cast<char*>(chrstring.c_str()), gr.pos1-1, gr.pos2-1, &len);
+  //char * seq = faidx_fetch_seq(fi, const_cast<char*>(chrstring.c_str()), gr.pos1-1, gr.pos2-1, &len);
+  char * seq = faidx_fetch_seq(fi, const_cast<char*>(chrstring.c_str()), gr.pos1, gr.pos2, &len);
   
   if (seq) {
     return string(seq);

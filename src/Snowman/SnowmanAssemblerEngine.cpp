@@ -11,6 +11,23 @@
 #define MAX_OVERLAPS_PER_ASSEMBLY 200000
 //#define DEBUG_ENGINE 1
 
+void SnowmanAssemblerEngine::fillReadTable(const std::vector<std::string>& r) {
+
+  int count = 0;
+  for (auto& i : r) {
+    
+    SeqItem si;
+    
+    assert(i.length());
+    si.id = "read_" + std::to_string(++count); 
+    si.seq = i;
+    
+    m_pRT.addRead(si);
+
+  }
+  
+}
+
 void SnowmanAssemblerEngine::fillReadTable(SnowTools::BamReadVector& r)
 {
   
@@ -25,13 +42,16 @@ void SnowmanAssemblerEngine::fillReadTable(SnowTools::BamReadVector& r)
     // get the sequence
     int dum = 0;
     sr = i.GetZTag("SR");
+    if (!sr.length())
+      sr = i.Qname();
+
     seq = i.GetZTag("KC");
     if (!seq.length()) {
       seq = i.QualityTrimmedSequence(4, dum);
     } 
     assert(sr.length());
     assert(seq.length());
-    
+
     si.id = sr;
     si.seq = seq;
     m_pRT.addRead(si);

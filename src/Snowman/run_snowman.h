@@ -9,7 +9,15 @@
 #include <ostream>
 
 #include "SnowTools/GenomicRegionCollection.h"
+#include "SnowTools/BWAWrapper.h"
+#include "SnowTools/AlignedContig.h"
+#include "SnowmanAssemblerEngine.h"
+#include "SnowTools/DiscordantCluster.h"
+
+#include "SnowmanBamWalker.h"
 #include "workqueue.h"
+
+class SnowTimer;
 
 void parseRunOptions(int argc, char** argv);
 void runSnowman(int argc, char** argv);
@@ -17,6 +25,10 @@ void learnParameters();
 int countJobs(SnowTools::GRC &file_regions, SnowTools::GRC &run_regions);
 void sendThreads(SnowTools::GRC& regions_torun);
 bool runBigChunk(const SnowTools::GenomicRegion& region); 
+SnowTools::GRC makeAssemblyRegions(const SnowTools::GenomicRegion& region);
+void alignReadsToContigsOneAtATime(const ContigVector& contigs, std::vector<SnowTools::AlignedContig>& alc, BamReadVector& bav_this, SnowTimer& st,
+				   SnowTools::DiscordantClusterMap& dmap, CigarMap& cigmap_n, CigarMap& cigmap_t);
+void alignReadsToContigs(SnowTools::BWAWrapper& bw, const SnowTools::USeqVector& usv, BamReadVector& bav_this, std::vector<SnowTools::AlignedContig>& this_alc);
 
 /** @brief p-thread work item that calls Snowman on a small region
 

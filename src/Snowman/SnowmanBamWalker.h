@@ -39,9 +39,11 @@ class SnowmanBamWalker: public SnowTools::BamWalker
 
   SnowmanBamWalker(const std::string& in) : SnowTools::BamWalker(in) {}
 
-    void readBam(SnowTools::BWAWrapper * b = nullptr);
+    void readBam();
 
     void filterMicrobial(SnowTools::BWAWrapper * b);
+
+  void KmerCorrect();
 
   void addCigar(BamRead &r);
 
@@ -65,7 +67,7 @@ class SnowmanBamWalker: public SnowTools::BamWalker
 
   CigarMap cigmap;
   
-  SnowTools::GenomicRegion coverage_region;
+  //SnowTools::GenomicRegion coverage_region;
 
   size_t max_weird_cov = 100;
 
@@ -76,6 +78,10 @@ class SnowmanBamWalker: public SnowTools::BamWalker
   std::string prefix = ""; // eg. tumor, normal
 
   size_t max_cov = 100;
+
+  bool do_kmer_filtering = true;
+
+  bool disc_only = false;
  private:
 
   // might want these in case we are looking for duplicates
@@ -85,6 +91,8 @@ class SnowmanBamWalker: public SnowTools::BamWalker
   size_t m_limit = 0;
 
   uint32_t m_seed = 1337;
+
+
 
 };
 

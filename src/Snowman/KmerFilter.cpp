@@ -22,7 +22,7 @@ int KmerFilter::correctReads(BamReadVector& vec) {
   for (auto& r : vec) {
 
     /// only correct valid reads
-    if (!r.GetIntTag("VR"))
+    if (r.GetIntTag("VR") == -1)
       continue;
 
     int dum;
