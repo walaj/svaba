@@ -2,6 +2,7 @@
 #define SNOWMAN_BAM_SPLITTER_H__
 
 #include "SnowTools/BamWalker.h"
+#include "SnowTools/Fractions.h"
 
 class BamSplitter: public SnowTools::BamWalker 
 {
@@ -16,7 +17,11 @@ class BamSplitter: public SnowTools::BamWalker
 
   void splitBam();
 
+  void fractionateBam(const std::string& outbam, SnowTools::Fractions& f);
+
  private:
+
+  std::string __startMessage() const;
 
     uint32_t m_seed = 0;
 
