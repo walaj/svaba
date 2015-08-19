@@ -15,6 +15,8 @@ class SnowmanAssemblerEngine
     
     void fillReadTable(SnowTools::BamReadVector& r);
 
+    void fillReadTable(const std::vector<std::string>& r);
+
     bool performAssembly();
 
     void doAssembly(ReadTable *pRT, ContigVector &contigs, int pass);

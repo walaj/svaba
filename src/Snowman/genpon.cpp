@@ -7,6 +7,10 @@
 
 #include "SnowTools/gzstream.h"
 #include "SnowTools/SnowUtils.h"
+#include "PonWalker.h"
+#include "SnowTools/GenomicRegion.h"
+
+static pthread_mutex_t lock;
 
 using namespace std;
 
@@ -18,6 +22,9 @@ namespace popt {
   static bool collapse = false;
 
   static int verbose = 1;
+  static int numThreads = 1;
+  static std::string regionFile = "";
+  static std::string verify = "";
 }
 
 
@@ -102,12 +109,15 @@ void runGeneratePONfromVCF(int argc, char** argv) {
   delete pon;
 }
 
-static const char* shortopts = "hci:v:o:l:";
+static const char* shortopts = "hci:v:o:l:p:k:V:";
 static const struct option longopts[] = {
   { "help",                    no_argument, NULL, 'h' },
   { "input-vcfs",              required_argument, NULL, 'i'},
   { "output-pon",              required_argument, NULL, 'o'},
   { "file-list",               required_argument, NULL, 'l'},
+  { "region-file",             required_argument, NULL, 'k' },
+  { "num-threads",             required_argument, NULL, 'p'},
+  { "verify",                  required_argument, NULL, 'V'},
   { "collapse",                no_argument, NULL, 'c'},
   { "verbose",                 required_argument, NULL, 'v' },
   { NULL, 0, NULL, 0 }
@@ -117,14 +127,16 @@ static const char *PON_USAGE_MESSAGE =
 "Usage: snowman pon [OPTION] -i vcf_files.txt -o pon.txt.gz\n\n"
 "  Description: \n"
 "\n"
+"  Required input\n"
+"  -l, --file-list                      File containing list of cigar.gz files for each sample to be panel\n"
 "  General options\n"
 "  -v, --verbose                        Select verbosity level (0-4). Default: 1 \n"
 "  -h, --help                           Display this help and exit\n"
-"  -l, --file-list                      File containing list of cigar.gz files for each sample to be panel\n"
 "  -o, --output-pon                     Output panel of normals file for use with snowman run -q or snowman refilter -q \n"
 "  -c, --collapse                       Collapse all of the counts from individual files to one point. Makes PON file much smaller\n"
-"  Required input\n"
-"  Optional input\n"                       
+"  -p, --num-threads                    Number of threads to use. Runs one BAM per thread\n"
+"  -k, --region-file                    Set a region txt file. Format: one region per line, Ex: 1,10000000,11000000\n"
+"  -V, --verify                         Read in a binary PON file generated from snowman pon and profile/verify it\n"
 "\n";
 
 void parsePONOptions(int argc, char** argv) {
@@ -140,15 +152,16 @@ void parsePONOptions(int argc, char** argv) {
       case 'h': die = true; break;
       case 'c': popt::collapse = true; break;
       case 'i': arg >> popt::input_file; break;
+      case 'p': arg >> popt::numThreads; break;
       case 'o': arg >> popt::output_file; break;
       case 'l': arg >> popt::file_list; break;
+      case 'k': arg >> popt::regionFile; break;
       case 'v': arg >> popt::verbose; break;
+      case 'V': arg >> popt::verify; break;
     }
   }
 
-  //if (popt::input_file.length() == 0)
-  //  die = true;
-  if (popt::output_file.length() == 0)
+  if (popt::output_file.length() == 0 && popt::verify.length() == 0)
     die = true;
 
   if (die) {
@@ -157,33 +170,142 @@ void parsePONOptions(int argc, char** argv) {
     }
 }
 
+void verifyPON() {
+  
+  if (!SnowTools::read_access_test(popt::verify)) {
+    std::cerr << "!!!!!!!!!!!!!!!!" << std::endl;
+    std::cerr << "Can't access PON for verification: " << popt::verify << std::endl;
+    std::cerr << "!!!!!!!!!!!!!!!!" << std::endl;
+  }
+
+  std::vector<DiscRead> drv;
+
+  std::cerr << "...reading in PON file: " << popt::verify << std::endl;
+  std::ifstream ifs;
+  ifs.open(popt::verify.c_str(), std::ios::in);
+
+  std::unordered_map<uint16_t, size_t> id_count;
+
+  while(!ifs.eof()) {
+    DiscRead dr;
+    dr.load(ifs);
+    if (dr.pos1 > 0) 
+      drv.push_back(dr);
+    ++id_count[dr.id];
+  }
+
+  for (auto& i : id_count)
+    std::cerr << "ID: " << i.first << " count " << i.second << std::endl;
+
+  //debug
+  if (popt::output_file.length()) {
+    ogzstream outr(popt::output_file.c_str(), std::ios::out);
+    if (!outr) {
+      std::cerr << "ERROR: Could not open " << popt::output_file << " for writing" << std::endl;
+      exit(EXIT_FAILURE);
+    }
+    
+    for (auto& i : drv)
+      outr << i.toTabString() << std::endl;
+    
+    outr.close();
+  }
+
+
+}
+
 void runGeneratePON(int argc, char** argv) {
 
   parsePONOptions(argc, argv);
+
+  if (popt::verify.length()) {
+    verifyPON();
+    return;
+  }
 
   cout << "PON file list:   " << popt::file_list << endl;
   cout << "PON output file: " << popt::output_file << endl;
   cout << "Collapse PON:    " << (popt::collapse ? "ON" : "OFF") << endl;
 
-  bool list_exist = SnowTools::read_access_test(popt::file_list);
-  if (list_exist) {
-    if (popt::verbose)
-      cout << "...combining PON" << endl;
-    combinePON();
-  } else if (!list_exist && popt::file_list.length()) {
+  std::vector<std::string> bams;
+  if (SnowTools::read_access_test(popt::file_list)) {
+    std::ifstream iss_file(popt::file_list.c_str());
+    std::string line;
+    while(std::getline(iss_file, line)) {
+      if (line.length() && line.find("#") == std::string::npos)
+	bams.push_back(line);
+    }
+  }
+  else {
     cerr << "!!!!!!!!!!" << endl << "!!!!!!!!!!" << endl << "!!!!!!!!!!" << endl;
-    cerr << "List of cigar file does not exist or is not readable -- " << popt::file_list << endl;
+    cerr << "List of BAM files does not exist or is not readable -- " << popt::file_list << endl;
     cerr << "!!!!!!!!!!" << endl << "!!!!!!!!!!" << endl << "!!!!!!!!!!" << endl;
+    exit(EXIT_FAILURE);
   }
 
+  // parse the regions
+  SnowTools::GRC file_regions;
+  if (SnowTools::read_access_test(popt::regionFile))
+    file_regions.regionFileToGRV(popt::regionFile, 0);
+  else if (popt::regionFile.find(":") != std::string::npos && popt::regionFile.find("-") != std::string::npos
+	   && bams.size() && SnowTools::read_access_test(*bams.begin())) {
+    SnowTools::BamWalker bwalker(*bams.begin());
+    file_regions.add(SnowTools::GenomicRegion(popt::regionFile, bwalker.header()));    
+  } 
+
+  popt::numThreads = std::min((int)bams.size(), popt::numThreads);
+  
+  std::ofstream outr;
+  outr.open("dum", std::ios::binary | std::ios::out);
+
+  std::string rl = "global@!hardclip;!supplementary;phred[4,100];%region@WG%discordant[0,800];mapq[1,1000]";
+  SnowTools::MiniRulesCollection * mr = new SnowTools::MiniRulesCollection(rl);
+  
+  // open the mutex
+  if (pthread_mutex_init(&lock, NULL) != 0) {
+      printf("\n mutex init failed\n");
+      return;
+  }
+
+  // Create the queue and consumer (worker) threads
+  wqueue<PONWorkItem*>  queue;
+  std::vector<ConsumerThread<PONWorkItem>*> threadqueue;
+  for (int i = 0; i < popt::numThreads; i++) {
+    ConsumerThread<PONWorkItem>* threadr = new ConsumerThread<PONWorkItem>(queue, true);
+    threadr->start();
+    threadqueue.push_back(threadr);
+  }
+  
+  SnowTools::BamWalker out_bw;
+  SnowTools::BamWalker bwalker(*bams.begin());
+  bam_hdr_t * r2c_hdr = bam_hdr_dup(bwalker.header());
+  out_bw.SetWriteHeader(r2c_hdr);
+  out_bw.OpenWriteBam(popt::output_file);
+  
+  // send the jobs
+  size_t id = 0;
+  for (auto& b : bams) {
+    if (!SnowTools::read_access_test(b)) {
+      std::cerr << "!!!!!!!!!!!!!!!!!!!!!!!!" << std::endl;
+      std::cerr << "Cannot read bam " << b << std::endl;\
+      std::cerr << "!!!!!!!!!!!!!!!!!!!!!!!!" << std::endl;      
+    }
+    PONWorkItem * item = new PONWorkItem(b, &outr, &lock, id++, mr, &file_regions, &out_bw) ;
+    queue.add(item);
+  }
+
+  // wait for the threads to finish
+  for (int i = 0; i < popt::numThreads; i++) 
+    threadqueue[i]->join();
+
   return;
-
+  
   /*
-  ogzstream ogz;
-  ogz.open(popt::output_file.c_str(), ios::out);
+    ogzstream ogz;
+    ogz.open(popt::output_file.c_str(), ios::out);
 
-  typedef unordered_map<string, size_t> pmap;
-  pmap cigmap;
+    typedef unordered_map<string, size_t> pmap;
+    pmap cigmap;
   
 #ifdef HAVE_HTSLIB
   // hts

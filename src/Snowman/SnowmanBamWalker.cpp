@@ -54,7 +54,7 @@ bool SnowmanBamWalker::checkIfDuplicate(BamRead &r)
 
 }
 
-void SnowmanBamWalker::readBam(SnowTools::BWAWrapper * b)
+void SnowmanBamWalker::readBam()
 {
   
   BamRead r;
@@ -65,13 +65,19 @@ void SnowmanBamWalker::readBam(SnowTools::BWAWrapper * b)
   int reads_to_start = reads.size();
 
   std::cerr << "**Starting read for " << (prefix == "n" ? "NORMAL" : "TUMOR") << (get_mate_regions ? "**" : " MATE REGIONS**");
-  if (get_mate_regions)
+  if (get_mate_regions && m_region.size())
     std::cerr << " on region " << m_region[0] << std::endl;
+  else if (get_mate_regions && m_region.size() == 0)
+    std::cerr << " on WHOLE GENOME" << std::endl;
   else
     std::cerr << " on " << m_region.size() << " regions " << std::endl;
 
+  SnowTools::BamReadVector mate_reads;
+
+  size_t countr = 0;
   while (GetNextRead(r, rule_pass))
     {
+
       bool valid = rule_pass; 
       bool qcpass = !r.DuplicateFlag() && !r.QCFailFlag() && !r.SecondaryFlag();
 
@@ -91,25 +97,34 @@ void SnowmanBamWalker::readBam(SnowTools::BWAWrapper * b)
       //bool is_dup = checkIfDuplicate(r);
       bool is_dup = false;
 
-      if (valid && !is_dup)
+      if (!valid)
+	r.AddIntTag("VR", -1); 
+      else if (valid && !is_dup)
 
 	{
 	  // optional tag processing
+	  //r.RemoveAllTags(); // cut down on memory
 	  //r_remove_tag(r, "R2");
 	  //r_remove_tag(r, "Q2");
 	  //r_remove_tag(r, "OQ");
 	  //r_add_Z_tag(r, "RL", rule_pass);
 
+	  ++countr;
+	  if (countr % 10000 == 0 && m_region.size() == 0)
+	    std::cerr << "...read in " << SnowTools::AddCommas<size_t>(countr) << " weird reads for whole genome read-in. At pos " << r.Brief() << std::endl;
+	  
+	  if (disc_only) {
+	    //	    r.SetSequence("A");
+	    //r.RemoveAllTags();
+	  }
+
 	  // add the ID tag
 	  std::string srn =  prefix+std::to_string(r.AlignmentFlag()) + "_" + r.Qname();
 	  r.AddZTag("SR", srn);
 	  r.AddIntTag("VR", 1);
-	  //r_add_Z_tag(r, "SR", srn);
 	  
-	  //#ifdef GET_COVERAGE
 	  // get the weird coverage
 	  weird_cov.addRead(r);
-	  //#endif
 
 	  reads.push_back(r); // adding later because of kmer correction
 
@@ -123,37 +138,41 @@ void SnowmanBamWalker::readBam(SnowTools::BWAWrapper * b)
   // clear out the added reads if hit limit on mate lookup
   if (m_keep_limit > 0 && m_num_reads_kept*1.05 > m_keep_limit) {
     BamReadVector tmpr;
-    for (size_t i = 0; i < reads_to_start; ++i)
+    for (int i = 0; i < reads_to_start; ++i)
       tmpr.push_back(reads[i]);
     reads = tmpr;
   }
 
-  // do the kmer filtering
-  KmerFilter kmer;
-  int kcor = kmer.correctReads(/*all_reads*/reads);
-  //for (auto& i : /*all_reads*/)
-  //  if (i.GetIntTag("VR"))
-  //    reads.push_back(i);
-  //std::cerr << "...kmer filtered from pool of " << SnowTools::AddCommas<size_t>(/*all_*/reads.size());
-  std::cerr << "     kmer corrected " << kcor << " reads of " << reads.size() << std::endl; 
+  if (reads.size() < 3)
+    return;
       
   // get rid of repats
   removeRepeats();
 
   // get rid of microbial
-  if (b) {
-    filterMicrobial(b);
-  }
+  //if (b) {
+  //  filterMicrobial(b);
+  //}
 
   // clean out the buffer
   subSampleToWeirdCoverage(max_cov);
 
   // calculate the mate region
-  if (get_mate_regions) {
+  if (get_mate_regions && m_region.size() /* don't get mate regions if reading whole bam */) {
     calculateMateRegions();
   }
 
 }
+
+void SnowmanBamWalker::KmerCorrect() {
+
+  // do the kmer filtering
+  KmerFilter kmer;
+  int kcor = kmer.correctReads(/*all_reads*/reads);
+  std::cerr << "     kmer corrected " << SnowTools::AddCommas<int>(kcor) << " reads of " << SnowTools::AddCommas<size_t>(reads.size()) << std::endl; 
+
+}
+
 
 void SnowmanBamWalker::subSampleToWeirdCoverage(double max_coverage) {
   
@@ -187,6 +206,10 @@ void SnowmanBamWalker::subSampleToWeirdCoverage(double max_coverage) {
 
 void SnowmanBamWalker::calculateMateRegions() {
 
+  if (m_region.size() == 0) {
+    std::cerr << "Attempting to calculate mate region with no BamWalker region defined." << std::endl;
+    return;
+  }
   SnowTools::GenomicRegion main_region = m_region.at(0);
 
   MateRegionVector tmp_mate_regions;
@@ -249,10 +272,10 @@ void SnowmanBamWalker::calculateMateRegions() {
 
     }
 
-  // keep only ones with 3+ reads
+  // keep only ones with 2+ reads
   for (auto& i : tmp_mate_regions)
     {
-      if (i.count > 2)
+      if (i.count >= 2)
 	mate_regions.add(i);
     }
   

@@ -10,19 +10,17 @@
 #include "bwa/bwa.h"
 
 #include "SnowTools/SnowUtils.h"
-#include "SnowTools/BWAWrapper.h"
 #include "SnowTools/MiniRules.h"
-#include "SnowmanBamWalker.h"
-#include "SnowmanAssemblerEngine.h"
-#include "SnowTools/AlignedContig.h"
-#include "SnowTools/DiscordantCluster.h"
+#include "SnowTools/SnowToolsCommon.h"
 #include "SnowTools/DBSnpFilter.h"
 
-#define LITTLECHUNK 6000 
+#define LITTLECHUNK 20000 
 #define WINDOW_PAD 300
-#define MATE_READ_LIMIT 3000
+//#define MATE_READ_LIMIT 3000
 #define GET_MATES 1
-#define MICROBE 1
+//#define MICROBE 1
+//#define LOCAL_ALIGN 1
+//#define ONE_AT_A_TIME 1
 
 typedef std::unordered_map<std::string, std::string> BamMap;
 
@@ -32,9 +30,9 @@ static SnowTools::BamWalker bwalker;
 static SnowTools::BamWalker bwriter;
 static SnowTools::BamWalker r2c_writer;
 static SnowTools::BamWalker r2c_corrected_writer;
-static SnowTools::BamWalker b_microbe_writer;
+//static SnowTools::BamWalker b_microbe_writer;
 static SnowTools::BamWalker b_allwriter;
-static SnowTools::BWAWrapper * microbe_bwa;
+//static SnowTools::BWAWrapper * microbe_bwa;
 static SnowTools::BWAWrapper * main_bwa;
 static SnowTools::MiniRulesCollection * mr;
 static SnowTools::GRC blacklist;
@@ -43,13 +41,16 @@ static SnowTools::DBSnpFilter * dbsnp_filter;
 
 // output files
 static ogzstream * all_align;
-static ogzstream * all_tum_cov;
-static ogzstream * all_norm_cov;
+//static ogzstream * all_tum_cov;
+//static ogzstream * all_norm_cov;
 static ogzstream * os_allbps;
 static ogzstream * all_disc_stream;
 static ogzstream * os_cigmap; 
 
 static ofstream * mates_file;
+static ofstream * avoid_file;
+
+static SnowTools::GRC file_regions, regions_torun;
 
 static pthread_mutex_t snow_lock;
 static struct timespec start;
@@ -94,7 +95,7 @@ namespace opt {
   static std::string regionFile = "";
   static std::string blacklist = ""; //"/xchip/gistic/Jeremiah/Projects/HengLiMask/um75-hs37d5.bed.gz";
 
-  static std::string dbsnp = ""; // /xchip/gistic/Jeremiah/SnowmanFilters/dbsnp_138.b37_indel.vcf
+  static std::string dbsnp = "/xchip/gistic/Jeremiah/SnowmanFilters/dbsnp_138.b37_indel.vcf";
 
   // filters on when / how to assemble
   static bool disc_cluster_only = false;
@@ -106,7 +107,8 @@ enum {
   OPT_DISC_CLUSTER_ONLY,
   OPT_READ_TRACK,
   OPT_NO_ASSEMBLE_NORMAL,
-  OPT_MAX_COV
+  OPT_MAX_COV,
+  OPT_DISCORDANT_ONLY
 };
 
 static const char* shortopts = "hzxt:n:p:v:r:G:r:e:g:k:c:a:q:m:b:M:D:";
@@ -127,6 +129,7 @@ static const struct option longopts[] = {
   { "g-zip",                  no_argument, NULL, 'z' },
   { "read-tracking",           no_argument, NULL, OPT_READ_TRACK },
   { "no-assemble-normal",       no_argument, NULL, OPT_NO_ASSEMBLE_NORMAL },
+  { "discordant-only",       no_argument, NULL, OPT_DISCORDANT_ONLY },
   { "no-r2c-bam",              no_argument, NULL, 'x' },
   { "write-asqg",              no_argument, NULL, OPT_ASQG   },
   { "error-rate",              required_argument, NULL, 'e'},
@@ -157,7 +160,7 @@ static const char *RUN_USAGE_MESSAGE =
 "  -m, --indel-mask                     BED-file with blacklisted regions for indel calling. Default /xchip/gistic/Jeremiah/Projects/HengLiMask/um75-hs37d5.bed.gz\n"
 "  -b, --blacklist                      BED-file with blacklisted regions to not extract any reads from. Default /xchip/gistic/Jeremiah/Projects/HengLiMask/um75-hs37d5.bed.gz\n"
 "  -z, --g-zip                          Gzip and tabix the output VCF files. Default: off\n"
-"      --disc-cluster-only              Only run the discordant read clustering module, skip assembly. Default: off\n"
+"      --discordant-only                Only run the discordant read clustering module, skip assembly. Default: off\n"
 "      --read-tracking                  Track supporting reads. Increases file sizes.\n"
 "      --max-coverage                   Maximum weird read coverage to send to assembler (per BAM). Subsample reads to achieve max if overflow. Defualt 500\n"
 "  -M, --microbial-genome               Path to indexed reference genome of microbial sequences to be used by BWA-MEM to filter reads.\n"
@@ -182,8 +185,15 @@ void runSnowman(int argc, char** argv) {
     "    ErrorRate: " << (opt::assemb::error_rate < 0.001f ? "EXACT (0)" : std::to_string(opt::assemb::error_rate)) << std::endl;
   if (opt::assemb::writeASQG)
     std::cerr << "    Writing ASQG files. Suggest running R/snow-asqg2pdf.R -i <my.asqg> -o graph.pdf" << std::endl;
+  if (opt::disc_cluster_only)
+    std::cerr << "    ######## ONLY DISCORDANT READ CLUSTERING. NO ASSEMBLY ##############" << std::endl;
+
   std::cerr <<
     "*****************************************************************" << std::endl;			  
+
+  if (opt::disc_cluster_only) {
+    static std::string rules = "global@nbases[0,0];!hardclip;!supplementary;!duplicate;!qcfail;%region@WG%discordant[0,800];mapq[1,1000]";
+  }
   
 #ifdef MICROBE
   // make the microbe BWAWrapper
@@ -196,12 +206,15 @@ void runSnowman(int argc, char** argv) {
  
 #endif
 
-  std::cerr << "...loading the human reference sequence" << std::endl;
   findex = fai_load(opt::refgenome.c_str());  // load the reference
+  if (!opt::disc_cluster_only) {
 
-  // make the BWAWrapper
-  main_bwa = new SnowTools::BWAWrapper();
-  main_bwa->retrieveIndex(opt::refgenome);
+    std::cerr << "...loading the human reference sequence" << std::endl;
+
+    // make the BWAWrapper
+    main_bwa = new SnowTools::BWAWrapper();
+    main_bwa->retrieveIndex(opt::refgenome);
+  }
 
   // open the tumor bam to get header info
   bwalker.OpenReadBam(opt::bam.begin()->first);
@@ -217,12 +230,14 @@ void runSnowman(int argc, char** argv) {
   r2c_corrected_writer.OpenWriteBam(opt::analysis_id + ".r2c.corrected.bam");
 
   // open the contig bam for writing
-  bwriter.SetWriteHeader(main_bwa->HeaderFromIndex());
-  bwriter.OpenWriteBam(opt::analysis_id + ".contigs.bam"); // open and write header
+  if (!opt::disc_cluster_only) {
+    bwriter.SetWriteHeader(main_bwa->HeaderFromIndex());
+    bwriter.OpenWriteBam(opt::analysis_id + ".contigs.bam"); // open and write header
 
-  // open the all-contig bam for writing
-  b_allwriter.SetWriteHeader(main_bwa->HeaderFromIndex());
-  b_allwriter.OpenWriteBam(opt::analysis_id + ".contigs.all.bam"); // open and write header
+    // open the all-contig bam for writing
+    b_allwriter.SetWriteHeader(main_bwa->HeaderFromIndex());
+    b_allwriter.OpenWriteBam(opt::analysis_id + ".contigs.all.bam"); // open and write header
+  }
 
   // open the blacklist
   if (opt::blacklist.length()) {
@@ -256,14 +271,17 @@ void runSnowman(int argc, char** argv) {
   }
 
   // parse the region file, count number of jobs
-  SnowTools::GRC file_regions, regions_torun;
   int num_jobs = countJobs(file_regions, regions_torun); 
-  std::cerr << "...running on " << num_jobs << " big-chunk regions with chunk size of " << SnowTools::AddCommas<int>(opt::chunk) << std::endl;
+  if (num_jobs)
+    std::cerr << "...running on " << num_jobs << " big-chunk regions with chunk size of " << SnowTools::AddCommas<int>(opt::chunk) << std::endl;
+  else
+    std::cerr << "Chunk was <= 0: READING IN WHOLE GENOME AT ONCE" << std::endl;
   if (opt::verbose > 1)
     for (auto& i : regions_torun)
       std::cerr << " REGION TO RUN " << i << std::endl;
 
   // override the number of threads if need
+  num_jobs = (num_jobs == 0) ? 1 : num_jobs;
   opt::numThreads = std::min(num_jobs, opt::numThreads);
 
   // open the mutex
@@ -283,12 +301,14 @@ void runSnowman(int argc, char** argv) {
   all_align = new ogzstream(n1.c_str(), std::ios::out);
   os_allbps = new ogzstream(n2.c_str(), std::ios::out);
   all_disc_stream  = new ogzstream(n3.c_str(), ios::out);
-  all_tum_cov = new ogzstream(n4.c_str(), std::ios::out);
-  all_norm_cov = new ogzstream(n5.c_str(), std::ios::out);
+  //all_tum_cov = new ogzstream(n4.c_str(), std::ios::out);
+  //all_norm_cov = new ogzstream(n5.c_str(), std::ios::out);
   os_cigmap        = new ogzstream(n6.c_str(), std::ios::out);
   mates_file = new ofstream();
   mates_file->open(mates_string);
-
+  avoid_file = new ofstream();
+  avoid_file->open(opt::analysis_id + ".avoided.txt");
+  
   // write the headers
   (*os_allbps) << SnowTools::BreakPoint::header() << endl;
   (*all_disc_stream) << SnowTools::DiscordantCluster::header() << endl;
@@ -304,15 +324,16 @@ void runSnowman(int argc, char** argv) {
   all_align->close();
   os_allbps->close();
   all_disc_stream->close();
-  all_tum_cov->close();
-  all_norm_cov->close();
+  //all_tum_cov->close();
+  //all_norm_cov->close();
   mates_file->close(); 
+  avoid_file->close(); 
   os_cigmap->close();
   delete all_align;
   delete os_allbps;
   delete all_disc_stream;
-  delete all_tum_cov;
-  delete all_norm_cov;
+  //delete all_tum_cov;
+  //delete all_norm_cov;
   delete mates_file;
   delete os_cigmap;
   
@@ -378,7 +399,7 @@ void parseRunOptions(int argc, char** argv) {
       case 'M': arg >> opt::microbegenome; break;
       case 'D': arg >> opt::dbsnp; break;
       case 'r': arg >> opt::rules; break;
-      case OPT_DISC_CLUSTER_ONLY: opt::disc_cluster_only = true; break;
+      case OPT_DISCORDANT_ONLY: opt::disc_cluster_only = true; break;
       default: die= true; 
     }
   }
@@ -437,10 +458,11 @@ int countJobs(SnowTools::GRC &file_regions, SnowTools::GRC &run_regions) {
   }
 
   // divide it up
-  for (auto& r : file_regions) {
-    SnowTools::GRC test(opt::chunk, 1000, r);
-    run_regions.concat(test);
-  }
+  if (opt::chunk > 0) // if <= 0, whole genome at once
+    for (auto& r : file_regions) {
+      SnowTools::GRC test(opt::chunk, 1000, r);
+      run_regions.concat(test);
+    }
   return run_regions.size();
   
   /*
@@ -520,15 +542,18 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
     {
       // opt::bam is <filename, type>
       walkers[b.first] = SnowmanBamWalker(b.first);
+      //walkers[b.first].do_kmer_filtering = !opt::disc_cluster_only;
       walkers[b.first].max_cov = opt::max_cov;
-      walkers[b.first].coverage_region = region;
+      walkers[b.first].disc_only = opt::disc_cluster_only;
+      //walkers[b.first].coverage_region = region;
       walkers[b.first].prefix = b.second;
       //walkers[b.first].addBlacklist(blacklist);
-      walkers[b.first].setBamWalkerRegion(region);
+      if (!region.isEmpty())
+	walkers[b.first].setBamWalkerRegion(region);
       walkers[b.first].SetMiniRulesCollection(*mr);
 	
       // read the reads
-      walkers[b.first].readBam(microbe_bwa);
+      walkers[b.first].readBam();
      
       if (b.second == "t") {
 	tcount += walkers[b.first].reads.size();
@@ -540,7 +565,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
   size_t num_t_reads = tcount;
   size_t num_n_reads = ncount;
 
-  std::cerr << "...read in " << tcount << "/" << ncount << " Tumor/Normal reads from " << region << std::endl;
+  std::cerr << "...read in " << tcount << "/" << ncount << " Tumor/Normal reads from "  << std::endl;
 
   st.stop("r");
 
@@ -565,14 +590,18 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 
   // get the mates from somatic 3+ mate regions
   // These will be regions to grab exta 
+  size_t LOOKUP_LIM = opt::disc_cluster_only ? 2 : 3;
   MateRegionVector somatic_mate_regions;
   for (auto& b : opt::bam)
     if (b.second.at(0) == 't')
       for (auto& i : walkers[b.first].mate_regions)
-	if (!normal_mate_regions.findOverlapping(i) && 
+	if (i.count >= LOOKUP_LIM && !normal_mate_regions.findOverlapping(i) && 
 	    i.chr < 24 && 
 	    (indel_blacklist_mask.size() == 0 || indel_blacklist_mask.findOverlapping(i) == 0))
 	  somatic_mate_regions.add(i); //concat(walkers[b.first].mate_regions);
+  
+  // reduce it down
+  somatic_mate_regions.mergeOverlappingIntervals();
 
   //if (opt::verbose > 1)
   for (auto& i : somatic_mate_regions)
@@ -585,18 +614,19 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
     {
       int oreads = walkers[b.first].reads.size();
       walkers[b.first].setBamWalkerRegions(somatic_mate_regions.asGenomicRegionVector());
+      //walkers[b.first].do_kmer_filtering = !opt::disc_cluster_only;
       walkers[b.first].get_coverage = false;
+      walkers[b.first].disc_only = opt::disc_cluster_only;
       walkers[b.first].max_cov = opt::max_cov;
-      walkers[b.first].setReadKeepLimit(MATE_READ_LIMIT);
+      //walkers[b.first].setReadKeepLimit(MATE_READ_LIMIT);
       walkers[b.first].get_mate_regions = false;
-      walkers[b.first].readBam(microbe_bwa);
+      walkers[b.first].readBam();
       if (b.second == "t") {
 	tcount += (walkers[b.first].reads.size() - oreads);
       } else {
 	ncount += (walkers[b.first].reads.size() - oreads);
       }
     }
-
 
   num_t_reads += tcount;
   num_n_reads += ncount;
@@ -606,7 +636,14 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 
   st.stop("m");
 #endif
-  
+
+  // do the kmer correcting
+  if (!opt::disc_cluster_only) 
+  for (auto& b : opt::bam) {
+    std::cerr << "...kmer correcting for " << b.second << std::endl;
+    walkers[b.first].KmerCorrect();
+  }
+
   // put all of the reads together and dedupe
   std::set<std::string> dedup;
   BamReadVector bav_join;
@@ -618,34 +655,42 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
       }
 
   // do the discordant read clustering
+  std::cerr << "...doing the discordant read clustering" << std::endl;
   SnowTools::DiscordantClusterMap dmap = SnowTools::DiscordantCluster::clusterReads(bav_join, region);
 
   // 
-  if (opt::verbose > 2)
+  if (opt::verbose > 3)
     for (auto& i : dmap)
       std::cerr << i.first << " " << i.second << std::endl;
 
-  // set the regions to run
-  GRC grv_small;
+  GRC grv_small = makeAssemblyRegions(region);
 
-  if (region.width() > LITTLECHUNK) // divide into smaller chunks
-    grv_small = GRC(LITTLECHUNK, WINDOW_PAD, region);
-  else
-    grv_small.add(region);
-
-  if (opt::verbose > 1)
+  if (opt::verbose > 1 && !opt::disc_cluster_only)
     std::cerr << "running the assemblies for region " << region <<  std::endl;
 
+  // put all the read coordainates into one interval tree
+  GRC read_tree;
+  for (auto& r : bav_join) {
+    //debug need to deal with unmapped mate
+    SnowTools::GenomicRegion read(r.ChrID(), r.Position(), r.Position());
+    SnowTools::GenomicRegion mate(r.MateChrID(), r.MatePosition(), r.MatePosition());
+    read_tree.add(read);
+    read_tree.add(mate);
+  }
+
+  if (!opt::disc_cluster_only)
   for (auto& g : grv_small) 
     {
       // set the contig uid
       std::string name = "c_" + std::to_string(g.chr+1) + "_" + std::to_string(g.pos1) + "_" + std::to_string(g.pos2);
 
+#ifdef LOCAL_ALIGN
       // get the local reference at this region and index
       std::string local_ref = getRefSequence(g, findex);
       SnowTools::BWAWrapper local_bwa;
       SnowTools::USeqVector v = { {name, local_ref} };
       local_bwa.constructIndex(v);
+#endif
 
       // figure out the mate regions for this
       SnowTools::GRC this_regions;
@@ -659,11 +704,11 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
       }
       this_regions.mergeOverlappingIntervals();
       this_regions.createTreeMap();
-     
+      
       // get the reads for this region
       BamReadVector bav_this;
-      int num_total = 0;
-      int num_kept = 0;
+      //int num_total = 0;
+      //int num_kept = 0;
       for (auto& r : bav_join) {
 
 	  SnowTools::GenomicRegion read(r.ChrID(), r.Position(), r.Position());
@@ -673,62 +718,68 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 	    //if (g.getOverlap(read) || g.getOverlap(mate)) {
 
 	    // align locally
-	    if (false) {
-	      BamReadVector tmp_loc;
-	      int dum;
-	      std::string seqr = r.GetZTag("KC");
-	      if (!seqr.length())
-		seqr = r.QualityTrimmedSequence(4, dum);
-	      local_bwa.alignSingleSequence(seqr, r.Qname(), tmp_loc, false);
-	      
-	      //std::cout << std::endl << r << std::endl;
-	      //if (tmp_loc.size()) 
-	      //  std::cout << tmp_loc[0] << std::endl;
-	      //else
-	      //  std::cout << "NO LOCAL ALIGNMENT" << std::endl;
-	      
-	      ++num_total;
-	      ++num_kept;
-	      
-	      // if it mismatches at all, add
-	      if (tmp_loc.size() == 0)
-		bav_this.push_back(r);
+#ifdef LOCAL_ALIGN	    
+	    BamReadVector tmp_loc;
+	    int dum;
+	    std::string seqr = r.GetZTag("KC");
+	    if (!seqr.length())
+	      seqr = r.QualityTrimmedSequence(4, dum);
+	    local_bwa.alignSingleSequence(seqr, r.Qname(), tmp_loc, false);
+	    
+	    ++num_total;
+	    ++num_kept;
+	    
+	    // if it mismatches at all, add
+	    if (tmp_loc.size() == 0)
+	      bav_this.push_back(r);
 	      else if (tmp_loc[0].CigarSize() != 1) // remove full matches
 		bav_this.push_back(r);
-	      //else if (std::abs(r.InsertSize()) > 1000 || !r.MappedFlag())
-	      //  bav_this.push_back(r);
+	    //else if (std::abs(r.InsertSize()) > 1000 || !r.MappedFlag())
+	    //  bav_this.push_back(r);
 	      else
 		--num_kept;
-
-
-	    } else {
-	      bav_this.push_back(r);
-	    }
-	      //else
-	      //  std::cout << "REMOVING " << r << std::endl;
-	      
+#else	    
+	    bav_this.push_back(r);
+#endif
 	  }
       }
+      
+      if (bav_this.size() > 8000) {
+	(*avoid_file) << bav_this.size() << "\t" << g << std::endl;
+	continue;
+      }
+
+#ifdef LOCAL_ALIGN
       if (opt::verbose > 1)
 	std::cerr << "Keeping " << num_kept << " of " << num_total << " after local realignment filter " << std::endl;
-      // do the assemblies
-      if (opt::verbose > 1)
+#endif
+
+      // print message about assemblies
+      if (opt::verbose > 1 && bav_this.size() > 1)
 	std::cerr << "Doing assemblies on " << name << std::endl;
+      else if (opt::verbose > 1)
+	std::cerr << "Skipping assembly (< 2 reads) for " << name << std::endl;
+      if (bav_this.size() < 2)
+	continue;
+	    
+      // do the assemblies
       SnowmanAssemblerEngine engine(name, opt::assemb::error_rate, opt::assemb::minOverlap, opt::readlen);
       if (opt::assemb::writeASQG)
 	engine.setToWriteASQG();
       engine.fillReadTable(bav_this);
+      
       engine.performAssembly();
       if (opt::verbose > 1)
 	std::cerr << "Assembled " << engine.getContigs().size() << " contigs for " << name << std::endl; 
       st.stop("as");
 
-      //for (auto& i : engine.getContigs())//debug
-      //	std::cerr << i.getSeq() << std::endl;
-
-      // map to the reference
+      std::vector<SnowTools::AlignedContig> this_alc;
+      
+      // align the contigs to the genome
+      if (opt::verbose > 1)
+	std::cerr << "...aligning contigs to genome and reads to contigs" << std::endl;
+      SnowTools::USeqVector usv;
       for (auto& i : engine.getContigs()) {
-
 	BamReadVector ct_alignments;
 	main_bwa->alignSingleSequence(i.getSeq(), i.getID(), ct_alignments, false);
 	all_contigs.insert(all_contigs.begin(), ct_alignments.begin(), ct_alignments.end());
@@ -739,40 +790,48 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 	// assign the local variable to each
 	ac.checkLocal(g);
 
-	st.stop("bw");
-
-	// for contigs with min quality, realign reads, get breaks
 	if (ac.getMaxMapq() >= 40 && ac.hasLocal()) {
-
-	  // align reads with BWA
-	  ac.alignReads(bav_this);
-	  ac.splitCoverage();	
-	  
-	  // add discordant reads support to each of the breakpoints
-	  ac.addDiscordantCluster(dmap);
-	  
-	  // add in the cigar matches
-	  ac.checkAgainstCigarMatches(cigmap_n, cigmap_t);
-
-	  // check the indel breakpoints against the indel blacklist. 
-	  // simply set the blacklist flag for these breaks if they hit
-	  ac.blacklist(indel_blacklist_mask);
-
-	  // add to the final structure
-	  alc.push_back(ac);
-
-	  st.stop("sw");
-
-	  // print it out
-	  //std::cerr << ac << std::endl;
+	  this_alc.push_back(ac);
+	  usv.push_back({i.getID(), i.getSeq()});	  
 	}
+      }
+      st.stop("bw");
+      
+      // Align the reads to the contigs with BWA-MEM
+      SnowTools::BWAWrapper bw;
+      bw.constructIndex(usv);
+      alignReadsToContigs(bw, usv, bav_this, this_alc);
 
-      } // stop contig loop
+      // Get contig coverage, discordant matching to contigs, etc
+      for (auto& a : this_alc) {
+	a.assignSupportCoverage();
+	a.splitCoverage();	
+	// add discordant reads support to each of the breakpoints
+	a.addDiscordantCluster(dmap);
+	// add in the cigar matches
+	a.checkAgainstCigarMatches(cigmap_n, cigmap_t);
+	// check the indel breakpoints against the indel blacklist. 
+	// simply set the blacklist flag for these breaks if they hit
+	a.blacklist(indel_blacklist_mask);
+	// add to the final structure
+	alc.push_back(a);
+      }
+      st.stop("sw");
+
+
+#ifdef ONE_AT_A_TIME
+      void alignReadsToContigsOneAtATime(engine.getContigs(), alc, bav_this, st,
+					 dmap, cigmap_n, cigmap_t) {
+#endif
+
+
     } // stop region loop
 
   // get the breakpoints
   std::vector<SnowTools::BreakPoint> bp_glob;
 
+  if (opt::verbose > 1)
+    std::cerr << "...getting the breakpoints" << std::endl;
   for (auto& i : alc) {
     //if (i.m_bamreads.size() && !i.m_skip) { //m_bamreads.size() is zero for contigs with ...
     std::vector<SnowTools::BreakPoint> allbreaks = i.getAllBreakPoints();
@@ -780,13 +839,20 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
     //}
   }
 
+  if (opt::verbose > 1)
+    std::cerr << "...repeat sequence filtering" << std::endl;
+
   // repeat sequence filter
+  if (findex)
   for (auto& i : bp_glob)
     i.repeatFilter(findex);
 
-  // db snp filter
-  for (auto & i : bp_glob) {
-    dbsnp_filter->queryBreakpoint(i);
+  if (dbsnp_filter && opt::dbsnp.length()) {
+    if (opt::verbose > 1)
+      std::cerr << "...DBSNP filtering" << std::endl;
+    for (auto & i : bp_glob) {
+      dbsnp_filter->queryBreakpoint(i);
+    }
   }
 
   // add in the discordant clusters as breakpoints
@@ -798,10 +864,11 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
     }
   }
 
+  if (opt::verbose > 1)
+    std::cerr << "...deduplicating breakpoints"<< std::endl;
   // de duplicate the breakpoints
   std::sort(bp_glob.begin(), bp_glob.end());
   bp_glob.erase( std::unique( bp_glob.begin(), bp_glob.end() ), bp_glob.end() );
-
 
   // add the coverage data to breaks for allelic fraction computation
   SnowTools::STCoverage * t_cov = nullptr;
@@ -865,15 +932,19 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 	std::cerr << "GERMLINE " << i.toPrintString() << std::endl;
     }
 
+
   // write the contigs
+  if (!opt::disc_cluster_only)
   for (auto& i : alc)
     i.writeToBAM(bwriter);
 
   // write ALL contigs
+  if (!opt::disc_cluster_only)  
   for (auto& i : all_contigs)
     b_allwriter.WriteAlignment(i);
   
   // write all the to-assembly reads
+  if (!opt::disc_cluster_only)
   for (auto& b : opt::bam) {
     if (b.second == "t")
       for (auto& r : walkers[b.first].reads) {
@@ -886,9 +957,9 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 	r2c_corrected_writer.WriteAlignment(r);
       }
   }
-  
+
   // display the run time
-  if (opt::verbose > 0 && (num_t_reads + num_n_reads) > 0) {
+  if (opt::verbose > 0 && (num_t_reads + num_n_reads) > 0 && !region.isEmpty()) {
     string print1 = SnowTools::AddCommas<int>(region.pos1);
     string print2 = SnowTools::AddCommas<int>(region.pos2);
     char buffer[140];
@@ -903,6 +974,18 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
     //int perc = SnowTools::percentCalc<int>(CHR_LEN[refID] + pos2, 3100000000);
     //cout << " % of WG done: " << perc << "%" << endl;
     std::cerr << endl;
+  } else if (opt::verbose > 0 && (num_t_reads + num_n_reads) > 0) {
+    char buffer[140];
+    sprintf (buffer, "Ran Whole Genome | T: %5d N: %5d C: %5d| ", 
+	     (int)num_t_reads, (int)num_n_reads, 
+	     (int)contig_counter);
+    
+    std::cerr << string(buffer) << st << " | ";
+    std::cerr << SnowTools::displayRuntime(start);
+    //int perc = SnowTools::percentCalc<int>(CHR_LEN[refID] + pos2, 3100000000);
+    //cout << " % of WG done: " << perc << "%" << endl;
+    std::cerr << endl;
+
   }
 
   ////////////////////////////////////
@@ -926,11 +1009,15 @@ void sendThreads(SnowTools::GRC& regions_torun) {
 
   // send the jobs
   size_t count = 0;
-  SnowTools::GenomicRegion it;
   for (auto& i : regions_torun) {
     SnowmanWorkItem * item     = new SnowmanWorkItem(SnowTools::GenomicRegion(i.chr, i.pos1, i.pos2), ++count);
     queue.add(item);
   }
+  if (regions_torun.size() == 0) { // whole genome 
+    SnowmanWorkItem * item     = new SnowmanWorkItem(SnowTools::GenomicRegion(), ++count);
+    queue.add(item);
+  }
+    
   
   // wait for the threads to finish
   for (int i = 0; i < opt::numThreads; i++) 
@@ -950,3 +1037,150 @@ void learnParameters() {
 
 }
 
+GRC makeAssemblyRegions(const SnowTools::GenomicRegion& region) {
+
+  // set the regions to run
+  GRC grv_small;
+  if (region.isEmpty()) {  // whole genome, so divide up the whole thing
+    for (size_t c = 0; c < 23; ++c)
+      grv_small.concat(GRC(LITTLECHUNK, WINDOW_PAD, SnowTools::GenomicRegion(c, WINDOW_PAD + 1, SnowTools::CHR_LEN[c] - WINDOW_PAD - 1)));
+  }
+  else if (region.width() > LITTLECHUNK) // divide into smaller chunks
+    grv_small = GRC(LITTLECHUNK, WINDOW_PAD, region);
+  else
+    grv_small.add(region);
+
+  //if (region.isEmpty() && file_regions.size()) { // if whole genome, restrict to just regions in regions file
+  //  GRC test = grv_small.intersection(file_regions);
+  //  for (auto& i : test)
+  //    std::cerr << i << std::endl;
+  //}
+  return grv_small;
+
+}
+
+ void alignReadsToContigs(SnowTools::BWAWrapper& bw, const SnowTools::USeqVector& usv, BamReadVector& bav_this, std::vector<SnowTools::AlignedContig>& this_alc) {
+
+  for (auto i : bav_this) {
+
+    BamReadVector brv;
+    int dum = 0;
+    std::string seqr = i.QualityTrimmedSequence(4, dum);
+    bw.alignSingleSequence(seqr, i.Qname(), brv, true);
+
+    if (brv.size() == 0) 
+      continue;
+
+    // make sure we have only one alignment per contig
+    std::set<std::string> cc;
+    
+    // check which ones pass
+    BamReadVector bpass;
+    for (auto& r : brv) {
+      bool length_pass = (r.PositionEnd() - r.Position()) >= (seqr.length() * 0.95);
+      bool mapq_pass = r.MapQuality();
+      int ins_bases = r.MaxInsertionBases();
+      int del_bases = r.MaxDeletionBases();
+
+      ins_bases = 0;
+      del_bases = 0;
+
+      if (length_pass && mapq_pass && ins_bases == 0 && del_bases == 0 && !cc.count(usv[r.ChrID()].name)) {
+	bpass.push_back(r);
+	cc.insert(usv[r.ChrID()].name);
+      }
+    }
+    
+    // annotate the original read
+    for (auto& r : bpass) {
+      if (r.ReverseFlag())
+	i.SmartAddTag("RC","1");
+      else 
+	i.SmartAddTag("RC","0");
+      i.SmartAddTag("SL", std::to_string(r.Position()));
+      i.SmartAddTag("SE", std::to_string(r.PositionEnd()));
+      i.SmartAddTag("TS", std::to_string(r.AlignmentPosition()));
+      i.SmartAddTag("TE", std::to_string(r.AlignmentEndPosition()));
+      i.SmartAddTag("SC", r.CigarString());
+      i.SmartAddTag("CN", usv[r.ChrID()].name/*getContigName()*/);
+      
+      for (auto& a : this_alc) {
+	if (a.getContigName() == usv[r.ChrID()].name) {
+	  
+	  a.m_bamreads.push_back(i);
+	  
+	  // add the coverage to the aligned contig
+	  int cc = r.Position();
+	  std::string srr = i.GetZTag("SR");
+	  if (srr.length()) {
+	    if (srr.at(0) == 't')
+	      while (cc <= r.PositionEnd() && cc < (int)a.tum_cov.size())
+		++a.tum_cov[cc++];
+	    else
+	      while (cc <= r.PositionEnd() && cc < (int)a.norm_cov.size())
+		++a.norm_cov[cc++];
+	  }
+	}
+      }	  
+
+    } // end passing bwa-aligned read loop 
+      
+  } // end main read loop
+  
+
+}
+
+#ifdef ONE_AT_A_TIME
+void alignReadsToContigsOneAtATime(const ContigVector& contigs, std::vector<SnowTools::AlignedContig>& alc, BamReadVector& bav_this, SnowTimer& st,
+				   SnowTools::DiscordantClusterMap& dmap, CigarMap& cigmap_n, CigarMap& cigmap_t) {
+
+  // map to the reference
+  std::cerr << "....doing one at a time" << std::endl;
+  for (auto& i : contigs) {
+    
+    BamReadVector ct_alignments;
+    main_bwa->alignSingleSequence(i.getSeq(), i.getID(), ct_alignments, false);
+    all_contigs.insert(all_contigs.begin(), ct_alignments.begin(), ct_alignments.end());
+    
+    // make the aligned contig object
+    SnowTools::AlignedContig ac(ct_alignments);
+    
+    // assign the local variable to each
+    ac.checkLocal(g);
+    
+    st.stop("bw");
+    
+    // for contigs with min quality, realign reads, get breaks
+    if (ac.getMaxMapq() >= 40 && ac.hasLocal()) {
+      
+      if (opt::verbose > 3) 
+	std::cerr << "... aligning " << bav_this.size() << " reads to contig " << i.getID() << std::endl;
+      
+      // align reads with BWA
+      ac.alignReads(bav_this);
+      ac.splitCoverage();	
+      
+      // add discordant reads support to each of the breakpoints
+      ac.addDiscordantCluster(dmap);
+      
+      // add in the cigar matches
+      ac.checkAgainstCigarMatches(cigmap_n, cigmap_t);
+      
+      // check the indel breakpoints against the indel blacklist. 
+      // simply set the blacklist flag for these breaks if they hit
+      ac.blacklist(indel_blacklist_mask);
+      
+      // add to the final structure
+      alc.push_back(ac);
+      
+      st.stop("sw");
+      
+      // print it out
+      //std::cerr << ac << std::endl;
+    }
+    
+  } // stop contig loop
+  
+  
+}
+#endif
