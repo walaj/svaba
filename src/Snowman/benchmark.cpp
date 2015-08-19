@@ -156,8 +156,10 @@ void runBenchmark(int argc, char** argv) {
   
   // parse the region file
   if (opt::regionFile.length()) {
-    if (SnowTools::read_access_test(opt::regionFile))
-      regions.regionFileToGRV(opt::regionFile, 0, bwalker.header());
+    if (SnowTools::read_access_test(opt::regionFile)) {
+      regions.regionFileToGRV(opt::regionFile, 1, bwalker.header());
+      regions.mergeOverlappingIntervals();
+    }
     // samtools format
     else if (opt::regionFile.find(":") != std::string::npos && opt::regionFile.find("-") != std::string::npos) {
       if (!bwalker.header()) {
@@ -550,7 +552,7 @@ void assemblyTest() {
     try {
       out.push_back(std::stod(val));
     } catch (...) {
-      std::cerr << "Could not convert " << val << " to number" << std::endl;
+      std::cerr << "Could not convert " << val << " to number. If you're inputting a file not CSV, then check file exists" << std::endl;
       exit(EXIT_FAILURE);
     }
   }
