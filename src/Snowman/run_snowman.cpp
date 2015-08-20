@@ -88,7 +88,7 @@ namespace opt {
   float subsample = 1.0;
 
   static std::string regionFile = "";
-  static std::string blacklist = ""; //"/xchip/gistic/Jeremiah/Projects/HengLiMask/um75-hs37d5.bed.gz";
+  static std::string blacklist; // = "/xchip/gistic/Jeremiah/Projects/HengLiMask/um75-hs37d5.bed.gz";
 
   static std::string dbsnp = "/xchip/gistic/Jeremiah/SnowmanFilters/dbsnp_138.b37_indel.vcf";
 
@@ -106,7 +106,7 @@ enum {
   OPT_DISCORDANT_ONLY
 };
 
-static const char* shortopts = "hzxt:n:p:v:r:G:r:e:g:k:c:a:m:b:M:D:";
+static const char* shortopts = "hzxt:n:p:v:r:G:r:e:g:k:c:a:m:B:M:D:";
 static const struct option longopts[] = {
   { "help",                    no_argument, NULL, 'h' },
   { "tumor-bam",               required_argument, NULL, 't' },
@@ -129,7 +129,7 @@ static const struct option longopts[] = {
   { "write-asqg",              no_argument, NULL, OPT_ASQG   },
   { "error-rate",              required_argument, NULL, 'e'},
   { "verbose",                 required_argument, NULL, 'v' },
-  { "blacklist",                 required_argument, NULL, 'b' },
+  { "blacklist",                 required_argument, NULL, 'B' },
   { "max-coverage",                 required_argument, NULL, OPT_MAX_COV },
   { NULL, 0, NULL, 0 }
 };
@@ -152,8 +152,8 @@ static const char *RUN_USAGE_MESSAGE =
 "  -m, --min-overlap                    Minimum read overlap, an SGA parameter. Default: 0.4* readlength\n"
 "  -k, --region-file                    Set a region txt file. Format: one region per line, Ex: 1,10000000,11000000\n"
   //"  -q, --panel-of-normals               Panel of normals gzipped txt file generated from snowman pon\n"
-"  -m, --indel-mask                     BED-file with blacklisted regions for indel calling. Default /xchip/gistic/Jeremiah/Projects/HengLiMask/um75-hs37d5.bed.gz\n"
-  //"  -b, --blacklist                      BED-file with blacklisted regions to not extract any reads from. Default /xchip/gistic/Jeremiah/Projects/HengLiMask/um75-hs37d5.bed.gz\n"
+"  -m, --indel-mask                     BED-file with blacklisted regions for indel calling.\n"
+"  -B, --blacklist                      BED-file with blacklisted regions to not extract any reads from.\n"
 "  -z, --g-zip                          Gzip and tabix the output VCF files. Default: off\n"
 "      --r2c-bam                        Output a BAM of reads that aligned to a contig, and fasta of kmer corrected sequences\n"
 "      --discordant-only                Only run the discordant read clustering module, skip assembly. Default: off\n"
@@ -265,7 +265,9 @@ void runSnowman(int argc, char** argv) {
   std::cerr << "...found read length of " << opt::readlen << std::endl;
 
   // parse the indel mask
-  if (opt::indel_mask.length()) {
+  if (opt::indel_mask == opt::blacklist)
+    indel_blacklist_mask = blacklist;
+  else if (opt::indel_mask.length()) {
     std::cerr << "...loading the indel blacklist mask" << std::endl;
     indel_blacklist_mask.regionFileToGRV(opt::indel_mask, 0, bwalker.header());
     indel_blacklist_mask.createTreeMap();
@@ -352,7 +354,7 @@ void parseRunOptions(int argc, char** argv) {
     switch (c) {
       case 'p': arg >> opt::numThreads; break;
       case 'a': arg >> opt::analysis_id; break;
-      case 'b': arg >> opt::blacklist; break;
+      case 'B': arg >> opt::blacklist; break;
       case 'm': arg >> opt::indel_mask; break;
 	//case 'q': arg >> opt::pon; break;
       case 'z': opt::zip = false; break;
@@ -535,6 +537,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
       walkers[b.first].disc_only = opt::disc_cluster_only;
       //walkers[b.first].coverage_region = region;
       walkers[b.first].prefix = b.second;
+      walkers[b.first].blacklist = blacklist;
       //walkers[b.first].addBlacklist(blacklist);
       if (!region.isEmpty())
 	walkers[b.first].setBamWalkerRegion(region);

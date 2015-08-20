@@ -78,7 +78,6 @@ void SnowmanBamWalker::readBam()
   while (GetNextRead(r, rule_pass))
     {
 
-      bool valid = rule_pass; 
       bool qcpass = !r.DuplicateFlag() && !r.QCFailFlag() && !r.SecondaryFlag();
 
       // add to all reads pile for kmer correction
@@ -86,6 +85,12 @@ void SnowmanBamWalker::readBam()
 	cov.addRead(r);
 	//all_reads.push_back(r);
       }
+
+      // check if it passed blacklist
+      bool blacklisted = false;
+      if (blacklist.size() && blacklist.findOverlapping(r.asGenomicRegion()))
+	blacklisted = true;
+      rule_pass = rule_pass && blacklisted;
 
       if (rule_pass)
 	weird_cov.addRead(r);
@@ -97,9 +102,9 @@ void SnowmanBamWalker::readBam()
       //bool is_dup = checkIfDuplicate(r);
       bool is_dup = false;
 
-      if (!valid)
+      if (!rule_pass)
 	r.AddIntTag("VR", -1); 
-      else if (valid && !is_dup)
+      else if (rule_pass && !is_dup)
 
 	{
 	  // optional tag processing

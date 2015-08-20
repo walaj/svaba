@@ -25,9 +25,9 @@ AC_ARG_WITH(boost, AS_HELP_STRING([--with-boost=PATH],
 	[specify directory containing the bamtools library (http://github.com/pezmaster31/bamtools)]))
 if test "$with_boost" -a -d "$with_boost"; then
     boost_include="-I$with_boost"
-else
-    boostr=/xchip/gistic/Jeremiah/boost_1_58_0
-    boost_include="-I$boostr"
+##else
+##    boostr=/xchip/gistic/Jeremiah/boost_1_58_0
+##    boost_include="-I$boostr"
 fi
 
 ### CHECK FOR SAMTOOLS
@@ -37,10 +37,10 @@ if test "$with_samtools" -a -d "$with_samtools"; then
     samtools_ldflags="-L$with_samtools"
     samtools_include="-Iwith_samtools"
     samtools_libs="-lbam"
-else
-    samtools_ldflags="-L /xchip/gistic/Jeremiah/GIT/samtools"
-    samtools_include="-I /xchip/gistic/Jeremiah/GIT/samtools"
-    samtools_libs="-lbam"
+##else
+##    samtools_ldflags="-L /xchip/gistic/Jeremiah/GIT/samtools"
+##    samtools_include="-I /xchip/gistic/Jeremiah/GIT/samtools"
+##    samtools_libs="-lbam"
 fi  
 
 ### CHECK FOR SNOW TOOLS
