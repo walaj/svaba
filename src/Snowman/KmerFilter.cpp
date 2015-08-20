@@ -27,6 +27,7 @@ int KmerFilter::correctReads(BamReadVector& vec) {
 
     int dum;
     std::string readSequence = r.QualityTrimmedSequence(4, dum);
+
     std::string origSequence = readSequence;
     int n = readSequence.length();
     if (n < m_kmer_len) // can't correct, too short

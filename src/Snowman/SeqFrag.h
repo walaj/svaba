@@ -25,7 +25,7 @@ class SeqFrag {
 
   std::string m_seq;
 
-  std::string m_parent;
+  void addScrambledEnds(size_t left_len, size_t right_len);
 
   char getStrand() const { return m_gr.strand; }
 
@@ -36,10 +36,13 @@ class SeqFrag {
   std::vector<Indel> m_indels;  
 
   int frag_id;
- private:
-  
-  GenomicRegion m_gr;
 
+  std::string left_scramble = "";
+  std::string right_scramble = "";
+ 
+  GenomicRegion m_gr;   
+ private:
+ 
 
 
 };
