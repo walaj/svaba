@@ -59,6 +59,8 @@ namespace opt {
 
   static std::string frac_bed_file;
 
+  static bool scramble = false;
+
 }
 
 enum { 
@@ -66,7 +68,8 @@ enum {
   OPT_SIMBREAKS,
   OPT_ISIZE_MEAN,
   OPT_ISIZE_SD,
-  OPT_SPLITBAM
+  OPT_SPLITBAM,
+  OPT_SCRAMBLE
 };
 
 
@@ -87,7 +90,7 @@ static const char *BENCHMARK_USAGE_MESSAGE =
 "  -c, --read-covearge                  Desired coverage. Input as comma-separated to test multiple (test assembly)\n"
 "  -b, --bam                            BAM file to train the simulation with\n"
 "  -k, --regions                        Regions to simulate breaks or test assembly\n"
-"  -e, --snv-error-rate                 The random SNV error rate per base. Input as comma-separated to test multiple (test assembly)\n"
+"  -E, --snv-error-rate                 The random SNV error rate per base. Input as comma-separated to test multiple (test assembly)\n"
 "  -I, --ins-error-rate                 The random insertion error rate per read. Input as comma-separated to test multiple (test assembly)\n"
 "  -D, --del-error-rate                 The random deletion error rate per read. Input as comma-separated to test multiple (test assembly)\n"
 "  Test Assembly (--test-assembly) Options:\n"
@@ -97,12 +100,13 @@ static const char *BENCHMARK_USAGE_MESSAGE =
 "      --isize-sd                       Desired std. dev. forinsert size for the simulated reads\n"
 "  -R, --num-rearrangements             Number of rearrangements to simulate\n"
 "  -X, --num-indels                     Number of indels to simulate\n"
+"      --add-scrambled-inserts          Add scrambled inserts at junctions, randomly between 0 and 100 bp with p(0) = 50% and p(1-100) = 50%;\n"
 "  Split Bam (--split-bam)  Options:\n"
 "  -f. --fractions                      Fractions to split the bam into\n"
 "\n";
 
 
-static const char* shortopts = "haG:c:n:s:k:b:E:I:D:R:X:A:f:";
+static const char* shortopts = "haG:c:n:s:k:b:E:I:D:R:X:A:f:S";
 static const struct option longopts[] = {
   { "help",                 no_argument, NULL, 'h' },
   { "reference-genome",     required_argument, NULL, 'G' },
@@ -118,9 +122,12 @@ static const struct option longopts[] = {
   { "num-rearrangements",   required_argument, NULL, 'R' },
   { "fractions",            required_argument, NULL, 'f' },
   { "num-indels",           required_argument, NULL, 'X' },
+  { "isize-mean",           required_argument, NULL, OPT_ISIZE_MEAN},
+  { "isize-sd",             required_argument, NULL, OPT_ISIZE_SD},
   { "test-assembly",        no_argument, NULL, OPT_ASSEMBLY},
   { "sim-breaks",           no_argument, NULL, OPT_SIMBREAKS},
   { "split-bam",            no_argument, NULL, OPT_SPLITBAM},
+  { "add-scrambled-inserts",no_argument, NULL, OPT_SCRAMBLE},
   { NULL, 0, NULL, 0 }
 };
 
@@ -231,7 +238,7 @@ std::string genBreaks() {
   std::cerr << "--Total number of rearrangement breaks: " << opt::nbreaks << std::endl; 
   std::cerr << "--Total (approx) number of indels: " << opt::nindels << std::endl; 
 
-  SimGenome sg(gg, opt::nbreaks, opt::nindels, findex);
+  SimGenome sg(gg, opt::nbreaks, opt::nindels, findex, opt::scramble);
   
   std::string final_seq = sg.getSequence();
   
@@ -255,19 +262,25 @@ std::string genBreaks() {
 				    opt::readlen, opt::isize_mean, opt::isize_sd);
   assert(reads1.size() == reads2.size());
   
-  // write the paired end fastq
+  // write the paired end fastq. Give random errors
   std::ofstream pe1;
   pe1.open("paired_end1.fastq", std::ios::out);
   size_t ccc= 0;
-  for (auto& i : reads1)
-    pe1 << "@r" << ccc++ << std::endl << i << std::endl << "+\n" << quality_scores[rand() % quality_scores.size()] << std::endl;
+  for (auto i : reads1) {
+    std::string qs = quality_scores[rand() % quality_scores.size()];
+    rs.baseQualityRelevantErrors(i, qs);
+    pe1 << "@r" << ccc++ << std::endl << i << std::endl << "+\n" << qs << std::endl;
+  }
   pe1.close();
   
   std::ofstream pe2;
   pe2.open("paired_end2.fastq", std::ios::out);
   ccc= 0;
-  for (auto& i : reads2)
-    pe2 << "@r" << ccc++ << std::endl << i << std::endl << "+\n" << quality_scores[rand() % quality_scores.size()] << std::endl;
+  for (auto& i : reads2) {
+    std::string qs = quality_scores[rand() % quality_scores.size()];
+    rs.baseQualityRelevantErrors(i, qs);
+    pe2 << "@r" << ccc++ << std::endl << i << std::endl << "+\n" << qs << std::endl;
+  }
   pe2.close();
 
 
@@ -276,9 +289,11 @@ std::string genBreaks() {
   con << sg.printBreaks();
   con.close();
 
+  std::cerr << "********************************" << std::endl;
   std::cerr << "Suggest running: " << std::endl;
-  std::cerr << "\nbwa mem $REFHG19 paired_end1.fastq paired_end2.fastq > sim.sam && samtools view sim.sam -Sb > tmp.bam && " << 
+  std::cerr << "bwa mem $REFHG19 paired_end1.fastq paired_end2.fastq > sim.sam && samtools view sim.sam -Sb > tmp.bam && " << 
     "samtools sort -m 4G tmp.bam sim && rm sim.sam tmp.bam && samtools index sim.bam" << std::endl;
+  std::cerr << "********************************" << std::endl;
 
   return "";
 }
@@ -504,6 +519,7 @@ void assemblyTest() {
     case OPT_SPLITBAM: opt::mode = OPT_SPLITBAM; break;
     case OPT_ISIZE_MEAN: arg >> opt::isize_mean; break;
     case OPT_ISIZE_SD: arg >> opt::isize_sd; break;
+    case OPT_SCRAMBLE: opt::scramble = true; break;
     default: die= true; 
     }
   }

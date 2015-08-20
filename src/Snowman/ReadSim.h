@@ -3,17 +3,25 @@
 
 #include <string>
 #include <vector>
+#include <cassert>
 #include "SnowTools/GenomicRegion.h"
 
 struct Indel {
   
-  Indel() : len(0), type('N'), pos(0) {}
+  Indel() : len(0), type('N') {}
 
-  Indel(int l, char t, uint32_t p) : len(l), type(t), pos(p) {}
+  Indel(size_t l, char t, const std::string& rseq, const std::string& aseq, const std::string& lseq) : len(l), type(t) {
+    ref_seq = rseq;
+    alt_seq = aseq;
+    lead_base = lseq;
+    assert(lseq.length() == 1);
+    assert(t == 'D' || alt_seq.length() == l); 
+    assert(t == 'I' || ref_seq.length() == l); 
+  }
 
-  int len;
+  size_t len;
   char type;
-  uint32_t pos;
+  std::string ref_seq, alt_seq, lead_base;
   SnowTools::GenomicRegion gr;
   int frag_id;
 
@@ -53,6 +61,8 @@ class ReadSim {
   Indel makeDelErrors(std::string& s);
 
   void makeClipErrors(std::string& s, double er, int min_clip_len, int max_clip_len);
+
+  void baseQualityRelevantErrors(std::string& s, const std::string& bq);
 
  private:
 

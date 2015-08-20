@@ -8,7 +8,7 @@
 #include "CorrectionThresholds.h"
 #include <map>
 
-#define MAX_OVERLAPS_PER_ASSEMBLY 200000
+#define MAX_OVERLAPS_PER_ASSEMBLY 20000
 //#define DEBUG_ENGINE 1
 
 void SnowmanAssemblerEngine::fillReadTable(const std::vector<std::string>& r) {
@@ -78,6 +78,10 @@ bool SnowmanAssemblerEngine::performAssembly()
   //m_contigs = contigs0; return true; //debug
 
   for (size_t yy = 1; yy != 2; yy++) {
+
+#ifdef DEBUG_ENGINE
+    std::cout << "...round " << yy << std::endl;
+#endif
     
     // do the second round (on assembled contigs)
     ReadTable pRTc0(contigs0);
@@ -184,10 +188,12 @@ void SnowmanAssemblerEngine::doAssembly(ReadTable *pRT, ContigVector &contigs, i
   int min_overlap = m_min_overlap;
 
   int cutoff = 0;
-  if (pass > 0) {
-    min_overlap = 50;
-    errorRate = 0.05;
+  if (pass == 0)
     cutoff = m_readlen + 10;
+  if (pass > 0) {
+    min_overlap = 35;
+    errorRate = 0.05;
+    cutoff = m_readlen + 30;
   }
 
   int seedLength = min_overlap;
@@ -200,7 +206,6 @@ void SnowmanAssemblerEngine::doAssembly(ReadTable *pRT, ContigVector &contigs, i
   SnowmanOverlapAlgorithm* pOverlapper = new SnowmanOverlapAlgorithm(pBWT_nd, pRBWT_nd, 
                                                        errorRate, seedLength, 
                                                        seedStride, bIrreducibleOnly);
-
 
   bool exact = errorRate < 0.001f;
   //pOverlapper->setExactModeOverlap(opt::assemb::error_rate < 0.001f/*false*/);
@@ -322,6 +327,7 @@ void SnowmanAssemblerEngine::doAssembly(ReadTable *pRT, ContigVector &contigs, i
       std::cerr << "Filtered out a contig" << std::endl;
     }
   }
+
   contigs = cvec;
   
   //#ifdef CLOCK_COUNTER  
@@ -337,8 +343,8 @@ void SnowmanAssemblerEngine::doAssembly(ReadTable *pRT, ContigVector &contigs, i
   if (contigs.size() >= 1) {
     std::cout << "Contig Count: " << contigs.size() << " at " << m_id << std::endl;
     //if (opt::verbose > 3)
-      for (auto& i : contigs) 
-	std::cout << "   " << i.getID() << " " << i.getSeq().length() << " " << i.getSeq() << std::endl;
+    //for (auto& i : contigs) 
+    //	std::cout << "   " << i.getID() << " " << i.getSeq().length() << " " << i.getSeq() << std::endl;
   }
 #endif
   

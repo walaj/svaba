@@ -177,7 +177,7 @@ void ReadSim::samplePairedEndReadsToCoverage(std::vector<std::string>& reads1, s
 }
 
 std::ostream& operator<<(std::ostream& out, const Indel& i) {
-  out << i.len << "\t" << i.type << "\t" << i.pos << "\t" << i.gr.chr << "\t" << i.gr.pos1 << "\t" << i.gr.pos2 << "\t" << i.frag_id;
+  out << i.len << "\t" << i.type << "\t" << i.gr.chr << "\t" << i.gr.pos1 << "\t" << i.gr.pos2 << "\t" << i.frag_id << "\t" << (i.lead_base + i.ref_seq) << "\t" << (i.lead_base + i.alt_seq);
   return out;
 }
 
@@ -204,7 +204,7 @@ Indel ReadSim::makeDelErrors(std::string& s) {
   // get the replacement sequence
   s = s.substr(0, rpos) + s.substr(rpos + ds, s.length() - rpos - ds); // + refseq.substr(rpos + s.length(), ds);
 
-  return {ds, 'D', rpos};
+  return Indel(); //{ds, 'D', rpos};
 
 
 }
@@ -227,7 +227,8 @@ Indel ReadSim::makeDelErrors(std::string& s, int sstart, const std::string& refs
   // get the replacement sequence
   s = s.substr(0, rpos) + s.substr(rpos + ds, s.length() - rpos - ds) + refseq.substr(sstart + s.length(), ds);
 
-  return Indel(ds, 'D', rpos);
+  //return Indel(ds, 'D', );
+  return Indel();
   
 }
 
@@ -274,7 +275,7 @@ Indel ReadSim::makeInsErrors(std::string& s, bool keep_size) {
     s = s.substr(0, rpos) + ins + s.substr(rpos, s.length() - rpos);
   }
 
-  return Indel(is, 'I', rpos);
+  return Indel(); //Indel(is, 'I', rpos);
   
 }
 
@@ -312,4 +313,17 @@ void ReadSim::makeSNVErrors(std::string& s, double er) {
 
 }
 
+void ReadSim::baseQualityRelevantErrors(std::string& s, const std::string& bq) {
+
+
+  char TCGA[5] = "TCGA";
+
+  assert(s.length() == bq.length());
+  for (size_t i = 0; i < s.length(); ++i) {
+    if (bq.at(i) < 35) { // low quality-ish
+      s[i] = TCGA[rand() % 4];
+    }
+  }
+  
+}
 
