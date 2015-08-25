@@ -31,26 +31,28 @@ void SnowmanBamWalker::addCigar(BamRead &r)
   
 }
 
-bool SnowmanBamWalker::checkIfDuplicate(BamRead &r)
+bool SnowmanBamWalker::isDuplicate(BamRead &r)
 {
 
   // deduplicate by query-bases / position
-  std::string sname = std::to_string(r.ChrID()) + "_" + std::to_string(r.Position()) + "_" + std::to_string(r.MatePosition()) + "_" + std::to_string(r.MatePosition());    
+  std::string sname = std::to_string(r.Position()) + "_" + std::to_string(r.MatePosition()); // + r.Sequence();    
   // deduplicate by Name
-  std::string uname = r.Qname() + "_" + std::to_string(r.FirstFlag());
+  //std::string uname = r.Qname() + "_" + std::to_string(r.FirstFlag());
   
   // its not already add, insert
-  bool uname_pass = false, sname_pass = false;
-  if (name_map.count(uname) == 0) { // && seq_map.count(sname) == 0) {  
-    uname_pass = true;
-    name_map.insert(std::pair<std::string, int>(uname, true));
-  } 
-  if (seq_map.count(sname) == 0) {
+  bool sname_pass = false;
+  //if (name_map.count(uname) == 0) { // && seq_map.count(sname) == 0) {  
+  //  uname_pass = true;
+  //  name_map.insert(std::pair<std::string, int>(uname, true));
+  //} 
+  if (seq_set.count(sname) == 0) {
     sname_pass = true;
-    seq_map.insert(std::pair<std::string, int>(sname, true));
+    seq_set.insert(sname);
+    //seq_set.insert(std::pair<std::string, int>(sname, true));
   }
   
-  return (!uname_pass || !sname_pass);
+  return !sname_pass;
+  //return (!uname_pass || !sname_pass);
 
 }
 
@@ -90,7 +92,7 @@ void SnowmanBamWalker::readBam()
       bool blacklisted = false;
       if (blacklist.size() && blacklist.findOverlapping(r.asGenomicRegion()))
 	blacklisted = true;
-      rule_pass = rule_pass && blacklisted;
+      rule_pass = rule_pass && !blacklisted;
 
       if (rule_pass)
 	weird_cov.addRead(r);
@@ -99,8 +101,8 @@ void SnowmanBamWalker::readBam()
       if (qcpass)
 	addCigar(r);
 
-      //bool is_dup = checkIfDuplicate(r);
-      bool is_dup = false;
+      bool is_dup = isDuplicate(r);
+      //bool is_dup = false;
 
       if (!rule_pass)
 	r.AddIntTag("VR", -1); 
@@ -221,7 +223,7 @@ void SnowmanBamWalker::calculateMateRegions() {
 
   for (auto& r : reads)
     {
-
+      
       if (r.MateChrID() > 22) // no Y or M
 	continue;
       
@@ -255,23 +257,33 @@ void SnowmanBamWalker::calculateMateRegions() {
       if (r.MatePosition() < 0)
 	continue; 
 
+      //debug
+      //for (auto& kk : tmp_mate_regions)
+      //	if (kk.getOverlap(mate))
+      //  std::cerr << "tmp_region " << kk << " overlaps with " << mate << std::endl;
+
       // if mate not in main interval, check which mate regions it's in
       if (!main_region.getOverlap(mate) && r.MapQuality() > 0) 
 	{
-	  std::vector<int32_t> query_id, subject_id;
-	  GRC tmp(mate);
-	  tmp.createTreeMap();
-	  tmp_mate_regions.findOverlaps(tmp, query_id, subject_id);
+	  for (auto& k : tmp_mate_regions)
+	    if (k.getOverlap(mate)) {
+	      k.count++;
+	      continue;
+	    }
+	  //std::vector<int32_t> query_id, subject_id;
+	  //GRC tmp(mate);
+	  //tmp.createTreeMap();
+	  //tmp_mate_regions.findOverlaps(tmp, query_id, subject_id);
 
 	  // we should re-find it. If not, probably because it's right on the edge
 	  // and we dont count mate regions in the original window. It's OK
-	  if (query_id.size() != 1) {
+	  //if (query_id.size() != 1) {
 	    //std::cerr << "SnowmanBamWalker::calculateMateRegions error. Read mate does not match a mate region for mate read " << mate << std::endl;
-	    continue;
-	  }
+	  // continue;
+	  //}
 	      
 	  // update the count
-	  tmp_mate_regions[query_id[0]].count++;
+	  //tmp_mate_regions[query_id[0]].count++;
 	}
 
 
@@ -284,12 +296,11 @@ void SnowmanBamWalker::calculateMateRegions() {
 	mate_regions.add(i);
     }
   
-#ifdef DEBUG_SNOWMAN_BAMWALKER
+  #ifdef DEBUG_SNOWMAN_BAMWALKER
   std::cerr << "Final mate regions are:" << std::endl;
   for (auto& i : mate_regions)
     std::cerr << i << " read count " << i.count << std::endl;
-    
-#endif
+  #endif
 
 }
 
