@@ -90,7 +90,7 @@ namespace opt {
   static std::string regionFile = "";
   static std::string blacklist; // = "/xchip/gistic/Jeremiah/Projects/HengLiMask/um75-hs37d5.bed.gz";
 
-  static std::string dbsnp = "/xchip/gistic/Jeremiah/SnowmanFilters/dbsnp_138.b37_indel.vcf";
+  static std::string dbsnp = ""; // = "/xchip/gistic/Jeremiah/SnowmanFilters/dbsnp_138.b37_indel.vcf";
 
   // filters on when / how to assemble
   static bool disc_cluster_only = false;
@@ -110,7 +110,7 @@ static const char* shortopts = "hzxt:n:p:v:r:G:r:e:g:k:c:a:m:B:M:D:";
 static const struct option longopts[] = {
   { "help",                    no_argument, NULL, 'h' },
   { "tumor-bam",               required_argument, NULL, 't' },
-  { "indel-mask",              required_argument, NULL, 'm' },
+  { "indel-mask",              required_argument, NULL, 'M' },
   //{ "panel-of-normals",        required_argument, NULL, 'q' },
   { "id-string",               required_argument, NULL, 'a' },
   { "normal-bam",              required_argument, NULL, 'n' },
@@ -119,7 +119,7 @@ static const struct option longopts[] = {
   { "region-file",             required_argument, NULL, 'k' },
   { "rules",                   required_argument, NULL, 'r' },
   { "reference-genome",        required_argument, NULL, 'G' },
-  { "microbial-genome",        required_argument, NULL, 'M' },
+  //  { "microbial-genome",        required_argument, NULL, 'M' },
   { "dbsnp-vcf",               required_argument, NULL, 'D' },
   { "g-zip",                  no_argument, NULL, 'z' },
   { "read-tracking",           no_argument, NULL, OPT_READ_TRACK },
@@ -152,7 +152,8 @@ static const char *RUN_USAGE_MESSAGE =
 "  -m, --min-overlap                    Minimum read overlap, an SGA parameter. Default: 0.4* readlength\n"
 "  -k, --region-file                    Set a region txt file. Format: one region per line, Ex: 1,10000000,11000000\n"
   //"  -q, --panel-of-normals               Panel of normals gzipped txt file generated from snowman pon\n"
-"  -m, --indel-mask                     BED-file with blacklisted regions for indel calling.\n"
+"  -M, --indel-mask                     BED-file with graylisted regions for stricter indel calling.\n"
+"  -D, --dbsnp-vcf                      DBsnp database (VCF) to compare indels against\n"
 "  -B, --blacklist                      BED-file with blacklisted regions to not extract any reads from.\n"
 "  -z, --g-zip                          Gzip and tabix the output VCF files. Default: off\n"
 "      --r2c-bam                        Output a BAM of reads that aligned to a contig, and fasta of kmer corrected sequences\n"
@@ -245,6 +246,7 @@ void runSnowman(int argc, char** argv) {
   if (opt::blacklist.length()) {
     std::cerr << "...reading blacklist from " << opt::blacklist << std::endl;
     blacklist.regionFileToGRV(opt::blacklist, 0, bwalker.header());
+    blacklist.createTreeMap();
     std::cerr << "...read in " << blacklist.size() << " blacklist regions " << std::endl;
   }
 
@@ -355,7 +357,7 @@ void parseRunOptions(int argc, char** argv) {
       case 'p': arg >> opt::numThreads; break;
       case 'a': arg >> opt::analysis_id; break;
       case 'B': arg >> opt::blacklist; break;
-      case 'm': arg >> opt::indel_mask; break;
+      case 'M': arg >> opt::indel_mask; break;
 	//case 'q': arg >> opt::pon; break;
       case 'z': opt::zip = false; break;
       case 'h': die = true; break;
@@ -386,7 +388,7 @@ void parseRunOptions(int argc, char** argv) {
       case 'k': arg >> opt::regionFile; break;
       case 'e': arg >> opt::assemb::error_rate; break;
       case 'G': arg >> opt::refgenome; break;
-      case 'M': arg >> opt::microbegenome; break;
+	//case 'M': arg >> opt::microbegenome; break;
       case 'D': arg >> opt::dbsnp; break;
       case 'r': arg >> opt::rules; break;
       case OPT_DISCORDANT_ONLY: opt::disc_cluster_only = true; break;
@@ -395,7 +397,7 @@ void parseRunOptions(int argc, char** argv) {
   }
 
   // check that we input something
-  if (opt::bam.size() == 0) {
+  if (opt::bam.size() == 0 && !die) {
     std::cerr << "Must add a bam file " << std::endl;
     exit(EXIT_FAILURE);
   }
@@ -428,6 +430,14 @@ int countJobs(SnowTools::GRC &file_regions, SnowTools::GRC &run_regions) {
   // parse as a samtools string eg 1:1,000,000-2,000,000
   else if (opt::regionFile.find(":") != std::string::npos && opt::regionFile.find("-") != std::string::npos)
     file_regions.add(SnowTools::GenomicRegion(opt::regionFile, bwalker.header()));
+  //else if (blacklist.size()) { // go around the blacklists
+  //  uint32_t curr_start = 0;
+  //  uint32_t curr_chr = 0;
+  //  for (auto& i : blacklist) {
+  //    add(SnowTools::GenomicRegion())
+  //    
+  //  }
+  
   // add all chromosomes
   else {
     for (int i = 0; i < bwalker.header()->n_targets; i++) {

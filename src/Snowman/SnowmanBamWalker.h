@@ -24,7 +24,7 @@ class MateRegion: public SnowTools::GenomicRegion
 {
  public:
   MateRegion() {}
-  MateRegion (int32_t c, uint32_t p1, uint32_t p2, bool s=true) : SnowTools::GenomicRegion(c, p1, p2, s) {}
+  MateRegion (int32_t c, uint32_t p1, uint32_t p2, char s = '*') : SnowTools::GenomicRegion(c, p1, p2, s) {}
   size_t count = 0;// read count
 
 };
@@ -48,7 +48,7 @@ class SnowmanBamWalker: public SnowTools::BamWalker
 
   void addCigar(BamRead &r);
 
-  bool checkIfDuplicate(BamRead &r);
+  bool isDuplicate(BamRead &r);
 
   void subSampleToWeirdCoverage(double max_coverage);
 
@@ -86,8 +86,9 @@ class SnowmanBamWalker: public SnowTools::BamWalker
  private:
 
   // might want these in case we are looking for duplicates
-  std::unordered_map<std::string, bool> name_map;
-  std::unordered_map<std::string, bool> seq_map;
+  //std::unordered_map<std::string, bool> name_map;
+  //std::unordered_map<std::string, bool> seq_map;
+  std::set<std::string> seq_set;
 
   size_t m_limit = 0;
 
