@@ -19,6 +19,8 @@
 
 class SnowTimer;
 
+bool hasSufficientOverlap(const BamRead& query, const BamReadVector& subject, int min_match);
+bool hasRepeat(const std::string& seq);
 void parseRunOptions(int argc, char** argv);
 void runSnowman(int argc, char** argv);
 void learnParameters();

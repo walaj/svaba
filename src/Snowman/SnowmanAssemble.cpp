@@ -198,7 +198,7 @@ void assemble(std::stringstream& asqg_stream, int minOverlap, int maxEdges, bool
     
     ContigVector tmp = av.m_ct;
     for (ContigVector::const_iterator it = tmp.begin(); it != tmp.end(); it++) {
-      if (it->getLength() >= cutoff) {
+      if ((int)(it->getLength()) >= cutoff) {
 	//std::string new_name = it->getID() + "_L" + it->getLength();
 	//it->setID(new_name);
 	contigs.push_back(*it);

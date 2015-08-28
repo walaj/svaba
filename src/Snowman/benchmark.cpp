@@ -242,6 +242,13 @@ std::string genBreaks() {
   
   std::string final_seq = sg.getSequence();
   
+  // write the final seq to a file
+  std::ofstream fseq;
+  fseq.open("tumor_seq.fa", std::ios::out);
+  fseq << ">tumor\n" << final_seq << std::endl;
+  fseq.close();
+  //exit(1);
+
   ReadSim rs;
 
   std::ofstream ind;
@@ -263,6 +270,7 @@ std::string genBreaks() {
   assert(reads1.size() == reads2.size());
   
   // write the paired end fastq. Give random errors
+  std::cerr << "...writing/errorring reads 1" << std::endl;
   std::ofstream pe1;
   pe1.open("paired_end1.fastq", std::ios::out);
   size_t ccc= 0;
@@ -272,7 +280,8 @@ std::string genBreaks() {
     pe1 << "@r" << ccc++ << std::endl << i << std::endl << "+\n" << qs << std::endl;
   }
   pe1.close();
-  
+
+  std::cerr << "...writing/erroring reads 2" << std::endl;  
   std::ofstream pe2;
   pe2.open("paired_end2.fastq", std::ios::out);
   ccc= 0;
@@ -289,10 +298,17 @@ std::string genBreaks() {
   con << sg.printBreaks();
   con.close();
 
+  std::ofstream mic;
+  mic.open("microbe_spikes.tsv", std::ios::out);
+  mic << sg.printMicrobeSpikes();
+  mic.close();
+
   std::cerr << "********************************" << std::endl;
   std::cerr << "Suggest running: " << std::endl;
-  std::cerr << "bwa mem $REFHG19 paired_end1.fastq paired_end2.fastq > sim.sam && samtools view sim.sam -Sb > tmp.bam && " << 
-    "samtools sort -m 4G tmp.bam sim && rm sim.sam tmp.bam && samtools index sim.bam" << std::endl;
+  std::cerr << "bwa mem -t 10 $REFHG19 paired_end1.fastq paired_end2.fastq | samtools sort -O bam -T /tmp -l 9 -m 16G > sim.bam && samtools index sim.bam9" << std::endl;
+  //std::cerr << "bwa mem $REFHG19 paired_end1.fastq paired_end2.fastq | samtools sort -O bam -T /tmp -l 9 -m 16G > sim.bam && samtools sort sim.bam" << std::endl;
+  //std::cerr << "bwa mem $REFHG19 paired_end1.fastq paired_end2.fastq > sim.sam && samtools view sim.sam -Sb > tmp.bam && " << 
+  //  "samtools sort -m 4G tmp.bam sim && rm sim.sam tmp.bam && samtools index sim.bam" << std::endl;
   std::cerr << "********************************" << std::endl;
 
   return "";

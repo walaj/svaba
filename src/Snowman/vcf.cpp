@@ -102,6 +102,26 @@ static faidx_t * findex;
 static InfoMap flag_map;
 static InfoMap union_info_fields;
 
+static std::unordered_map<std::string, size_t> chr_string_to_number;
+static std::unordered_map<size_t, std::string> chr_number_to_string;
+static size_t current_string_id;
+
+void __initiate_maps() {
+
+  current_string_id = 25;
+  chr_string_to_number["X"] = 22;
+  chr_string_to_number["Y"] = 23;
+  chr_string_to_number["M"] = 24;
+  chr_number_to_string[22] = "X";
+  chr_number_to_string[23] = "Y";
+  chr_number_to_string[24] = "M";
+  for (size_t i = 0; i < 22; ++i) {
+    chr_string_to_number[std::to_string(i+1)] = i;
+    chr_number_to_string[i] = std::to_string(i+1);
+  }
+}
+
+
 // comparator for info fields
 // lhs < rhs
 // want READ_ID to be > than everything
@@ -550,7 +570,8 @@ std::ostream& operator<<(std::ostream& out, const VCFEntry& v) {
     info = info.substr(0, info.length() - 1);
 
   string sep = "\t";
-  out << SnowTools::GenomicRegion::chrToString(v.chr) << sep 
+  //out << SnowTools::GenomicRegion::chrToString(v.chr) << sep 
+  out << chr_number_to_string[v.chr] << sep 
       << v.pos << sep << v.id << sep << v.ref << sep << v.alt << sep << v.qual << sep
       << v.filter << sep << info << sep << v.format << sep << v.samp1 << sep << v.samp2;
 
@@ -832,6 +853,8 @@ bool VCFFile::write(string basename) const {
 // create a VCFFile from a SNOWMANCSV
 VCFFile::VCFFile(string file, const char* index, char sep, string analysis_id) {
 
+  __initiate_maps();
+
   //open the file
   igzstream infile(file.c_str(), ios::in);
   
@@ -974,10 +997,10 @@ VCFFile::VCFFile(string file, const char* index, char sep, string analysis_id) {
       val_counter++;
       //cout << val_counter << " " << val << endl;
       switch (val_counter) {
-      case 1 : vcf1.chr = SnowTools::GenomicRegion::chrToNumber(val); break;
+      case 1 : vcf1.chr = ChrStringToNumber(val); break;
       case 2 : vcf1.pos = stoi(val); break;
       case 3 : strand1 = val; break;
-      case 4 : vcf2.chr = SnowTools::GenomicRegion::chrToNumber(val); break;
+      case 4 : vcf2.chr = ChrStringToNumber(val); break;
       case 5 : vcf2.pos = stoi(val); break;
       case 6 : strand2 = val; break;
       case 7: info_fields["SPAN"] = val; break;
@@ -985,25 +1008,29 @@ VCFFile::VCFFile(string file, const char* index, char sep, string analysis_id) {
       case 9 : vcf2.info_fields["MAPQ"] = val; vcf1.info_fields["MATEMAPQ"] = val; break;
       case 10: info_fields["NSPLIT"] = val; break;
       case 11: info_fields["TSPLIT"] = val; break;
-      case 12: info_fields["NDISC"]  = val; break;
-      case 13: info_fields["TDISC"]  = val; break;
-      case 14: info_fields["NCIGAR"]  = val; break;
-      case 15: info_fields["TCIGAR"]  = val; break;
-      case 16: info_fields["HOMSEQ"] = val; break;
-      case 17: info_fields["INSERTION"] = val; break;
-      case 18: info_fields["SCTG"] = val; break;
-      case 19: info_fields["NUMPARTS"] = val; break;
-      case 20: vcf1.filter = val; vcf2.filter = val; break; // CONFIDENCE
-      case 21: info_fields["EVDNC"] = val; if (val=="DSCRD") info_fields["IMPRECISE"] = ""; break;
-      case 22: info_fields["PONCOUNT"] = val; break;
-      case 23: info_fields["REPSEQ"] = val; break;
-      case 24: info_fields["NCOV"] = val; break;
-      case 25: info_fields["TCOV"] = val; break;
-      case 26: info_fields["NFRAC"] = val; break;
-      case 27: info_fields["TFRAC"] = val; break;
-      case 28: info_fields["BLACKLIST"] = val; break;
-      case 29: info_fields["DBSNP"] = val; break;
-      case 30: readid = val; break;
+      case 12: vcf1.info_fields["SUBN"]  = val; vcf2.info_fields["MATE_SUBN"] = val; break;
+      case 13: vcf2.info_fields["SUBN"]  = val; vcf1.info_fields["MATE_SUBN"] = val; break;
+      case 14: info_fields["NDISC"]  = val; break;
+      case 15: info_fields["TDISC"]  = val; break;
+      case 16: vcf1.info_fields["DISC_MAPQ"]  = val; vcf2.info_fields["MATE_DISC_MAPQ"] = val; break;
+      case 17: vcf2.info_fields["DISC_MAPQ"]  = val; vcf1.info_fields["MATE_DISC_MAPQ"] = val; break;
+      case 18: info_fields["NCIGAR"]  = val; break;
+      case 19: info_fields["TCIGAR"]  = val; break;
+      case 20: info_fields["HOMSEQ"] = val; break;
+      case 21: info_fields["INSERTION"] = val; break;
+      case 22: info_fields["SCTG"] = val; break;
+      case 23: info_fields["NUMPARTS"] = val; break;
+      case 24: vcf1.filter = val; vcf2.filter = val; break; // CONFIDENCE
+      case 25: info_fields["EVDNC"] = val; if (val=="DSCRD") info_fields["IMPRECISE"] = ""; break;
+      case 26: info_fields["PONCOUNT"] = val; break;
+      case 27: info_fields["REPSEQ"] = val; break;
+      case 28: info_fields["NCOV"] = val; break;
+      case 29: info_fields["TCOV"] = val; break;
+      case 30: info_fields["NFRAC"] = val; break;
+      case 31: info_fields["TFRAC"] = val; break;
+      case 32: info_fields["BLACKLIST"] = val; break;
+      case 33: info_fields["DBSNP"] = val; break;
+      case 34: readid = val; break;
       }
     }
 
@@ -1135,8 +1162,10 @@ VCFFile::VCFFile(string file, const char* index, char sep, string analysis_id) {
       
       // set the reference position for making ALT tag
       stringstream ptag1, ptag2;
-      ptag1 << SnowTools::GenomicRegion::chrToString(vcf2.chr) << ":" << vcf2.pos;
-      ptag2 << SnowTools::GenomicRegion::chrToString(vcf1.chr) << ":" << vcf1.pos;
+      //ptag1 << SnowTools::GenomicRegion::chrToString(vcf2.chr) << ":" << vcf2.pos;
+      //ptag2 << SnowTools::GenomicRegion::chrToString(vcf1.chr) << ":" << vcf1.pos;
+      ptag1 << chr_number_to_string[vcf2.chr] << ":" << vcf2.pos;
+      ptag2 << chr_number_to_string[vcf1.chr] << ":" << vcf1.pos;
       
       //
       string insertion = vcf1.info_fields["INSERTION"];
@@ -1232,7 +1261,7 @@ VCFFile::VCFFile(string file, const char* index, char sep, string analysis_id) {
 	//cerr << "found double with " << dc << endl;
       } 
       else { */
-      if (vcf1.chr < 24 && vcf2.chr < 24)
+      //if (vcf1.chr < 24 && vcf2.chr < 24)
 	entry_pairs.insert(pair<string, VCFEntryPair>(vcf1.idcommon, vpair));
 	//	double_check[dc] = true;
 	//}
@@ -1259,9 +1288,8 @@ VCFFile::VCFFile(string file, const char* index, char sep, string analysis_id) {
 	// get the reference
 	//vcf1.pos--; 
 	SnowTools::GenomicRegion ref(vcf1.chr, vcf1.pos, vcf2.pos-1);
-	if (vcf1.chr < 24) {
+	if (vcf1.chr < 24) 
 	  vcf1.ref = getRefSequence(ref, findex);
-	}
 	
 	vcf1.alt = vcf1.ref.substr(0,1) + ins; //.substr(1,ins.length());
 	//vcf1.alt = vcf1.ref.substr(0,2) + ins; //.substr(1,ins.length());
@@ -1317,8 +1345,11 @@ VCFFile::VCFFile(string file, const char* index, char sep, string analysis_id) {
 // return a sequence from the reference
 string getRefSequence(const SnowTools::GenomicRegion &gr, faidx_t * fi) {
 
+  if (chr_string_to_number.size() == 0)
+    __initiate_maps();
+
   int len;
-  string chrstring = SnowTools::GenomicRegion::chrToString(gr.chr);
+  string chrstring = chr_number_to_string[gr.chr];//SnowTools::GenomicRegion::chrToString(gr.chr);
   char * seq = faidx_fetch_seq(fi, const_cast<char*>(chrstring.c_str()), gr.pos1-1, gr.pos2-1, &len);
   //char * seq = faidx_fetch_seq(fi, const_cast<char*>(chrstring.c_str()), gr.pos1, gr.pos2, &len);
   
@@ -1722,7 +1753,7 @@ void VCFFile::writeIndels(string basename, bool zip) const {
       if (i.info_fields.count("DBSNP"))
 	somatic_ratio = 0;
 
-      if (somatic_ratio >= 20 && ncount < 2 && pon <= 1 && naf < 0.05) { // ok if its just one...
+      if (somatic_ratio >= 10 && ncount < 2 && pon <= 1 && naf < 0.05) { // ok if its just one...
 	//out_s << i << endl;
 	if (zip) {
 	  stringstream ss;
@@ -1917,4 +1948,24 @@ void tabixVcf(const string &fn) {
   if ( tbx_index_build(fn.c_str(), 0, &conf) ) 
     cerr << "tbx_index_build failed: " << fn << endl;
 
+}
+
+size_t ChrStringToNumber(const std::string& str) {
+  
+  std::string tstr = str;
+  if (str == "22")
+    tstr = "X";
+  else if (str == "23")
+    tstr == "Y";
+  else if (str == "24")
+    tstr == "M";
+
+  if (chr_string_to_number.count(tstr)) {
+    return chr_string_to_number[tstr];
+  } else { 
+    chr_string_to_number[tstr] = current_string_id;
+    chr_number_to_string[current_string_id] = str;
+    ++current_string_id;
+    return current_string_id -1;
+  }
 }

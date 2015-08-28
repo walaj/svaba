@@ -33,6 +33,8 @@ class SeqFrag {
 
   void addIns();
 
+  void spikeMicrobe();
+
   std::vector<Indel> m_indels;  
 
   int frag_id;
@@ -41,9 +43,11 @@ class SeqFrag {
   std::string right_scramble = "";
  
   GenomicRegion m_gr;   
- private:
- 
+  
+  int32_t phage_site = -1;
+  std::string phage_string = "";
 
+ private:
 
 };
 
