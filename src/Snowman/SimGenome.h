@@ -21,6 +21,7 @@ class SimGenome {
 
   std::vector<Indel> m_indels;
 
+  std::string printMicrobeSpikes() const;
  private:
   
   SnowTools::GenomicRegion m_gr;

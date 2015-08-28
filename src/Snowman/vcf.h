@@ -20,6 +20,7 @@ typedef unordered_map<string, bool> SupportingReadsMap;
 typedef pair<string,string> FormatPair;
 typedef unordered_map<string, pair<string,string>> FormatRecordMap;
 
+size_t ChrStringToNumber(const std::string& str);
 void runVCF(int argc, char** argv);
 void parseVCFOptions(int argc, char** argv);
 string getRefSequence(const SnowTools::GenomicRegion &gr, faidx_t *fi);

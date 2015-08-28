@@ -2,7 +2,7 @@
 #include <sstream>
 
 //#define DEBUG_SNOWMAN_BAMWALKER 1
-#define MIN_MAPQ_FOR_MATE_LOOKUP 30
+#define MIN_MAPQ_FOR_MATE_LOOKUP 1
 
 void SnowmanBamWalker::addCigar(BamRead &r)
 {
@@ -87,7 +87,7 @@ void SnowmanBamWalker::readBam()
 	cov.addRead(r);
 	//all_reads.push_back(r);
       }
-
+      
       // check if it passed blacklist
       bool blacklisted = false;
       if (blacklist.size() && blacklist.findOverlapping(r.asGenomicRegion()))
@@ -155,11 +155,6 @@ void SnowmanBamWalker::readBam()
       
   // get rid of repats
   removeRepeats();
-
-  // get rid of microbial
-  //if (b) {
-  //  filterMicrobial(b);
-  //}
 
   // clean out the buffer
   subSampleToWeirdCoverage(max_cov);
@@ -314,7 +309,11 @@ void SnowmanBamWalker::removeRepeats()
   std::string POLYC = "CCCCCCCCCCCCCCCCCCCCCCCCC";
   std::string POLYG = "GGGGGGGGGGGGGGGGGGGGGGGGG";
   std::string POLYAT = "ATATATATATATATATATATATATATATATATATATATAT";
+  std::string POLYTC = "TCTCTCTCTCTCTCTCTCTCTCTCTCTCTCTCTCTCTCTC";
+  std::string POLYAG = "AGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAG";
   std::string POLYCG = "CGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCG";
+  std::string POLYTG = "TGTGTGTGTGTGTGTGTGTGTGTGTGTGTGTGTGTGTGTG";
+  std::string POLYCA = "CACACACACACACACACACACACACACACACACACACACA";
   
   BamReadVector new_reads;
 
@@ -330,6 +329,10 @@ void SnowmanBamWalker::removeRepeats()
 	    (seq.find(POLYG) == std::string::npos) && 
 	    (seq.find(POLYCG) == std::string::npos) && 
 	    (seq.find(POLYAT) == std::string::npos) && 
+	    (seq.find(POLYTC) == std::string::npos) && 
+	    (seq.find(POLYAG) == std::string::npos) && 
+	    (seq.find(POLYCA) == std::string::npos) && 
+	    (seq.find(POLYTG) == std::string::npos) && 
 	    (seq.find("N") == std::string::npos))
 	  new_reads.push_back(r);
     }
