@@ -46,8 +46,9 @@ class ReadSim {
 			     double ins_error_rate, double del_error_rate, int readlen);
 
   void samplePairedEndReadsToCoverage(std::vector<std::string>& reads1, std::vector<std::string>& reads2, 
+				      std::vector<std::string>& qual1, std::vector<std::string>& qual2, 
 				      int cov, double error_rate, double ins_error_rate, double del_error_rate,
-				      int readlen, double mean_isize, double sd_isize);
+				      int readlen, double mean_isize, double sd_isize, const std::vector<std::string>& qual_dist);
 
 
   int getRandomIndelSize() const;

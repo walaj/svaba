@@ -16,6 +16,7 @@ if (is.null(opt$input))
   stop(print_help(parseobj))
 
 require(igraph)
+#opt$input ="/xchip/gistic/Jeremiah/Projects/SnowmanPaper/Benchmark/150830/tmp.graph.after.asqg"
 
 vert.file = paste(opt$input, "vert", sep=".")
 ##reads.file = file.path(dir, 'plots', 'readsForR_som.txt')
@@ -37,16 +38,22 @@ edges <- data.frame(from=tab.e$seq1, to=tab.e$seq2)
 ## read the verts
 cmd = paste("grep", '"VT"', opt$input, ">", vert.file)
 system(cmd)
-tab <- read.delim(vert.file, skip=1, strings=FALSE, header=FALSE, sep="\t")
-colnames(tab) <- c("V", "rname", 'seq', 'ss')
+tab <- read.delim(vert.file, skip=0, strings=FALSE, header=FALSE, sep="\t")
+if (ncol(tab) == 4) {
+  colnames(tab) <- c("V", "rname", 'seq', 'ss')
+} else if (ncol(tab) == 3) {
+  colnames(tab) <- c("V", "rname", 'seq')
+}
 verts <- data.frame(verts=unique(c(as.character(tab$rname), as.character(edges$to), as.character(edges$from))))
 
-g <- graph.data.frame(edges, directed=TRUE, vertices=verts)
+g <- graph.data.frame(edges, directed=FALSE, vertices=verts)
 
+## vert lengths
+vert.lens <- structure(nchar(tab$seq), names=tab$rname)
 
 ## format the verts
-V(g)$names = as.character(verts$verts)
-V(g)$color = "blue"
+V(g)$names = paste(as.character(verts$verts), "len:", vert.lens[as.character(verts$verts)])
+V(g)$color = "#FFCCCC"
 ##V(g)$color[V(g)$names %in% this_reads] <- 'red'
 
 ## format the edges

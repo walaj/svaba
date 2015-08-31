@@ -10,6 +10,18 @@
 
 #define MAX_OVERLAPS_PER_ASSEMBLY 20000
 //#define DEBUG_ENGINE 1
+#define NUM_ROUNDS 3
+
+static std::string POLYA = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+static std::string POLYT = "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTT";
+static std::string POLYC = "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
+static std::string POLYG = "GGGGGGGGGGGGGGGGGGGGGGGGGGGGGG";
+static std::string POLYAT = "ATATATATATATATATATATATATATATATATATATATAT";
+static std::string POLYTC = "TCTCTCTCTCTCTCTCTCTCTCTCTCTCTCTCTCTCTCTC";
+static std::string POLYAG = "AGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAG";
+static std::string POLYCG = "CGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCG";
+static std::string POLYTG = "TGTGTGTGTGTGTGTGTGTGTGTGTGTGTGTGTGTGTGTG";
+static std::string POLYCA = "CACACACACACACACACACACACACACACACACACACACA";
 
 void SnowmanAssemblerEngine::fillReadTable(const std::vector<std::string>& r) {
 
@@ -23,7 +35,7 @@ void SnowmanAssemblerEngine::fillReadTable(const std::vector<std::string>& r) {
     si.seq = i;
     
     m_pRT.addRead(si);
-
+    
   }
   
 }
@@ -52,12 +64,35 @@ void SnowmanAssemblerEngine::fillReadTable(SnowTools::BamReadVector& r)
     assert(sr.length());
     assert(seq.length());
 
+    if (hasRepeat(seq))
+      continue;
+
     si.id = sr;
     si.seq = seq;
     m_pRT.addRead(si);
 
   }
   
+}
+
+bool SnowmanAssemblerEngine::hasRepeat(const std::string& seq) {
+  if (seq.length() < 40)
+    return false;
+  if ((seq.find(POLYT) == std::string::npos) && 
+      (seq.find(POLYA) == std::string::npos) && 
+      (seq.find(POLYC) == std::string::npos) && 
+      (seq.find(POLYG) == std::string::npos) && 
+      (seq.find(POLYCG) == std::string::npos) && 
+      (seq.find(POLYAT) == std::string::npos) && 
+      (seq.find(POLYTC) == std::string::npos) && 
+      (seq.find(POLYAG) == std::string::npos) && 
+      (seq.find(POLYCA) == std::string::npos) && 
+      (seq.find(POLYTG) == std::string::npos) && 
+      (seq.find("N") == std::string::npos))
+    return false;
+  
+  return true;
+
 }
 
 bool SnowmanAssemblerEngine::performAssembly() 
@@ -71,17 +106,28 @@ bool SnowmanAssemblerEngine::performAssembly()
   
 
   ContigVector contigs0;
+
+#ifdef DEBUG_ENGINE
+    std::cout << "...round 1" << std::endl;
+#endif    
  
   // do the first round (on raw reads)
   doAssembly(&m_pRT, contigs0, 0);
   
   //m_contigs = contigs0; return true; //debug
 
-  for (size_t yy = 1; yy != 2; yy++) {
+  for (size_t yy = 1; yy != (NUM_ROUNDS); yy++) {
+
+    if (contigs0.size() < 2) {
+      for (auto& c: contigs0)
+	if (c.getSeq().length() >= m_readlen + 20)
+	  m_contigs.push_back(c);
+      continue;
+    }
 
 #ifdef DEBUG_ENGINE
-    std::cout << "...round " << yy << std::endl;
-#endif
+    std::cout << "...round " << (yy+1) << std::endl;
+#endif    
     
     // do the second round (on assembled contigs)
     ReadTable pRTc0(contigs0);
@@ -189,11 +235,12 @@ void SnowmanAssemblerEngine::doAssembly(ReadTable *pRT, ContigVector &contigs, i
 
   int cutoff = 0;
   if (pass == 0)
-    cutoff = m_readlen + 10;
+    //cutoff = m_readlen + 10;
+    cutoff = 0; // debug
   if (pass > 0) {
     min_overlap = 35;
     errorRate = 0.05;
-    cutoff = m_readlen + 30;
+    cutoff = m_readlen + 20;
   }
 
   int seedLength = min_overlap;
@@ -343,8 +390,8 @@ void SnowmanAssemblerEngine::doAssembly(ReadTable *pRT, ContigVector &contigs, i
   if (contigs.size() >= 1) {
     std::cout << "Contig Count: " << contigs.size() << " at " << m_id << std::endl;
     //if (opt::verbose > 3)
-    //for (auto& i : contigs) 
-    //	std::cout << "   " << i.getID() << " " << i.getSeq().length() << " " << i.getSeq() << std::endl;
+    for (auto& i : contigs) 
+    	std::cout << "   " << i.getID() << " " << i.getSeq().length() << " " << i.getSeq() << std::endl;
   }
 #endif
   

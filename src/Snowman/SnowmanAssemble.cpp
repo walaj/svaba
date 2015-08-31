@@ -48,10 +48,9 @@ void assemble(std::stringstream& asqg_stream, int minOverlap, int maxEdges, bool
     //std::cout << prefix << std::endl;
     while(pGraph->hasContainment())
         pGraph->visit(containVisit);
-    /*std::cout << "After containments" << endl;
-      pGraph->visit(statsVisit);    
-      pGraph->writeASQG("/home/unix/jwala/tmp.graph.aftercontainments.asqg");
-      pGraph->writeASQG("/home/unix/jwala/tmp.graph.aftercontainments.asqg");*/
+    //std::cout << "After containments" << endl;
+    //pGraph->visit(statsVisit);    
+    //pGraph->writeASQG("tmp.graph.aftercontainments.asqg");
     //std::cout << asqg_stream.str();
     //    std::cerr << prefix << std::endl;
     /*VertexPtrMap vt = pGraph->getVertexMap();
@@ -68,13 +67,15 @@ void assemble(std::stringstream& asqg_stream, int minOverlap, int maxEdges, bool
     // Remove any extraneous transitive edges that may remain in the graph
     if(bPerformTR)
     {
-      //std::cout << "Removing transitive edges\n";
+        std::cout << "Removing transitive edges\n";
         pGraph->visit(trVisit);
     }
 
     // Compact together unbranched chains of vertices
     pGraph->simplify();
     
+    //pGraph->writeASQG("tmp.graph.aftersimp1.asqg");
+
     if(bValidate)
     {
       //std::cout << "Validating graph structure\n";
@@ -89,7 +90,7 @@ void assemble(std::stringstream& asqg_stream, int minOverlap, int maxEdges, bool
         int numTrims = numTrimRounds;
         while(numTrims-- > 0)
            pGraph->visit(trimVisit);
-	std::cout << "\n[Stats] Graph after trimming:\n";
+	//std::cout << "\n[Stats] Graph after trimming:\n";
         pGraph->visit(statsVisit);
     }
 
@@ -131,14 +132,16 @@ void assemble(std::stringstream& asqg_stream, int minOverlap, int maxEdges, bool
 
     if(numBubbleRounds > 0)
     {
-        //std::cout << "\nPerforming variation smoothing\n";
+      //std::cout << "\nPerforming variation smoothing\n";
       SGSmoothingVisitor smoothingVisit(ao.outVariantsFile, maxBubbleGapDivergence, maxBubbleDivergence, maxIndelLength);
       int numSmooth = numBubbleRounds;
       while(numSmooth-- > 0)
 	pGraph->visit(smoothingVisit);
-      pGraph->simplify();
+      pGraph->simplify(); 
+      //pGraph->writeASQG("tmp.graph.afterbubsimp.asqg");    
     }
-    
+
+    //pGraph->writeASQG("tmp.graph.after.asqg");    
     /* std::cerr << prefix << " NumBubble2: " << numBubbleRounds << "\n\n\n\n";
     vt = pGraph->getVertexMap();
     std::cerr << "MapSize: " << vt.size() << std::endl;
@@ -194,8 +197,6 @@ void assemble(std::stringstream& asqg_stream, int minOverlap, int maxEdges, bool
       cout << "BEFRE AFTER in assembly " << i.getID() << " " << i.getSeq() << " len " << i.getSeq().length() << endl;
       }*/
 
-
-    
     ContigVector tmp = av.m_ct;
     for (ContigVector::const_iterator it = tmp.begin(); it != tmp.end(); it++) {
       if ((int)(it->getLength()) >= cutoff) {

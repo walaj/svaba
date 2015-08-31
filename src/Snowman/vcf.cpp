@@ -1262,7 +1262,7 @@ VCFFile::VCFFile(string file, const char* index, char sep, string analysis_id) {
       } 
       else { */
       //if (vcf1.chr < 24 && vcf2.chr < 24)
-	entry_pairs.insert(pair<string, VCFEntryPair>(vcf1.idcommon, vpair));
+      entry_pairs.insert(pair<string, VCFEntryPair>(vcf1.idcommon, vpair));
 	//	double_check[dc] = true;
 	//}
       
@@ -1422,26 +1422,37 @@ template<typename T> T mergeHeaderMaps(T const &m1, T const &m2) {
 // find if one VCFEntryPair (breakpoint pair) overlaps with another
 bool VCFEntryPair::getOverlaps(int pad, VCFEntryPair &v) {
 
+  // fast ways to exit
+  if (e1.chr != v.e1.chr || e2.chr != v.e2.chr)
+    return false;
+
   SnowTools::GenomicRegion gr1(e1.chr, e1.pos, e1.pos);
   gr1.pad(pad);
-  SnowTools::GenomicRegion gr2(e2.chr, e2.pos, e2.pos);
-  gr2.pad(pad);
-
   SnowTools::GenomicRegion t1(v.e1.chr, v.e1.pos, v.e1.pos);
   t1.pad(pad);
+
+  if (!gr1.getOverlap(t1))
+    return false;
+  
+  SnowTools::GenomicRegion gr2(e2.chr, e2.pos, e2.pos);
+  gr2.pad(pad);
   SnowTools::GenomicRegion t2(v.e2.chr, v.e2.pos, v.e2.pos);
   t2.pad(pad);
+  
+  if (!gr2.getOverlap(t2))
+    return false;
   
   if (!(t1 <= t2 && gr1 <= gr2)) {
     cerr << "T1 " << t1 << " T2 " << t2 << " GR1 " << gr1 << " GR2 " << gr2 << endl;
     assert(t1 <= t2 && gr1 <= gr2);
   }
 
-  if (gr1.getOverlap(t1) > 0 && gr2.getOverlap(t2) > 0) {
-    return true;
-  }
+  return true;
+  //if (gr1.getOverlap(t1) > 0 && gr2.getOverlap(t2) > 0) {
+  //  return true;
+  //}
 
-  return false;
+  //return false;
 }
 
 // to each of the two VCFEntry in a pair, add the info tag
@@ -1653,16 +1664,25 @@ void VCFFile::deduplicate() {
   size_t count = 0;
 
   for (auto i : entry_pairs) {
+
     count++;
     SnowTools::GenomicIntervalVector giv;
     tree[i.second.e1.chr].findContained(i.second.e1.pos-vopt::pad, i.second.e1.pos+vopt::pad, giv);
     tree[i.second.e2.chr].findContained(i.second.e2.pos-vopt::pad, i.second.e2.pos+vopt::pad, giv);
 
-    if (giv.size() >= 3)
+    if (count % 1000 == 0)
+      std::cerr << "   deduped " << count << " of " << entry_pairs.size() << std::endl;
+
+    size_t givsize = giv.size();
+    if (givsize >= 3)
       for (auto j : entry_pairs) {
-	if (i.first != j.first && dups.count(j.first) == 0) {
-	  if (i.second.getOverlaps(vopt::pad, j.second)) 
+	if (i.first != j.first && !dups.count(j.first)) {
+	  if (i.second.getOverlaps(vopt::pad, j.second)) {
 	    dups[i.first] = true;
+	    --givsize;
+	    if (givsize == 2) // found all of them
+	      break;
+	  }
 	}
       }
   }

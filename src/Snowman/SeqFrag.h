@@ -29,7 +29,7 @@ class SeqFrag {
 
   char getStrand() const { return m_gr.strand; }
 
-  void addDels(size_t n, faidx_t * findex);
+  void addIndels(size_t n);
 
   void addIns();
 

@@ -17,7 +17,7 @@
 //#define NO_LOAD_INDEX 1
 
 #define LITTLECHUNK 20000 
-#define WINDOW_PAD 300
+#define WINDOW_PAD 250
 #define MICROBE_MATCH_MIN 50
 //#define MATE_READ_LIMIT 3000
 #define GET_MATES 1
@@ -65,7 +65,7 @@ static struct timespec start;
 namespace opt {
 
   namespace assemb {
-    static unsigned minOverlap = 35;
+    static int minOverlap = -1;
     static float error_rate = 0.00; 
     static bool writeASQG = false;
   }
@@ -84,7 +84,7 @@ namespace opt {
   static std::string rules = "global@nbases[0,0];!hardclip;!supplementary;!duplicate;!qcfail;phred[4,100];length[50,1000]%region@WG%discordant[0,1000];mapq[0,1000]%mapq[0,1000];clip[5,1000]%ins[1,1000];mapq[1,100]%del[1,1000];mapq[1,1000]%mapped;!mate_mapped;mapq[1,1000]%mate_mapped;!mapped";
 
   static int max_cov = 100;
-  static int chunk = 1000000;
+  static int chunk = LITTLECHUNK; // 1000000;
 
   // runtime parameters
   static int verbose = 1;
@@ -107,6 +107,8 @@ namespace opt {
   // filters on when / how to assemble
   static bool disc_cluster_only = false;
 
+  static bool refilter = false;
+
 }
 
 enum { 
@@ -115,7 +117,8 @@ enum {
   OPT_READ_TRACK,
   OPT_NO_ASSEMBLE_NORMAL,
   OPT_MAX_COV,
-  OPT_DISCORDANT_ONLY
+  OPT_DISCORDANT_ONLY,
+  OPT_REFILTER
 };
 
 static const char* shortopts = "hzxt:n:p:v:r:G:r:e:g:k:c:a:m:B:M:D:Y:";
@@ -132,17 +135,19 @@ static const struct option longopts[] = {
   { "rules",                   required_argument, NULL, 'r' },
   { "reference-genome",        required_argument, NULL, 'G' },
   { "microbial-genome",        required_argument, NULL, 'Y' },
+  { "min-overlap",             required_argument, NULL, 'm' },
   { "dbsnp-vcf",               required_argument, NULL, 'D' },
-  { "g-zip",                  no_argument, NULL, 'z' },
-  { "read-tracking",           no_argument, NULL, OPT_READ_TRACK },
-  { "no-assemble-normal",       no_argument, NULL, OPT_NO_ASSEMBLE_NORMAL },
+  { "g-zip",                 no_argument, NULL, 'z' },
+  { "read-tracking",         no_argument, NULL, OPT_READ_TRACK },
+  { "no-assemble-normal",    no_argument, NULL, OPT_NO_ASSEMBLE_NORMAL },
   { "discordant-only",       no_argument, NULL, OPT_DISCORDANT_ONLY },
-  { "r2c-bam",                no_argument, NULL, 'x' },
-  { "write-asqg",              no_argument, NULL, OPT_ASQG   },
-  { "error-rate",              required_argument, NULL, 'e'},
-  { "verbose",                 required_argument, NULL, 'v' },
-  { "blacklist",                 required_argument, NULL, 'B' },
-  { "max-coverage",                 required_argument, NULL, OPT_MAX_COV },
+  { "refilter",              no_argument, NULL, OPT_REFILTER },
+  { "r2c-bam",               no_argument, NULL, 'x' },
+  { "write-asqg",            no_argument, NULL, OPT_ASQG   },
+  { "error-rate",            required_argument, NULL, 'e'},
+  { "verbose",               required_argument, NULL, 'v' },
+  { "blacklist",             required_argument, NULL, 'B' },
+  { "max-coverage",          required_argument, NULL, OPT_MAX_COV },
   { NULL, 0, NULL, 0 }
 };
 
@@ -155,6 +160,7 @@ static const char *RUN_USAGE_MESSAGE =
 "  -h, --help                           Display this help and exit\n"
 "  -p, --threads                        Use NUM threads to run snowman. Default: 1\n"
 "  -a, --id-string                      String specifying the analysis ID to be used as part of ID common.\n"
+"      --refilter                      Re-create the VCF files from the bps.txt.gz file. Need to supply correct id-string.\n"
 "  Required input\n"
 "  -G, --reference-genome               Path to indexed reference genome to be used by BWA-MEM. Default is Broad hg19 (/seq/reference/...)\n"
 "  -t, --tumor-bam                      Tumor BAM file\n"
@@ -182,6 +188,11 @@ static const char *RUN_USAGE_MESSAGE =
 void runSnowman(int argc, char** argv) {
 
   parseRunOptions(argc, argv);
+  
+  if (opt::refilter) {
+    makeVCFs();
+    return;
+  }
 
   std::cerr << 
     "-----------------------------------------------------------------" << std::endl << 
@@ -210,7 +221,7 @@ void runSnowman(int argc, char** argv) {
     std::cerr << "...loading the microbial genome " << opt::microbegenome << std::endl;
     microbe_bwa = new SnowTools::BWAWrapper();
     microbe_bwa->retrieveIndex(opt::microbegenome);
-    
+
     // open the microbe bam for writing  
     b_microbe_writer.SetWriteHeader(microbe_bwa->HeaderFromIndex());
     b_microbe_writer.OpenWriteBam(opt::analysis_id + ".microbe.bam"); // open and write header
@@ -229,6 +240,7 @@ void runSnowman(int argc, char** argv) {
     // make the BWAWrapper
     main_bwa = new SnowTools::BWAWrapper();
     main_bwa->retrieveIndex(opt::refgenome);
+
 #endif
   }
 
@@ -281,7 +293,7 @@ void runSnowman(int argc, char** argv) {
 
   // learn some parameters
   learnParameters(); 
-  std::cerr << "...found read length of " << opt::readlen << std::endl;
+  std::cerr << "...found read length of " << opt::readlen << ". Min Overlap is " << opt::assemb::minOverlap << std::endl;
 
   // parse the indel mask
   if (opt::indel_mask == opt::blacklist)
@@ -352,11 +364,19 @@ void runSnowman(int argc, char** argv) {
   log_file.close();
 
   // make the VCF file
+  makeVCFs();
+
+  std::cerr << SnowTools::displayRuntime(start) << std::endl;
+}
+
+void makeVCFs() {
+
+  // make the VCF file
   if (opt::verbose)
-    std::cerr << "...making the VCF files" << endl;
-
+    std::cerr << "...making the VCF files" << std::endl;
+  
   VCFFile snowvcf(opt::analysis_id + ".bps.txt.gz", opt::refgenome.c_str(), '\t', opt::analysis_id);
-
+  
   // write the indel one
   std::string basename = opt::analysis_id + ".snowman.";
   snowvcf.writeIndels(basename, opt::zip);
@@ -375,7 +395,9 @@ void parseRunOptions(int argc, char** argv) {
   for (char c; (c = getopt_long(argc, argv, shortopts, longopts, NULL)) != -1;) {
     std::istringstream arg(optarg != NULL ? optarg : "");
     switch (c) {
+    case OPT_REFILTER : opt::refilter = true; break;
       case 'p': arg >> opt::numThreads; break;
+      case 'm': arg >> opt::assemb::minOverlap; break;
       case 'a': arg >> opt::analysis_id; break;
       case 'B': arg >> opt::blacklist; break;
       case 'M': arg >> opt::indel_mask; break;
@@ -419,7 +441,7 @@ void parseRunOptions(int argc, char** argv) {
   }
 
   // check that we input something
-  if (opt::bam.size() == 0 && !die) {
+  if (opt::bam.size() == 0 && !die && !opt::refilter) {
     std::cerr << "Must add a bam file " << std::endl;
     exit(EXIT_FAILURE);
   }
@@ -482,7 +504,7 @@ int countJobs(SnowTools::GRC &file_regions, SnowTools::GRC &run_regions) {
   // divide it up
   if (opt::chunk > 0) // if <= 0, whole genome at once
     for (auto& r : file_regions) {
-      SnowTools::GRC test(opt::chunk, 1000, r);
+      SnowTools::GRC test(opt::chunk, WINDOW_PAD, r);
       run_regions.concat(test);
     }
   return run_regions.size();
@@ -589,7 +611,8 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
   size_t num_t_reads = tcount;
   size_t num_n_reads = ncount;
 
-  std::cerr << "...read in " << tcount << "/" << ncount << " Tumor/Normal reads from "  << std::endl;
+  if (opt::verbose > 1)
+    std::cerr << "...read in " << tcount << "/" << ncount << " Tumor/Normal reads from "  << std::endl;
 
   st.stop("r");
 
@@ -660,7 +683,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
   num_t_reads += tcount;
   num_n_reads += ncount;
 
-  if (somatic_mate_regions.size())
+  if (somatic_mate_regions.size() && opt::verbose > 1)
     std::cerr << "           " << tcount << "/" << ncount << " Tumor/Normal mate reads in " << somatic_mate_regions.size() << " regions spanning " << SnowTools::AddCommas<int>(somatic_mate_regions.width()) << " bases" << std::endl;
 
   st.stop("m");
@@ -669,7 +692,8 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
   // do the kmer correcting
   if (!opt::disc_cluster_only) 
   for (auto& b : opt::bam) {
-    std::cerr << "...kmer correcting for " << b.second << std::endl;
+    if (opt::verbose > 1)
+      std::cerr << "...kmer correcting for " << b.second << std::endl;
     walkers[b.first].KmerCorrect();
   }
 
@@ -684,7 +708,8 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
       }
 
   // do the discordant read clustering
-  std::cerr << "...doing the discordant read clustering" << std::endl;
+  if (opt::verbose > 1)
+    std::cerr << "...doing the discordant read clustering" << std::endl;
   SnowTools::DiscordantClusterMap dmap = SnowTools::DiscordantCluster::clusterReads(bav_join, region);
 
   // 
@@ -709,7 +734,8 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
   }
 
   if (!opt::disc_cluster_only) {
-    std::cerr << "...doing the assemblies" << std::endl;
+    if (opt::verbose > 1)
+      std::cerr << "...doing the assemblies" << std::endl;
     for (auto& g : grv_small) 
     {
       // set the contig uid
@@ -776,7 +802,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 	  }
       }
       
-      if (bav_this.size() > 8000) {
+      if (bav_this.size() > (size_t)(region.width() * 20) && region.width() > 20000) {
 	log_file << bav_this.size() << "\t" << g << std::endl;
 	continue;
       }
@@ -803,7 +829,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
       engine.performAssembly();
       if (opt::verbose > 1)
 	std::cerr << "Assembled " << engine.getContigs().size() << " contigs for " << name << std::endl; 
-      st.stop("as");
+      //st.stop("as");
 
       std::vector<SnowTools::AlignedContig> this_alc;
       
@@ -817,6 +843,10 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 	BamReadVector ct_alignments;
 	main_bwa->alignSingleSequence(i.getSeq(), i.getID(), ct_alignments, 0.90);
 	
+	if (opt::verbose > 3)
+	  for (auto& i : ct_alignments)
+	    std::cerr << " aligned contig: " << i << std::endl;
+	
 #ifdef MICROBE
 
 	BamReadVector ct_plus_microbe;
@@ -828,17 +858,20 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 	  microbe_bwa->alignSingleSequence(i.getSeq(), i.getID(), microbial_alignments, 0.90);
 
 	  // if the microbe alignment is large enough and doesn't overlap human...
-	  for (auto& j : microbial_alignments) 
-	    if (j.NumMatchBases() >= MICROBE_MATCH_MIN) 
-	      if (!hasSufficientOverlap(j, ct_alignments, MICROBE_MATCH_MIN)) {
+	  for (auto& j : microbial_alignments) {
+	    // keep only long microbe alignments with decent mapq
+	    if (j.NumMatchBases() >= MICROBE_MATCH_MIN && j.MapQuality() >= 10) { 
+	      if (overlapSize(j, ct_alignments) <= 20) { // keep only those where most do not overlap human
 		j.AddZTag("MC", microbe_bwa->ChrIDToName(j.ChrID()));
 		all_microbial_contigs.push_back(j);
 		ct_plus_microbe.push_back(j);
 	      }
+	    }
+	  }
 	}
-
+	
 #endif
-	// add in the chrosome name tag
+	// add in the chrosome name tag for human alignments
 	if (main_bwa)
 	  for (auto& r : ct_alignments) 
 	    r.AddZTag("MC", main_bwa->ChrIDToName(r.ChrID()));
@@ -848,9 +881,11 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 	// We can do this because we already removed microbial alignments taht 
 	// intersect too much with human. Thus, we are effectively removing human 
 	// alignments that are contained within a microbial alignment
+
 	BamReadVector human_alignments;
 	for (auto& j : ct_alignments) {
-	  if (!hasSufficientOverlap(j, ct_plus_microbe, 45)) {
+	  // keep human alignments that have < 50% overlap with microbe
+	  if (overlapSize(j, ct_plus_microbe) < 0.5 * j.Length()) { 
 	    human_alignments.push_back(j);
 	    all_contigs.push_back(j);
 	  }
@@ -859,12 +894,16 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 	human_alignments.insert(human_alignments.end(), ct_plus_microbe.begin(), ct_plus_microbe.end());
 	
 	// make the aligned contig object
+	if (!human_alignments.size())
+	  continue;
+
 	SnowTools::AlignedContig ac(human_alignments);
 
 	// assign the local variable to each
 	ac.checkLocal(g);
 
-	if (ac.getMaxMapq() >= 40 && ac.hasLocal()) {
+	//std::cerr << "mapq " << ac.getMaxMapq() << " local " << ac.hasLocal() << " ac.hasVariant() " << std::endl;
+	if (ac.getMaxMapq() >= 20 && ac.hasLocal()/* && ac.hasVariant()*/) {
 	  this_alc.push_back(ac);
 	  usv.push_back({i.getID(), i.getSeq()});	  
 	}
@@ -873,7 +912,6 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
       for (auto& i : engine.getContigs()) 
 	  usv.push_back({i.getID(), i.getSeq()});
 #endif
-      st.stop("bw");
 
       // Align the reads to the contigs with BWA-MEM
       SnowTools::BWAWrapper bw;
@@ -895,7 +933,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 	// add to the final structure
 	alc.push_back(a);
       }
-      st.stop("sw");
+      //st.stop("sw");
       
       
 #ifdef ONE_AT_A_TIME
@@ -907,6 +945,10 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
     } // stop region loop
   }
 
+  st.stop("as");
+  if (opt::verbose > 1)
+    std::cerr << "...done assembling, post processing" << std::endl;
+
   // get the breakpoints
   std::vector<SnowTools::BreakPoint> bp_glob, bp_glob_secondary;
   
@@ -917,7 +959,8 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
     std::vector<SnowTools::BreakPoint> allbreaks = i.getAllBreakPoints();
     std::vector<SnowTools::BreakPoint> allbreaks_2 = i.getAllBreakPointsSecondary();
     bp_glob.insert(bp_glob.end(), allbreaks.begin(), allbreaks.end());
-    bp_glob_secondary.insert(bp_glob_secondary.end(), allbreaks_2.begin(), allbreaks_2.end());
+    //debug
+    //bp_glob_secondary.insert(bp_glob_secondary.end(), allbreaks_2.begin(), allbreaks_2.end());
     //}
   }
 
@@ -925,7 +968,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
     std::cerr << "...repeat sequence filtering" << std::endl;
   
   // repeat sequence filter
-  if (findex) {
+  if (findex && false) {
     for (auto& i : bp_glob)
       i.repeatFilter(findex);
     for (auto& i : bp_glob_secondary)
@@ -982,7 +1025,6 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
     os_cigmap << i.first << "\t" << i.second << "\tN" << endl;
   for (auto& i : cigmap_t) 
     os_cigmap << i.first << "\t" << i.second << "\tT" << endl;
-
 
   // dump the coverage track
   //for (auto& b : opt::bam) {
@@ -1056,12 +1098,13 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
       }
   }
 
+  st.stop("sw");
   // display the run time
   if (opt::verbose > 0 && (num_t_reads + num_n_reads) > 0 && !region.isEmpty()) {
     string print1 = SnowTools::AddCommas<int>(region.pos1);
     string print2 = SnowTools::AddCommas<int>(region.pos2);
     char buffer[140];
-    sprintf (buffer, "Ran chr%2s:%11s-%11s | T: %5d N: %5d C: %5d| ", 
+    sprintf (buffer, "Ran %2s:%11s-%11s | T: %5d N: %5d C: %5d| ", 
 	     bwalker.header()->target_name[region.chr],
 	     print1.c_str(),print2.c_str(),
 	     (int)num_t_reads, (int)num_n_reads, 
@@ -1133,6 +1176,8 @@ void learnParameters() {
   while (bwalker.GetNextRead(r, rule) && ++count < 1000) 
     opt::readlen = std::max(r.Length(), opt::readlen);
   
+  if (opt::assemb::minOverlap < 0)
+    opt::assemb::minOverlap = 0.4 * opt::readlen;
 }
 
 GRC makeAssemblyRegions(const SnowTools::GenomicRegion& region) {
@@ -1141,10 +1186,10 @@ GRC makeAssemblyRegions(const SnowTools::GenomicRegion& region) {
   GRC grv_small;
   if (region.isEmpty()) {  // whole genome, so divide up the whole thing
     for (size_t c = 0; c < 23; ++c)
-      grv_small.concat(GRC(LITTLECHUNK, WINDOW_PAD, SnowTools::GenomicRegion(c, WINDOW_PAD + 1, SnowTools::CHR_LEN[c] - WINDOW_PAD - 1)));
+      grv_small.concat(GRC(/*LITTLECHUNK*/opt::chunk, WINDOW_PAD, SnowTools::GenomicRegion(c, WINDOW_PAD + 1, SnowTools::CHR_LEN[c] - WINDOW_PAD - 1)));
   }
-  else if (region.width() > LITTLECHUNK) // divide into smaller chunks
-    grv_small = GRC(LITTLECHUNK, WINDOW_PAD, region);
+  else if (region.width() >= /*LITTLECHUNK*/opt::chunk) // divide into smaller chunks
+    grv_small = GRC(/*LITTLECHUNK*/opt::chunk, WINDOW_PAD, region);
   else
     grv_small.add(region);
 
@@ -1214,7 +1259,6 @@ GRC makeAssemblyRegions(const SnowTools::GenomicRegion& region) {
       i.SmartAddTag("SC", r.CigarString());
       i.SmartAddTag("CN", usv[r.ChrID()].name/*getContigName()*/);
 
-      
       for (auto& a : this_alc) {
 	if (a.getContigName() == usv[r.ChrID()].name) {
 	  
@@ -1259,7 +1303,7 @@ void alignReadsToContigsOneAtATime(const ContigVector& contigs, std::vector<Snow
     // assign the local variable to each
     ac.checkLocal(g);
     
-    st.stop("bw");
+    //st.stop("bw");
     
     // for contigs with min quality, realign reads, get breaks
     if (ac.getMaxMapq() >= 40 && ac.hasLocal()) {
@@ -1285,7 +1329,7 @@ void alignReadsToContigsOneAtATime(const ContigVector& contigs, std::vector<Snow
       // add to the final structure
       alc.push_back(ac);
       
-      st.stop("sw");
+      //st.stop("sw");
       
       // print it out
       //std::cerr << ac << std::endl;
@@ -1315,7 +1359,7 @@ bool hasRepeat(const std::string& seq) {
   
 }
 
-bool hasSufficientOverlap(const BamRead& query, const BamReadVector& subject, int min_match) {
+int overlapSize(const BamRead& query, const BamReadVector& subject) {
 
   // get the amount covered by subjet sequences
   typedef std::pair<int32_t, int32_t> AP;
@@ -1336,18 +1380,14 @@ bool hasSufficientOverlap(const BamRead& query, const BamReadVector& subject, in
   int al1 = same_orientation ? query.AlignmentPosition() : query.AlignmentPositionReverse();
   int al2 = same_orientation ? query.AlignmentEndPosition() : query.AlignmentEndPositionReverse();
   
-  for (auto& k : align_pos) { // check each human alignment to see if it overlaps microbe
+  int max_overlap = 0;
+  for (auto& k : align_pos) { // check each subject alignment to see if it overlaps query
     AP kk = k.first;
-    if (  (al1 >= kk.first && al2 <= kk.second) || // microbe is contained
-	  (al1 < kk.first && al2 <= kk.second && (kk.first - al1) < min_match) || // microbe is left overlap
-	  (al1 > kk.first && al1 < kk.second && al2 > kk.second && (al2 - kk.second) < min_match) ||  // microbe is right overlap
-	  (al1 < kk.first && al2 > kk.second && ( (al2-al1) - (kk.second-kk.first) < min_match))) // human is contained in microbe
-      return true;
-    //std::cerr << "HUMAN Coord " << kk.first << " " << kk.second << " overlap? " << human_overlap << " al1 " << al1 << " al2 " << al2 << std::endl;
-    //std::cerr << "     1) " << (al1 >= kk.first && al2 <= kk.second) << " 2) " << (al1 < kk.first && al2 <= kk.second && (kk.first - al1) < MICROBE_MATCH_MIN) << 
-    //  " 3) " << (al1 < kk.second && al2 > kk.second && (al2 - kk.second) < MICROBE_MATCH_MIN) << " 4) " << 
-    //  (al1 < kk.first && al2 > kk.second && ( (al2-al1) - (kk.second-kk.first) < MICROBE_MATCH_MIN)) << std::endl;
+    max_overlap = std::max(max_overlap, std::max(0, std::min(kk.second, al2) - std::max(kk.first,al1)));
+    //  out = true;
+    //if (al1 >= kk.first && al2 <= kk.second)
+    //  query_contained = true;
   }
-  return false;
+  return max_overlap;
   
 }

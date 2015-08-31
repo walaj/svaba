@@ -61,6 +61,7 @@ namespace opt {
 
   static bool scramble = false;
 
+  static int viral_count = 0;
 }
 
 enum { 
@@ -100,13 +101,14 @@ static const char *BENCHMARK_USAGE_MESSAGE =
 "      --isize-sd                       Desired std. dev. forinsert size for the simulated reads\n"
 "  -R, --num-rearrangements             Number of rearrangements to simulate\n"
 "  -X, --num-indels                     Number of indels to simulate\n"
+"  -M, --viral-integration              Number of segments to integrate viruses into. (Reduces amount of space for indels)\n"
 "      --add-scrambled-inserts          Add scrambled inserts at junctions, randomly between 0 and 100 bp with p(0) = 50% and p(1-100) = 50%;\n"
 "  Split Bam (--split-bam)  Options:\n"
 "  -f. --fractions                      Fractions to split the bam into\n"
 "\n";
 
 
-static const char* shortopts = "haG:c:n:s:k:b:E:I:D:R:X:A:f:S";
+static const char* shortopts = "haG:c:n:s:k:b:E:I:D:R:X:A:f:M:";
 static const struct option longopts[] = {
   { "help",                 no_argument, NULL, 'h' },
   { "reference-genome",     required_argument, NULL, 'G' },
@@ -122,6 +124,7 @@ static const struct option longopts[] = {
   { "num-rearrangements",   required_argument, NULL, 'R' },
   { "fractions",            required_argument, NULL, 'f' },
   { "num-indels",           required_argument, NULL, 'X' },
+  { "viral-integration",    required_argument, NULL, 'M' },
   { "isize-mean",           required_argument, NULL, OPT_ISIZE_MEAN},
   { "isize-sd",             required_argument, NULL, OPT_ISIZE_SD},
   { "test-assembly",        no_argument, NULL, OPT_ASSEMBLY},
@@ -213,21 +216,23 @@ std::string genBreaks() {
   // train on the input BAM
   std::vector<std::string> quality_scores;
   std::vector<SnowTools::GenomicRegion> v = {
-    SnowTools::GenomicRegion(0, 1000000,1001000), 
-    SnowTools::GenomicRegion(0, 2000000,2001000),
-    SnowTools::GenomicRegion(0, 3000000,3001000),
-    SnowTools::GenomicRegion(0, 4000000,4001000),      
-    SnowTools::GenomicRegion(0, 5000000,5001000), 
-    SnowTools::GenomicRegion(0, 6000000,6001000),
-    SnowTools::GenomicRegion(0, 7000000,7001000),
-    SnowTools::GenomicRegion(0, 8000000,8001000) 
+    SnowTools::GenomicRegion(0, 1000000,1010000), 
+    SnowTools::GenomicRegion(0, 2000000,2010000),
+    SnowTools::GenomicRegion(0, 3000000,3010000),
+    SnowTools::GenomicRegion(0, 4000000,4010000),      
+    SnowTools::GenomicRegion(0, 5000000,5010000), 
+    SnowTools::GenomicRegion(0, 6000000,6010000),
+    SnowTools::GenomicRegion(0, 7000000,7010000),
+    SnowTools::GenomicRegion(0, 8000000,8010000) 
   };
   
   bwalker.setBamWalkerRegions(v);
   SnowTools::BamRead r; bool dum;
   std::cerr << "...sampling reads to learn quality scores" << std::endl;
   while (bwalker.GetNextRead(r, dum)) {
-    quality_scores.push_back(r.Qualities());
+    std::string ss = r.Sequence();
+    if (ss.find("AAAAAAAA") == std::string::npos && ss.find("TTTTTTTT") == std::string::npos) // already handle homopolymers
+      quality_scores.push_back(r.Qualities());
   }
   
   std::cerr << "...loading the reference genome" << std::endl;
@@ -238,7 +243,7 @@ std::string genBreaks() {
   std::cerr << "--Total number of rearrangement breaks: " << opt::nbreaks << std::endl; 
   std::cerr << "--Total (approx) number of indels: " << opt::nindels << std::endl; 
 
-  SimGenome sg(gg, opt::nbreaks, opt::nindels, findex, opt::scramble);
+  SimGenome sg(gg, opt::nbreaks, opt::nindels, findex, opt::scramble, opt::viral_count);
   
   std::string final_seq = sg.getSequence();
   
@@ -262,11 +267,13 @@ std::string genBreaks() {
   // sample paired reads
   std::vector<std::string> reads1;
   std::vector<std::string> reads2;
+  std::vector<std::string> qual1;
+  std::vector<std::string> qual2;
   std::cerr << "Simulating reads at coverage of " << coverages[0] << " del rate " << del_error_rates[0] << 
     " ins rate " << ins_error_rates[0] << " snv-rate " << snv_error_rates[0] << 
     " isize " << opt::isize_mean << "(" << opt::isize_sd << ")" << std::endl;
-  rs.samplePairedEndReadsToCoverage(reads1, reads2, coverages[0], snv_error_rates[0], ins_error_rates[0], del_error_rates[0], 
-				    opt::readlen, opt::isize_mean, opt::isize_sd);
+  rs.samplePairedEndReadsToCoverage(reads1, reads2, qual1, qual2, coverages[0], snv_error_rates[0], ins_error_rates[0], del_error_rates[0], 
+				    opt::readlen, opt::isize_mean, opt::isize_sd, quality_scores);
   assert(reads1.size() == reads2.size());
   
   // write the paired end fastq. Give random errors
@@ -274,10 +281,9 @@ std::string genBreaks() {
   std::ofstream pe1;
   pe1.open("paired_end1.fastq", std::ios::out);
   size_t ccc= 0;
-  for (auto i : reads1) {
-    std::string qs = quality_scores[rand() % quality_scores.size()];
-    rs.baseQualityRelevantErrors(i, qs);
-    pe1 << "@r" << ccc++ << std::endl << i << std::endl << "+\n" << qs << std::endl;
+  for (size_t i = 0; i < reads1.size(); ++i) {
+    rs.baseQualityRelevantErrors(reads1[i], qual1[i]);
+    pe1 << "@r" << ccc++ << std::endl << reads1[i] << std::endl << "+\n" << qual1[i] << std::endl;
   }
   pe1.close();
 
@@ -285,10 +291,10 @@ std::string genBreaks() {
   std::ofstream pe2;
   pe2.open("paired_end2.fastq", std::ios::out);
   ccc= 0;
-  for (auto& i : reads2) {
-    std::string qs = quality_scores[rand() % quality_scores.size()];
-    rs.baseQualityRelevantErrors(i, qs);
-    pe2 << "@r" << ccc++ << std::endl << i << std::endl << "+\n" << qs << std::endl;
+  for (size_t i = 0; i < reads2.size(); ++i) { 
+    //std::string qs = quality_scores[rand() % quality_scores.size()];
+    rs.baseQualityRelevantErrors(reads2[i], qual2[i]);
+    pe2 << "@r" << ccc++ << std::endl << reads2[i] << std::endl << "+\n" << qual2[i] << std::endl;
   }
   pe2.close();
 
@@ -305,7 +311,10 @@ std::string genBreaks() {
 
   std::cerr << "********************************" << std::endl;
   std::cerr << "Suggest running: " << std::endl;
-  std::cerr << "bwa mem -t 10 $REFHG19 paired_end1.fastq paired_end2.fastq | samtools sort -O bam -T /tmp -l 9 -m 16G > sim.bam && samtools index sim.bam9" << std::endl;
+  std::cerr << "bwa mem -t 10 $REFHG19 paired_end1.fastq paired_end2.fastq | samtools sort -O bam -T /tmp -l 9 -m 16G > sim.bam && samtools index sim.bam" << std::endl;
+  std::cerr << "snowman benchmark --split-bam -f 0.3,0.6 -b $n11 -k <region> -A norm" << std::endl;
+  std::cerr << "samtools merge sim_wnormal.bam sim.bam norm_0.30_subsampled.bam" << std::endl;
+  std::cerr << "samtools index norm_0.60_subsampled.bam && samtools index sim_wnormal.bam" << std::endl;
   //std::cerr << "bwa mem $REFHG19 paired_end1.fastq paired_end2.fastq | samtools sort -O bam -T /tmp -l 9 -m 16G > sim.bam && samtools sort sim.bam" << std::endl;
   //std::cerr << "bwa mem $REFHG19 paired_end1.fastq paired_end2.fastq > sim.sam && samtools view sim.sam -Sb > tmp.bam && " << 
   //  "samtools sort -m 4G tmp.bam sim && rm sim.sam tmp.bam && samtools index sim.bam" << std::endl;
@@ -329,8 +338,12 @@ void splitBam() {
 
     // set the output bams
     std::vector<std::string> fnames;
-    for (auto& i : fractions)
-      fnames.push_back(opt::string_id + to_string(i) + "_subsampled.bam");
+    for (auto& i : fractions) {
+      std::stringstream ss;
+      ss.precision(2);
+      ss << opt::string_id << "_" << i << "_subsampled.bam";
+      fnames.push_back(ss.str());
+    }
     
     bs.setWriters(fnames, fractions);
     bs.splitBam();
@@ -390,7 +403,10 @@ void assemblyTest() {
 	  //std::cerr << "...making paired-end read vector" << std::endl;
 	  std::vector<std::string> reads1;
 	  std::vector<std::string> reads2;
-	  rs.samplePairedEndReadsToCoverage(reads1, reads2, c, E, I, D, opt::readlen, 350, 50);
+	  std::vector<std::string> qual1;
+	  std::vector<std::string> qual2;
+	  std::vector<std::string> qual = {std::string('I',opt::readlen)};
+	  rs.samplePairedEndReadsToCoverage(qual1, qual2, reads1, reads2, c, E, I, D, opt::readlen, 350, 50, qual);
 	  assert(reads1.size() == reads2.size());
 
 	  // align these reads to the local_seq
@@ -531,6 +547,7 @@ void assemblyTest() {
     case 'I': arg >> ins_er; break;
     case 'A': arg >> opt::string_id; break;
     case 'f': arg >> frac; break;
+    case 'M': arg >> opt::viral_count; break;
     case OPT_SIMBREAKS: opt::mode = OPT_SIMBREAKS; break;
     case OPT_SPLITBAM: opt::mode = OPT_SPLITBAM; break;
     case OPT_ISIZE_MEAN: arg >> opt::isize_mean; break;

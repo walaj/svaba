@@ -281,8 +281,14 @@ void Bigraph::simplify(EdgeDir dir)
         VertexPtrMapIter iter = m_vertices.begin(); 
         while(iter != m_vertices.end())
         {
+
+	  //std::cerr << "--VERTEX: dir " << dir << " " << iter->first << " seq len " << iter->second->getSeqLen() << std::endl;
+
             // Get the edges for this direction
             EdgePtrVec edges = iter->second->getEdges(dir);
+
+	    //for (auto& i : edges)
+	    //  std::cerr << "    EDGE: " << i->getStartID() << " " << i->getEndID()<< std::endl;
 
             // If there is a single edge in this direction, merge the vertices
             // Don't merge singular self edges though
@@ -292,8 +298,10 @@ void Bigraph::simplify(EdgeDir dir)
                 Edge* pSingle = edges.front();
                 Edge* pTwin = pSingle->getTwin();
                 Vertex* pV2 = pSingle->getEnd();
+		//std::cerr << "...edge back edge counts " << pV2->countEdges(pTwin->getDir()) << std::endl;
                 if(pV2->countEdges(pTwin->getDir()) == 1)
                 {
+		  //std::cerr << "merging " << std::endl;
                     merge(iter->second, pSingle);
                     graph_changed = true;
                 }

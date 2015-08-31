@@ -12,6 +12,8 @@ class SnowmanAssemblerEngine
  public:
   
   SnowmanAssemblerEngine(const std::string& id, double er, size_t mo, size_t rl) : m_id(id), m_error_rate(er), m_min_overlap(mo), m_readlen(rl) {}
+
+    bool hasRepeat(const std::string& seq);
     
     void fillReadTable(SnowTools::BamReadVector& r);
 
