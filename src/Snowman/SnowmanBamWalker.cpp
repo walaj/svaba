@@ -66,13 +66,13 @@ void SnowmanBamWalker::readBam()
   bool rule_pass;
   int reads_to_start = reads.size();
 
-  std::cerr << "**Starting read for " << (prefix == "n" ? "NORMAL" : "TUMOR") << (get_mate_regions ? "**" : " MATE REGIONS**");
-  if (get_mate_regions && m_region.size())
-    std::cerr << " on region " << m_region[0] << std::endl;
-  else if (get_mate_regions && m_region.size() == 0)
-    std::cerr << " on WHOLE GENOME" << std::endl;
-  else
-    std::cerr << " on " << m_region.size() << " regions " << std::endl;
+  //std::cerr << "**Starting read for " << (prefix == "n" ? "NORMAL" : "TUMOR") << (get_mate_regions ? "**" : " MATE REGIONS**");
+  //if (get_mate_regions && m_region.size())
+  //   std::cerr << " on region " << m_region[0] << std::endl;
+  //else if (get_mate_regions && m_region.size() == 0)
+  //  std::cerr << " on WHOLE GENOME" << std::endl;
+  //else
+  //  std::cerr << " on " << m_region.size() << " regions " << std::endl;
 
   SnowTools::BamReadVector mate_reads;
 
@@ -154,7 +154,7 @@ void SnowmanBamWalker::readBam()
     return;
       
   // get rid of repats
-  removeRepeats();
+  //removeRepeats();
 
   // clean out the buffer
   subSampleToWeirdCoverage(max_cov);
@@ -163,15 +163,15 @@ void SnowmanBamWalker::readBam()
   if (get_mate_regions && m_region.size() /* don't get mate regions if reading whole bam */) {
     calculateMateRegions();
   }
-
+  
 }
 
 void SnowmanBamWalker::KmerCorrect() {
 
   // do the kmer filtering
   KmerFilter kmer;
-  int kcor = kmer.correctReads(/*all_reads*/reads);
-  std::cerr << "     kmer corrected " << SnowTools::AddCommas<int>(kcor) << " reads of " << SnowTools::AddCommas<size_t>(reads.size()) << std::endl; 
+  /*int kcor = */kmer.correctReads(/*all_reads*/reads);
+  //std::cerr << "     kmer corrected " << SnowTools::AddCommas<int>(kcor) << " reads of " << SnowTools::AddCommas<size_t>(reads.size()) << std::endl; 
 
 }
 
@@ -304,10 +304,10 @@ void SnowmanBamWalker::removeRepeats()
 #ifdef DEBUG_SNOWMAN_BAMWALKER
   std::cerr << "...removing repeats on " << reads.size() << " reads" << std::endl;
 #endif
-  std::string POLYA = "AAAAAAAAAAAAAAAAAAAAAAAAA";
-  std::string POLYT = "TTTTTTTTTTTTTTTTTTTTTTTTT";
-  std::string POLYC = "CCCCCCCCCCCCCCCCCCCCCCCCC";
-  std::string POLYG = "GGGGGGGGGGGGGGGGGGGGGGGGG";
+  std::string POLYA = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+  std::string POLYT = "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTT";
+  std::string POLYC = "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
+  std::string POLYG = "GGGGGGGGGGGGGGGGGGGGGGGGGGGGGG";
   std::string POLYAT = "ATATATATATATATATATATATATATATATATATATATAT";
   std::string POLYTC = "TCTCTCTCTCTCTCTCTCTCTCTCTCTCTCTCTCTCTCTC";
   std::string POLYAG = "AGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAG";

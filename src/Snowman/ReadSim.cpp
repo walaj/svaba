@@ -103,9 +103,10 @@ void ReadSim::sampleReadsToCoverage(std::vector<std::string>& reads, int cov,
 }
 
 void ReadSim::samplePairedEndReadsToCoverage(std::vector<std::string>& reads1, std::vector<std::string>& reads2, 
+					     std::vector<std::string>& qual1, std::vector<std::string>& qual2, 
 					     int cov, double error_rate, double ins_error_rate, double del_error_rate, 
 					     int readlen, 
-					     double mean_isize, double sd_isize) {
+					     double mean_isize, double sd_isize, const std::vector<std::string>& qual_dist) {
   // check validity
   if (m_seq.size() == 0) {
     std::cerr << "ReadSim::samplePairedEndReadsToCoverage: No sequences. Add with ReadSim::addSequence" << std::endl;
@@ -143,12 +144,35 @@ void ReadSim::samplePairedEndReadsToCoverage(std::vector<std::string>& reads1, s
     std::string s1 = m_seq[al].substr(rstart, readlen);
     std::string s2 = m_seq[al].substr(rstart + readlen + isize, readlen);
 
+    std::string q1, q2;
+    size_t rep_spot = std::min(s1.find("AAAAAAAAAA"), s1.find("TTTTTTTTTT"));
+
+    // homopolymer scrambling
+    if (rep_spot != std::string::npos) {
+      q1 = qual_dist[rand() % qual_dist.size()];
+      for (size_t i = rep_spot; i < q1.length(); ++i)
+	q1[i] = '#';
+    } else {
+      q1 = qual_dist[rand() % qual_dist.size()];
+    }
+    
+    rep_spot = std::min(s2.find("AAAAAAAAAA"), s2.find("TTTTTTTTTT"));     
+    // homopolymer scrambling
+    if (rep_spot != std::string::npos) {
+      q2 = qual_dist[rand() % qual_dist.size()];
+      for (size_t i = rep_spot; i < q2.length(); ++i)
+	q2[i] = '#';
+    } else {
+      q2 = qual_dist[rand() % qual_dist.size()];
+    }
+
     // dont keep reads with N
     if (s1.find("N") != std::string::npos || s2.find("N") != std::string::npos)
       continue;
 
     SnowTools::rcomplement(s2);
-
+    std::reverse(q2.begin(), q2.end());
+    
     // add the errors
     //std::cerr << "      " << s1 << " " << rstart << " rlen " << readlen << " ms " << m_seq[al].length() << std::endl;
     
@@ -173,6 +197,8 @@ void ReadSim::samplePairedEndReadsToCoverage(std::vector<std::string>& reads1, s
 
     reads1.push_back(s1);
     reads2.push_back(s2);
+    qual1.push_back(q1);
+    qual2.push_back(q2);
   }  
 }
 
@@ -315,15 +341,13 @@ void ReadSim::makeSNVErrors(std::string& s, double er) {
 
 void ReadSim::baseQualityRelevantErrors(std::string& s, const std::string& bq) {
 
-
   char TCGA[5] = "TCGA";
 
   assert(s.length() == bq.length());
   for (size_t i = 0; i < s.length(); ++i) {
-    if (bq.at(i) < 35) { // low quality-ish
+    if (bq.at(i) <= 37) { // low quality-ish
       s[i] = TCGA[rand() % 4];
     }
   }
-  
 }
 

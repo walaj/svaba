@@ -4,15 +4,18 @@
 
 
 
-SimGenome::SimGenome(const SnowTools::GenomicRegion& gr, int nbreaks, int ndels, faidx_t * findex, bool scramble) : m_gr(gr) {
+SimGenome::SimGenome(const SnowTools::GenomicRegion& gr, int nbreaks, int ndels, faidx_t * findex, bool scramble, int viral_count) : m_gr(gr) {
   
   std::vector<size_t> index = {0};
   size_t ii = 1;
+
+  double viral_prob = viral_count ? (double)viral_count/((double)(nbreaks+1)) * 2 * 1000: 0;
 
   // int
   size_t avg_width  = std::max((size_t)(m_gr.width() / nbreaks  ), (size_t)1000);
   size_t max_breaks = std::min((size_t)(m_gr.width() / avg_width), (size_t)nbreaks);
   std::cerr << "avg width: " << avg_width << " max breaks: " << max_breaks << std::endl;
+  size_t real_vcount = 0;
 
   // choose a set of random break points 
   SnowTools::GRC grc;
@@ -59,11 +62,12 @@ SimGenome::SimGenome(const SnowTools::GenomicRegion& gr, int nbreaks, int ndels,
     ++id;
     sf.getSeqFromRef(findex);
 
-    if (rand() % 1000 < 800 && grc.at(i).strand == '+') {
+    if (rand() % 1000 < viral_prob && grc.at(i).strand == '+') {
       sf.spikeMicrobe();
+      ++real_vcount;
     } else {
       int nd = ceil((double)sf.m_seq.length() / grcwidth * (double)ndels);
-      sf.addDels(nd, findex);
+      sf.addIndels(nd);
     }
 
     // scramble the ends
@@ -94,7 +98,7 @@ SimGenome::SimGenome(const SnowTools::GenomicRegion& gr, int nbreaks, int ndels,
   size_t mmm = 0;
   for (auto& i : m_sfv)
     mmm += i.m_indels.size();
-  std::cerr << "TOTAL NUMBER OF INDELS IS " << mmm << std::endl;
+  std::cerr << "TOTAL NUMBER OF INDELS IS " << mmm << " AND VIRAL INTEGRATION IS " << real_vcount << std::endl;
 
 }
 

@@ -9,7 +9,7 @@ class SimGenome {
 
  public:
 
-  SimGenome(const SnowTools::GenomicRegion& gr, int nbreaks, int nindels, faidx_t * findex, bool scramble); 
+  SimGenome(const SnowTools::GenomicRegion& gr, int nbreaks, int nindels, faidx_t * findex, bool scramble, int viral_count); 
 
   void addBreak(int b);
 

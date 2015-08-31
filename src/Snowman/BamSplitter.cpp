@@ -115,7 +115,7 @@ void BamSplitter::setWriters(const std::vector<std::string>& writers, const std:
 
   for (auto& i : writers) {
 
-    std::cerr << "...setting up BAM" << i << std::endl;
+    std::cerr << "...setting up BAM: " << i << std::endl;
     SnowTools::BamWalker w;
     bam_hdr_t * h = bam_hdr_dup(br.get()/*header()*/);
     w.SetWriteHeader(h);
