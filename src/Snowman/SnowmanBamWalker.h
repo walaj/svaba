@@ -26,6 +26,7 @@ class MateRegion: public SnowTools::GenomicRegion
   MateRegion() {}
   MateRegion (int32_t c, uint32_t p1, uint32_t p2, char s = '*') : SnowTools::GenomicRegion(c, p1, p2, s) {}
   size_t count = 0;// read count
+  SnowTools::GenomicRegion partner;
 
 };
 
@@ -45,6 +46,8 @@ class SnowmanBamWalker: public SnowTools::BamWalker
     void filterMicrobial(SnowTools::BWAWrapper * b);
 
   void KmerCorrect();
+  
+  bool hasAdapter(const BamRead& r) const;
 
   void addCigar(BamRead &r);
 
@@ -83,6 +86,8 @@ class SnowmanBamWalker: public SnowTools::BamWalker
   bool do_kmer_filtering = true;
 
   bool disc_only = false;
+  
+  bool adapter_trim = true;
  private:
 
   // might want these in case we are looking for duplicates

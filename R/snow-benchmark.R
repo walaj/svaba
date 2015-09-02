@@ -3,7 +3,13 @@
 require(ggplot2)
 require(data.table)
 
-snow <- ra_breaks("/xchip/gistic/Jeremiah/Projects/SnowmanPaper/Benchmark/snow/chr1.broad-snowman.DATECODE.somatic.sv.vcf")
+snow <- ra_breaks("/xchip/gistic/Jeremiah/Projects/SnowmanPaper/Benchmark/snow2/chr1.broad-snowman.DATECODE.somatic.sv.vcf")
+
+simd <- fread("/xchip/gistic/Jeremiah/Projects/SnowmanPaper/Benchmark/connections.tsv")
+gr.sim <- with(simd, GRanges(c(V1,V1)+1, IRanges(c(V2,V4), width=1), strand=ifelse(c(V3, V5)=='+', '+', '-'), id=rep(seq(nrow(simd)),each=2)))
+grl.sim <- split(gr.sim, gr.sim$id)
+
+ra.overlaps(snow, grl.sim, pad=10, ignore.strand=TRUE)
 
 ## read it
 dt <- fread("/xchip/gistic/Jeremiah/Projects/SnowmanPaper/150805benchmark.csv") 
@@ -11,6 +17,8 @@ dt [, mean_cc := mean(contig_coverage), by=c('kmer_corr', 'coverage', 'error_rat
 dt [, se_cc := sd(contig_coverage), by=c('kmer_corr', 'coverage', 'error_rate')]
 setkey(dt, kmer_corr, coverage, error_rate)
 dt <- unique(dt)
+
+dt <- readRDS("/xchip/gistic/Jeremiah/tracks/100map.dt.rds")
 
 ## relabel names
 en <- c("0"="Error Rate: 0", "0.001"="Error Rate: 1e-3", "0.005"="Error Rate 5e-3",

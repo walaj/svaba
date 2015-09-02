@@ -17,6 +17,7 @@
 #include "ReadSim.h"
 #include "SeqFrag.h"
 #include "SimGenome.h"
+#include "SimTrainerWalker.h"
 #include "BamSplitter.h"
 
 #include "SnowTools/BWAWrapper.h"
@@ -163,8 +164,7 @@ void runBenchmark(int argc, char** argv) {
   // open the BAM
   if (opt::bam.length()) 
     bwalker = SnowTools::BamWalker(opt::bam);
-  
-  // parse the region file
+    // parse the region file
   if (opt::regionFile.length()) {
     if (SnowTools::read_access_test(opt::regionFile)) {
       regions.regionFileToGRV(opt::regionFile, 1, bwalker.header());
@@ -216,16 +216,27 @@ std::string genBreaks() {
   // train on the input BAM
   std::vector<std::string> quality_scores;
   std::vector<SnowTools::GenomicRegion> v = {
-    SnowTools::GenomicRegion(0, 1000000,1010000), 
-    SnowTools::GenomicRegion(0, 2000000,2010000),
-    SnowTools::GenomicRegion(0, 3000000,3010000),
-    SnowTools::GenomicRegion(0, 4000000,4010000),      
-    SnowTools::GenomicRegion(0, 5000000,5010000), 
-    SnowTools::GenomicRegion(0, 6000000,6010000),
-    SnowTools::GenomicRegion(0, 7000000,7010000),
-    SnowTools::GenomicRegion(0, 8000000,8010000) 
+    SnowTools::GenomicRegion(0, 1000000, 2000000)
+    /*SnowTools::GenomicRegion(0, 60000000,70000000),
+    SnowTools::GenomicRegion(1, 1000000, 10000000), 
+    SnowTools::GenomicRegion(1, 60000000,70000000),
+    SnowTools::GenomicRegion(2, 1000000, 10000000), 
+    SnowTools::GenomicRegion(3, 60000000,70000000),
+    SnowTools::GenomicRegion(16, 1000000,1110000),
+    SnowTools::GenomicRegion(17, 1000000,1110000),
+    SnowTools::GenomicRegion(21, 1000000,1110000) */
   };
   
+  /*
+  SimTrainerWalker stw(opt::bam);
+  stw.setBamWalkerRegions(v);
+
+  stw.train();
+  std::ofstream bamstats("bam_stats.txt");
+  bamstats << stw.printBamStats() << std::endl;
+  bamstats.close();
+  */
+
   bwalker.setBamWalkerRegions(v);
   SnowTools::BamRead r; bool dum;
   std::cerr << "...sampling reads to learn quality scores" << std::endl;
