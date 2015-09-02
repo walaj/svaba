@@ -976,6 +976,10 @@ VCFFile::VCFFile(string file, const char* index, char sep, string analysis_id) {
   getline(infile, line, '\n'); // skip first line
   size_t line_counter = 0;
   while (getline(infile, line, '\n')) {
+
+    if (line.find("PASS") == std::string::npos)
+      continue;
+    
     line_counter++;
     istringstream iss(line);
 

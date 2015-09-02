@@ -46,8 +46,8 @@ static SnowTools::BamWalker r2c_writer, er_writer;
 //static SnowTools::BamWalker r2c_corrected_writer;
 static SnowTools::BamWalker b_microbe_writer;
 static SnowTools::BamWalker b_allwriter;
-static SnowTools::BWAWrapper * microbe_bwa;
-static SnowTools::BWAWrapper * main_bwa;
+static SnowTools::BWAWrapper * microbe_bwa = nullptr;
+static SnowTools::BWAWrapper * main_bwa = nullptr;
 static SnowTools::MiniRulesCollection * mr;
 static SnowTools::GRC blacklist;
 static SnowTools::GRC indel_blacklist_mask;
@@ -369,6 +369,11 @@ void runSnowman(int argc, char** argv) {
   std::cerr << "---- Starting detection pipeline --- on " << opt::numThreads << " thread" << std::endl;
   sendThreads(regions_torun);
 
+  if (microbe_bwa)
+    delete microbe_bwa;
+  if (main_bwa)
+    delete main_bwa;  
+
   // close the files
   all_align.close();
   os_allbps.close();
@@ -506,7 +511,11 @@ int countJobs(SnowTools::GRC &file_regions, SnowTools::GRC &run_regions) {
   else {
     for (int i = 0; i < bwalker.header()->n_targets; i++) {
       int region_id = bam_name2id(bwalker.header(), bwalker.header()->target_name[i]);
-      if (region_id < 25) // don't add outsdie of 1-Y
+      
+      if (opt::verbose > 1)
+	std::cerr << "chr id from header " << region_id << " name " << bwalker.header()->target_name[i] << " len " << bwalker.header()->target_len[i] << std::endl;
+
+      if (region_id < 23) // don't add outsdie of 1-X
 	file_regions.add(SnowTools::GenomicRegion(region_id, 30000, bwalker.header()->target_len[i]));
     }
   }
