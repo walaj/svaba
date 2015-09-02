@@ -103,7 +103,7 @@ void BamSplitter::fractionateBam(const std::string& outbam, SnowTools::Fractions
 
       // decide whether to keep
       if (hash_val <= sample_rate) {
-	r.RemoveAllTags();
+	//r.RemoveAllTags();
 	w.WriteAlignment(r);
       }
     }

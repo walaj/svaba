@@ -57,7 +57,8 @@ am_snowman_OBJECTS = snowman-snowman.$(OBJEXT) \
 	snowman-SnowmanBamWalker.$(OBJEXT) snowman-benchmark.$(OBJEXT) \
 	snowman-PonWalker.$(OBJEXT) snowman-ReadSim.$(OBJEXT) \
 	snowman-SeqFrag.$(OBJEXT) snowman-SimGenome.$(OBJEXT) \
-	snowman-BamSplitter.$(OBJEXT)
+	snowman-BamSplitter.$(OBJEXT) \
+	snowman-SimTrainerWalker.$(OBJEXT)
 snowman_OBJECTS = $(am_snowman_OBJECTS)
 snowman_DEPENDENCIES = $(top_builddir)/src/SGA/SGA/libsga.a \
 	$(top_builddir)/SnowTools/bwa/libbwa.a \
@@ -199,7 +200,7 @@ snowman_SOURCES = snowman.cpp workqueue.h SnowmanAssemblerEngine.cpp vcf.cpp \
 		SnowmanOverlapAlgorithm.cpp SnowmanASQG.cpp \
 		SnowmanAssemble.h SnowmanAssemble.cpp run_snowman.cpp genpon.cpp \
 		KmerFilter.cpp SnowmanBamWalker.cpp benchmark.cpp PonWalker.cpp ReadSim.cpp \
-		SeqFrag.cpp SimGenome.cpp BamSplitter.cpp
+		SeqFrag.cpp SimGenome.cpp BamSplitter.cpp SimTrainerWalker.cpp
 
 all: all-am
 
@@ -273,6 +274,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-ReadSim.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-SeqFrag.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-SimGenome.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-SimTrainerWalker.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-SnowmanASQG.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-SnowmanAssemble.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-SnowmanAssemblerEngine.Po@am__quote@
@@ -521,6 +523,20 @@ snowman-BamSplitter.obj: BamSplitter.cpp
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='BamSplitter.cpp' object='snowman-BamSplitter.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-BamSplitter.obj `if test -f 'BamSplitter.cpp'; then $(CYGPATH_W) 'BamSplitter.cpp'; else $(CYGPATH_W) '$(srcdir)/BamSplitter.cpp'; fi`
+
+snowman-SimTrainerWalker.o: SimTrainerWalker.cpp
+@am__fastdepCXX_TRUE@	if $(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-SimTrainerWalker.o -MD -MP -MF "$(DEPDIR)/snowman-SimTrainerWalker.Tpo" -c -o snowman-SimTrainerWalker.o `test -f 'SimTrainerWalker.cpp' || echo '$(srcdir)/'`SimTrainerWalker.cpp; \
+@am__fastdepCXX_TRUE@	then mv -f "$(DEPDIR)/snowman-SimTrainerWalker.Tpo" "$(DEPDIR)/snowman-SimTrainerWalker.Po"; else rm -f "$(DEPDIR)/snowman-SimTrainerWalker.Tpo"; exit 1; fi
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='SimTrainerWalker.cpp' object='snowman-SimTrainerWalker.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-SimTrainerWalker.o `test -f 'SimTrainerWalker.cpp' || echo '$(srcdir)/'`SimTrainerWalker.cpp
+
+snowman-SimTrainerWalker.obj: SimTrainerWalker.cpp
+@am__fastdepCXX_TRUE@	if $(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-SimTrainerWalker.obj -MD -MP -MF "$(DEPDIR)/snowman-SimTrainerWalker.Tpo" -c -o snowman-SimTrainerWalker.obj `if test -f 'SimTrainerWalker.cpp'; then $(CYGPATH_W) 'SimTrainerWalker.cpp'; else $(CYGPATH_W) '$(srcdir)/SimTrainerWalker.cpp'; fi`; \
+@am__fastdepCXX_TRUE@	then mv -f "$(DEPDIR)/snowman-SimTrainerWalker.Tpo" "$(DEPDIR)/snowman-SimTrainerWalker.Po"; else rm -f "$(DEPDIR)/snowman-SimTrainerWalker.Tpo"; exit 1; fi
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='SimTrainerWalker.cpp' object='snowman-SimTrainerWalker.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-SimTrainerWalker.obj `if test -f 'SimTrainerWalker.cpp'; then $(CYGPATH_W) 'SimTrainerWalker.cpp'; else $(CYGPATH_W) '$(srcdir)/SimTrainerWalker.cpp'; fi`
 uninstall-info-am:
 
 ID: $(HEADERS) $(SOURCES) $(LISP) $(TAGS_FILES)

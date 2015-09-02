@@ -93,13 +93,13 @@ struct SnowTimer {
     auto itm = st.times.find("m");
     //auto itc = st.times.find("cl");
     auto ita = st.times.find("as");
-    //auto itb = st.times.find("bw");
+    auto itk = st.times.find("k");
     auto its = st.times.find("sw");
 
-    sprintf (buffer, "R: %2d%% M: %2d%% A: %2d%% P: %2d%%", 
+    sprintf (buffer, "R: %2d%% M: %2d%% K: %2d%% A: %2d%% P: %2d%%", 
 	     SnowTools::percentCalc<double>(itr->second, total_time),
 	     SnowTools::percentCalc<double>(itm->second, total_time),
-	     //SnowTools::percentCalc<double>(itc->second, total_time),
+	     SnowTools::percentCalc<double>(itk->second, total_time),
 	     SnowTools::percentCalc<double>(ita->second, total_time),
 	     //SnowTools::percentCalc<double>(itb->second, total_time),
 	     SnowTools::percentCalc<double>(its->second, total_time));

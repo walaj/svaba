@@ -26,7 +26,7 @@ int KmerFilter::correctReads(BamReadVector& vec) {
       continue;
 
     int dum;
-    std::string readSequence = r.QualityTrimmedSequence(4, dum);
+    std::string readSequence = r.QualitySequence(); //QualityTrimmedSequence(4, dum);
 
     std::string origSequence = readSequence;
     int n = readSequence.length();
@@ -204,7 +204,7 @@ void KmerFilter::__makeIndex(BamReadVector& vec) {
 
     int dum = 0;
     //sr = i.GetZTag("SR");
-    seq = i.QualityTrimmedSequence(4, dum);
+    seq = i.QualitySequence(); //i.QualityTrimmedSequence(4, dum);
     //seq = i.Sequence();
 
     // if the read is good, add it to the table so we can use for kmer index

@@ -4,6 +4,10 @@
 //#define DEBUG_SNOWMAN_BAMWALKER 1
 #define MIN_MAPQ_FOR_MATE_LOOKUP 1
 
+static const std::string FWD_ADAPTER_A = "AGATCGGAAGAGC";
+static const std::string FWD_ADAPTER_B = "AGATCGGAAAGCA";
+static const std::string REV_ADAPTER = "GCTCTTCCGATCT";
+
 void SnowmanBamWalker::addCigar(BamRead &r)
 {
   // this is a 100% match
@@ -94,6 +98,11 @@ void SnowmanBamWalker::readBam()
 	blacklisted = true;
       rule_pass = rule_pass && !blacklisted;
 
+      // check if has adapter
+      if (adapter_trim) 
+	rule_pass = rule_pass && !hasAdapter(r);
+
+      // add to weird coverage
       if (rule_pass)
 	weird_cov.addRead(r);
 
@@ -224,6 +233,7 @@ void SnowmanBamWalker::calculateMateRegions() {
       
       MateRegion mate(r.MateChrID(), r.MatePosition(), r.MatePosition());
       mate.pad(500);
+      mate.partner = main_region;
       
       // if mate not in main interval, add a padded version
       if (!main_region.getOverlap(mate) && r.MapQuality() >= MIN_MAPQ_FOR_MATE_LOOKUP) 
@@ -364,4 +374,27 @@ void SnowmanBamWalker::filterMicrobial(SnowTools::BWAWrapper * b) {
   }
   //std::cerr << "...filtered out " << (reads.size() - new_reads.size()) << " microbial reads "  << std::endl;
   reads = new_reads;
+}
+
+bool SnowmanBamWalker::hasAdapter(const BamRead& r) const {
+
+  // keep it if it has indel
+  if (r.MaxDeletionBases() || r.MaxInsertionBases())
+    return false;
+  
+  // toss it then if isize explans clip
+  int exp_ins_size = r.Length() - r.NumClip(); // expected isize if has adapter
+  if ((exp_ins_size - 4) < std::abs(r.InsertSize() && (exp_ins_size+4) > std::abs(r.InsertSize())))
+    return true;
+
+  /*
+  if (std::abs(r.InsertSize()) < 300 && 
+	   r.PairMappedFlag() && (r.ChrID() == r.MateChrID())) {
+    std::string seqr = r.Sequence();
+    if (seqr.find("AGATCGGAAGAGC") != std::string::npos || seqr.find("AGATCGGAAAGCA") != std::string::npos || 
+	seqr.find("GCTCTTCCGATCT") != std::string::npos) {
+      has_adapter = true;
+    }
+  */  
+
 }

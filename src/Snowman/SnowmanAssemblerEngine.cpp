@@ -52,14 +52,13 @@ void SnowmanAssemblerEngine::fillReadTable(SnowTools::BamReadVector& r)
     string sr, seq = "";
 
     // get the sequence
-    int dum = 0;
     sr = i.GetZTag("SR");
     if (!sr.length())
       sr = i.Qname();
 
     seq = i.GetZTag("KC");
     if (!seq.length()) {
-      seq = i.QualityTrimmedSequence(4, dum);
+      seq = i.QualitySequence(); //i.QualityTrimmedSequence(4, dum);
     } 
     assert(sr.length());
     assert(seq.length());
@@ -234,10 +233,10 @@ void SnowmanAssemblerEngine::doAssembly(ReadTable *pRT, ContigVector &contigs, i
   int min_overlap = m_min_overlap;
 
   int cutoff = 0;
-  if (pass == 0)
-    //cutoff = m_readlen + 10;
-    cutoff = 0; // debug
-  if (pass > 0) {
+  if (pass == 0 || pass == 1)
+    cutoff = 50; //m_readlen;// + 10;
+  //cutoff = 0; // debug
+  else {
     min_overlap = 35;
     errorRate = 0.05;
     cutoff = m_readlen + 20;
