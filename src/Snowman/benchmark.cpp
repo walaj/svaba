@@ -188,10 +188,12 @@ void runBenchmark(int argc, char** argv) {
   }
 
   // seed the RNG
-  if (opt::seed == 0)
-    opt::seed = (unsigned)time(NULL);
-  srand(opt::seed);
-  std::cerr << "   Seed: " << opt::seed << std::endl;
+  if (opt::mode != OPT_SPLITBAM) {
+    if (opt::seed == 0)
+      opt::seed = (unsigned)time(NULL);
+    srand(opt::seed);
+    std::cerr << "   Seed: " << opt::seed << std::endl;
+  }
 
   // read the fractions file
   if (opt::frac_bed_file.length() && opt::mode == OPT_SPLITBAM) {

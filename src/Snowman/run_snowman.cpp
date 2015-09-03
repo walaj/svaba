@@ -226,7 +226,7 @@ void runSnowman(int argc, char** argv) {
   
 #ifdef MICROBE
   // make the microbe BWAWrapper
-  if (SnowTools::read_access_test(opt::microbegenome)) {
+  if (SnowTools::read_access_test(opt::microbegenome) && !opt::disc_cluster_only) {
     std::cerr << "...loading the microbial genome " << opt::microbegenome << std::endl;
     microbe_bwa = new SnowTools::BWAWrapper();
     microbe_bwa->retrieveIndex(opt::microbegenome);
@@ -752,7 +752,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
   if (opt::verbose > 1)
     std::cerr << "...doing the discordant read clustering" << std::endl;
   SnowTools::DiscordantClusterMap dmap = SnowTools::DiscordantCluster::clusterReads(bav_this, region);
-
+  
   // 
   if (opt::verbose > 3)
     for (auto& i : dmap)
@@ -892,7 +892,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 	    std::cerr << " aligned contig: " << i << std::endl;
 	
 #ifdef MICROBE
-
+	
 	BamReadVector ct_plus_microbe;
 
 	if (microbe_bwa && !hasRepeat(i.getSeq())) {
@@ -978,7 +978,6 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 	// add to the final structure
 	alc.push_back(a);
       }
-      //st.stop("sw");
       
       
 #ifdef ONE_AT_A_TIME
@@ -1004,8 +1003,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
     std::vector<SnowTools::BreakPoint> allbreaks = i.getAllBreakPoints();
     std::vector<SnowTools::BreakPoint> allbreaks_2 = i.getAllBreakPointsSecondary();
     bp_glob.insert(bp_glob.end(), allbreaks.begin(), allbreaks.end());
-    //debug
-    //bp_glob_secondary.insert(bp_glob_secondary.end(), allbreaks_2.begin(), allbreaks_2.end());
+    bp_glob_secondary.insert(bp_glob_secondary.end(), allbreaks_2.begin(), allbreaks_2.end());
     //}
   }
 
@@ -1044,7 +1042,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
   std::sort(bp_glob.begin(), bp_glob.end());
   bp_glob.erase( std::unique( bp_glob.begin(), bp_glob.end() ), bp_glob.end() );
   std::sort(bp_glob_secondary.begin(), bp_glob_secondary.end());
-  bp_glob.erase( std::unique( bp_glob_secondary.begin(), bp_glob_secondary.end() ), bp_glob_secondary.end() );
+  bp_glob_secondary.erase( std::unique( bp_glob_secondary.begin(), bp_glob_secondary.end() ), bp_glob_secondary.end() );
 
   // add the coverage data to breaks for allelic fraction computation
   SnowTools::STCoverage * t_cov = nullptr;
@@ -1149,7 +1147,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
       }
   }
 
-  st.stop("sw");
+  st.stop("pp");
   // display the run time
   if (opt::verbose > 0 && (num_t_reads + num_n_reads) > 0 && !region.isEmpty()) {
     string print1 = SnowTools::AddCommas<int>(region.pos1);
@@ -1384,10 +1382,6 @@ void alignReadsToContigsOneAtATime(const ContigVector& contigs, std::vector<Snow
       // add to the final structure
       alc.push_back(ac);
       
-      //st.stop("sw");
-      
-      // print it out
-      //std::cerr << ac << std::endl;
     }
     
   } // stop contig loop

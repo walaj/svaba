@@ -379,14 +379,15 @@ void SnowmanBamWalker::filterMicrobial(SnowTools::BWAWrapper * b) {
 bool SnowmanBamWalker::hasAdapter(const BamRead& r) const {
 
   // keep it if it has indel
-  if (r.MaxDeletionBases() || r.MaxInsertionBases())
+  if (r.MaxDeletionBases() || r.MaxInsertionBases() || !r.InsertSize() || r.NumClip() < 5)
     return false;
   
   // toss it then if isize explans clip
   int exp_ins_size = r.Length() - r.NumClip(); // expected isize if has adapter
-  if ((exp_ins_size - 4) < std::abs(r.InsertSize() && (exp_ins_size+4) > std::abs(r.InsertSize())))
+  if ((exp_ins_size - 4) < std::abs(r.InsertSize()) && (exp_ins_size+4) > std::abs(r.InsertSize()))
     return true;
 
+  return false;
   /*
   if (std::abs(r.InsertSize()) < 300 && 
 	   r.PairMappedFlag() && (r.ChrID() == r.MateChrID())) {
