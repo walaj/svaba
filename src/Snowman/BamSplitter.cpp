@@ -27,7 +27,7 @@ void BamSplitter::splitBam() {
       // print a message
       ++countr;
       if (countr % 1000000 == 0) 
-	std::cerr << "...at position " << r.Brief() << std::endl; 
+	std::cerr << "...splitting BAM at position " << r.Brief() << std::endl; 
 
       // put in one BAM or another
       uint32_t k = __ac_Wang_hash(__ac_X31_hash_string(r.Qname().c_str()) ^ m_seed);
@@ -36,7 +36,7 @@ void BamSplitter::splitBam() {
       for (size_t i = 0; i < m_writers.size(); ++i) {
 	// decide whether to keep
 	if (hash_val <= csum[i]/*sample_rate*/) {
-	  r.RemoveAllTags();
+	  //r.RemoveAllTags();
 	  m_writers[i].WriteAlignment(r);
 	  ++all_counts[i];
 	  break;
@@ -74,7 +74,7 @@ void BamSplitter::fractionateBam(const std::string& outbam, SnowTools::Fractions
       // print a message
       ++countr;
       if (countr % 1000000 == 0) 
-	std::cerr << "...at position " << r.Brief() << std::endl; 
+	std::cerr << "...fractionating BAM at position " << r.Brief() << std::endl; 
       
       SnowTools::GenomicRegion gr(r.ChrID(), r.Position(), r.Position(), '*');
       std::vector<int32_t> qid, sid;

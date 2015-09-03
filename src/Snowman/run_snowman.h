@@ -61,7 +61,7 @@ class SnowmanWorkItem {
 struct SnowTimer {
 
   SnowTimer() {
-    s = {"r", "m", "as", "bw", "cl", "wr", "sw"};
+    s = {"r", "m", "as", "bw", "pp", "k"};
     for (auto& i : s)
       times[i] = 0;
     curr_clock = clock();
@@ -91,18 +91,22 @@ struct SnowTimer {
     
     auto itr = st.times.find("r");
     auto itm = st.times.find("m");
-    //auto itc = st.times.find("cl");
     auto ita = st.times.find("as");
     auto itk = st.times.find("k");
-    auto its = st.times.find("sw");
+    auto itp = st.times.find("pp");
 
-    sprintf (buffer, "R: %2d%% M: %2d%% K: %2d%% A: %2d%% P: %2d%%", 
-	     SnowTools::percentCalc<double>(itr->second, total_time),
-	     SnowTools::percentCalc<double>(itm->second, total_time),
-	     SnowTools::percentCalc<double>(itk->second, total_time),
-	     SnowTools::percentCalc<double>(ita->second, total_time),
-	     //SnowTools::percentCalc<double>(itb->second, total_time),
-	     SnowTools::percentCalc<double>(its->second, total_time));
+    
+
+    if (total_time)
+      sprintf (buffer, "R: %2d%% M: %2d%% K: %2d%% A: %2d%% P: %2d%%", 
+	       SnowTools::percentCalc<double>(itr->second, total_time),
+	       SnowTools::percentCalc<double>(itm->second, total_time),
+	       SnowTools::percentCalc<double>(itk->second, total_time),
+	       SnowTools::percentCalc<double>(ita->second, total_time),
+	       //SnowTools::percentCalc<double>(itb->second, total_time),
+	       SnowTools::percentCalc<double>(itp->second, total_time));
+    else
+      sprintf (buffer, "NO TIME");
     out << std::string(buffer);
     return out;
   }
