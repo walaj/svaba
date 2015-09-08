@@ -113,10 +113,9 @@ void SnowmanBamWalker::readBam()
       bool is_dup = isDuplicate(r);
       //bool is_dup = false;
 
-      if (!rule_pass)
-	r.AddIntTag("VR", -1); 
-      else if (rule_pass && !is_dup)
-
+      //if (!rule_pass)
+      //r.AddIntTag("VR", -1); 
+      if (rule_pass && !is_dup)
 	{
 	  // optional tag processing
 	  //r.RemoveAllTags(); // cut down on memory
@@ -126,7 +125,7 @@ void SnowmanBamWalker::readBam()
 	  //r_add_Z_tag(r, "RL", rule_pass);
 
 	  ++countr;
-	  if (countr % 10000 == 0 && m_region.size() == 0)
+	  if (countr % 10000 == 0 && m_region.size() == 0) //debug
 	    std::cerr << "...read in " << SnowTools::AddCommas<size_t>(countr) << " weird reads for whole genome read-in. At pos " << r.Brief() << std::endl;
 	  
 	  if (disc_only) {
@@ -136,8 +135,9 @@ void SnowmanBamWalker::readBam()
 
 	  // add the ID tag
 	  std::string srn =  prefix+std::to_string(r.AlignmentFlag()) + "_" + r.Qname();
+	  assert(srn.length());
 	  r.AddZTag("SR", srn);
-	  r.AddIntTag("VR", 1);
+	  //r.AddIntTag("VR", 1);
 	  
 	  // get the weird coverage
 	  weird_cov.addRead(r);

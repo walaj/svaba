@@ -370,7 +370,7 @@ void assemblyTest() {
  
   std::cerr << "...loading the reference genome" << std::endl;
   findex = fai_load(opt::refgenome.c_str());  // load the reference
-  std::string local_ref = getRefSequence(gr, findex);
+  std::string local_ref = getRefSequence("16", gr, findex);
 
   size_t seqlen = local_ref.length();
   if (seqlen * 2 <= opt::readlen) {
@@ -462,7 +462,7 @@ void assemblyTest() {
 	    SnowTools::BamReadVector ct_alignments;
 	    local_bwa.alignSingleSequence(i.getSeq(), i.getID(), ct_alignments, false);
 	    SnowTools::AlignedContig ac(ct_alignments);
-	    ac.alignReads(reads_to_local);
+	    //ac.alignReads(reads_to_local);
 	    //std::cout << ac;
 	    contigs_to_local.insert(contigs_to_local.begin(), ct_alignments.begin(), ct_alignments.end());
 	  }

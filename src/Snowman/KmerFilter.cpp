@@ -25,7 +25,6 @@ int KmerFilter::correctReads(BamReadVector& vec) {
     if (r.GetIntTag("VR") == -1)
       continue;
 
-    int dum;
     std::string readSequence = r.QualitySequence(); //QualityTrimmedSequence(4, dum);
 
     std::string origSequence = readSequence;
@@ -122,6 +121,7 @@ int KmerFilter::correctReads(BamReadVector& vec) {
     if( readSequence != origSequence)
       {
 	++corrected_reads;
+	assert(readSequence.length());
 	r.AddZTag("KC", readSequence);
 	//std::cerr << ssi.id << std::endl;
 	//std::cerr << "**************Read corrected from\to " << std::endl << "\t" << ssi.seq.toString() << std::endl << "\t" << readSequence << std::endl;
@@ -202,7 +202,6 @@ void KmerFilter::__makeIndex(BamReadVector& vec) {
     SeqItem si;
     string sr, seq = "";
 
-    int dum = 0;
     //sr = i.GetZTag("SR");
     seq = i.QualitySequence(); //i.QualityTrimmedSequence(4, dum);
     //seq = i.Sequence();

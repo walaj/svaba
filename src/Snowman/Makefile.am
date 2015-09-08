@@ -37,5 +37,5 @@ snowman_SOURCES = snowman.cpp workqueue.h SnowmanAssemblerEngine.cpp vcf.cpp \
 		SnowmanOverlapAlgorithm.cpp SnowmanASQG.cpp \
 		SnowmanAssemble.h SnowmanAssemble.cpp run_snowman.cpp genpon.cpp \
 		KmerFilter.cpp SnowmanBamWalker.cpp benchmark.cpp PonWalker.cpp ReadSim.cpp \
-		SeqFrag.cpp SimGenome.cpp BamSplitter.cpp SimTrainerWalker.cpp
+		SeqFrag.cpp SimGenome.cpp BamSplitter.cpp SimTrainerWalker.cpp refilter.cpp
 
