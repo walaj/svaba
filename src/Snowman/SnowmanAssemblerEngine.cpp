@@ -75,6 +75,9 @@ void SnowmanAssemblerEngine::fillReadTable(SnowTools::BamReadVector& r)
 }
 
 bool SnowmanAssemblerEngine::hasRepeat(const std::string& seq) {
+
+  if (seq.find("N") != std::string::npos)
+    return true;
   if (seq.length() < 40)
     return false;
   if ((seq.find(POLYT) == std::string::npos) && 
@@ -370,7 +373,7 @@ void SnowmanAssemblerEngine::doAssembly(ReadTable *pRT, ContigVector &contigs, i
       ContigDeDup.insert(i.getSeq());
       cvec.push_back(i);
     } else {
-      std::cerr << "Filtered out a contig" << std::endl;
+      std::cerr << "Filtered out a contig for having exact duplicate with another contig" << std::endl;
     }
   }
 

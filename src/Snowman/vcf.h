@@ -23,7 +23,8 @@ typedef unordered_map<string, pair<string,string>> FormatRecordMap;
 size_t ChrStringToNumber(const std::string& str);
 void runVCF(int argc, char** argv);
 void parseVCFOptions(int argc, char** argv);
-string getRefSequence(const SnowTools::GenomicRegion &gr, faidx_t *fi);
+string getRefSequence(const std::string& chr_string, const SnowTools::GenomicRegion& gr, faidx_t *fi);
+string formatReadString(const std::string& readid, char type);
 
 // structure to store a VCF header
 struct VCFHeader {
@@ -68,22 +69,22 @@ struct VCFEntry {
   VCFEntry() {}
   ~VCFEntry() {}
   VCFEntry(string line, string method);
+  VCFEntry(const SnowTools::BreakEnd& b);
 
-  int chr = 0;
-  int pos = 0;
+  SnowTools::BreakEnd be;
   string id;
   string ref;
   string alt;
-  string qual = ".";
+  int qual = -1; //".";
   string filter = "NA";
   string format;
   string samp1;
   string samp2;  
   
   string idcommon;
-  //string method;
 
   unordered_map<string, string> info_fields;
+
   FormatRecordMap format_fields;
 
   // output it to a string
@@ -100,9 +101,7 @@ typedef vector<VCFEntry> VCFEntryVec;
 
 struct VCFEntryPair {
 
-  VCFEntryPair(VCFEntry t1, VCFEntry t2) : e1(t1), e2(t2) {}
-  VCFEntryPair(VCFEntry t1) { e1 = t1; e2 = t1; e2.idcommon = "NULL"; }
-  VCFEntryPair(VCFEntryPair &v1, VCFEntryPair &v2);
+  VCFEntryPair(const SnowTools::BreakPoint& b, const std::string& id);
   VCFEntryPair() {};
   ~VCFEntryPair() {};
 
@@ -151,12 +150,14 @@ struct VCFFile {
   VCFFile(string file, string tmethod);
 
   // create a VCFFile from a csv
-  VCFFile(string file, const char* index, char sep, string analysis_id);
+  VCFFile(string file, const char* index, string analysis_id, bam_hdr_t *h);
 
   string filename;
   string method;
 
-  unordered_map<string, bool> dups;
+  string analysis_id; 
+
+  set<string> dups;
 
   //  VCFHeader header;
   VCFHeader indel_header;
@@ -164,6 +165,7 @@ struct VCFFile {
   VCFEntryPairMap entry_pairs;
   VCFEntryMap indels;
   
+  bool include_nonpass = false;
 
   // output it to a string
   friend ostream& operator<<(ostream& out, const VCFFile& v);
