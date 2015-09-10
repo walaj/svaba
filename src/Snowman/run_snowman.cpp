@@ -16,6 +16,8 @@
 
 //#define NO_LOAD_INDEX 1
 
+#define MIN_CONTIG_MATCH 35
+
 #define LITTLECHUNK 20000 
 #define WINDOW_PAD 500
 #define MICROBE_MATCH_MIN 50
@@ -88,16 +90,16 @@ namespace opt {
   // data
   static BamMap bam;
   static std::string refgenome = SnowTools::REFHG19;  
-  static std::string microbegenome = "/xchip/gistic/Jeremiah/Projects/SnowmanFilters/viral.1.1.genomic_ns.fna";  
+  static std::string microbegenome; //"/xchip/gistic/Jeremiah/Projects/SnowmanFilters/viral.1.1.genomic_ns.fna";  
   static std::string analysis_id = "no_id";
 
   //subsample
   float subsample = 1.0;
 
-  static std::string regionFile = "";
+  static std::string regionFile;
   static std::string blacklist; // = "/xchip/gistic/Jeremiah/Projects/HengLiMask/um75-hs37d5.bed.gz";
 
-  static std::string dbsnp = ""; // = "/xchip/gistic/Jeremiah/SnowmanFilters/dbsnp_138.b37_indel.vcf";
+  static std::string dbsnp; // = "/xchip/gistic/Jeremiah/SnowmanFilters/dbsnp_138.b37_indel.vcf";
 
   // filters on when / how to assemble
   static bool disc_cluster_only = false;
@@ -634,10 +636,11 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 	//std::cerr << "...checking somatic mate region " << i << std::endl;
 	//std::cerr << "   icount " << i.count << " i.chr " << i.chr << " indel_blacklist_mask.size() == 0 || " << 
 	//  " indel_blacklist_mask.findOverlapping(i) == 0) :: " <<  
-	//  (indel_blacklist_mask.size() == 0 || indel_blacklist_mask.findOverlapping(i) == 0) << std::endl;
+	//  (blacklist.size() == 0 || blacklist.findOverlapping(i) == 1) << "   normal mate region findOverlapping " << 
+	//  (normal_mate_regions.findOverlapping(i)) << std::endl;
 	if (i.count >= LOOKUP_LIM && !normal_mate_regions.findOverlapping(i) && 
-	    i.chr < 24 &&
-	    (blacklist.size() == 0 || blacklist.findOverlapping(i) == 0))
+	    i.chr < 24 
+	    /*&& (blacklist.size() == 0 || blacklist.findOverlapping(i) == 0)*/)
 	  somatic_mate_regions.add(i); //concat(walkers[b.first].mate_regions);
       }
   
@@ -833,7 +836,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 	BamReadVector human_alignments;
 	for (auto& j : ct_alignments) {
 	  // keep human alignments that have < 50% overlap with microbe and have >= 25 bases matched
-	  if (overlapSize(j, ct_plus_microbe) < 0.5 * j.Length() && j.NumMatchBases() >= 25) { 
+	  if (overlapSize(j, ct_plus_microbe) < 0.5 * j.Length() && j.NumMatchBases() >= MIN_CONTIG_MATCH) { 
 	    human_alignments.push_back(j);
 	    all_contigs.push_back(j);
 	  }
@@ -931,7 +934,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
     // DiscordantCluster not associated with assembly BP and has 2+ read support
     if (!i.second.hasAssociatedAssemblyContig() && (i.second.tcount + i.second.ncount) > 1) {
       SnowTools::BreakPoint tmpbp(i.second, main_bwa);
-      assert(tmpbp.b1.gr < tmpbp.b2.gr);
+      //assert(tmpbp.b1.gr < tmpbp.b2.gr);
       bp_glob.push_back(tmpbp);
     }
   }
