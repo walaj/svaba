@@ -132,10 +132,10 @@ std::ostream& operator<<(std::ostream& out, const VCFEntry& v) {
   bool imprecise = false;
   vector<pair<string, string> > tmpvec; // id, evertythign else
   for (InfoMap::const_iterator it = v.info_fields.begin(); it != v.info_fields.end(); it++) {
-    //if (it->first == "IMPRECISE")
-    //  imprecise = true;
-    //if (it->second != "")
-    tmpvec.push_back(pair<string,string>(it->first, it->second)); // id, d
+    if (it->first == "IMPRECISE")
+      imprecise = true;
+    if (it->second != "")
+      tmpvec.push_back(pair<string,string>(it->first, it->second)); // id, d
   }
   sort(tmpvec.begin(), tmpvec.end(), compareInfoFields); // sort it
 

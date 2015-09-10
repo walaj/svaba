@@ -2,7 +2,7 @@
 #include <sstream>
 
 //#define DEBUG_SNOWMAN_BAMWALKER 1
-#define MIN_MAPQ_FOR_MATE_LOOKUP 1
+#define MIN_MAPQ_FOR_MATE_LOOKUP 0
 
 static const std::string FWD_ADAPTER_A = "AGATCGGAAGAGC";
 static const std::string FWD_ADAPTER_B = "AGATCGGAAAGCA";
