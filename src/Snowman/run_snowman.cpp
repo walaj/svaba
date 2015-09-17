@@ -25,8 +25,14 @@
 #define GET_MATES 1
 #define MICROBE 1
 
+struct bidx_delete {
+  void operator()(void* x) { hts_idx_destroy((hts_idx_t*)x); }
+};
+
+typedef std::unordered_map<std::string, std::shared_ptr<hts_idx_t>> BamIndexMap;
 typedef std::unordered_map<std::string, std::string> BamMap;
 
+static BamIndexMap bindices;
 static faidx_t * findex;
 static faidx_t * findex_viral;
 
@@ -187,6 +193,7 @@ static const char *RUN_USAGE_MESSAGE =
 "      --write-extracted-reads          For the tumor BAM, write the extracted reads (those sent to assembly) to a BAM file. Good for debugging.\n"
 "      --no-adapter-trim                Don't peform Illumina adapter trimming, which removes reads with AGATCGGAAGAGC present.\n"
 "      --assemble-by-tag                Separate the assemblies and read-to-contig mapping by the given read tag. Useful for 10X Genomics data (e.g. --aseembly-by-tag BX).\n"
+"      --no-assemble-normal             Don't kmer correct or assembly normal reads. Still maps normal reads to contigs. Increases speed for somatic-only queries.\n"
 "  Assembly params\n"
 "      --write-asqg                     Output an ASQG graph file for each 5000bp window. Default: false\n"
 "  -e, --error-rate                     Fractional difference two reads can have to overlap. See SGA param. 0 is fast, but requires exact. Default: 0.05\n"
@@ -322,6 +329,13 @@ void runSnowman(int argc, char** argv) {
     indel_blacklist_mask.regionFileToGRV(opt::indel_mask, 0, bwalker.header(), chr_in_header);
     indel_blacklist_mask.createTreeMap();
     std::cerr << "...read in " << blacklist.size() << " blacklist regions " << std::endl;
+  }
+
+  // open the Bam Headeres
+  if (opt::verbose)
+    std::cerr << "...loading BAM indices" << std::endl;
+  for (auto& b : opt::bam) {
+    bindices[b.first] = std::shared_ptr<hts_idx_t>(hts_idx_load(b.first.c_str(), HTS_FMT_BAI), bidx_delete());
   }
 
   // parse the region file, count number of jobs
@@ -586,7 +600,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
       walkers[b.first].prefix = b.second;
       walkers[b.first].blacklist = blacklist;
       if (!region.isEmpty())
-	walkers[b.first].setBamWalkerRegion(region);
+	walkers[b.first].setBamWalkerRegion(region, bindices[b.first]);
       walkers[b.first].SetMiniRulesCollection(*mr);
 	
       // read the reads
@@ -660,7 +674,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
   for (auto& b : opt::bam)
     {
       int oreads = walkers[b.first].reads.size();
-      walkers[b.first].setBamWalkerRegions(somatic_mate_regions.asGenomicRegionVector());
+      walkers[b.first].setBamWalkerRegions(somatic_mate_regions.asGenomicRegionVector(), bindices[b.first]);
       walkers[b.first].get_coverage = false;
       walkers[b.first].disc_only = opt::disc_cluster_only;
       walkers[b.first].max_cov = opt::max_cov;
@@ -694,10 +708,26 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 
 
   // do the kmer filtering
+  BamReadVector bav_this_tum, bav_this_norm;
   if (!opt::disc_cluster_only) {
     KmerFilter kmer;
-    kmer.correctReads(bav_this);
+    int kmer_corrected = 0;
+
+    if (!opt::no_assemble_normal)
+      kmer_corrected = kmer.correctReads(bav_this);
+    else {
+      for (auto& r : bav_this)
+	if (r.GetZTag("SR").at(0) == 't')
+	  bav_this_tum.push_back(r);
+	else
+	  bav_this_norm.push_back(r);
+      kmer_corrected = kmer.correctReads(bav_this_tum);
+      bav_this = bav_this_tum;
+      bav_this.insert(bav_this.end(), bav_this_norm.begin(), bav_this_norm.end());
+    }
     st.stop("k");
+    if (opt::verbose > 2)
+      std::cerr << "...kmer corrected " << kmer_corrected << " reads of " << bav_this.size() << std::endl;
   }
   
   // do the discordant read clustering
@@ -769,8 +799,11 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 	// do the assemblies
 	if (opt::assemb::writeASQG)
 	  engine.setToWriteASQG();
-	engine.fillReadTable(bav_this);
-	
+	if (!opt::no_assemble_normal)
+	  engine.fillReadTable(bav_this);
+	else
+	  engine.fillReadTable(bav_this_tum);	
+
 	engine.performAssembly();
 	
 	all_contigs_this = engine.getContigs();
@@ -959,6 +992,8 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
   //std::sort(bp_glob_secondary.begin(), bp_glob_secondary.end());
   //bp_glob_secondary.erase( std::unique( bp_glob_secondary.begin(), bp_glob_secondary.end() ), bp_glob_secondary.end() );
   
+  if (opt::verbose > 2)
+    std::cerr << "...integrating coverage counts" << std::endl;
   // add the coverage data to breaks for allelic fraction computation
   SnowTools::STCoverage * t_cov = nullptr;
   SnowTools::STCoverage * n_cov = nullptr;
@@ -968,30 +1003,45 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
     else 
       n_cov = &walkers[b.first].cov;
   }
+
+  if (opt::verbose > 2)
+    std::cerr << "...adding allelic fractions" << std::endl;
+
   for (auto& i : bp_glob)
     i.addAllelicFraction(t_cov, n_cov);
  
   // score them and set somatic / germline
+  if (opt::verbose > 2)
+    std::cerr << "...scoring breakpoints" << std::endl;
+
   for (auto& i : bp_glob)
     i.scoreBreakpoint();
 
 
   // add teh ref and alt tags
+  if (opt::verbose > 2)
+    std::cerr << "...setting ref and alt" << std::endl;
   for (auto& i : bp_glob)
     i.setRefAlt(findex, findex_viral);
- 
 
   ////////////////////////////////////
   // MUTEX LOCKED
   ////////////////////////////////////
   // write to the global contig out
   pthread_mutex_lock(&snow_lock);  
+
+  if (opt::verbose > 2)
+    std::cerr << "...dumping files" << std::endl;
   
   // dump the cigmaps
   for (auto& i : cigmap_n) 
     os_cigmap << i.first << "\t" << i.second << "\tN" << endl;
   for (auto& i : cigmap_t) 
     os_cigmap << i.first << "\t" << i.second << "\tT" << endl;
+
+  if (opt::verbose > 2)
+    std::cerr << "...writing alignments plot" << std::endl;
+  
   
   // print the alignment plots
   size_t contig_counter = 0;
@@ -1000,6 +1050,9 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
       all_align << i << std::endl;
       ++contig_counter;
     }
+
+  if (opt::verbose > 2)
+    std::cerr << "...dumping discordant" << std::endl;
   
   // send the microbe to file
   for (auto& b : all_microbial_contigs)
@@ -1026,6 +1079,9 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
   
 #ifndef NO_LOAD_INDEX
   // write ALL contigs
+  if (opt::verbose > 2)
+    std::cerr << "...writing contigs" << std::endl;
+
   if (!opt::disc_cluster_only)  
   for (auto& i : all_contigs)
     b_allwriter.WriteAlignment(i);

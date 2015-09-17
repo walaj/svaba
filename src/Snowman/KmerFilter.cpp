@@ -9,10 +9,14 @@ int KmerFilter::correctReads(BamReadVector& vec) {
   if (!pBWT)
     return 0;
 
+  if (!vec.size())
+    return 0;
+
   int corrected_reads = 0;
 
-  int intervalCacheLength = 10; // SGA defaul
-  BWTIntervalCache* pIntervalCache = new BWTIntervalCache(intervalCacheLength, pBWT);
+  //int intervalCacheLength = 10; // SGA defaul
+  int intervalCacheLength = 1; //vec[0].Length();
+  BWTIntervalCache* pIntervalCache = nullptr; //new BWTIntervalCache(intervalCacheLength, pBWT);
   BWTIndexSet indices; //(pBWT, pRBWT, nullptr, pIntervalCache);
   indices.pBWT = pBWT;
   indices.pCache = pIntervalCache;
@@ -49,7 +53,13 @@ int KmerFilter::correctReads(BamReadVector& vec) {
 
       for(int i = 0; i < nk; ++i)
         {
-	  std::string kmer = readSequence.substr(i, 31);
+	  std::string kmer;
+	  try { 
+	    kmer = readSequence.substr(i, 31);
+	  } catch (...) {
+	    std::cerr << "KmerFilter substr out of bounds. seqlen " << readSequence.length() << 
+	      " stat " << i << " length " << 31 << std::endl;
+	  }
 	  
 	  int count = 0;
 	  KmerCountMap::iterator iter = kmerCache.find(kmer);
@@ -150,7 +160,14 @@ bool KmerFilter::attemptKmerCorrection(size_t i, size_t k_idx, size_t minCount, 
   assert(i >= k_idx && i < k_idx + m_kmer_len);
   size_t base_idx = i - k_idx;
   char originalBase = readSequence[i];
-  std::string kmer = readSequence.substr(k_idx, m_kmer_len);
+  std::string kmer;
+  try {
+    kmer = readSequence.substr(k_idx, m_kmer_len);
+  } catch(...) {
+    std::cerr << "KmerFilter::attemptKmerCorrection substr out of bounds. seqlen " << readSequence.length() << 
+      " start " << k_idx << " length " << m_kmer_len << std::endl;
+
+  }
   size_t bestCount = 0;
   char bestBase = '$';
 
