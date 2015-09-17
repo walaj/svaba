@@ -7,6 +7,7 @@
 static const std::string FWD_ADAPTER_A = "AGATCGGAAGAGC";
 static const std::string FWD_ADAPTER_B = "AGATCGGAAAGCA";
 static const std::string REV_ADAPTER = "GCTCTTCCGATCT";
+static std::stringstream cigar_ss;
 
 void SnowmanBamWalker::addCigar(BamRead &r)
 {
@@ -14,16 +15,16 @@ void SnowmanBamWalker::addCigar(BamRead &r)
   if (r.CigarSize() == 0)
     return;
 
-  std::stringstream ss;
+  cigar_ss.str(std::string());
   int pos = r.Position(); // position ON REFERENCE
   
   for (auto& i : r.GetCigar()) {
       // if it's a D or I, add it to the list
       if (i.Type == 'D' || i.Type == 'I') {	
-	//ss << r_id(r) << "_" << pos << "_" << /*r_cig_len(r,i) <<*/ r_cig_type(r, i);
-	ss << r.ChrID() << "_" << pos << "_" << i.Length << i.Type;
-	cigmap[ss.str()]++;
-	ss.str("");
+	//cigar_ss << r_id(r) << "_" << pos << "_" << /*r_cig_len(r,i) <<*/ r_cig_type(r, i);
+	cigar_ss << r.ChrID() << "_" << pos << "_" << i.Length << i.Type;
+	cigmap[cigar_ss.str()]++;
+	cigar_ss.str(std::string());
       }
       
     // move along the REFERENCE
@@ -39,7 +40,8 @@ bool SnowmanBamWalker::isDuplicate(BamRead &r)
 {
 
   // deduplicate by query-bases / position
-  std::string sname = std::to_string(r.Position()) + "_" + std::to_string(r.MatePosition()); // + r.Sequence();    
+  int pos_key = r.Position() + r.MatePosition();
+  //std::string sname = std::to_string(r.Position()) + "_" + std::to_string(r.MatePosition()); // + r.Sequence();    
   // deduplicate by Name
   //std::string uname = r.Qname() + "_" + std::to_string(r.FirstFlag());
   
@@ -49,9 +51,9 @@ bool SnowmanBamWalker::isDuplicate(BamRead &r)
   //  uname_pass = true;
   //  name_map.insert(std::pair<std::string, int>(uname, true));
   //} 
-  if (seq_set.count(sname) == 0) {
+  if (seq_set.count(pos_key/*sname*/) == 0) {
     sname_pass = true;
-    seq_set.insert(sname);
+    seq_set.insert(/*sname*/pos_key);
     //seq_set.insert(std::pair<std::string, int>(sname, true));
   }
   
@@ -107,7 +109,7 @@ void SnowmanBamWalker::readBam()
 	weird_cov.addRead(r);
 
       // add to the cigar map for all non-duplicate reads
-      if (qcpass)
+      if (qcpass && get_mate_regions) // only add cigar for non-mate regions
 	addCigar(r);
 
       bool is_dup = isDuplicate(r);
@@ -309,6 +311,8 @@ void SnowmanBamWalker::calculateMateRegions() {
 
 }
 
+
+// defunct
 void SnowmanBamWalker::removeRepeats()
 {
 #ifdef DEBUG_SNOWMAN_BAMWALKER
@@ -329,8 +333,9 @@ void SnowmanBamWalker::removeRepeats()
 
   for (auto& r : reads)
     {
-      int dum = 0;
-      std::string seq = r.QualityTrimmedSequence(4, dum);
+      //bool was_trimmed = false;
+      //std::string seq = r.QualityTrimmedSequence(4, dum, was_trimmed);
+      std::string seq = ""; // dummy
 
       if (seq.length() >= 40)
 	if ((seq.find(POLYT) == std::string::npos) && 

@@ -3,6 +3,7 @@
 
 #include <vector>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "KmerFilter.h"
 #include "SnowTools/BamWalker.h"
@@ -39,23 +40,23 @@ class SnowmanBamWalker: public SnowTools::BamWalker
 
   SnowmanBamWalker() {}
 
-  SnowmanBamWalker(const std::string& in) : SnowTools::BamWalker(in) {}
+  SnowmanBamWalker(const std::string& in) : SnowTools::BamWalker(in) {  }
 
     void readBam();
 
     void filterMicrobial(SnowTools::BWAWrapper * b);
 
-  void KmerCorrect();
-  
-  bool hasAdapter(const BamRead& r) const;
-
-  void addCigar(BamRead &r);
-
-  bool isDuplicate(BamRead &r);
-
-  void subSampleToWeirdCoverage(double max_coverage);
-
-  void calculateMateRegions();
+    void KmerCorrect();
+    
+    bool hasAdapter(const BamRead& r) const;
+    
+    void addCigar(BamRead &r);
+    
+    bool isDuplicate(BamRead &r);
+    
+    void subSampleToWeirdCoverage(double max_coverage);
+    
+    void calculateMateRegions();
 
   void removeRepeats();
 
@@ -93,7 +94,8 @@ class SnowmanBamWalker: public SnowTools::BamWalker
   // might want these in case we are looking for duplicates
   //std::unordered_map<std::string, bool> name_map;
   //std::unordered_map<std::string, bool> seq_map;
-  std::set<std::string> seq_set;
+  //std::unordered_set<std::string> seq_set;
+  std::unordered_set<int> seq_set;
 
   size_t m_limit = 0;
 

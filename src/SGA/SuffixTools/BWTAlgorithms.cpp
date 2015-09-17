@@ -35,10 +35,12 @@ BWTInterval BWTAlgorithms::findInterval(const BWT* pBWT, const std::string& w)
 // some of the iterations
 BWTInterval BWTAlgorithms::findIntervalWithCache(const BWT* pBWT, const BWTIntervalCache* pIntervalCache, const std::string& w)
 {
-    size_t cacheLen = pIntervalCache->getCachedLength();
-    if(w.size() < cacheLen)
-        return findInterval(pBWT, w);
-    
+
+  size_t cacheLen = pIntervalCache->getCachedLength();
+
+  if(w.size() < cacheLen)
+    return findInterval(pBWT, w);
+
     // Compute the interval using the cache for the last k bases
     int len = w.size();
     int j = len - cacheLen;

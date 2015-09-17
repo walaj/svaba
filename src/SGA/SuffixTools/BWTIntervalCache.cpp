@@ -25,14 +25,25 @@ void BWTIntervalCache::build(const BWT* pBWT)
     size_t num_entries = 1 << 2*m_kmer;
     m_table.resize(num_entries);
 
+    //debug
+    //std::cerr << "num entries " << num_entries << " m_kmer " << m_kmer << std::endl;
+
     // Construct the table
     for(size_t i = 0; i < num_entries; ++i)
     {
         std::string w = int2string(i);
+
+	//debug
+	//std::cerr << w << std::endl;
+
         //printf("i: %zu w: %s o: %zu\n", i, w.c_str(), string2int(w));
         BWTInterval interval = BWTAlgorithms::findInterval(pBWT, w);
         m_table[i] = interval;
     }
+
+    //debug
+    //std::cerr << "m_table.size() " << m_table.size() << std::endl;
+
 }
 
 // Construct the corresponding string for integer i
