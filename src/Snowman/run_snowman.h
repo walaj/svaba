@@ -24,7 +24,7 @@ int overlapSize(const BamRead& query, const BamReadVector& subject);
 bool hasRepeat(const std::string& seq);
 void parseRunOptions(int argc, char** argv);
 void runSnowman(int argc, char** argv);
-void learnParameters();
+void learnParameters(const SnowTools::GRC& regions);
 int countJobs(SnowTools::GRC &file_regions, SnowTools::GRC &run_regions);
 void sendThreads(SnowTools::GRC& regions_torun);
 bool runBigChunk(const SnowTools::GenomicRegion& region); 

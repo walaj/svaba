@@ -4,12 +4,14 @@
 #include <vector>
 #include <unordered_map>
 #include <unordered_set>
+#include <sstream>
 
 #include "KmerFilter.h"
 #include "SnowTools/BamWalker.h"
 #include "SnowTools/STCoverage.h"
 #include "SnowTools/BWAWrapper.h"
 #include "SnowTools/Fractions.h"
+#include "SnowTools/DBSnpFilter.h"
 
 #include "htslib/khash.h"
 
@@ -33,76 +35,78 @@ class MateRegion: public SnowTools::GenomicRegion
 
 typedef SnowTools::GenomicRegionCollection<MateRegion> MateRegionVector;
 
-class SnowmanBamWalker: public SnowTools::BamWalker
-{
+class SnowmanBamWalker: public SnowTools::BamWalker {
   
  public:
-
+  
   SnowmanBamWalker() {}
-
-  SnowmanBamWalker(const std::string& in) : SnowTools::BamWalker(in) {  }
-
-    void readBam();
-
-    void filterMicrobial(SnowTools::BWAWrapper * b);
-
-    void KmerCorrect();
-    
-    bool hasAdapter(const BamRead& r) const;
-    
-    void addCigar(BamRead &r);
-    
-    bool isDuplicate(BamRead &r);
-    
-    void subSampleToWeirdCoverage(double max_coverage);
-    
-    void calculateMateRegions();
-
+  
+ SnowmanBamWalker(const std::string& in) : SnowTools::BamWalker(in) {  }
+  
+  void readBam(const SnowTools::DBSnpFilter* dbs = nullptr);
+  
+  void filterMicrobial(SnowTools::BWAWrapper * b);
+  
+  void KmerCorrect();
+  
+  bool hasAdapter(const BamRead& r) const;
+  
+  bool addCigar(BamRead &r, const SnowTools::DBSnpFilter* d = nullptr);
+  
+  bool isDuplicate(BamRead &r);
+  
+  void subSampleToWeirdCoverage(double max_coverage);
+  
+  void calculateMateRegions();
+  
   void removeRepeats();
-
+  
   bool get_coverage = true;
   bool get_mate_regions = true;
-
+  
   SnowTools::GRC blacklist;
-
+  
   //ReadVec reads;
   BamReadVector reads;
-
+  
   STCoverage cov, weird_cov;
-
+  
   CigarMap cigmap;
   
   //SnowTools::GenomicRegion coverage_region;
-
+  
   size_t max_weird_cov = 100;
-
+  
   MateRegionVector mate_regions;
-
+  
   SnowTools::ReadCount rc;
-
-  std::string prefix = ""; // eg. tumor, normal
-
+  
+  std::string prefix; // eg. tumor, normal
+  
   size_t max_cov = 100;
-
+  
   bool do_kmer_filtering = true;
-
+  
   bool disc_only = false;
   
   bool adapter_trim = true;
- private:
 
+  //std::stringstream cigr;
+ private:
+  
+  // private string stream. Initialize once here for speed
+
+  
   // might want these in case we are looking for duplicates
   //std::unordered_map<std::string, bool> name_map;
   //std::unordered_map<std::string, bool> seq_map;
   //std::unordered_set<std::string> seq_set;
   std::unordered_set<int> seq_set;
-
+  
   size_t m_limit = 0;
-
+  
   uint32_t m_seed = 1337;
-
-
-
+  
 };
 
 #endif

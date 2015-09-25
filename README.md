@@ -1,4 +1,4 @@
-
+[![Build Status](https://magnum.travis-ci.com/broadinstitute/SnowmanSV.svg?token=QTnp48gNXtKQKRDpquf3&branch=master)](https://magnum.travis-ci.com/broadinstitute/SnowmanSV)
 
 Snowman - Structural Variation detection by String Graph Assembly
 =================================================================

@@ -21,7 +21,7 @@ class SnowmanAssemblerEngine
 
     void fillReadTable(const std::vector<std::string>& r);
 
-    bool performAssembly();
+    bool performAssembly(int num_assembly_rounds);
 
     void doAssembly(ReadTable *pRT, ContigVector &contigs, int pass);
 
