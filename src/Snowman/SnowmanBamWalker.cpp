@@ -4,19 +4,25 @@
 //#define DEBUG_SNOWMAN_BAMWALKER 1
 #define MIN_MAPQ_FOR_MATE_LOOKUP 0
 
+//#define DEBUG_GIVEN_READ 1
+//#define QNAME "D0GU6ACXX120106:1:1104:18128:48663"
+
+static const std::string ILLUMINA_PE_PRIMER_2p0 = "CAAGCAGAAGACGGCAT";
 static const std::string FWD_ADAPTER_A = "AGATCGGAAGAGC";
 static const std::string FWD_ADAPTER_B = "AGATCGGAAAGCA";
 static const std::string REV_ADAPTER = "GCTCTTCCGATCT";
-static std::stringstream cigar_ss;
 
-void SnowmanBamWalker::addCigar(BamRead &r)
+bool SnowmanBamWalker::addCigar(BamRead &r, const SnowTools::DBSnpFilter* d)
 {
+
   // this is a 100% match
   if (r.CigarSize() == 0)
-    return;
-
+    return true;
+  std::stringstream cigar_ss;
   cigar_ss.str(std::string());
   int pos = r.Position(); // position ON REFERENCE
+
+  bool has_dbsnp_hit = false;
   
   for (auto& i : r.GetCigar()) {
       // if it's a D or I, add it to the list
@@ -24,6 +30,12 @@ void SnowmanBamWalker::addCigar(BamRead &r)
 	//cigar_ss << r_id(r) << "_" << pos << "_" << /*r_cig_len(r,i) <<*/ r_cig_type(r, i);
 	cigar_ss << r.ChrID() << "_" << pos << "_" << i.Length << i.Type;
 	cigmap[cigar_ss.str()]++;
+	if (d) {
+	  cigar_ss.str(std::string());
+	  cigar_ss << r.ChrID() << "_" << pos;
+	  has_dbsnp_hit = d->queryHash(cigar_ss.str());
+	}
+	//std::cerr << d << " has_db " << has_dbsnp_hit << " hash " << cigar_ss.str() << std::endl;
 	cigar_ss.str(std::string());
       }
       
@@ -32,7 +44,7 @@ void SnowmanBamWalker::addCigar(BamRead &r)
       pos += i.Length;
   }
   
-  return;
+  return has_dbsnp_hit;
   
 }
 
@@ -40,7 +52,7 @@ bool SnowmanBamWalker::isDuplicate(BamRead &r)
 {
 
   // deduplicate by query-bases / position
-  int pos_key = r.Position() + r.MatePosition();
+  int pos_key = r.Position()*10 + r.MatePosition() + 1000 * r.NumMatchBases() + 12345 * r.AlignmentFlag();
   //std::string sname = std::to_string(r.Position()) + "_" + std::to_string(r.MatePosition()); // + r.Sequence();    
   // deduplicate by Name
   //std::string uname = r.Qname() + "_" + std::to_string(r.FirstFlag());
@@ -62,7 +74,7 @@ bool SnowmanBamWalker::isDuplicate(BamRead &r)
 
 }
 
-void SnowmanBamWalker::readBam()
+void SnowmanBamWalker::readBam(const SnowTools::DBSnpFilter* dbs)
 {
   
   BamRead r;
@@ -86,6 +98,11 @@ void SnowmanBamWalker::readBam()
   while (GetNextRead(r, rule_pass))
     {
 
+#ifdef DEBUG_GIVEN_READ
+      if (r.Qname() == QNAME) 
+	std::cerr << " read seen " << r << std::endl;
+#endif
+
       bool qcpass = !r.DuplicateFlag() && !r.QCFailFlag() && !r.SecondaryFlag();
 
       // add to all reads pile for kmer correction
@@ -108,16 +125,24 @@ void SnowmanBamWalker::readBam()
       if (rule_pass)
 	weird_cov.addRead(r);
 
+      bool dbsnp_fail = false;
       // add to the cigar map for all non-duplicate reads
       if (qcpass && get_mate_regions) // only add cigar for non-mate regions
-	addCigar(r);
+	dbsnp_fail = addCigar(r, dbs);
+      dbsnp_fail = dbsnp_fail && (r.MaxInsertionBases() || r.MaxDeletionBases());
 
       bool is_dup = isDuplicate(r);
       //bool is_dup = false;
 
+#ifdef DEBUG_GIVEN_READ
+      if (r.Qname() == QNAME) 
+	std::cerr << " read has qcpass " << qcpass << " blacklisted " << blacklisted << " rule_pass " << rule_pass << " isDup " << is_dup << " " << r << std::endl;
+#endif
+
+
       //if (!rule_pass)
       //r.AddIntTag("VR", -1); 
-      if (rule_pass && !is_dup)
+      if (rule_pass && !is_dup && (!dbsnp_fail || !(r.MaxInsertionBases() || r.MaxDeletionBases())))
 	{
 	  // optional tag processing
 	  //r.RemoveAllTags(); // cut down on memory
@@ -144,6 +169,12 @@ void SnowmanBamWalker::readBam()
 	  // get the weird coverage
 	  weird_cov.addRead(r);
 
+#ifdef DEBUG_GIVEN_READ
+      if (r.Qname() == QNAME) 
+	std::cerr << " read added " << r << std::endl;
+#endif
+
+
 	  reads.push_back(r); // adding later because of kmer correction
 
 	  // check that we're not above the read limit
@@ -153,6 +184,13 @@ void SnowmanBamWalker::readBam()
 	}
     } // end the read loop
 
+#ifdef DEBUG_GIVEN_READ
+  for (auto& j : reads)
+      if (j.Qname() == QNAME) 
+	std::cerr << " read KEPT right after loop " << j << std::endl;
+#endif
+
+
   // clear out the added reads if hit limit on mate lookup
   if (m_keep_limit > 0 && m_num_reads_kept*1.05 > m_keep_limit) {
     BamReadVector tmpr;
@@ -160,6 +198,12 @@ void SnowmanBamWalker::readBam()
       tmpr.push_back(reads[i]);
     reads = tmpr;
   }
+
+#ifdef DEBUG_GIVEN_READ
+  for (auto& j : reads)
+      if (j.Qname() == QNAME) 
+	std::cerr << " read KEPT-PREFILTER " << j << std::endl;
+#endif
 
   if (reads.size() < 3)
     return;
@@ -170,10 +214,23 @@ void SnowmanBamWalker::readBam()
   // clean out the buffer
   subSampleToWeirdCoverage(max_cov);
 
+#ifdef DEBUG_GIVEN_READ
+  for (auto& j : reads)
+      if (j.Qname() == QNAME) 
+	std::cerr << " read KEPT-POST SUBSAMPLE " << j << std::endl;
+#endif
+
   // calculate the mate region
   if (get_mate_regions && m_region.size() /* don't get mate regions if reading whole bam */) {
     calculateMateRegions();
   }
+
+#ifdef DEBUG_GIVEN_READ
+  for (auto& j : reads)
+      if (j.Qname() == QNAME) 
+	std::cerr << " read KEPT " << j << std::endl;
+#endif
+
   
 }
 
@@ -366,7 +423,7 @@ void SnowmanBamWalker::filterMicrobial(SnowTools::BWAWrapper * b) {
 
   for (auto& r : reads) {
     BamReadVector micro_alignments;
-    b->alignSingleSequence(r.Sequence(), r.Qname(), micro_alignments, true);
+    b->alignSingleSequence(r.Sequence(), r.Qname(), micro_alignments, true, 1000);
     if (micro_alignments.size() == 0)
       new_reads.push_back(r);
     else if (micro_alignments[0].NumMatchBases() <= r.Length() * 0.8)
@@ -384,12 +441,16 @@ void SnowmanBamWalker::filterMicrobial(SnowTools::BWAWrapper * b) {
 bool SnowmanBamWalker::hasAdapter(const BamRead& r) const {
 
   // keep it if it has indel
-  if (r.MaxDeletionBases() || r.MaxInsertionBases() || !r.InsertSize() || r.NumClip() < 5)
+  if (r.MaxDeletionBases() || r.MaxInsertionBases() || !r.InsertSize() || !r.NumClip())
     return false;
   
   // toss it then if isize explans clip
   int exp_ins_size = r.Length() - r.NumClip(); // expected isize if has adapter
   if ((exp_ins_size - 4) < std::abs(r.InsertSize()) && (exp_ins_size+4) > std::abs(r.InsertSize()))
+    return true;
+
+  std::string seq = r.Sequence();
+  if (seq.find(ILLUMINA_PE_PRIMER_2p0) != std::string::npos)
     return true;
 
   return false;

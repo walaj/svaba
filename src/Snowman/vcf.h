@@ -3,6 +3,7 @@
 
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 #include "SnowTools/GenomicRegion.h"
 #include "SnowTools/AlignedContig.h"
@@ -71,21 +72,14 @@ struct VCFEntry {
   VCFEntry(string line, string method);
   VCFEntry(const SnowTools::BreakEnd& b);
 
-  SnowTools::BreakEnd be;
-  string id;
-  string ref;
-  string alt;
-  int qual = -1; //".";
-  string filter = "NA";
-  string format;
-  string samp1;
-  string samp2;  
-  
-  string idcommon;
+  // data
+  SnowTools::ReducedBreakPoint* bp;
+  uint32_t id:30, id_num:2;
 
-  unordered_map<string, string> info_fields;
-
-  FormatRecordMap format_fields;
+  std::string getRefString() const;
+  std::string getAltString() const;
+  std::string getIdString() const;
+  std::pair<std::string, std::string> getSampStrings() const;
 
   // output it to a string
   friend ostream& operator<<(ostream& out, const VCFEntry& v);
@@ -95,42 +89,28 @@ struct VCFEntry {
 
   bool operator==(const VCFEntry &v) const;
 
+  std::unordered_map<std::string, std::string> fillInfoFields() const;
+
 };
 
 typedef vector<VCFEntry> VCFEntryVec;
 
 struct VCFEntryPair {
 
-  VCFEntryPair(const SnowTools::BreakPoint& b, const std::string& id);
+  VCFEntryPair(SnowTools::ReducedBreakPoint * b);
   VCFEntryPair() {};
   ~VCFEntryPair() {};
 
-  VCFEntry e1;
-  VCFEntry e2;
-
-  string method;
-  string idcommon;
-
-  vector<string> samples;
-
-  string overlap_partner = "";
-
-  SupportingReadsMap supp_reads;
+  // data
+  VCFEntry e1, e2;
+  SnowTools::ReducedBreakPoint * bp;
+  //SupportingReadsMap supp_reads;
 
   bool getOverlaps(int pad, VCFEntryPair &v);
 
-  bool hasOverlap() const { return overlap_partner != ""; }
-  
   void addCommonInfoTag(string tag, string value);
 
   string toCSVString() const;
-
-  int tsplit = 0;
-  int nsplit = 0;
-  int tdisc = 0;
-  int ndisc = 0;
-
-  bool indel = false;
 
   // output it to a string
   friend ostream& operator<<(ostream& out, const VCFEntryPair& v);
@@ -138,8 +118,8 @@ struct VCFEntryPair {
 };
 
 typedef vector<VCFEntryPair> VCFEntryPairVec;
-typedef unordered_map<string, VCFEntryPair> VCFEntryPairMap;
-typedef unordered_map<string, VCFEntry> VCFEntryMap;
+typedef unordered_map<int, VCFEntryPair*> VCFEntryPairMap;
+typedef unordered_map<int, VCFEntry> VCFEntryMap;
 
 // declare a structure to hold the entire VCF
 struct VCFFile {
@@ -157,13 +137,13 @@ struct VCFFile {
 
   string analysis_id; 
 
-  set<string> dups;
+  unordered_set<int> dups;
 
   //  VCFHeader header;
   VCFHeader indel_header;
   VCFHeader sv_header;
   VCFEntryPairMap entry_pairs;
-  VCFEntryMap indels;
+  VCFEntryPairMap indels;
   
   bool include_nonpass = false;
 

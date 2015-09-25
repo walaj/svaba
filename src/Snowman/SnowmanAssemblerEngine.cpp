@@ -97,7 +97,7 @@ bool SnowmanAssemblerEngine::hasRepeat(const std::string& seq) {
 
 }
 
-bool SnowmanAssemblerEngine::performAssembly() 
+bool SnowmanAssemblerEngine::performAssembly(int num_assembly_rounds) 
 {
   if (m_pRT.getCount() < 3)
     return false;
@@ -118,7 +118,7 @@ bool SnowmanAssemblerEngine::performAssembly()
   
   //m_contigs = contigs0; return true; //debug
 
-  for (size_t yy = 1; yy != (NUM_ROUNDS); yy++) {
+  for (size_t yy = 1; yy != (num_assembly_rounds+1); yy++) {
 
     if (contigs0.size() < 2) {
       for (auto& c: contigs0)

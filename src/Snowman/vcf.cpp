@@ -14,13 +14,23 @@
 #include "htslib/tbx.h"
 #include "htslib/bgzf.h"
 
+#define VCF_SECONDARY_CAP 10
+
 using namespace std;
 
-static faidx_t * findex;
+static string sv_format = "NALT:NALT_RP:NALT_SR:READ_ID";
+static string indel_format = "NALT:READ_ID";
 static InfoMap flag_map;
-static InfoMap union_info_fields;
+static int global_id = 0;
 
-static std::unordered_map<size_t, std::string> chr_number_to_string;
+static std::unordered_map<std::string, int> cname_count;
+
+void __write_to_zip_vcf(const VCFEntry& v, BGZF * f) {
+  stringstream ss;
+  ss << v << endl;
+  if (!bgzf_write(f, ss.str().c_str(), ss.str().length())) 
+    cerr << "Could not write bzipped vcf for line " << ss.str() << endl;
+}
 
 // forward declare
 void tabixVcf(const string &fn);
@@ -40,26 +50,16 @@ std::ostream& operator<<(std::ostream& out, const VCFHeader& v) {
   out << "##source="     << v.source << endl;
   out << "##reference="  << v.reference << endl;
 
-  //output the contig information
   for (ContigFieldMap::const_iterator it = v.contigfieldmap.begin(); it != v.contigfieldmap.end(); it++)
     out << "##contig=<ID=" << it->first << "," << it->second << ">" << endl;
-  
-  //output the info information
   for (InfoMap::const_iterator it = v.infomap.begin(); it != v.infomap.end(); it++)
     out << "##INFO=<ID=" << it->first << "," << it->second << ">" << endl;
-										
-  //output the filter information
   for (FilterMap::const_iterator it = v.filtermap.begin(); it != v.filtermap.end(); it++) 
     out << "##FILTER=<ID=" << it->first << "," << it->second << ">" << endl;  
-
-  //output the format information
   for (FormatMap::const_iterator it = v.formatmap.begin(); it != v.formatmap.end(); it++) 
     out << "##FORMAT=<ID=" << it->first << "," << it->second << ">" << endl;  
-
-  //output the sample information
   for (SampleMap::const_iterator it = v.samplemap.begin(); it != v.samplemap.end(); it++) 
     out << "##SAMPLE=<ID=" << it->first << ">" << endl;  
-
 
   // output the colnames
   out << v.colnames;
@@ -128,40 +128,42 @@ void VCFHeader::addSampleField(string field) {
 // print out the VCF Entry
 std::ostream& operator<<(std::ostream& out, const VCFEntry& v) {
 
+  std::unordered_map<std::string, std::string> info_fields = v.fillInfoFields();
+
   // move to a vector to be sorted
-  bool imprecise = false;
   vector<pair<string, string> > tmpvec; // id, evertythign else
-  for (InfoMap::const_iterator it = v.info_fields.begin(); it != v.info_fields.end(); it++) {
-    if (it->first == "IMPRECISE")
-      imprecise = true;
-    if (it->second != "")
-      tmpvec.push_back(pair<string,string>(it->first, it->second)); // id, d
-  }
+  for (InfoMap::const_iterator it = info_fields.begin(); it != info_fields.end(); it++) 
+    tmpvec.push_back(pair<string,string>(it->first, it->second)); 
   sort(tmpvec.begin(), tmpvec.end(), compareInfoFields); // sort it
 
   string info;
   string equals = "=";
-  for (vector<pair<string, string> >::const_iterator it = tmpvec.begin(); it != tmpvec.end(); it++)
-    if (!(it->first == "HOMSEQ" && imprecise) && !(it->first=="HOMLEN" && imprecise) && !(it->first=="INSERTION" && imprecise))// dont print some fields if imprecise
+  for (vector<pair<string, string> >::const_iterator it = tmpvec.begin(); it != tmpvec.end(); it++) {
+    if (!(it->first == "HOMSEQ" && v.bp->imprecise) && !(it->first=="HOMLEN" && v.bp->imprecise) && !(it->first=="INSERTION" && v.bp->imprecise))// dont print some fields if imprecise
       info = info + it->first + ( (flag_map.count(it->first) == 0) ? "=" : "") + it->second + ";"; // dont print = for flags
+  }
 
   // trim the last semicolon from info
   if (info.length() > 0)
     info = info.substr(0, info.length() - 1);
 
   string sep = "\t";
-  string qual_string = (v.qual >= 0) ? std::to_string(v.qual) : ".";
-  //out << SnowTools::GenomicRegion::chrToString(v.chr) << sep 
-  out << v.be.chr_name << sep //chr_number_to_string[v.chr] << sep 
-      << v.be.gr.pos1 << sep << v.id << sep << v.ref << sep << v.alt << sep << v.qual << sep
-      << v.filter << sep << info << sep << v.format << sep << v.samp1 << sep << v.samp2;
+  SnowTools::ReducedBreakEnd * be = v.id_num == 1 ? &v.bp->b1 : &v.bp->b2;
 
+  std::pair<std::string, std::string> samps = v.getSampStrings();
+  out << be->chr_name << sep  
+      << be->gr.pos1 << sep << v.getIdString() << sep << v.getRefString() << sep << v.getAltString() << sep 
+      << v.bp->quality << sep
+      << v.bp->confidence << sep << info << sep 
+      << (v.bp->indel ? indel_format : sv_format) << sep << samps.first << sep << samps.second;
   return out;
 }
 
 // sort the VCFEntry by genomic position
 bool VCFEntry::operator<(const VCFEntry &v) const {
-  return be.gr < v.be.gr;
+  SnowTools::ReducedBreakEnd * be = id_num == 1 ? &bp->b1 : &bp->b2;
+  SnowTools::ReducedBreakEnd * vbe = v.id_num == 1 ? &v.bp->b1 : &v.bp->b2;
+  return be->gr < vbe->gr;    
 }
 
 // create a VCFFile from a snowman breakpoints file
@@ -177,11 +179,6 @@ VCFFile::VCFFile(string file, const char* index, string id, bam_hdr_t * h) {
     cerr << "Can't read file " << file << " for parsing VCF" << endl;
     exit(EXIT_FAILURE);
   }
-
-  // read the reference if not open
-  std::cerr << "...vcf - reading in the reference" << endl;
-  if (!findex)
-    findex = fai_load(index);  // load the reference
 
   // read in the header of the csv
   string line;
@@ -202,6 +199,7 @@ VCFFile::VCFFile(string file, const char* index, string id, bam_hdr_t * h) {
   sv_header.addFilterField("WEAKDISC","Fewer than 7 supporting discordant reads and no assembly support");
   sv_header.addFilterField("TOOSHORT","Contig alignment for part of this rearrangement has <= 25bp match to reference");
   sv_header.addFilterField("PASS", "Strong assembly support, strong discordant support, or combined support. Strong MAPQ"); //3+ split reads, 0 normal split reads, 60/60 contig MAPQ OR 3+ discordant reads or 60/60 MAPQ with 4+ split reads");
+  sv_header.addFilterField("MULTIMATCH", "Low MAPQ and this contig fragment maps well to multiple locations"); //3+ split reads, 0 normal split reads, 60/60 contig MAPQ OR 3+ discordant reads or 60/60 MAPQ with 4+ split reads");
   sv_header.addSampleField(sample_id_norm);
   sv_header.addSampleField(sample_id_tum);
   sv_header.colnames = sv_header.colnames + "\t" + sample_id_norm + "\t" + sample_id_tum;
@@ -212,6 +210,9 @@ VCFFile::VCFFile(string file, const char* index, string id, bam_hdr_t * h) {
   indel_header.addFilterField("WEAKCIGARMATCH","For indels <= 5 bp, require 8+ split reads or 4+ and 3+ cigar matches");
   indel_header.addFilterField("REPEAT", "3+ split reads, 60 contig MAPQ");
   indel_header.addFilterField("PASS", "3+ split reads, 60 contig MAPQ");
+  indel_header.addFilterField("GRAYLISTANDPON", "Indel overlaps with panel of normals, and has overlap with tricky genomic region");
+  indel_header.addFilterField("LOWAF", "Low allelic fraction and few tumor supporting reads");
+  indel_header.addFilterField("LOWNORMCOV", "Fewer than 5 normal reads at this site");
   indel_header.addSampleField(sample_id_norm);
   indel_header.addSampleField(sample_id_tum);
   indel_header.colnames = indel_header.colnames + "\t" + sample_id_norm + "\t" + sample_id_tum;
@@ -245,6 +246,8 @@ VCFFile::VCFFile(string file, const char* index, string id, bam_hdr_t * h) {
   sv_header.addInfoField("TDISC","1","Integer","Number of discordant read pairs from the tumor BAM");
   sv_header.addInfoField("NDISC","1","Integer","Number of discordant read pairs from the normal BAM");
   sv_header.addInfoField("MATEID","1","String","ID of mate breakends");
+  sv_header.addInfoField("SOMATIC","0","Flag","Variant is somatic");
+  sv_header.addInfoField("SUBN","1","Integer","Number of secondary alignments associated with this contig fragment");
 
   sv_header.addFormatField("READ_ID",".","String","ALT supporting Read IDs");
   sv_header.addFormatField("NALT_SR","1","Integer","Number of ALT support Split Reads");           
@@ -257,8 +260,10 @@ VCFFile::VCFFile(string file, const char* index, string id, bam_hdr_t * h) {
   sv_header.addInfoField("SCTG","1","String","Identifier for the contig assembled by SnowmanSV to make the SV call");
   sv_header.addInfoField("INSERTION","1","String","Sequence insertion at the breakpoint.");
   sv_header.addInfoField("SPAN","1","Integer","Distance between the breakpoints. -1 for interchromosomal");
+  sv_header.addInfoField("DISC_MAPQ","1","Integer","Mean mapping quality of discordant reads mapped here");
 
   // add the indel header fields
+  indel_header.addInfoField("SCTG","1","String","Identifier for the contig assembled by SnowmanSV to make the indel call");
   indel_header.addInfoField("MAPQ","1","Integer","Mapping quality (BWA-MEM) of the assembled contig");
   indel_header.addInfoField("SPAN","1","Integer","Size of the indel");
   indel_header.addInfoField("NCIGAR","1","Integer","Number of normal reads with cigar strings supporting this indel");
@@ -275,11 +280,11 @@ VCFFile::VCFFile(string file, const char* index, string id, bam_hdr_t * h) {
   indel_header.addInfoField("NCOV","1","Integer","Normal coverage at break");
   indel_header.addInfoField("TFRAC","1","String","Tumor allelic fraction at break. -1 for undefined");
   indel_header.addInfoField("NFRAC","1","String","Normal allelic fraction at break. -1 for undefined");
-  indel_header.addInfoField("GRAYLIST","1","String","Normal allelic fraction at break. -1 for undefined");
+  indel_header.addInfoField("GRAYLIST","0","Flag","Indel is low quality and cross a difficult region of genome");
+  indel_header.addInfoField("SOMATIC","0","Flag","Variant is somatic");
+  indel_header.addInfoField("PON","1","Integer","Number of normal samples that have this indel present");
 
   // keep track of exact positions to keep from duplicating
-  unordered_map<string,bool> double_check;
-
   // read the reference if not open
   cerr << "...vcf - reading in the breakpoints file" << endl;
 
@@ -288,25 +293,40 @@ VCFFile::VCFFile(string file, const char* index, string id, bam_hdr_t * h) {
   size_t line_count = 0;
   while (getline(infile, line, '\n')) {
 
+    if (line.find("mapq") != std::string::npos)
+      continue;
+
     // parse the breakpoint from the file
-    SnowTools::BreakPoint bp(line, h);
-    //assert(bp.valid());
+    SnowTools::ReducedBreakPoint * bp = new SnowTools::ReducedBreakPoint(line, h);
 
     // add the VCFentry Pair
-    std::string idcommon = std::to_string(++line_count) + ":" + analysis_id;
-    VCFEntryPair vpair(bp, idcommon);
+    ++line_count;
+    VCFEntryPair * vpair = new VCFEntryPair(bp);
     
-    if (vpair.e1.info_fields["EVDNC"] == "INDEL")
-      indels.insert(pair<string, VCFEntry>(idcommon, vpair.e1));
-    else
-      entry_pairs.insert(pair<string, VCFEntryPair>(idcommon, vpair));
-      
-  }
+    ++cname_count[std::string(bp->cname)];
+    if (cname_count[std::string(bp->cname)] >= VCF_SECONDARY_CAP)
+      {
+	delete bp;
+	delete vpair;
+	continue;
+      }
 
-  // dedupe
-  std::cerr << "...vcf - deduplicating " << entry_pairs.size() << " events" << std::endl;
+    if (bp->indel) {
+      indels.insert(pair<int, VCFEntryPair*>(line_count, vpair));
+    }
+    else  {
+      entry_pairs.insert(pair<int, VCFEntryPair*>(line_count, vpair));
+    }
+    
+  }
+  
+  cname_count.clear();
+  std::cerr << "...vcf sizeof empty VCFEntryPair " << sizeof(VCFEntryPair) << " bytes " << std::endl;
+  std::cerr << "...read in " << SnowTools::AddCommas(indels.size()) << " indels and " << SnowTools::AddCommas(entry_pairs.size()) << " SVs " << std::endl;
+  
+  std::cerr << "...vcf - deduplicating " << SnowTools::AddCommas(entry_pairs.size()) << " events" << std::endl;
   deduplicate();
-  std::cerr << "...vcf - deduplicated down to " << (entry_pairs.size() - dups.size()) << " break pairs" << std::endl;
+  std::cerr << "...vcf - deduplicated down to " << SnowTools::AddCommas((entry_pairs.size() - dups.size())) << " break pairs" << std::endl;
   
 }
 
@@ -328,8 +348,8 @@ string getRefSequence(const std::string& chr_name, const SnowTools::GenomicRegio
 class GenomicRegionWithID : public SnowTools::GenomicRegion 
 {
   public: 
-  GenomicRegionWithID(int32_t c, uint32_t p1, uint32_t p2, const std::string& i, const std::string& q) : SnowTools::GenomicRegion(c,p1,p2) { id = i; qual = q; }
-  std::string id, qual;
+  GenomicRegionWithID(int32_t c, uint32_t p1, uint32_t p2, int i, int p) : SnowTools::GenomicRegion(c,p1,p2), id(i), pass(p) {}
+  uint32_t id:30, pass:2;
 };
 
 // deduplicate
@@ -343,15 +363,14 @@ void VCFFile::deduplicate() {
   SnowTools::GenomicRegionCollection<GenomicRegionWithID> grv1;
   SnowTools::GenomicRegionCollection<GenomicRegionWithID> grv2;
   for (auto& i : entry_pairs) {
-    grv1.add(GenomicRegionWithID(i.second.e1.be.gr.chr, i.second.e1.be.gr.pos1, i.second.e1.be.gr.pos2, i.first, i.second.e1.filter)); 
-    grv2.add(GenomicRegionWithID(i.second.e2.be.gr.chr, i.second.e2.be.gr.pos1, i.second.e2.be.gr.pos2, i.first, i.second.e2.filter)); 
+    grv1.add(GenomicRegionWithID(i.second->bp->b1.gr.chr, i.second->bp->b1.gr.pos1, i.second->bp->b1.gr.pos2, i.first, i.second->e1.bp->pass)); 
+    grv2.add(GenomicRegionWithID(i.second->bp->b2.gr.chr, i.second->bp->b2.gr.pos1, i.second->bp->b2.gr.pos2, i.first, i.second->e2.bp->pass)); 
   }
   grv1.createTreeMap();
   grv2.createTreeMap();
   assert(grv1.size() == grv2.size());
 
   int pad = 1;
-
   size_t count = 0;
   
   for (auto& i : entry_pairs) {
@@ -359,11 +378,11 @@ void VCFFile::deduplicate() {
     // if it's already de-duped, dont do it again
     if (dups.count(i.first))
       continue;
-
+    
     ++count;
     SnowTools::GenomicIntervalVector giv1, giv2;
-    grv1.m_tree[i.second.e1.be.gr.chr].findContained(i.second.e1.be.gr.pos1-pad, i.second.e1.be.gr.pos1+pad, giv1);
-    grv2.m_tree[i.second.e2.be.gr.chr].findContained(i.second.e2.be.gr.pos1-pad, i.second.e2.be.gr.pos1+pad, giv2);
+    grv1.m_tree[i.second->bp->b1.gr.chr].findContained(i.second->bp->b1.gr.pos1-pad, i.second->bp->b1.gr.pos1+pad, giv1);
+    grv2.m_tree[i.second->bp->b2.gr.chr].findContained(i.second->bp->b2.gr.pos1-pad, i.second->bp->b2.gr.pos1+pad, giv2);
     
     // loop through hits and only add if not the current site.
     // If key_count is 2, then it hit on each side. This is a dup
@@ -371,16 +390,16 @@ void VCFFile::deduplicate() {
     // then when you come across one that was marked as dup, just skip
     // the intersection step
 
-    bool is_pass = i.second.e1.filter == "PASS";
+    bool is_pass = i.second->e1.bp->pass; 
 
-    std::unordered_map<std::string, size_t> key_count;
+    std::unordered_map<int, size_t> key_count;
     // loop hits to left end
     for (auto& j : giv1)
-      if (grv1.at(j.value).id != i.first && ( is_pass == (grv1.at(j.value).qual == "PASS") )) //j is hit. Make sure have same pass status
+      if (grv1.at(j.value).id != i.first && ( is_pass == (grv1.at(j.value).pass) )) //j is hit. Make sure have same pass status
 	++key_count[grv1.at(j.value).id];
     // loop hits to right end
     for (auto& j : giv2)
-      if (grv2.at(j.value).id != i.first && ( is_pass == (grv2.at(j.value).qual == "PASS") )) //j is hit, grv2.at(j.value).id is key of hit
+      if (grv2.at(j.value).id != i.first && ( is_pass == (grv2.at(j.value).pass) )) //j is hit, grv2.at(j.value).id is key of hit
 	++key_count[grv2.at(j.value).id];
 
     //loop through hit keys and if key is hit twice (1 left, 1 right), it is an overlap
@@ -403,9 +422,9 @@ ostream& operator<<(ostream& out, const VCFEntryPair& v) {
 }
 
 bool VCFEntry::operator==(const VCFEntry &v) const {
-
-  return (v.be.gr == be.gr) ; //chr == v.chr && pos == v.pos);
-
+  SnowTools::ReducedBreakEnd * be = id_num == 1 ? &bp->b1 : &bp->b2;
+  SnowTools::ReducedBreakEnd * vbe = v.id_num == 1 ? &v.bp->b1 : &v.bp->b2;
+  return (vbe->gr == be->gr) ; //chr == v.chr && pos == v.pos);
 }
 
 // write out somatic and germline INDEL vcfs
@@ -443,7 +462,7 @@ void VCFFile::writeIndels(string basename, bool zip) const {
 
   // put the indels into a sorted vector
   for (auto& i : indels) {
-    tmpvec.push_back(i.second);
+    tmpvec.push_back(i.second->e1);
   }
 
   // sort the temp entry vec
@@ -451,35 +470,26 @@ void VCFFile::writeIndels(string basename, bool zip) const {
 
   // print out the entries
   for (auto& i : tmpvec) { 
-    if (i.filter == "PASS" || include_nonpass) {
 
-      if (i.info_fields.count("SOMATIC")) {
-	if (zip) {
-	  stringstream ss;
-	  ss << i << endl;
-	  if (!bgzf_write(s_bg, ss.str().c_str(), ss.str().length())) {
-	    cerr << "Could not write bzipped vcf for line " << ss.str() << endl;
-	  }
-	} else {
-	  out_s << i << endl;
-	}
-	
-      } else {
-	if (zip) {
-	  stringstream ss;
-	  ss << i << endl;
-	  if (!bgzf_write(g_bg, ss.str().c_str(), ss.str().length())) {
-	    cerr << "Could not write bzipped vcf for line " << ss.str() << endl;
-	  }
-	} else {
-	  out_g << i << endl;
-	}
+    if (!i.bp->pass && !include_nonpass)
+      continue;
 
-
-      }
+    stringstream ss;
+    if (i.bp->somatic_score >= 4) {
+      if (zip) 
+	__write_to_zip_vcf(i, s_bg);
+      else 
+	out_s << i << endl;
+      
+    } else {
+      if (zip) 
+	__write_to_zip_vcf(i, g_bg);
+      else
+	out_g << i << endl;
     }
+    
   }
- 
+  
   if (zip) {
     bgzf_close(g_bg);
     bgzf_close(s_bg);
@@ -487,13 +497,13 @@ void VCFFile::writeIndels(string basename, bool zip) const {
     out_g.close();
     out_s.close();
   }
-
+  
   if (zip) {
     // tabix it
     tabixVcf(gname);
     tabixVcf(sname);
   }
-
+  
 }
 
 // write out somatic and germline SV vcfs
@@ -534,7 +544,7 @@ void VCFFile::writeSVs(string basename, bool zip) const {
   // put the pair maps into a vector
   for (VCFEntryPairMap::const_iterator it = entry_pairs.begin(); it != entry_pairs.end(); it++) {
     
-    if (!dups.count(it->first)) { // dont include duplicate entries
+    if (!dups.count( it->first)) { // dont include duplicate entries
 
       // renumber the ids
       //++id_counter;
@@ -547,8 +557,8 @@ void VCFFile::writeSVs(string basename, bool zip) const {
       //tmppair.e1.info_fields["MATEID"] = tmppair.e2.id;
       //tmppair.e2.info_fields["MATEID"] = tmppair.e1.id;
     
-      tmpvec.push_back(it->second.e1);
-      tmpvec.push_back(it->second.e2);
+      tmpvec.push_back(it->second->e1);
+      tmpvec.push_back(it->second->e2);
       //tmpvec.push_back(tmppair.e1);
       //tmpvec.push_back(tmppair.e2);
     }
@@ -561,36 +571,25 @@ void VCFFile::writeSVs(string basename, bool zip) const {
   // print out the entries
   for (auto& i : tmpvec) { 
     
-    if (i.filter == "PASS" || include_nonpass) {
-
-      // somatic
-      if ( i.info_fields.count("SOMATIC") ) { 
-
-	if (zip) {
-	  stringstream ss;
-	  ss << i << endl;
-	  if (!bgzf_write(s_bg, ss.str().c_str(), ss.str().length())) {
-	    cerr << "Could not write bzipped vcf for line " << ss.str() << endl;
-	  }
-	} else {
-	  out_s << i << endl;
-	}
-	
+    if (!i.bp->pass && !include_nonpass)
+      continue;
+    
+    // somatic
+    if ( i.bp->somatic_score >= 4 ) { 
+      if (zip) 
+	__write_to_zip_vcf(i, s_bg);
+      else
+	out_s << i << endl;
       // germline
-      } else {
-	if (zip) {
-	  stringstream ss;
-	  ss << i << endl;
-	  if (!bgzf_write(g_bg, ss.str().c_str(), ss.str().length())) {
-	    cerr << "Could not write bzipped vcf for line " << ss.str() << endl;
-	  }
-	} else {
-	  out_g << i << endl;
-	}
-      }
+    } else {
+      if (zip)
+	__write_to_zip_vcf(i, g_bg);
+      else 
+	out_g << i << endl;
     }
-  }
 
+  }
+  
   if (zip) {
     bgzf_close(g_bg);
     bgzf_close(s_bg);
@@ -618,166 +617,16 @@ void tabixVcf(const string &fn) {
 
 }
 
-VCFEntryPair::VCFEntryPair(const SnowTools::BreakPoint& b, const std::string& id) {
+VCFEntryPair::VCFEntryPair(SnowTools::ReducedBreakPoint * b) {
 
-  e1.be = b.b1;
-  e2.be = b.b2;
-
-  e1.qual = b.quality;
-  e2.qual = b.quality;
-  
-  idcommon = id;
-  e1.id = id;
-
-  std::unordered_map<std::string, std::string> common_fields;
-
-  // put all the common fields in 
-  common_fields["SPAN"] = std::to_string(b.getSpan());
-  common_fields["NSPLIT"] = std::to_string(b.nsplit);
-  common_fields["TSPLIT"] = std::to_string(b.tsplit);
-  common_fields["SCTG"] = b.cname;
-  common_fields["EVDNC"] = b.evidence;
-  if (b.somatic_score >= 4)
-    common_fields["SOMATIC"] = "";
-  //common_fields["PONCOUNT"]  = std::to_string(pon); 
-  //if (b.repeat_seq)
-  //  common_fields["REPSEQ"]    = b.repeat_seq; 
-
-  assert( (b.num_align == 1) == (b.evidence == "INDEL") );
-
-  // put all the common fields for SVs
-  if (b.num_align != 1) {
-
-    common_fields["NDISC"] = std::to_string(b.dc.ncount);
-    common_fields["TDISC"] = std::to_string(b.dc.tcount);
-    if (b.homology != "x") common_fields["HOMSEQ"] = b.homology;
-    if (b.insertion != "x") common_fields["INSERTION"] = b.insertion;
-    common_fields["NUMPARTS"] = std::to_string(b.num_align);
-    if (b.evidence=="DSCRD") 
-      common_fields["IMPRECISE"] = ""; 
-    if (b.secondary) 
-      common_fields["SECONDARY"] = "";
-
-    //
-    e1.info_fields["SUBN"] = b.b1.sub_n;
-    e2.info_fields["SUBN"] = b.b2.sub_n;
-  
-  }
-  // put all the common fields in for indels
-  else {
-    e1.info_fields["DISC_MAPQ"] = b.dc.mapq1;
-    e2.info_fields["DISC_MAPQ"] = b.dc.mapq2;
-  
-    common_fields["NCIGAR"] = std::to_string(b.ncigar);
-    common_fields["TCIGAR"] = std::to_string(b.tcigar);
-    common_fields["NCOV"]      = std::to_string(b.ncov); 
-    common_fields["TCOV"]      = std::to_string(b.tcov);
-    common_fields["NFRAC"]     = std::to_string(b.af_n); 
-    common_fields["TFRAC"]     = std::to_string(b.af_t); 
-    if (b.blacklist)
-      common_fields["GRAYLIST"]  = "";
-    if (!b.rs.empty() && b.rs != "x")
-      common_fields["DBSNP"] = b.rs; 
-  }
-
-  e1.filter = b.confidence;
-  e2.filter = b.confidence;
-
-  // add the common fields
-  e1.info_fields = common_fields;
-  e2.info_fields = common_fields;
-  
-  // unique fields
-  e1.info_fields["MAPQ"] = std::to_string(b.b1.mapq);
-  e2.info_fields["MAPQ"] = std::to_string(b.b2.mapq);
-
-  // add mate info for SVs
-  if (b.num_align != 1) {
-
-    e1.id = idcommon + ":1";
-    e2.id = idcommon + ":2";
-    e1.info_fields["MATEID"] = e2.id;
-    e2.info_fields["MATEID"] = e1.id;
-    
-    e1.info_fields["SVTYPE"] = "BND";
-    e2.info_fields["SVTYPE"] = "BND";
-
-    e1.format = "NALT:NALT_RP:NALT_SR:READ_ID";
-    e2.format = "NALT:NALT_RP:NALT_SR:READ_ID";
-    
-    // put the reads into the format string
-    std::string new_readid_t = formatReadString(b.read_names, 't');
-    std::string new_readid_n = formatReadString(b.read_names, 'n');
-   
-    int numt = std::stoi(common_fields["TDISC"]) + std::stoi(common_fields["TSPLIT"]);
-    int numn = std::stoi(common_fields["NDISC"]) + std::stoi(common_fields["NSPLIT"]);
-    e1.samp2 = to_string(numt) + ":" + common_fields["TDISC"] + ":" + common_fields["TSPLIT"] + ":" + new_readid_t;
-    e2.samp2 = e1.samp2;
-    e1.samp1 = to_string(numn) + ":" + common_fields["NDISC"] + ":" + common_fields["NDISC"] + ":" + new_readid_n;
-    e2.samp1 = e1.samp1;
-    samples = {e1.samp1, e1.samp2};
-
-    // grab the reference sequence
-    e1.ref = b.ref;
-    e2.ref = b.alt;
-    //if (e1.be.gr.chr < 24 && e2.be.gr.chr < 24) { // TODO FIX 
-    //  e1.ref = getRefSequence(e1.be.chr_name, e1.be.gr, findex);
-    //  e2.ref = getRefSequence(e2.be.chr_name, e1.be.gr, findex);
-    //}
-      
-    // set the reference position for making ALT tag
-    stringstream ptag1, ptag2;
-    ptag1 << e2.be.chr_name << ":" << e2.be.gr.pos1;
-    ptag2 << e1.be.chr_name << ":" << e1.be.gr.pos1;
-    
-    string insertion = common_fields["INSERTION"];
-    string ttag1, ttag2;
-    // TODO insertion + vcf1.ref not right
-    //ttag1 = (insertion != "" && e1.be.gr.strand == '+' && false) ? (insertion + e1.ref) : e1.ref;
-    //ttag1 = (insertion != "" && e1.be.gr.strand == '-' && false) ? (e1.ref + insertion) : e1.ref;
-    //ttag2 = (insertion != "" && e2.be.gr.strand == '+' && false) ? (insertion + e2.ref) : e2.ref;
-    //ttag2 = (insertion != "" && e2.be.gr.strand == '-' && false) ? (e2.ref + insertion) : e2.ref;
-    ttag1 = e1.ref;
-    ttag2 = e2.ref;
-
-    // set the alternate
-    stringstream alt1, alt2;
-    if (e1.be.gr.strand == '+' && e2.be.gr.strand == '+') {
-      alt1 << ttag1 << "]" << ptag1.str() << "]";
-      alt2 << ttag2 << "]" << ptag2.str() << "]";
-    } else if (e1.be.gr.strand =='+' && e2.be.gr.strand == '-') {
-      alt1 << ttag1 << "[" << ptag1.str() << "[";
-      alt2 << "]" << ptag2.str() << "]" << ttag2;
-    } else if (e1.be.gr.strand == '-' && e2.be.gr.strand == '+') {
-      alt1 << "]" << ptag1.str() << "]" << ttag1;
-      alt2 << ttag2 << "[" << ptag2.str() << "[";
-    } else {
-      alt1 << "[" << ptag1.str() << "[" << ttag1;      
-      alt2 << "[" << ptag2.str() << "[" << ttag2;      
-    }
-    
-    e1.alt = alt1.str();
-    e2.alt = alt2.str();
-
-  }
-  
-  // indel
-  if (common_fields["EVDNC"] == "INDEL") {
-
-    e1.idcommon = id;
-
-    // get the alt sequence
-    //SnowTools::GenomicRegion ref(e1.be.gr.chr, e1.be.gr.pos1, e2.be.gr.pos1-1);
-    //if (e1.be.gr.chr < 24)
-    //  e1.ref = getRefSequence(e1.be.chr_name, ref, findex);
-    e1.ref = b.ref;
-    e1.alt = b.alt;
-    //e1.alt = e1.ref.substr(0,1);    
-
-    // add the sequences if insertion
-    //if (common_fields["INSERTION"].length()) 
-    //  e1.alt += b.insertion;
-  }
+  bp = b;
+  e1.bp = bp;
+  e2.bp = bp;
+  ++global_id;
+  e1.id = global_id;
+  e2.id = global_id;
+  e1.id_num = 1;
+  e2.id_num = 2;
 
 }
 
@@ -824,3 +673,158 @@ std::string formatReadString(const std::string& readid, char type) {
 
 }
 
+std::unordered_map<std::string, std::string> VCFEntry::fillInfoFields() const {
+  
+  std::unordered_map<std::string, std::string> info_fields;
+
+  // put all the common fields in 
+  info_fields["SPAN"] = std::to_string(bp->getSpan());
+  info_fields["NSPLIT"] = std::to_string(bp->nsplit);
+  info_fields["TSPLIT"] = std::to_string(bp->tsplit);
+  info_fields["SCTG"] = bp->cname;
+  if (!bp->indel) {
+    info_fields["EVDNC"] = bp->evidence;
+    info_fields["SVTYPE"] = "BND";
+  }
+
+  if (bp->pon)
+    info_fields["PON"] = to_string(bp->pon);
+
+  if (bp->num_align != 1)
+    info_fields["MATEID"] = to_string(id) + ":" + to_string(id_num == 1 ? 2 : 1);
+
+  if (id_num == 1)
+    info_fields["MAPQ"] = std::to_string(bp->b1.mapq);
+  else
+    info_fields["MAPQ"] = std::to_string(bp->b2.mapq);
+
+  if (bp->somatic_score >= 4)
+    info_fields["SOMATIC"] = "";
+  
+  // put all the info fields for SVs
+  if (bp->num_align != 1) {
+
+    if (id_num == 1) {
+      if (bp->b1.sub_n)
+	info_fields["SUBN"] = to_string(bp->b1.sub_n);
+      else if (bp->b2.sub_n)
+	info_fields["SUBN"] = to_string(bp->b2.sub_n);
+    }
+
+    info_fields["NDISC"] = std::to_string(bp->dc.ncount);
+    info_fields["TDISC"] = std::to_string(bp->dc.tcount);
+    //if (bp->homology != "x") info_fields["HOMSEQ"] = bp->homology;
+    //if (bp->insertion != "x") info_fields["INSERTION"] = bp->insertion;
+    if (bp->homology) info_fields["HOMSEQ"] = std::string(bp->homology);
+    if (bp->insertion) info_fields["HOMSEQ"] = std::string(bp->insertion);
+    info_fields["NUMPARTS"] = std::to_string(bp->num_align);
+    //if (bp->evidence=="DSCRD") 
+    if (bp->imprecise)
+      info_fields["IMPRECISE"] = ""; 
+    if (bp->secondary) 
+      info_fields["SECONDARY"] = "";
+
+    if (info_fields["EVDNC"] != "ASSMB") {
+      if (id_num == 1)
+	info_fields["DISC_MAPQ"] = to_string(bp->dc.mapq1);
+      else
+	info_fields["DISC_MAPQ"] = to_string(bp->dc.mapq2);
+    }
+
+  }
+
+  else {
+  
+    info_fields["NCIGAR"] = std::to_string(bp->ncigar);
+    info_fields["TCIGAR"] = std::to_string(bp->tcigar);
+    info_fields["NCOV"]      = std::to_string(bp->ncov); 
+    info_fields["TCOV"]      = std::to_string(bp->tcov);
+    info_fields["NFRAC"]     = std::to_string((float)bp->af_n/100.0); 
+    info_fields["TFRAC"]     = std::to_string((float)bp->af_t/100.0); 
+    if (bp->blacklist)
+      info_fields["GRAYLIST"]  = "";
+    if (bp->dbsnp)
+      //if (!bp->rs.empty() && bp->rs != "x")
+      info_fields["DBSNP"] = ""; //bp->rs; 
+  }
+
+  return info_fields;
+
+}
+
+std::string VCFEntry::getRefString() const {
+
+  if (bp->indel || id_num == 1) 
+    return std::string(bp->ref);
+
+  return std::string(bp->alt);
+}
+
+std::string VCFEntry::getAltString() const {
+
+  if (bp->indel) 
+    return std::string(bp->alt);
+  
+  std::string ref = getRefString();
+
+  stringstream ptag;
+  if (id_num == 1) {
+    ptag << bp->b2.chr_name << ":" << bp->b2.gr.pos1;
+  } else {
+    ptag << bp->b1.chr_name << ":" << bp->b1.gr.pos1;
+  }
+  
+  stringstream alt;
+  if (bp->b1.gr.strand == '+' && bp->b2.gr.strand == '+') {
+    alt << ref << "]" << ptag.str() << "]";
+  } else if (bp->b1.gr.strand =='+' && bp->b2.gr.strand == '-') {
+    if (id_num == 1)
+      alt << ref << "[" << ptag.str() << "[";
+    else
+      alt << "]" << ptag.str() << "]" << ref;
+  } else if (bp->b1.gr.strand == '-' && bp->b2.gr.strand == '+') {
+    if (id_num == 1)
+      alt << "]" << ptag.str() << "]" << ref;
+    else
+      alt << ref << "[" << ptag.str() << "[";
+  } else {
+    alt << "[" << ptag.str() << "[" << ref;      
+  }
+  
+  return alt.str();
+}
+
+std::string VCFEntry::getIdString() const {
+
+  if (!bp->indel)
+    return(to_string(id) + ":" + to_string(id_num));
+
+  return(to_string(id));
+
+}
+
+std::pair<std::string, std::string> VCFEntry::getSampStrings() const {
+
+  // put the reads into the format string
+  //std::string new_readid_t = formatReadString(b.read_names, 't');
+  //std::string new_readid_n = formatReadString(b.read_names, 'n');
+  std::string new_readid_t = "";
+  std::string new_readid_n = "";
+  
+  int numt, numn;
+  numt = bp->dc.tcount + bp->tsplit; 
+  numn = bp->dc.ncount + bp->nsplit; 
+  
+  std::string samp1, samp2;
+  if (!bp->indel) {
+    samp2 = to_string(numt) + ":" + to_string(bp->dc.tcount) + ":" + to_string(bp->tsplit) + ":" + new_readid_t;
+    samp1 = to_string(numn) + ":" + to_string(bp->dc.ncount) + ":" + to_string(bp->nsplit) + ":" + new_readid_n;
+  } else {
+    samp2 = to_string(bp->tsplit) + ":" + new_readid_t;
+    samp1 = to_string(bp->nsplit) + ":" + new_readid_n;
+  }
+
+  return std::pair<std::string, std::string>(samp1, samp2);
+
+
+}

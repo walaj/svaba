@@ -385,7 +385,7 @@ void assemblyTest() {
 
   // align local_seq to itself
   SnowTools::BamReadVector self_align;
-  local_bwa.alignSingleSequence(local_ref, "local_ref", self_align, false);
+  local_bwa.alignSingleSequence(local_ref, "local_ref", self_align, false, 0);
 
   // write out the index
   local_bwa.writeIndexToFiles("local_ref");
@@ -429,7 +429,7 @@ void assemblyTest() {
 	  for (auto& i : reads) {
 	    if (i.find("N") == std::string::npos) {
 	      SnowTools::BamReadVector read_hits;
-	      local_bwa.alignSingleSequence(i, "read_" + std::to_string(++count), read_hits, false);
+	      local_bwa.alignSingleSequence(i, "read_" + std::to_string(++count), read_hits, false, 0);
 	      if (read_hits.size())
 		reads_to_local.push_back(read_hits[0]);
 	    }
@@ -454,13 +454,13 @@ void assemblyTest() {
 	  int min_overlap = 35;
 	  SnowmanAssemblerEngine engine("test", error_rate, min_overlap, opt::readlen);
 	  engine.fillReadTable(reads_to_local);
-	  engine.performAssembly();
+	  engine.performAssembly(2);
 	  
 	  // align them back
 	  SnowTools::BamReadVector contigs_to_local;
 	  for (auto& i : engine.getContigs()) {
 	    SnowTools::BamReadVector ct_alignments;
-	    local_bwa.alignSingleSequence(i.getSeq(), i.getID(), ct_alignments, false);
+	    local_bwa.alignSingleSequence(i.getSeq(), i.getID(), ct_alignments, false, 0);
 	    SnowTools::AlignedContig ac(ct_alignments);
 	    //ac.alignReads(reads_to_local);
 	    //std::cout << ac;
