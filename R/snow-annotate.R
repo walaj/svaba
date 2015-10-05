@@ -3,7 +3,6 @@
 ## set the right library paths
 .libPaths = c("/xchip/gistic/Jeremiah/R", "/broad/software/free/Linux/redhat_6_x86_64/pkgs/r_3.1.1-bioconductor-3.0/lib64/R/library")
 
-
 file.dir <-
 function(paths)
   {
@@ -797,11 +796,13 @@ function(gr, basic=FALSE) {
 library(optparse)
 
 option_list = list(
-    make_option(c("-i", "--input"),  type = "character", default = NULL,  help = "Input SV VCF file"),
-    make_option(c("-o", "--output"), type = "character", default = "circos.pdf",  help = "Output pdf to write the graph"),
-    make_option(c("-g", "--genes"), type = "logical", default = TRUE,  help = "Add genes to the plot?"),
-    make_option(c("-H", "--height"), type = "numeric", default = 10,  help = "Height"),
-    make_option(c("-W", "--width"), type = "numeric", default = 10,  help = "Width")
+  make_option(c("-i", "--input"),  type = "character", default = NULL,  help = "Input SV VCF file"),
+  make_option(c("-o", "--output"), type = "character", default = "no_id",  help = "Output annotation name"),
+  make_option(c("-t", "--splitsupport"), type = "numeric", default = 4,  help = "Minimum number of tumor supporting reads for ASSMB"),
+  make_option(c("-d", "--discsupport"), type = "numeric", default = 10,  help = "Minimum number of tumor support discordant for DSCRD"),
+  make_option(c("-g", "--genes"), type = "logical", default = TRUE,  help = "Add genes to the plot?"),
+  make_option(c("-H", "--height"), type = "numeric", default = 10,  help = "Height"),
+  make_option(c("-W", "--width"), type = "numeric", default = 10,  help = "Width")
 )
 
 parseobj = OptionParser(option_list=option_list)
@@ -810,11 +811,11 @@ opt = parse_args(parseobj)
 if (is.null(opt$input))
   stop(print_help(parseobj))
 
-
 require(GenomicRanges)
 
 basedir <- "/xchip/gistic/Jeremiah/tracks"
 genes <- readRDS(file.path(basedir, 'gr.allgenes.rds'))
+genes <- genes[width(genes) < 2e6] 
 cgc <- readRDS(file.path(basedir, 'gr.allgenes.rds'))
 cgc = read.delim('/home/unix/marcin/DB/COSMIC/cancer_gene_census.tsv', strings = F)
 cgc <- genes[genes$gene %in% cgc$Symbol]
@@ -823,15 +824,16 @@ cgc <- genes[genes$gene %in% cgc$Symbol]
 suppressWarnings(bks <- fread(paste("gunzip -c", opt$input)))
 
 ## filter out discorant only
-bks <- bks[bks$evidence != "DSCRD" & bks$evidence != "INDEL" & bks$confidence == "PASS" & bks$somatic_score >= 4]
+if (nrow(bks))
+  bks <- bks[(bks$evidence != "DSCRD" | bks$evidence == "DSCRD" && bks$tdisc >= opt$discsupport) & bks$evidence != "INDEL" & bks$confidence == "PASS" & bks$somatic_score >= 4]
+## filter out bad ASSMB
+if (nrow(bks) && sum(bks$evidence == "ASSMB" & bks$tsplit < opt$splitsupport))
+  bks <- bks[-(bks$evidence == "ASSMB" & bks$tsplit < opt$splitsupport)]
 
 if (nrow(bks) == 0) {
   print("No rearrangements found")
   quit(status=0)
 }
-  
-gr1 <- with(bks, GRanges(chr1, IRanges(pos1,width=1)))
-gr2 <- with(bks, GRanges(chr2, IRanges(pos2,width=1)))
 
 ## clean up
 bks[,c("DBSNP","reads","tumor_allelic_fraction","normal_allelic_fraction","repeat_seq","pon_samples","graylist","somatic_score") := NULL]
@@ -839,6 +841,9 @@ bks[,c("DBSNP","reads","tumor_allelic_fraction","normal_allelic_fraction","repea
 ## remove dups
 setkey(bks, chr1, pos1, chr2, pos2)
 bks <- unique(bks)
+
+gr1 <- with(bks, GRanges(chr1, IRanges(pos1,width=1)))
+gr2 <- with(bks, GRanges(chr2, IRanges(pos2,width=1)))
 
 print(bks)
 
@@ -899,3 +904,50 @@ if (nrow(fo2))
 ## write the output
 write.table(bks, file=paste0(opt$output, ".csv"), quote=FALSE, sep=',', row.names=FALSE)
 suppressWarnings(write.htab(bks, file=paste0(opt$output, ".html")))
+
+
+############## make the circos plot
+
+require(RCircos)
+data(UCSC.HG19.Human.CytoBandIdeogram);
+chr.exclude <- NULL;
+cyto.info <- UCSC.HG19.Human.CytoBandIdeogram;
+tracks.inside <- 10;
+tracks.outside <- 0;
+RCircos.Set.Core.Components(cyto.info, chr.exclude, tracks.inside, tracks.outside);
+
+## get the gene label dat
+genes <- genes[width(genes) < 2e6]
+fo1 <- gr.findoverlaps(gr1+10e3, genes)
+fo2 <- gr.findoverlaps(gr2+10e3, genes)
+
+fo <- c(fo1,fo2)
+gene.dat <- data.frame()
+if (length(fo)) {
+  fo <- fo[!duplicated(fo$subject.id)]
+  gene.dat = data.frame(Chromosome = seqnames(genes[fo$subject.id]), chromStart=start(genes[fo$subject.id]),
+    chromEnd=end(genes[fo$subject.id]), Gene=genes$gene[fo$subject.id])
+  print(gene.dat)
+}
+
+gename.col <- 4;
+side <- "in";
+track.num <- 1;
+
+links = data.frame()
+if (nrow(bks))
+  links = with(bks, data.frame(Chromosome=chr1, chromStart=pos1, chromEnd=pos1, Chromsome.1=chr2, chromStart.1=pos2, chromEnd.1=pos2))
+
+## plot the PDF
+pdf(file=paste0(opt$output,".pdf"), height=opt$height, width=opt$width, compress=TRUE);
+RCircos.Set.Plot.Area();
+RCircos.Chromosome.Ideogram.Plot();
+if (opt$genes && nrow(gene.dat) > 0) {
+  RCircos.Gene.Connector.Plot(gene.dat, track.num, side);
+  track.num <- 2;
+  name.col <- 4;
+  RCircos.Gene.Name.Plot(gene.dat, name.col,track.num, side);
+}
+if (nrow(links) > 0)
+  RCircos.Link.Plot(links, track.num, by.chromosome=TRUE) ## by.chromosome is for color
+dev.off()

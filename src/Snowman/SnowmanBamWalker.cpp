@@ -5,7 +5,7 @@
 #define MIN_MAPQ_FOR_MATE_LOOKUP 0
 
 //#define DEBUG_GIVEN_READ 1
-//#define QNAME "D0GU6ACXX120106:1:1104:18128:48663"
+//#define QNAME "H25JFCCXX150206:1:1216:10825:10222"
 
 static const std::string ILLUMINA_PE_PRIMER_2p0 = "CAAGCAGAAGACGGCAT";
 static const std::string FWD_ADAPTER_A = "AGATCGGAAGAGC";
@@ -16,7 +16,7 @@ bool SnowmanBamWalker::addCigar(BamRead &r, const SnowTools::DBSnpFilter* d)
 {
 
   // this is a 100% match
-  if (r.CigarSize() == 0)
+  if (r.CigarSize() == 1)
     return true;
   std::stringstream cigar_ss;
   cigar_ss.str(std::string());
@@ -28,13 +28,22 @@ bool SnowmanBamWalker::addCigar(BamRead &r, const SnowTools::DBSnpFilter* d)
       // if it's a D or I, add it to the list
       if (i.Type == 'D' || i.Type == 'I') {	
 	//cigar_ss << r_id(r) << "_" << pos << "_" << /*r_cig_len(r,i) <<*/ r_cig_type(r, i);
+
 	cigar_ss << r.ChrID() << "_" << pos << "_" << i.Length << i.Type;
-	cigmap[cigar_ss.str()]++;
-	if (d) {
+	++cigmap[cigar_ss.str()];
+
+	//cigar_ss << r.ChrID() << "_" << pos; // << "_" << i.Length << i.Type;
+	if (prefix == "n")
+	  for (int kk = -2; kk <= 2; ++kk) { // add this and neighbors
+	    uint32_t cigs = r.ChrID() * 1e9 + pos;
+	    ++cig_pos[cigs];
+	  }
+	
+	/*if (d) {
 	  cigar_ss.str(std::string());
 	  cigar_ss << r.ChrID() << "_" << pos;
 	  has_dbsnp_hit = d->queryHash(cigar_ss.str());
-	}
+	  }*/
 	//std::cerr << d << " has_db " << has_dbsnp_hit << " hash " << cigar_ss.str() << std::endl;
 	cigar_ss.str(std::string());
       }
@@ -53,25 +62,14 @@ bool SnowmanBamWalker::isDuplicate(BamRead &r)
 
   // deduplicate by query-bases / position
   int pos_key = r.Position()*10 + r.MatePosition() + 1000 * r.NumMatchBases() + 12345 * r.AlignmentFlag();
-  //std::string sname = std::to_string(r.Position()) + "_" + std::to_string(r.MatePosition()); // + r.Sequence();    
-  // deduplicate by Name
-  //std::string uname = r.Qname() + "_" + std::to_string(r.FirstFlag());
   
   // its not already add, insert
-  bool sname_pass = false;
-  //if (name_map.count(uname) == 0) { // && seq_map.count(sname) == 0) {  
-  //  uname_pass = true;
-  //  name_map.insert(std::pair<std::string, int>(uname, true));
-  //} 
-  if (seq_set.count(pos_key/*sname*/) == 0) {
-    sname_pass = true;
-    seq_set.insert(/*sname*/pos_key);
-    //seq_set.insert(std::pair<std::string, int>(sname, true));
+  if (!seq_set.count(pos_key)) {
+    seq_set.insert(pos_key);
+    return false;
   }
   
-  return !sname_pass;
-  //return (!uname_pass || !sname_pass);
-
+  return true;
 }
 
 void SnowmanBamWalker::readBam(const SnowTools::DBSnpFilter* dbs)
@@ -103,10 +101,10 @@ void SnowmanBamWalker::readBam(const SnowTools::DBSnpFilter* dbs)
 	std::cerr << " read seen " << r << std::endl;
 #endif
 
-      bool qcpass = !r.DuplicateFlag() && !r.QCFailFlag() && !r.SecondaryFlag();
+      bool qcpass = !r.DuplicateFlag() && !r.QCFailFlag(); 
 
       // add to all reads pile for kmer correction
-      if (qcpass) {
+      if (!r.DuplicateFlag() && !r.QCFailFlag()) {
 	cov.addRead(r);
 	//all_reads.push_back(r);
       }
@@ -124,12 +122,21 @@ void SnowmanBamWalker::readBam(const SnowTools::DBSnpFilter* dbs)
       // add to weird coverage
       if (rule_pass)
 	weird_cov.addRead(r);
+      
+      if (prefix == "n" && !r.DuplicateFlag() && !r.QCFailFlag())  {
+	if (r.CigarSize() >= 6 || r.MapQuality() <= 5 || (r.QualitySequence().length() < 0.6 * readlen))
+	  bad_cov.addRead(r, true);
+	if (r.NumClip()) {
+	  clip_cov.addRead(r,true);
+	}
+      }
 
-      bool dbsnp_fail = false;
+      //bool dbsnp_fail = false;
       // add to the cigar map for all non-duplicate reads
       if (qcpass && get_mate_regions) // only add cigar for non-mate regions
-	dbsnp_fail = addCigar(r, dbs);
-      dbsnp_fail = dbsnp_fail && (r.MaxInsertionBases() || r.MaxDeletionBases());
+	addCigar(r, dbs);
+      //dbsnp_fail = dbsnp_fail && (r.MaxInsertionBases() || r.MaxDeletionBases());
+      //dbsnp_fail = false; // turn this off;
 
       bool is_dup = isDuplicate(r);
       //bool is_dup = false;
@@ -142,7 +149,7 @@ void SnowmanBamWalker::readBam(const SnowTools::DBSnpFilter* dbs)
 
       //if (!rule_pass)
       //r.AddIntTag("VR", -1); 
-      if (rule_pass && !is_dup && (!dbsnp_fail || !(r.MaxInsertionBases() || r.MaxDeletionBases())))
+      if (rule_pass && !is_dup/* && (!dbsnp_fail || !(r.MaxInsertionBases() || r.MaxDeletionBases()))*/)
 	{
 	  // optional tag processing
 	  //r.RemoveAllTags(); // cut down on memory

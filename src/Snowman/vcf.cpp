@@ -248,6 +248,11 @@ VCFFile::VCFFile(string file, const char* index, string id, bam_hdr_t * h) {
   sv_header.addInfoField("MATEID","1","String","ID of mate breakends");
   sv_header.addInfoField("SOMATIC","0","Flag","Variant is somatic");
   sv_header.addInfoField("SUBN","1","Integer","Number of secondary alignments associated with this contig fragment");
+  sv_header.addInfoField("TCOV","1","Integer","Max tumor coverage at break");
+  sv_header.addInfoField("NCOV","1","Integer","Max normal coverage at break");
+  sv_header.addInfoField("TFRAC","1","String","Tumor allelic fraction at break. -1 for undefined");
+  sv_header.addInfoField("NFRAC","1","String","Normal allelic fraction at break. -1 for undefined");
+
 
   sv_header.addFormatField("READ_ID",".","String","ALT supporting Read IDs");
   sv_header.addFormatField("NALT_SR","1","Integer","Number of ALT support Split Reads");           
@@ -693,6 +698,11 @@ std::unordered_map<std::string, std::string> VCFEntry::fillInfoFields() const {
   if (bp->num_align != 1)
     info_fields["MATEID"] = to_string(id) + ":" + to_string(id_num == 1 ? 2 : 1);
 
+  info_fields["NCOV"]      = std::to_string(bp->ncov); 
+  info_fields["TCOV"]      = std::to_string(bp->tcov);
+  info_fields["NFRAC"]     = std::to_string((float)bp->af_n/100.0); 
+  info_fields["TFRAC"]     = std::to_string((float)bp->af_t/100.0); 
+  
   if (id_num == 1)
     info_fields["MAPQ"] = std::to_string(bp->b1.mapq);
   else
@@ -737,10 +747,6 @@ std::unordered_map<std::string, std::string> VCFEntry::fillInfoFields() const {
   
     info_fields["NCIGAR"] = std::to_string(bp->ncigar);
     info_fields["TCIGAR"] = std::to_string(bp->tcigar);
-    info_fields["NCOV"]      = std::to_string(bp->ncov); 
-    info_fields["TCOV"]      = std::to_string(bp->tcov);
-    info_fields["NFRAC"]     = std::to_string((float)bp->af_n/100.0); 
-    info_fields["TFRAC"]     = std::to_string((float)bp->af_t/100.0); 
     if (bp->blacklist)
       info_fields["GRAYLIST"]  = "";
     if (bp->dbsnp)
