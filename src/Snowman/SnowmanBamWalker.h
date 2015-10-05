@@ -41,7 +41,7 @@ class SnowmanBamWalker: public SnowTools::BamWalker {
   
   SnowmanBamWalker() {}
   
- SnowmanBamWalker(const std::string& in) : SnowTools::BamWalker(in) {  }
+  SnowmanBamWalker(const std::string& in) : SnowTools::BamWalker(in) {  }
   
   void readBam(const SnowTools::DBSnpFilter* dbs = nullptr);
   
@@ -69,9 +69,13 @@ class SnowmanBamWalker: public SnowTools::BamWalker {
   //ReadVec reads;
   BamReadVector reads;
   
-  STCoverage cov, weird_cov;
+  std::unordered_map<uint32_t, size_t> cig_pos;
+
+  STCoverage cov, weird_cov, bad_cov, clip_cov;
   
   CigarMap cigmap;
+
+  int readlen;
   
   //SnowTools::GenomicRegion coverage_region;
   

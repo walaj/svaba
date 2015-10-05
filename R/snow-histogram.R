@@ -3,7 +3,16 @@
 ## set the right library paths
 .libPaths = c("/xchip/gistic/Jeremiah/R", "/broad/software/free/Linux/redhat_6_x86_64/pkgs/r_3.1.1-bioconductor-3.0/lib64/R/library")
 
+file.dir <-
+function(paths)
+  {
+    return(gsub('(^|(.*\\/))?([^\\/]*)$', '\\2', paths))
+  }
+
 require(data.table)
+suppressMessages(suppressWarnings(require(GenomicRanges, quietly = TRUE)))
+suppressMessages(suppressWarnings(require(gplots, quietly = TRUE)))
+
 ra_breaks <-
 function(rafile, keep.features = T, seqlengths = hg_seqlengths(), chr.convert = T, snowman = FALSE,  breakpointer = FALSE, seqlevels = NULL,
     get.loose = FALSE ## if TRUE will return a list with fields $junctions and $loose.ends
@@ -707,15 +716,93 @@ function(query, subject, ignore.strand = T, first = F,
        }
    }
 
+write.htab <-
+  function(tab, file = NULL,
+  title = NULL, # text to be written in bold above the table  
+  footer = NULL, # text to be writen in bold below the table
+  highlight = NULL,  #vector of row indices of the table to highlight
+  row.names = TRUE,  # includes row labels
+  col.names = TRUE, # includes col labels
+  high.color = 'yellow', # highlight color to use 
+  row.colors = c('lightgray', 'white'), # alternating colors to shade data rows  
+  header.colors = c('#4A4A4A', 'white'), # two element vector specifying background and text colors for header row, respectively,
+  data.size = 15, # font size in px for data, title, and footer
+  title.size = 15, footer.size = 20, header.size = round(1.1*data.size))
+  {    
+    require(hwriter)
+    require(gplots)
+    
+    if (!is.data.frame(tab))
+      tab = as.data.frame(tab)
 
+    if (is.null(rownames(tab)))
+      row.names = F;
+
+    if (!is.null(file))
+      {
+        #if (!grepl('(^~)|(^\\/)', file))
+        #  file = paste('~/public_html/', file, sep = '')
+      }
+    else
+      file = DEFAULT.HTAB.FILE    
+
+    for (nm in names(tab))
+        tab[[nm]] = as.character(tab[[nm]])
+    tab[is.na(tab)] = '';
+    tab = tab[1:nrow(tab), , drop = FALSE];  #not sure why this is necessary, but deflects occasional weird R bug
+
+    if (any(lix <<- sapply(names(tab), function(x) is.list(tab[, x]))))
+      for (i in which(lix))
+        tab[, i] = sapply(tab[, i], function(x) paste(x, collapse = ','))
+    
+    dir.create(dirname(normalizePath(file.dir(file))), recursive=T, showWarnings = F)
+    p = openPage(file, link.css = 'hwriter.css')
+    if (!is.null(title))
+      hwrite(title, p, style = sprintf('font-weight:bold; font-size:%spx; margin-top;50px', title.size), center = TRUE, div = TRUE, br = TRUE);
+
+    row.bgcolor = as.list(as.character(col2hex(row.colors)[(1:nrow(tab))%%length(row.colors)+1]));
+    names(row.bgcolor) = rownames(tab)
+    if (!is.null(highlight))
+      row.bgcolor[rownames(tab[highlight,, drop = FALSE])] = list(col2hex(high.color));
+
+    row.bgcolor = c(col2hex(header.colors[1]), row.bgcolor)
+
+#    if (row.names)
+      col.bgcolor = col2hex(header.colors[1])
+    
+    col.style = sprintf('font-weight:bold; font-size:%spx; color:%s; text-align:center', header.size, col2hex(header.colors[2]));
+    
+    row.style = rep(sprintf('font-size:%spx; text-align:center', data.size), nrow(tab))
+    names(row.style) = rownames(tab)
+    row.style = c(list(sprintf('font-weight:bold; font-size:%spx; color:%s; text-align:center', header.size, col2hex(header.colors[2]))), row.style)
+    
+    hwrite(tab, p, row.style = row.style, col.style = col.style, col.bgcolor = col.bgcolor, row.names = row.names, col.names = col.names,
+           row.bgcolor = row.bgcolor, table.frame = 'void', table.style = 'margin-left: 30px; margin-top: 30px', br = TRUE)
+    if (!is.null(footer))
+      hwrite(footer, p, style = sprintf('font-weight:bold; text-align:center; font-size:%spx; margin-top;50px', footer.size), center = TRUE, div = TRUE);
+    closePage(p)
+  }
+
+gr2dt <-
+function(gr, basic=FALSE) {
+  if (any(class(gr)=='data.table'))
+    return(gr)
+  out <- with(gr, data.table(seqnames=as.character(seqnames(gr)),
+                            start=start(gr), end=end(gr), strand=as.character(strand(gr))))
+  if (!basic && ncol(mcols(gr)))
+    out <- cbind(out, as.data.frame(mcols(gr)))
+  return(out)
+}
 library(optparse)
 
 option_list = list(
-    make_option(c("-i", "--input"),  type = "character", default = NULL,  help = "Input SV VCF file"),
-    make_option(c("-o", "--output"), type = "character", default = "circos",  help = "Output basename of pdf to write the graph"),
-    make_option(c("-g", "--genes"), type = "logical", default = TRUE,  help = "Add genes to the plot?"),
-    make_option(c("-H", "--height"), type = "numeric", default = 10,  help = "Height"),
-    make_option(c("-W", "--width"), type = "numeric", default = 10,  help = "Width")
+  make_option(c("-i", "--input"),  type = "character", default = NULL,  help = "Input SV VCF file"),
+  make_option(c("-o", "--output"), type = "character", default = "no_id",  help = "Output annotation name"),
+  make_option(c("-t", "--splitsupport"), type = "numeric", default = 4,  help = "Minimum number of tumor supporting reads for ASSMB"),
+  make_option(c("-d", "--discsupport"), type = "numeric", default = 10,  help = "Minimum number of tumor support discordant for DSCRD"),
+  make_option(c("-g", "--genes"), type = "logical", default = TRUE,  help = "Add genes to the plot?"),
+  make_option(c("-H", "--height"), type = "numeric", default = 10,  help = "Height"),
+  make_option(c("-W", "--width"), type = "numeric", default = 10,  help = "Width")
 )
 
 parseobj = OptionParser(option_list=option_list)
@@ -724,51 +811,146 @@ opt = parse_args(parseobj)
 if (is.null(opt$input))
   stop(print_help(parseobj))
 
-bks <- ra_breaks(opt$input)
+require(GenomicRanges)
 
-## filter out discorant only
-bks <- bks[-which(mcols(bks)$EVDNC == "DSCRD")]
+args <- commandArgs(trailingOnly = TRUE)
+files <- args
 
-require(RCircos)
-data(UCSC.HG19.Human.CytoBandIdeogram);
-chr.exclude <- NULL;
-cyto.info <- UCSC.HG19.Human.CytoBandIdeogram;
-tracks.inside <- 10;
-tracks.outside <- 0;
-RCircos.Set.Core.Components(cyto.info, chr.exclude, tracks.inside, tracks.outside);
+#files <- c(ind$snowman_somatic_vcf,ind$snowman_somatic_indel_vcf)[!grepl("DATECODE",c(ind$snowman_somatic_vcf,ind$snowman_somatic_indel_vcf))]
+files <- c(ind$snowman_somatic_vcf,ind$snowman_somatic_indel_vcf)
 
-b <- grl.unlist(bks)
+## load the SV files
+snow.sv <- lapply(files, function(x) {
+  if (grepl("sv.vcf$",x)) {
+    print(paste(basename(x), ":", match(x, files),"of",length(files)))
+    if (file.exists(x)) {
+      y=ra_breaks(x)
+      mcols(y)$file = basename(x)
+      return(y)
+    } else {
+      return (GRangesList())
+    }
+  }
+  return(GRangesList())
+})
+snow.sv <- do.call('c', snow.sv)
+mcols(snow.sv)$analysis_id = gsub("(.*?).snowman.somatic.sv.vcf",'\\1',mcols(snow.sv)$file)
 
-## get the gene label dat
-basedir <- '/xchip/gistic/Jeremiah/tracks'  
-genes <- readRDS(file.path(basedir, 'gr.allgenes.rds'))
+dran.sv <- lapply(ind1$dRanger_results, function(x) {
+  #if (grepl("sv.vcf$",x)) {
+    print(paste(basename(x), ":", match(x, files),"of",length(files)))
+    if (file.exists(x)) {
+      y=ra_breaks(x)
+      if (length(y))
+        mcols(y)$file = basename(x)
+      return(y)
+    } else {
+      return (GRangesList())
+    }
+  #}
+  #return(GRangesList())
+})
+dran.sv <- do.call('c', dran.sv)
+mcols(dran.sv)$analysis_id = gsub("(.*?).dRanger_results.detail.somatic.txt",'\\1',mcols(dran.sv)$file)
+
+## load the indel files
+snow.indel <- lapply(files, function(x) {
+  if (grepl("indel.vcf$",x)) {
+    print(paste(basename(x), ":", match(x, files),"of",length(files)))
+    if (file.exists(x)) {
+      browser()
+      y=rowData(readVcf(x, "hg19"))
+      mcols(y)$file = basename(x)
+      return(y)
+    } else {
+      print(paste("File does not exist:",x))
+      return (GRanges())
+    }
+  }
+  return (GRanges())
+})
+
+## load the indel files
+strelka.indel <- lapply(ind1$strelka_passed_somatic_indel_vcf_file_wgs, function(x) {
+  #if (grepl("indel.vcf$",x)) {
+    print(paste(basename(x), ":", match(x, files),"of",length(files)))
+    if (file.exists(x)) {
+      y=rowData(readVcf(x, "hg19"))
+      mcols(y)$file = basename(x)
+      return(y)
+    } else {
+      print(paste("File does not exist:",x))
+      return (GRanges())
+    }
+  #}
+  #return (GRanges())
+})
+strelka.indel <- do.call('grbind', strelka.indel)
+strelka.indel$analysis_id = gsub("(.*?).passed.somatic.indels.vcf", "\\1", strelka.indel$file)
+strelka.indel$span = width(strelka.indel)
+
+
+events <- do.call('grbind',c(lapply(snow.sv, function(x) {y=unlist(x); y$span = mcols(x)$SPAN; return (y) }), snow.indel[sapply(snow.indel, length) > 0]))
+events$span[is.na(events$span)] = 0
+events$span <- pmax(width(events), events$span)
+
+spans <- c(unlist(lapply(snow.sv, function(x) mcols(x)$SPAN)), unlist(lapply(snow.indel, function(x) if (length(x))width(x))))
+
+spans <- events$span
+df <- data.frame(x=log10(spans[spans > 5]))
+#ppdf(print(ggplot() + geom_histogram(data=df, aes(x=x), binwidth=0.1) + theme_bw() + xlab("Distance (bp)") + ylab("Num Events") + scale_x_continuous(breaks=1:8, label=parse(text=paste("10", 1:8,sep="^")))), width=10, height=6)
+
+
+cgc <- track.load('cgc')
+
+fo <- gr.findoverlaps(cgc, events[events$span > 30 & events$span < 1000])
+fo <- gr.findoverlaps(cgc, do.call('c', snow.indel))
+sort(table(cgc$gene[fo$query.id]))
+
+fo <- gr.findoverlaps(cgc, events[events$span > 15 & events$span < 1000])
+fo <- gr.findoverlaps(cgc[cgc$gene=="NF1"], events) ##[events$span > 15 & events$span < 1000])
+events[fo$subject.id]
+sort(table(cgc$gene[fo$query.id]))
+
+
+genes <- track.load('genes')
 genes <- genes[width(genes) < 2e6]
-fo <- gr.findoverlaps(b+10e3, genes)
+
+
+dran.sv2 <- dran.sv[mcols(dran.sv)$analysis_id %in% unique(mcols(snow.sv)$analysis_id)]
+strelka.indel2 <- strelka.indel[mcols(strelka.indel)$analysis_id %in% unique(mcols(snow.sv)$analysis_id)]
+dsevents = grbind(grl.unlist(dran.sv2), strelka.indel2)
+
+## get cancer exons
+td <- track.gencode()
+exons <- td@data[[1]]
+exons <- do.call('c', exons)
+exons <- exons[as.character(exons$type) == "exon"]
+cgc.exons = exons[as.character(exons$gene_name) %in% cgc$gene]
+
+## WHSC1L1 is hit in both
+ee <- strelka.indel#dsevents
+fo <- gr.findoverlaps(genes + 10e3, ee)
 fo <- fo[!duplicated(fo$subject.id)]
+events[fo$subject.id]
+#sort(table(exons$gene_name[fo$query.id]))
+tab <- table(genes$gene[fo$query.id])
+sort(-log10(tab/gw[names(tab)]))
 
-gene.dat = data.frame(Chromosome = seqnames(genes[fo$subject.id]), chromStart=start(genes[fo$subject.id]),
-  chromEnd=end(genes[fo$subject.id]), Gene=genes$gene[fo$subject.id])
-print(gene.dat)
+gw <- structure(names=genes$gene, width(genes))
 
-gename.col <- 4;
-side <- "in";
-track.num <- 1;
+dsspan = dsevents$span[!is.na(dsevents$span) & dsevents$span >=10]
+espan = events$span[events$span >= 10]
+df <- data.frame(x=log10(c(dsspan, espan)), type=c(rep("Alignment", length(dsspan)), rep("Assembly", length(espan))))
+ppdf(print(ggplot() + geom_histogram(data=df, aes(x=x, fill=type), binwidth=0.1, position='dodge') + theme_bw() + xlab("Distance (bp)") + ylab("Num Events") + scale_x_continuous(breaks=1:8, label=parse(text=paste("10", 1:8,sep="^")))), width=5, height=4)
 
+## BCLAF1 ##dranger false positive. germline....
+win = genes[genes$gene == "CDH15"]
+lks <- dran.sv[grl.allin(dran.sv, win, only=TRUE)]
+lks <- snow.sv[grl.allin(snow.sv, win, only=TRUE)]
+ppdf(display(td, links=lks, window=streduce(lks, pad=10e3)))
 
-x1 = b$grl.iix==1
-x2 = b$grl.iix==2
-links = data.frame(Chromosome=seqnames(b[x1]), chromStart=start(b[x1]), chromEnd=end(b[x1]), Chromosome.1=seqnames(b[x2]), chromStart.1=start(b[x2]), chromeEnd.1=end(b[x2]))
-
-## plot the PDF
-pdf(file=paste0(opt$output,".pdf"), height=opt$height, width=opt$width, compress=TRUE);
-RCircos.Set.Plot.Area();
-RCircos.Chromosome.Ideogram.Plot();
-if (opt$genes && nrow(gene.dat) > 0) {
-  RCircos.Gene.Connector.Plot(gene.dat, track.num, side);
-  track.num <- 2;
-  name.col <- 4;
-  RCircos.Gene.Name.Plot(gene.dat, name.col,track.num, side);
-}
-if (nrow(links) > 0)
-  RCircos.Link.Plot(links, track.num, by.chromosome=TRUE) ## by.chromosome is for color
-dev.off()
+fo <- gr.findoverlaps(strelka.indel, genes[genes$gene == "CDH15"])
+strelka.indel[fo$query.id]
+fo <- gr.findoverlaps(gr.snow.indel, genes[genes$gene == "YOD1"])
+gr.snow.indel[fo$query.id]
