@@ -575,8 +575,8 @@ void GraphSearchTree<VERTEX,EDGE,DISTANCE>::connectedComponents(VertexPtrVector 
         totalInComponents += connectedComponents[i].size();
     }
     assert(totalVertices == totalInComponents);
-    std::cout << "[CC] total: " << totalVertices << " num components: " << connectedComponents.size() << "\n";
-    std::cout << "[CC] total vertices in components: " << totalInComponents << "\n";
+    //std::cout << "[CC] total: " << totalVertices << " num components: " << connectedComponents.size() << "\n";
+    //std::cout << "[CC] total vertices in components: " << totalInComponents << "\n";
 }
 
 #endif

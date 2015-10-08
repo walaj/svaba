@@ -51,7 +51,7 @@ void assemble(std::stringstream& asqg_stream, int minOverlap, int maxEdges, bool
 	      int trimLengthThreshold, bool bPerformTR, bool bValidate, int numTrimRounds, 
               int resolveSmallRepeatLen, int numBubbleRounds, double maxBubbleGapDivergence, 
               double maxBubbleDivergence, int maxIndelLength, int cutoff, std::string prefix, 
-              ContigVector &contigs);
+              ContigVector &contigs, bool walk_all);
 
 
 #endif

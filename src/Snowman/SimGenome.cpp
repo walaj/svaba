@@ -2,8 +2,6 @@
 
 #include "SnowTools/GenomicRegionCollection.h"
 
-
-
 SimGenome::SimGenome(const SnowTools::GenomicRegion& gr, int nbreaks, int ndels, faidx_t * findex, bool scramble, int viral_count) : m_gr(gr) {
   
   std::vector<size_t> index = {0};
@@ -26,7 +24,7 @@ SimGenome::SimGenome(const SnowTools::GenomicRegion& gr, int nbreaks, int ndels,
     exp_break += avg_width;
     uint32_t r = exp_break + (rand() % 400) - 200; //m_gr.width();
     r += m_gr.pos1; 
-    
+
     char strand = (rand() % 2) ? '+' : '-';
     grc.add(SnowTools::GenomicRegion(0, r, r, strand));
     index.push_back(ii++);
@@ -57,7 +55,7 @@ SimGenome::SimGenome(const SnowTools::GenomicRegion& gr, int nbreaks, int ndels,
   double grcwidth = grc.width();
   size_t id = 0;
   for (auto& i : index) {
-    SeqFrag sf(grc.at(i));
+    SeqFrag sf(grc.at(i), findex);
     sf.frag_id = id;
     ++id;
     sf.getSeqFromRef(findex);
@@ -116,7 +114,14 @@ std::string SimGenome::printBreaks() const {
     ss << m_sfv[i-1].m_gr.chr << "\t" << 
       m_sfv[i-1].getRightSide() << "\t" << (m_sfv[i-1].getStrand() == '+' ? '-' : '+')  << "\t" << 
       m_sfv[i].getLeftSide()    << "\t" << (m_sfv[i].getStrand())                       << "\t" << m_sfv[i-1].right_scramble << std::endl;
+  }
 
+  // loop through the tandem duplications and indels
+  for (auto& i : m_indels) {
+    //if (i.len >= 50 && i.type == 'D') 
+    //  ss << i.gr.chr << "\t" << i.gr.pos1 << "\t-" << i.gr.pos2 << "\t+" << std::endl;
+    if (i.len >= 50 && i.type == 'I') // tandem dup
+      ss << i.gr.chr << "\t" << i.gr.pos2 << "\t-\t" << i.gr.pos1 << "\t+" << std::endl;      
   }
   return ss.str();
 

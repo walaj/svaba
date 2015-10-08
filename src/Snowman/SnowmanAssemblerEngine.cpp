@@ -148,10 +148,6 @@ void SnowmanAssemblerEngine::doAssembly(ReadTable *pRT, ContigVector &contigs, i
   
   if (pRT->getCount() == 0)
     return;
-
-  //#ifdef CLOCK_COUNTER
-  //clock_t ct1_before = clock();
-  //#endif
     
   // forward
   SuffixArray* pSAf = new SuffixArray(pRT, 1, false); //1 is num threads. false is silent/no
@@ -163,10 +159,6 @@ void SnowmanAssemblerEngine::doAssembly(ReadTable *pRT, ContigVector &contigs, i
   RLBWT *pRBWT = new RLBWT(pSAr, pRT);
   pRT->reverseAll();
 
-  //if (pass == 0) {
-    
-  //} // end read correction
-  
   // rmdup attempt
   SnowmanOverlapAlgorithm* pRmDupOverlapper = new SnowmanOverlapAlgorithm(pBWT, pRBWT, 
                                                        0, 0, 
@@ -184,8 +176,6 @@ void SnowmanAssemblerEngine::doAssembly(ReadTable *pRT, ContigVector &contigs, i
 
     if (!rr.isSubstring)
       pRT_nd->addRead(sir);
-    //else
-    //  std::cerr << std::endl << "Read " << sir.id << " is substring with seq " << sir.seq.toString() << std::endl << std::endl;;
   }
 
   // forward
@@ -198,39 +188,8 @@ void SnowmanAssemblerEngine::doAssembly(ReadTable *pRT, ContigVector &contigs, i
   RLBWT *pRBWT_nd = new RLBWT(pSAr_nd, pRT_nd);
   pRT_nd->reverseAll();
 
-  //delete pRT;
-  //delete pRmDupOverlapper;
-  //pRT = pRT_nodup;
-  
- 
-  /*
-  pRT->setZero();
-  SeqItem si2;
-  ReadTable * pRT_nodup = new ReadTable();
-  while(pRT->getRead(si2)) {
-    if (!findOverlapBlocksExactSnow(si2.seq.toString(), pBWT, pRBWT))
-      pRT_nodup->addRead(si2);
-  }
-  if (pRT_nodup->getCount() == 0)
-    return;
-
-  // forward
-  SuffixArray* pSAf_rd = new SuffixArray(pRT_nodup, 1, false); //1 is num threads. false is silent/no
-  RLBWT *pBWT_rd= new RLBWT(pSAf_rd, pRT_nodup);
-
-  // reverse
-  pRT->reverseAll();
-  SuffixArray * pSAr_rd = new SuffixArray(pRT_nodup, 1, false);
-  RLBWT *pRBWT_rd = new RLBWT(pSAr_rd, pRT_nodup);
-  pRT_nodup->reverseAll();
-  */
-
   pSAf_nd->writeIndex();
   pSAr_nd->writeIndex();
-
-  //#ifdef CLOCK_COUNTER  
-  //(*clock_counter) << pass << "," << "suffix" << "," << (clock() - ct1_before)<< "," << pRT->getCount() << std::endl;
-  //#endif
 
   double errorRate = m_error_rate;
   int min_overlap = m_min_overlap;
@@ -250,8 +209,6 @@ void SnowmanAssemblerEngine::doAssembly(ReadTable *pRT, ContigVector &contigs, i
   seedLength = 20; seedStride = 20; // debug
   bool bIrreducibleOnly = true; // default
 
-  //std::cerr << "min overlap " << min_overlap << " seed length " << seedLength << std::endl;
-  
   SnowmanOverlapAlgorithm* pOverlapper = new SnowmanOverlapAlgorithm(pBWT_nd, pRBWT_nd, 
                                                        errorRate, seedLength, 
                                                        seedStride, bIrreducibleOnly);
@@ -277,9 +234,6 @@ void SnowmanAssemblerEngine::doAssembly(ReadTable *pRT, ContigVector &contigs, i
 
   size_t workid = 0;
   SeqItem si;
-  //#ifdef CLOCK_COUNTER
-  //clock_t ct_before = clock();
-  //#endif
 
   size_t ocount = 0;
   while (pRT_nd->getRead(si) && (++ocount < MAX_OVERLAPS_PER_ASSEMBLY)) {
@@ -300,9 +254,6 @@ void SnowmanAssemblerEngine::doAssembly(ReadTable *pRT, ContigVector &contigs, i
     workid++;
 
   }
-  //#ifdef CLOCK_COUNTER  
-  //(*clock_counter) << pass << "," <<"overlaps" << "," << (clock() - ct_before)  << "," << pRT->getCount() << std::endl;
-  //#endif
 
   string line;
   bool bIsSelfCompare = true;
@@ -363,7 +314,7 @@ void SnowmanAssemblerEngine::doAssembly(ReadTable *pRT, ContigVector &contigs, i
   assemble(asqg_stream, min_overlap, maxEdges, bExact, 
 	   trimLengthThreshold, bPerformTR, bValidate, numTrimRounds, 
 	   resolveSmallRepeatLen, numBubbleRounds, gap_divergence, 
-	   divergence, maxIndelLength, cutoff, m_id + "_", contigs);
+	   divergence, maxIndelLength, cutoff, m_id + "_", contigs, (pass > 0));
 
   // remove exact dups
   std::set<std::string> ContigDeDup;
@@ -379,10 +330,6 @@ void SnowmanAssemblerEngine::doAssembly(ReadTable *pRT, ContigVector &contigs, i
 
   contigs = cvec;
   
-  //#ifdef CLOCK_COUNTER  
-  //(*clock_counter) << pass << "," << "assembly" << "," << (clock() - ctA_before) << "," << pRT->getCount() << std::endl;
-  //#endif
-  
   delete pQueryRIT;
   asqg_stream.str("");
   hits_stream.str("");
@@ -391,7 +338,6 @@ void SnowmanAssemblerEngine::doAssembly(ReadTable *pRT, ContigVector &contigs, i
 #ifdef DEBUG_ENGINE
   if (contigs.size() >= 1) {
     std::cout << "Contig Count: " << contigs.size() << " at " << m_id << std::endl;
-    //if (opt::verbose > 3)
     for (auto& i : contigs) 
     	std::cout << "   " << i.getID() << " " << i.getSeq().length() << " " << i.getSeq() << std::endl;
   }

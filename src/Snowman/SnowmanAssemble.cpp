@@ -16,12 +16,17 @@
 #include "EncodedString.h"
 #include <unistd.h>
 #include <string>
+#include "SGSearch.h"
+
+//#define DEBUG_ASSEMBLY 1
+
+void walkExtra(StringGraph * pGraph, SGWalkVector& outWalks);
 
 void assemble(std::stringstream& asqg_stream, int minOverlap, int maxEdges, bool bExact, 
 	      int trimLengthThreshold, bool bPerformTR, bool bValidate, int numTrimRounds, 
               int resolveSmallRepeatLen, int numBubbleRounds, double maxBubbleGapDivergence, 
               double maxBubbleDivergence, int maxIndelLength, int cutoff, std::string prefix, 
-              ContigVector &contigs)
+              ContigVector &contigs, bool walk_all)
 {
 
   AssemblyOptions ao;
@@ -38,216 +43,159 @@ void assemble(std::stringstream& asqg_stream, int minOverlap, int maxEdges, bool
   SGContainRemoveVisitor containVisit;
   SGValidateStructureVisitor validationVisit;
   
-  // Pre-assembly graph stats
-    //std::cout << "[Stats] Input graph:\n";
-    //pGraph->visit(statsVisit);    
+  while(pGraph->hasContainment())
+    pGraph->visit(containVisit);
 
-    // Remove containments from the graph
-    //std::cout << "Removing contained vertices from graph\n";
-    //std::cout << "Containments: " << pGraph->hasContainment() << std::endl;
-    //std::cout << prefix << std::endl;
-    while(pGraph->hasContainment())
-        pGraph->visit(containVisit);
-    //std::cout << "After containments" << endl;
-    //pGraph->visit(statsVisit);    
-    //pGraph->writeASQG("tmp.graph.aftercontainments.asqg");
-    //std::cout << asqg_stream.str();
-    //    std::cerr << prefix << std::endl;
-    /*VertexPtrMap vt = pGraph->getVertexMap();
-    for (VertexPtrMap::const_iterator it = vt.begin(); it != vt.end(); it++)
-      for (int jt = 0; jt < it->second->getEdges().size(); jt++) 
-    	std::cerr << it->second->getEdges()[jt]->getStartID() << " " << std::endl;
-    */
-
-    //std::cerr << it->second->getID() << " Num edges: " << it->second->countEdges() << std::endl;
-    // Pre-assembly graph stats
-    //std::cout << "[Stats] After removing contained vertices:\n";
-    //  pGraph->visit(statsVisit);    
-
-    // Remove any extraneous transitive edges that may remain in the graph
-    if(bPerformTR)
+  // Remove any extraneous transitive edges that may remain in the graph
+  if(bPerformTR)
     {
-        std::cout << "Removing transitive edges\n";
-        pGraph->visit(trVisit);
+      std::cout << "Removing transitive edges\n";
+      pGraph->visit(trVisit);
     }
-
-    // Compact together unbranched chains of vertices
-    pGraph->simplify();
-    
-    //pGraph->writeASQG("tmp.graph.aftersimp1.asqg");
-
-    if(bValidate)
+  
+  // Compact together unbranched chains of vertices
+  pGraph->simplify();
+  
+  if(bValidate)
     {
-      //std::cout << "Validating graph structure\n";
-        pGraph->visit(validationVisit);
+      pGraph->visit(validationVisit);
     }
-
-    // Remove dead-end branches from the graph
-    //numTrimRounds = 1;
-    if(numTrimRounds > 0)
+  
+  // Remove dead-end branches from the graph
+  if(numTrimRounds > 0)
     {
-      //std::cout << "Trimming bad vertices\n"; 
-        int numTrims = numTrimRounds;
-        while(numTrims-- > 0)
-           pGraph->visit(trimVisit);
-	//std::cout << "\n[Stats] Graph after trimming:\n";
-        pGraph->visit(statsVisit);
+      int numTrims = numTrimRounds;
+      while(numTrims-- > 0)
+	pGraph->visit(trimVisit);
+      pGraph->visit(statsVisit);
     }
-
-    // Resolve small repeats
-    if(resolveSmallRepeatLen > 0 && false)
+  
+  // Resolve small repeats
+  if(resolveSmallRepeatLen > 0 && false)
     {
-        SGSmallRepeatResolveVisitor smallRepeatVisit(resolveSmallRepeatLen);
-	// std::cout << "Resolving small repeats\n";
-
-        //int totalSmallRepeatRounds = 0;
-        //while(pGraph->visit(smallRepeatVisit))
-        //    std::cout << "Finished small repeat resolve round " << totalSmallRepeatRounds++ << "\n";
-        
-        //std::cout << "\n[Stats] After small repeat resolution:\n";
-        //pGraph->visit(statsVisit);
+      SGSmallRepeatResolveVisitor smallRepeatVisit(resolveSmallRepeatLen);
     }
-
-    /*std::cerr << prefix << " NumBubble: " << numBubbleRounds << "\n\n\n\n";
-    vt = pGraph->getVertexMap();
-    std::cerr << "MapSize: " << vt.size() << std::endl;
-    for (VertexPtrMap::const_iterator it = vt.begin(); it != vt.end(); it++)
-    	std::cerr << it->second->getSeq() << " " << std::endl;
-    */
-
-    // Peform another round of simplification
-    //pGraph->simplify();
-    //pGraph->writeASQG("/home/unix/jwala/tmp.graph.aftersimp2.asqg");
-    //cout << "NumBUBBLGE: " << numBubbleRounds << endl;
-    //SGVisitorContig avtmp;
-    //pGraph->visit(avtmp);
-    //for (ContigVector::const_iterator it = avtmp.m_ct.begin(); it != avtmp.m_ct.end(); it++) {
-     // cout << "PRE BUBBLE LEN: " << it->getLength() << endl;
-    //if (it->getLength() >= cutoff) {
-	//std::string new_name = it->getID() + "_L" + it->getLength();
-	//it->setID(new_name);
-	//contigs.push_back(*it);
-    //}
-    //}
-
-    if(numBubbleRounds > 0)
+  
+  if(numBubbleRounds > 0)
     {
-      //std::cout << "\nPerforming variation smoothing\n";
       SGSmoothingVisitor smoothingVisit(ao.outVariantsFile, maxBubbleGapDivergence, maxBubbleDivergence, maxIndelLength);
       int numSmooth = numBubbleRounds;
       while(numSmooth-- > 0)
 	pGraph->visit(smoothingVisit);
       pGraph->simplify(); 
-      //pGraph->writeASQG("tmp.graph.afterbubsimp.asqg");    
     }
-
-    //pGraph->writeASQG("tmp.graph.after.asqg");    
-    /* std::cerr << prefix << " NumBubble2: " << numBubbleRounds << "\n\n\n\n";
-    vt = pGraph->getVertexMap();
-    std::cerr << "MapSize: " << vt.size() << std::endl;
-    for (VertexPtrMap::const_iterator it = vt.begin(); it != vt.end(); it++)
-    	std::cerr << it->second->getSeq() << " " << std::endl;
-    */
-    //pGraph->writeASQG("/home/unix/jwala/tmp.graph.final.asqg");
-    //pGraph->visit(statsVisit);
-    //std::string cmd = "sga-asqg2dot.pl /home/unix/jwala/tmp.graph.final.asqg > /home/unix/jwala/tmp.graph.final.dot; dot -Tpdf /home/unix/jwala/tmp.graph.aftersimple.dot -o /home/unix/jwala/tmp.graph.final.pdf";
-    //system(cmd.c_str());
-    //pGraph->renameVertices("contig-");
+  
     pGraph->renameVertices(prefix);
 
-    //cout << "FINAL" << endl;
-    //pGraph->visit(statsVisit);
-
-    //std::vector<std::string> idvec;
-    //pGraph->getToKeep(idvec);
-    //std::cout << "Len: " << idvec.size() << " Olen: " << olen << std::endl;
-    //for (int i = 0; i < idvec.size(); i++)
-    //  std::cout << idvec[i] << std::endl;
-
-    // Rename the vertices to have contig IDs instead of read IDs
-    //pGraph->renameVertices("contig-");
-
-    //JEREMIAH commented below
-    // Write the results
-    //SGFastaVisitor av(opt::outContigsFile); 
-    //pGraph->visit(av);
-
-    //JEREMIAH
-    //SGFastaVisitorSeqRecord av(cutoff); 
-    //SGVisitorContig av(cutoff);
     SGVisitorContig av;
     pGraph->visit(av);
-
-    /*   std::cerr << prefix << "ASFASDFSDFSDFSDF\n\n\n\n";
-    vt = pGraph->getVertexMap();
-    std::cerr << "MapSize: " << vt.size() << std::endl;
-    for (VertexPtrMap::const_iterator it = vt.begin(); it != vt.end(); it++)
-    	std::cerr << it->second->getID() << " " << std::endl;
-    */
- 
-    //std::cerr << "NUM CONTIGS: " << av.m_ct.size() << std::endl;
-    //for (int i = 0; i < av.m_ct.size(); i++)
-    // std::cerr << "LEN: " << av.m_ct[i].getLength() << std::endl;
-
-    //debug
-    /*    SGVisitorContig av_TEST;
-    pGraph->visit(av_TEST);
-    cout << "checking after bubble " << endl;
-    for (auto& i : av_TEST.m_ct) {
-      cout << "BEFRE AFTER in assembly " << i.getID() << " " << i.getSeq() << " len " << i.getSeq().length() << endl;
-      }*/
 
     ContigVector tmp = av.m_ct;
     for (ContigVector::const_iterator it = tmp.begin(); it != tmp.end(); it++) {
       if ((int)(it->getLength()) >= cutoff) {
-	//std::string new_name = it->getID() + "_L" + it->getLength();
-	//it->setID(new_name);
 	contigs.push_back(*it);
       }
     }
 
-      //for (unsigned i = 0; i < av.m_ct.size(); i++)
-      /*	if (av.m_ct[i].getLength() > cutoff) {
-	  //append the length string
-	  std::string new_name = av.m_ct[i].getID() + "_L" + av.m_ct[i].getLength();
-	  av.m_ct[i].setID()
-	    contigs.push_back(av.m_ct[i]);
-	  //}
-	  }*/
-
-    /*    for (int i = 0; i < av.m_ct.size(); i++)
-      if (av.m_ct[i].getLength() > cutoff) {
-	std::cerr << av.m_ct[i].getID() << std::endl;
-	std::cerr << av.m_ct[i].printAlignments();
-	}*/
-    
-    //VertexPtrVec vecr = pGraph->getAllKeepVertices();
-    //std::cerr << "ToKeepLen: " << vecr.size() << std::endl;
-
-    /*
-    // match contigs to reads
-    ReadTable* pRT_C = new ReadTable(srv);
-    SuffixArray* pSAf = new SuffixArray(pRT_, 1, false); //1 is num threads. false is isReverse
-    RLBWT *pBWT= new RLBWT(pSAf, pRT_C);
-    pRT_C->reverseAll();
-    SuffixArray * pSAr = new SuffixArray(pRT_C, 1, true); //1 is num threads. false is isReverse
-    RLBWT *pRBWT = new RLBWT(pSAr, pRT_C);
-    pRT_C->reverseAll();
-
-    pSAf->writeIndex();
-    pSAr->writeIndex();
-    double errorRate = 0.05;
-    int seedLength = 60;
-    bool bIrreducibleOnly = true; // default    
-    OverlapAlgorithm* pOverlapper = new OverlapAlgorithm(pBWT, pRBWT, 
-                                                         errorRate, seedLength, 
-                                                         seedStride, bIrreducibleOnly); */
-
-
-
-    //pGraph->writeASQG("/home/unix/jwala/testgraph.asqg");
-    
+    if (walk_all && false) {
+      SGWalkVector outWalks;
+      walkExtra(pGraph, outWalks);
+      for (auto& i : outWalks) {
+	std::string seqr = i.getString(SGWT_START_TO_END);
+	if ((int)seqr.length() >= cutoff) 
+	  contigs.push_back(Contig(i.pathSignature(), seqr));
+      }
+    }
 
     delete pGraph;
    
+}
+
+void walkExtra(StringGraph * pGraph, SGWalkVector& outWalks) {
+  
+  typedef std::vector<VertexPtrVec> ComponentVector;
+    VertexPtrVec allVertices = pGraph->getAllVertices();
+    ComponentVector components;
+#ifdef DEBUG_ASSEMBLY
+    std::cerr << "selecting connected componsnet" << std::endl;
+#endif
+    
+    SGSearchTree::connectedComponents(allVertices, components);
+    
+    // Select the largest component
+    int selectedIdx = -1;
+    size_t largestSize = 0;
+    
+    for(size_t i = 0; i < components.size(); ++i)
+      {
+	if(components[i].size() > largestSize)
+	  {
+	    selectedIdx = i;
+	    largestSize = components[i].size();
+	  }
+      }
+    
+#ifdef DEBUG_ASSEMBLY
+    std::cerr << "looping vertices" << std::endl;
+#endif
+    
+    assert(selectedIdx != -1);    
+    VertexPtrVec selectedComponent = components[selectedIdx];
+    // Build a vector of the terminal vertices
+    VertexPtrVec terminals;
+    for(size_t i = 0; i < selectedComponent.size(); ++i)
+      {
+	Vertex* pVertex = selectedComponent[i];
+	size_t asCount = pVertex->getEdges(ED_ANTISENSE).size();
+	size_t sCount = pVertex->getEdges(ED_SENSE).size();
+	
+	if(asCount == 0 || sCount == 0)
+	  terminals.push_back(pVertex);
+      }
+    
+#ifdef DEBUG_ASSEMBLY
+    std::cerr << "getting walks on " << terminals.size() << " vertices "  << std::endl;
+#endif
+    
+    // Find walks between all-pairs of terminal vertices
+    SGWalkVector tempWalks;
+    if (terminals.size() > 2 && terminals.size() < 10) {
+      for(size_t i = 0; i < terminals.size(); ++i)
+	{
+	  for(size_t j = i + 1; j < terminals.size(); j++)
+	    {
+	      Vertex* pX = terminals[i];
+	      Vertex* pY = terminals[j];
+	      int maxDistance = 2;
+	      SGSearch::findWalks(pX, pY, ED_SENSE, maxDistance, 1000000, false, tempWalks);
+	      SGSearch::findWalks(pX, pY, ED_ANTISENSE, maxDistance, 1000000, false, tempWalks);   
+	    }
+	}
+    }
+    
+#ifdef DEBUG_ASSEMBLY
+    std::cerr << "deduping walks on " << terminals.size() << " vertices "  << std::endl;
+#endif
+    
+    // Remove duplicate walks
+    std::map<std::string, SGWalk> walkMap;
+    for(size_t i = 0; i < tempWalks.size(); ++i)
+      {
+	std::string walkString = tempWalks[i].getString(SGWT_START_TO_END);
+	walkMap.insert(std::make_pair(walkString, tempWalks[i]));
+      }
+    // Copy unique walks to the output
+    for(std::map<std::string, SGWalk>::iterator mapIter = walkMap.begin(); mapIter != walkMap.end(); ++mapIter)
+      outWalks.push_back(mapIter->second);
+    
+    // Sort the walks by string length
+    std::sort(outWalks.begin(), outWalks.end(), SGWalk::compareByTotalLength);
+    
+    int numOutputWalks = 10;
+    if(numOutputWalks > 0 && numOutputWalks < (int)outWalks.size())
+      {
+	assert(outWalks.begin() + numOutputWalks < outWalks.end());
+	outWalks.erase(outWalks.begin() + numOutputWalks, outWalks.end());
+      }
+  
 }

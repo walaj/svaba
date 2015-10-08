@@ -5,7 +5,7 @@
 #define MIN_MAPQ_FOR_MATE_LOOKUP 0
 
 //#define DEBUG_GIVEN_READ 1
-//#define QNAME "H25JFCCXX150206:1:1216:10825:10222"
+//#define QNAME "D0UK2ACXX120515:6:2209:7783:72545"
 
 static const std::string ILLUMINA_PE_PRIMER_2p0 = "CAAGCAGAAGACGGCAT";
 static const std::string FWD_ADAPTER_A = "AGATCGGAAGAGC";
@@ -61,11 +61,19 @@ bool SnowmanBamWalker::isDuplicate(BamRead &r)
 {
 
   // deduplicate by query-bases / position
-  int pos_key = r.Position()*10 + r.MatePosition() + 1000 * r.NumMatchBases() + 12345 * r.AlignmentFlag();
-  
+  int pos_key = r.Position() + r.MatePosition()*3 + 1332 * r.NumMatchBases() + 12345 * r.AlignmentFlag() + 221*r.InsertSize();
+  std::string key = std::to_string(pos_key) + r.Sequence();
+
+#ifdef DEBUG_GIVEN_READ
+  if (r.Qname() == QNAME)
+    std::cerr << pos_key << std::endl;
+  if (pos_key == 127580527 && r.Qname() != QNAME)
+    std::cerr << "DUP " << r << std::endl;
+#endif
+
   // its not already add, insert
-  if (!seq_set.count(pos_key)) {
-    seq_set.insert(pos_key);
+  if (!seq_set.count(key)) {
+    seq_set.insert(key);
     return false;
   }
   

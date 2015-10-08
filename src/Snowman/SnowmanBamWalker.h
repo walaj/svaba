@@ -104,8 +104,8 @@ class SnowmanBamWalker: public SnowTools::BamWalker {
   // might want these in case we are looking for duplicates
   //std::unordered_map<std::string, bool> name_map;
   //std::unordered_map<std::string, bool> seq_map;
-  //std::unordered_set<std::string> seq_set;
-  std::unordered_set<int> seq_set;
+  std::unordered_set<std::string> seq_set;
+  //std::unordered_set<int> seq_set;
   
   size_t m_limit = 0;
   

@@ -274,7 +274,20 @@ std::string genBreaks() {
   for (auto& i : sg.m_indels)
     ind << i << std::endl;
   ind.close();
+
+
+  std::ofstream con;
+  con.open("connections.tsv", std::ios::out);
+  con << sg.printBreaks();
+  con.close();
+
+  std::ofstream mic;
+  mic.open("microbe_spikes.tsv", std::ios::out);
+  mic << sg.printMicrobeSpikes();
+  mic.close();
   
+  exit(0);
+
   rs.addAllele(final_seq, 1);
 
   // sample paired reads
@@ -310,17 +323,6 @@ std::string genBreaks() {
     pe2 << "@r" << ccc++ << std::endl << reads2[i] << std::endl << "+\n" << qual2[i] << std::endl;
   }
   pe2.close();
-
-
-  std::ofstream con;
-  con.open("connections.tsv", std::ios::out);
-  con << sg.printBreaks();
-  con.close();
-
-  std::ofstream mic;
-  mic.open("microbe_spikes.tsv", std::ios::out);
-  mic << sg.printMicrobeSpikes();
-  mic.close();
 
   std::cerr << "********************************" << std::endl;
   std::cerr << "Suggest running: " << std::endl;
