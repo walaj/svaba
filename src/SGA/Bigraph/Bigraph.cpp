@@ -287,8 +287,8 @@ void Bigraph::simplify(EdgeDir dir)
             // Get the edges for this direction
             EdgePtrVec edges = iter->second->getEdges(dir);
 
-	    //for (auto& i : edges)
-	    //  std::cerr << "    EDGE: " << i->getStartID() << " " << i->getEndID()<< std::endl;
+	    // for (auto& i : edges)
+	    // std::cerr << "    EDGE: " << i->getStartID() << " " << i->getEndID()<< std::endl;
 
             // If there is a single edge in this direction, merge the vertices
             // Don't merge singular self edges though

@@ -419,7 +419,7 @@ void runSnowman(int argc, char** argv) {
   */
   mr = new SnowTools::MiniRulesCollection(opt::rules);
   ss << opt::rules << std::endl;
-  ss << *mr;
+  ss << *mr << std::endl;
   log_file << ss.str();
   if (opt::verbose > 1)
     std::cerr << ss.str();
@@ -452,7 +452,7 @@ void runSnowman(int argc, char** argv) {
   clock_gettime(CLOCK_MONOTONIC, &start);
 
   // send the jobs to the queue
-  std::cerr << "---- Starting detection pipeline --- on " << opt::numThreads << " thread" << std::endl;
+  std::cerr << std::endl << "---- Starting detection pipeline --- on " << opt::numThreads << " thread" << std::endl;
   sendThreads(regions_torun);
 
   if (microbe_bwa)
@@ -687,11 +687,6 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
   for (auto& b : opt::bam)
     if (b.second.at(0) == 't')
       for (auto& i : walkers[b.first].mate_regions){
-	//std::cerr << "...checking somatic mate region " << i << std::endl;
-	//std::cerr << "   icount " << i.count << " i.chr " << i.chr << " indel_blacklist_mask.size() == 0 || " << 
-	//  " indel_blacklist_mask.findOverlapping(i) == 0) :: " <<  
-	//  (blacklist.size() == 0 || blacklist.findOverlapping(i) == 1) << "   normal mate region findOverlapping " << 
-	//  (normal_mate_regions.findOverlapping(i)) << std::endl;
 	if (i.count >= LOOKUP_LIM && !normal_mate_regions.findOverlapping(i) && 
 	    i.chr < 24 
 	    && (blacklist.size() == 0 || blacklist.findOverlapping(i) == 0))
@@ -768,7 +763,6 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
       double w_cov1 = weird_normal->getCoverageAtPosition(region.chr, i);
       double n_cov1 = cov_normal->getCoverageAtPosition(region.chr, i);
       
-      // std::cerr << w_cov1 << ":" << (normal_mean_cov * normal_frac_bad * 4) << " " << n_cov1 << ":" << (6 * normal_mean_cov) << std::endl;
       // filter out bad positions by looking at bad reads in normal
       if (std::max(n_cov1,w_cov1) >= 10)
 	if (( w_cov1 >= n_params.mean_cov * n_params.frac_bad * 4) || (n_cov1 >= 6 * n_params.mean_cov)) {
@@ -928,9 +922,13 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
       
 #ifndef NO_LOAD_INDEX
       for (auto& i : all_contigs_this) {
-	BamReadVector ct_alignments;
-	main_bwa->alignSingleSequence(i.getSeq(), i.getID(), ct_alignments, 0.90, SECONDARY_CAP);
+
+	if (i.getSeq().length() < (t_params.readlen + 30))
+	  continue;
 	
+	BamReadVector ct_alignments;
+	main_bwa->alignSingleSequence(i.getSeq(), i.getID(), ct_alignments, 0.90, SECONDARY_CAP);	
+
 	if (opt::verbose > 3)
 	  for (auto& i : ct_alignments)
 	    std::cerr << " aligned contig: " << i << std::endl;
@@ -1008,6 +1006,8 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 
       // Align the reads to the contigs with BWA-MEM
       SnowTools::BWAWrapper bw;
+      //for (auto& i : usv) 
+      //	std::cerr << i.name << " " << i.seq << std::endl;
       bw.constructIndex(usv);
 
       if (opt::verbose > 3)
@@ -1091,9 +1091,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
   // de duplicate the breakpoints
   std::sort(bp_glob.begin(), bp_glob.end());
   SnowTools::BPVec tmprr = bp_glob; //debug
-  //std::cerr << "..num breaks before " << bp_glob.size() << std::endl;
   bp_glob.erase( std::unique( bp_glob.begin(), bp_glob.end() ), bp_glob.end() );
-  //std::cerr << "..num breaks after " << bp_glob.size() << std::endl;
   
   //debug
   //if (tmprr.size() != bp_glob.size()) {
@@ -1302,10 +1300,10 @@ void alignReadsToContigs(SnowTools::BWAWrapper& bw, const SnowTools::USeqVector&
     bw.alignSingleSequence(seqr, i.Qname(), brv, 0.60, 10000);
     
     //debug
-    //if (i.Qname() == "H25JFCCXX150206:1:1216:10825:10222")
-    //  for (auto& i : brv)
-    //std::cerr << i << " ss " << (i.NumMatchBases() * 0.9) << " AS " << i.GetIntTag("AS") << std::endl;
-
+    if (i.Qname() == "D0UK2ACXX120515:6:2209:7783:72545")
+    for (auto& r : brv)
+      std::cerr << r << " ss " << (r.NumMatchBases() * 0.9) << " AS " << r.GetIntTag("AS") << " aligned to " << usv[r.ChrID()].name << std::endl;
+    
     if (brv.size() == 0) 
       continue;
     
@@ -1321,14 +1319,10 @@ void alignReadsToContigs(SnowTools::BWAWrapper& bw, const SnowTools::USeqVector&
 	continue;
       
       bool length_pass = (r.PositionEnd() - r.Position()) >= (seqr.length() * 0.75);
-      bool mapq_pass = r.MapQuality();
-      int ins_bases = r.MaxInsertionBases();
-      int del_bases = r.MaxDeletionBases();
 
-      ins_bases = 0;
-      del_bases = 0;
-
-      if (length_pass && mapq_pass && ins_bases == 0 && del_bases == 0 && !cc.count(usv[r.ChrID()].name)) {
+      if (length_pass && !cc.count(usv[r.ChrID()].name)) {
+	if (i.Qname() == "D0UK2ACXX120515:6:2209:7783:72545")
+	  std::cerr << "...adding " << r << std::endl;
 	bpass.push_back(r);
 	cc.insert(usv[r.ChrID()].name);
       }

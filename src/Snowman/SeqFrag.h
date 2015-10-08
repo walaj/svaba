@@ -13,7 +13,7 @@ class SeqFrag {
 
  public:
 
-  SeqFrag(const GenomicRegion& gr) : m_gr(gr) {}
+ SeqFrag(const GenomicRegion& gr, faidx_t * findex) : m_gr(gr), m_index(findex) {}
 
   void getSeqFromRef(faidx_t * findex);
 
@@ -48,6 +48,8 @@ class SeqFrag {
   std::string phage_string = "";
 
  private:
+
+  faidx_t * m_index;
 
 };
 

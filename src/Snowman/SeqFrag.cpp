@@ -257,13 +257,15 @@ const char* PSUEDO = "CAAAAAGACATTTTTTTTGGGATATTAAGATTTCCTAGGATAGAAATCAAATTATTAG
 
 void SeqFrag::addIndels(size_t n) {
 
-  if (n == 0 || m_seq.length() < 200)
+  if (n == 0 || m_seq.length() < 5000)
     return;
 
+  int pos1 = 0, pos2 = 0;
+
   size_t spacing = m_seq.length() / (n+1);
-  spacing = std::max((size_t)100, spacing);
+  spacing = std::max((size_t)5000, spacing);
   std::vector<int> breaks;
-  for (size_t i = spacing; i < m_seq.length() - 100; i += spacing) {
+  for (size_t i = spacing; i < m_seq.length() - 5000; i += spacing) {
     breaks.push_back(i);
   }  
   breaks.push_back(m_seq.length() - 1);
@@ -296,6 +298,7 @@ void SeqFrag::addIndels(size_t n) {
     int ds = rs.getRandomIndelSize();
     
     char etype = (rand() % 2 ? 'D' : 'I');
+    //etype = ds >= 50 ? 'D' ? 'I'; // events above 50 are always dels
     //char etype = 'D';
 
     // get the bounds
@@ -303,9 +306,19 @@ void SeqFrag::addIndels(size_t n) {
     int end = breaks[i+1];
 
     std::string ins_string = "";
-    if (etype == 'I')
-      for (int i = 0; i < ds; ++i) 
-	ins_string += TCGA[rand() % 4];
+    if (etype == 'I') {
+      if (ds < 50) { // random sequences for small insertions
+	for (int i = 0; i < ds; ++i) 
+	  ins_string += TCGA[rand() % 4];
+      } else { // tandem duplications for large
+	int len;
+	std::string chrstring = SnowTools::GenomicRegion::chrToString(m_gr.chr);
+	char * seq = faidx_fetch_seq(m_index, const_cast<char*>(chrstring.c_str()), m_gr.pos1 + breaks[i], m_gr.pos1 + breaks[i] + ds -1, &len);
+	ins_string = std::string(seq);
+	//std::cerr << ins_string.length() << " " << ds << std::endl;
+      }
+    }
+    
     
     std::string lead_base = m_seq.substr(breaks[i]-1,1);
     std::string ref_seq = (etype == 'D' ? m_seq.substr(breaks[i], ds) : "");
@@ -314,7 +327,7 @@ void SeqFrag::addIndels(size_t n) {
     // make the indel object
     Indel ind(ds, etype, ref_seq, alt_seq, lead_base);
     if (etype == 'D')
-      ind.gr = SnowTools::GenomicRegion(m_gr.chr, m_gr.pos1 + breaks[i], m_gr.pos1 + breaks[i] + ds);
+      ind.gr = SnowTools::GenomicRegion(m_gr.chr, m_gr.pos1 + breaks[i]-1, m_gr.pos1 + breaks[i] + ds-1);
     else
       ind.gr = SnowTools::GenomicRegion(m_gr.chr, m_gr.pos1 + breaks[i], m_gr.pos1 + breaks[i] + 1);
     ind.frag_id = frag_id;
