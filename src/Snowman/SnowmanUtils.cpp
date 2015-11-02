@@ -1,4 +1,5 @@
 #include "SnowmanUtils.h"
+#include <iomanip>
 
 namespace SnowmanUtils {
 
@@ -12,6 +13,20 @@ static std::string POLYTG = "TGTGTGTGTGTGTGTGTGTGTGTG";
 static std::string POLYCA = "CACACACACACACACACACACACA";
 static std::string POLYAG = "AGAGAGAGAGAGAGAGAGAGAGAG";
 static std::string POLYTC = "TCTCTCTCTCTCTCTCTCTCTCTC";
+
+  std::string fileDateString() {
+    // set the time string
+    time_t t = time(0);   // get time now
+    struct tm * now = localtime( & t );
+    std::stringstream month;
+    std::stringstream mdate;
+    if ( (now->tm_mon+1) < 10)
+      month << "0" << now->tm_mon+1;
+    else 
+      month << now->tm_mon+1;
+    mdate << (now->tm_year + 1900) << month.str() <<  now->tm_mday;
+    return mdate.str();
+  }
 
   SnowTimer::SnowTimer() {
     s = {"r", "m", "as", "bw", "pp", "k"};
@@ -198,6 +213,53 @@ int overlapSize(const SnowTools::BamRead& query, const SnowTools::BamReadVector&
     
   }
     
+
+  std::string __bamOptParse(std::unordered_map<std::string, std::string>& obam, std::istringstream& arg, int sample_number, const std::string& prefix) {
+    std::stringstream ss;
+    std::string bam;
+    arg >> bam;
+    ss.str(std::string());
+    ss << prefix << std::setw(3) << std::setfill('0') << sample_number;
+    obam[ss.str()] = bam;
+    return bam;
+  }
+
+  void __openWriterBam(const SnowTools::BamWalker& bwalker, const std::string& name, SnowTools::BamWalker& wbam) {
+    bam_hdr_t * r2c_hdr = bam_hdr_dup(bwalker.header());
+    wbam.SetWriteHeader(r2c_hdr);
+    wbam.OpenWriteBam(name);
+  }
+
+  bool __header_has_chr_prefix(bam_hdr_t * h) {
+    for (int i = 0; i < h->n_targets; ++i) 
+      if (h->target_name[i] && std::string(h->target_name[i]).find("chr") != std::string::npos) 
+	return true;
+    return false;
+  }
+
+  void __open_bed(const std::string& f, SnowTools::GRC& b, bam_hdr_t* h) {
+    //blacklist.add(SnowTools::GenomicRegion(1,33139671,33143258)); // really nasty region
+    if (f.empty())
+      return;
+    b.regionFileToGRV(f, 0, h, __header_has_chr_prefix(h));
+    b.createTreeMap();
+  }
+  
+  faidx_t * __open_index_and_writer(const std::string& index, SnowTools::BWAWrapper * b, const std::string& wname, SnowTools::BamWalker& writer, faidx_t * findex) {
+
+    if (!SnowTools::read_access_test(index))
+      return findex;
+
+    b->retrieveIndex(index);
+    
+    // open the bam for writing  
+    writer.SetWriteHeader(b->HeaderFromIndex());
+    writer.OpenWriteBam(wname); // open and write header
+
+    findex  = fai_load(index.c_str());  // load the sequence
+    return findex;
+  }
+
   
 }
 

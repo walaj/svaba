@@ -836,23 +836,6 @@ snow.sv <- lapply(files, function(x) {
 snow.sv <- do.call('c', snow.sv)
 mcols(snow.sv)$analysis_id = gsub("(.*?).snowman.somatic.sv.vcf",'\\1',mcols(snow.sv)$file)
 
-dran.sv <- lapply(ind1$dRanger_results, function(x) {
-  #if (grepl("sv.vcf$",x)) {
-    print(paste(basename(x), ":", match(x, files),"of",length(files)))
-    if (file.exists(x)) {
-      y=ra_breaks(x)
-      if (length(y))
-        mcols(y)$file = basename(x)
-      return(y)
-    } else {
-      return (GRangesList())
-    }
-  #}
-  #return(GRangesList())
-})
-dran.sv <- do.call('c', dran.sv)
-mcols(dran.sv)$analysis_id = gsub("(.*?).dRanger_results.detail.somatic.txt",'\\1',mcols(dran.sv)$file)
-
 ## load the indel files
 snow.indel <- lapply(files, function(x) {
   if (grepl("indel.vcf$",x)) {
@@ -870,26 +853,6 @@ snow.indel <- lapply(files, function(x) {
   return (GRanges())
 })
 
-## load the indel files
-strelka.indel <- lapply(ind1$strelka_passed_somatic_indel_vcf_file_wgs, function(x) {
-  #if (grepl("indel.vcf$",x)) {
-    print(paste(basename(x), ":", match(x, files),"of",length(files)))
-    if (file.exists(x)) {
-      y=rowData(readVcf(x, "hg19"))
-      mcols(y)$file = basename(x)
-      return(y)
-    } else {
-      print(paste("File does not exist:",x))
-      return (GRanges())
-    }
-  #}
-  #return (GRanges())
-})
-strelka.indel <- do.call('grbind', strelka.indel)
-strelka.indel$analysis_id = gsub("(.*?).passed.somatic.indels.vcf", "\\1", strelka.indel$file)
-strelka.indel$span = width(strelka.indel)
-
-
 events <- do.call('grbind',c(lapply(snow.sv, function(x) {y=unlist(x); y$span = mcols(x)$SPAN; return (y) }), snow.indel[sapply(snow.indel, length) > 0]))
 events$span[is.na(events$span)] = 0
 events$span <- pmax(width(events), events$span)
@@ -898,59 +861,4 @@ spans <- c(unlist(lapply(snow.sv, function(x) mcols(x)$SPAN)), unlist(lapply(sno
 
 spans <- events$span
 df <- data.frame(x=log10(spans[spans > 5]))
-#ppdf(print(ggplot() + geom_histogram(data=df, aes(x=x), binwidth=0.1) + theme_bw() + xlab("Distance (bp)") + ylab("Num Events") + scale_x_continuous(breaks=1:8, label=parse(text=paste("10", 1:8,sep="^")))), width=10, height=6)
-
-
-cgc <- track.load('cgc')
-
-fo <- gr.findoverlaps(cgc, events[events$span > 30 & events$span < 1000])
-fo <- gr.findoverlaps(cgc, do.call('c', snow.indel))
-sort(table(cgc$gene[fo$query.id]))
-
-fo <- gr.findoverlaps(cgc, events[events$span > 15 & events$span < 1000])
-fo <- gr.findoverlaps(cgc[cgc$gene=="NF1"], events) ##[events$span > 15 & events$span < 1000])
-events[fo$subject.id]
-sort(table(cgc$gene[fo$query.id]))
-
-
-genes <- track.load('genes')
-genes <- genes[width(genes) < 2e6]
-
-
-dran.sv2 <- dran.sv[mcols(dran.sv)$analysis_id %in% unique(mcols(snow.sv)$analysis_id)]
-strelka.indel2 <- strelka.indel[mcols(strelka.indel)$analysis_id %in% unique(mcols(snow.sv)$analysis_id)]
-dsevents = grbind(grl.unlist(dran.sv2), strelka.indel2)
-
-## get cancer exons
-td <- track.gencode()
-exons <- td@data[[1]]
-exons <- do.call('c', exons)
-exons <- exons[as.character(exons$type) == "exon"]
-cgc.exons = exons[as.character(exons$gene_name) %in% cgc$gene]
-
-## WHSC1L1 is hit in both
-ee <- strelka.indel#dsevents
-fo <- gr.findoverlaps(genes + 10e3, ee)
-fo <- fo[!duplicated(fo$subject.id)]
-events[fo$subject.id]
-#sort(table(exons$gene_name[fo$query.id]))
-tab <- table(genes$gene[fo$query.id])
-sort(-log10(tab/gw[names(tab)]))
-
-gw <- structure(names=genes$gene, width(genes))
-
-dsspan = dsevents$span[!is.na(dsevents$span) & dsevents$span >=10]
-espan = events$span[events$span >= 10]
-df <- data.frame(x=log10(c(dsspan, espan)), type=c(rep("Alignment", length(dsspan)), rep("Assembly", length(espan))))
-ppdf(print(ggplot() + geom_histogram(data=df, aes(x=x, fill=type), binwidth=0.1, position='dodge') + theme_bw() + xlab("Distance (bp)") + ylab("Num Events") + scale_x_continuous(breaks=1:8, label=parse(text=paste("10", 1:8,sep="^")))), width=5, height=4)
-
-## BCLAF1 ##dranger false positive. germline....
-win = genes[genes$gene == "CDH15"]
-lks <- dran.sv[grl.allin(dran.sv, win, only=TRUE)]
-lks <- snow.sv[grl.allin(snow.sv, win, only=TRUE)]
-ppdf(display(td, links=lks, window=streduce(lks, pad=10e3)))
-
-fo <- gr.findoverlaps(strelka.indel, genes[genes$gene == "CDH15"])
-strelka.indel[fo$query.id]
-fo <- gr.findoverlaps(gr.snow.indel, genes[genes$gene == "YOD1"])
-gr.snow.indel[fo$query.id]
+ppdf(print(ggplot() + geom_histogram(data=df, aes(x=x), binwidth=0.1) + theme_bw() + xlab("Distance (bp)") + ylab("Num Events") + scale_x_continuous(breaks=1:8, label=parse(text=paste("10", 1:8,sep="^")))), width=10, height=6)

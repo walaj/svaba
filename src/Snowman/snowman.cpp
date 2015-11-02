@@ -68,6 +68,7 @@
 #include "genpon.h"
 #include "benchmark.h"
 #include "refilter.h"
+#include "assembly2vcf.h"
 
 #define AUTHOR "Jeremiah Wala <jwala@broadinstitute.org>"
 
@@ -76,13 +77,13 @@ static const char *SNOWMAN_USAGE_MESSAGE =
 "--- Snowman - Somatic Structural Variant and Indel Detection ---\n"
 "----------------------------------------------------------------\n"
 "Program: SnowmanSV \n"
-"Version: 31 \n"
+"FH Version: 63 \n"
 "Contact: Jeremiah Wala [ jwala@broadinstitute.org ]\n"
 "Usage: snowman <command> [options]\n\n"
 "Commands:\n"
 "           run            Run Snowman SV and Indel detection on BAM(s)\n"
 "           benchmark      Run benchmarking tests for Snowman\n"
-  //"           assembly2vcf   Run Snowman filtering on BWA-MEM aligned assembly (eg Discovar, SGA, etc) and aligned reads\n"
+"           assembly2vcf   Run Snowman filtering on BWA-MEM aligned assembly (eg Discovar, SGA, etc) and aligned reads\n"
 "           vcf            Tools for handling VCF files from Snowman and from supported other callers\n"
 "           refilter       Refilter the Snowman breakpoints with additional/different criteria to created filtered VCF and breakpoints file.\n"
 "           pon            Generate a panel of normal from a list of germline VCFs or list of cigarmap.txt.gz files from <snowman run>. For use with <snowman run> or <snowman refilter>\n"
@@ -110,9 +111,9 @@ int main(int argc, char** argv) {
     } else if (command == "refilter") {
       runRefilterBreakpoints(argc-1, argv+1);
     }
-    //else if (command == "assembly2vcf") {
-    //  runAssembly2VCF(argc-1, argv+1);
-    //}
+    else if (command == "assembly2vcf") {
+      runAssembly2VCF(argc-1, argv+1);
+    }
     else {
       std::cerr << SNOWMAN_USAGE_MESSAGE;
       return 0;

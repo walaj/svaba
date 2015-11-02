@@ -40,10 +40,22 @@ class SnowmanBamWalker: public SnowTools::BamWalker {
  public:
   
   SnowmanBamWalker() {}
+
+ SnowmanBamWalker(const std::string& in) : SnowTools::BamWalker(in) {}
   
-  SnowmanBamWalker(const std::string& in) : SnowTools::BamWalker(in) {  }
+  SnowmanBamWalker(const std::string& in, SnowTools::BWAWrapper * b, int rlen, 
+		  const std::string p, const SnowTools::GRC& bl) : 
+  SnowTools::BamWalker(in), main_bwa(b), readlen(rlen), prefix(p), blacklist(bl) {  }
+
+
+  SnowTools::BWAWrapper * main_bwa = nullptr;
+  int readlen;  
+  std::string prefix; // eg. tumor, normal
+  SnowTools::GRC blacklist;
   
   void readBam(const SnowTools::DBSnpFilter* dbs = nullptr);
+
+  void realignDiscordants(SnowTools::BamReadVector& reads);
   
   void filterMicrobial(SnowTools::BWAWrapper * b);
   
@@ -63,8 +75,7 @@ class SnowmanBamWalker: public SnowTools::BamWalker {
   
   bool get_coverage = true;
   bool get_mate_regions = true;
-  
-  SnowTools::GRC blacklist;
+ 
   
   //ReadVec reads;
   BamReadVector reads;
@@ -75,7 +86,9 @@ class SnowmanBamWalker: public SnowTools::BamWalker {
   
   CigarMap cigmap;
 
-  int readlen;
+
+
+
   
   //SnowTools::GenomicRegion coverage_region;
   
@@ -85,13 +98,11 @@ class SnowmanBamWalker: public SnowTools::BamWalker {
   
   SnowTools::ReadCount rc;
   
-  std::string prefix; // eg. tumor, normal
+
   
   size_t max_cov = 100;
   
   bool do_kmer_filtering = true;
-  
-  bool disc_only = false;
   
   bool adapter_trim = true;
 

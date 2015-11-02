@@ -324,7 +324,7 @@ void SnowmanAssemblerEngine::doAssembly(ReadTable *pRT, ContigVector &contigs, i
       ContigDeDup.insert(i.getSeq());
       cvec.push_back(i);
     } else {
-      std::cerr << "Filtered out a contig for having exact duplicate with another contig" << std::endl;
+      //std::cerr << "Filtered out a contig for having exact duplicate with another contig" << std::endl;
     }
   }
 

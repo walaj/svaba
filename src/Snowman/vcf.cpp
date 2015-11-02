@@ -1,10 +1,12 @@
 #include "vcf.h"
 
 #include <string> 
+#include <unordered_set> 
 #include <iostream>
 #include <getopt.h>
 #include <sstream>
 #include <regex>
+#include <iomanip>
 
 #include "SnowTools/SnowUtils.h"
 #include "SnowTools/SnowToolsCommon.h"
@@ -15,13 +17,16 @@
 #include "htslib/bgzf.h"
 
 #define VCF_SECONDARY_CAP 10
+#define SOMATIC_LOD 1
+
 
 using namespace std;
 
-static string sv_format = "NALT:NALT_RP:NALT_SR:READ_ID";
-static string indel_format = "NALT:READ_ID";
+static string sv_format = "GT:AD:DP:GQ:PL:SR:DR:LR:LO:SL"; //"NALT:NALT_RP:NALT_SR:READ_ID";
+static string indel_format = "GT:AD:DP:GQ:PL:SR:CR:LR:LO:SL";
 static InfoMap flag_map;
 static int global_id = 0;
+static std::stringstream lod_ss;
 
 static std::unordered_map<std::string, int> cname_count;
 
@@ -42,6 +47,11 @@ bool compareInfoFields(const pair<string,string> &lhs, const pair<string,string>
   return ( (rhs.first == "READ_ID" && lhs.first != "READ_ID") || ( (rhs.first != "READ_ID" && lhs.first != "READ_ID") && lhs.first < rhs.first));
 }
 
+
+bool pairCompare(const std::pair<int, std::pair<std::string, std::string>>& firstElem, const std::pair<int, std::pair<std::string, std::string>>& secondElem) {
+  return firstElem.first > secondElem.first;
+}
+
 // print out the VCF header
 std::ostream& operator<<(std::ostream& out, const VCFHeader& v) {
 
@@ -49,9 +59,19 @@ std::ostream& operator<<(std::ostream& out, const VCFHeader& v) {
   out << "##fileDate="   << v.filedate << endl;
   out << "##source="     << v.source << endl;
   out << "##reference="  << v.reference << endl;
-
-  for (ContigFieldMap::const_iterator it = v.contigfieldmap.begin(); it != v.contigfieldmap.end(); it++)
-    out << "##contig=<ID=" << it->first << "," << it->second << ">" << endl;
+									
+  // order the contigs by length
+  typedef std::pair<std::string, std::string> CC; // contig struct
+  typedef std::pair<int, CC> CI; // contig with integer length
+  std::vector<CI> contig_vec;
+  for (auto& i : v.contigfieldmap)
+    contig_vec.push_back(CI(std::stoi(i.second), CC(i.first, i.second)));
+  std::sort(contig_vec.begin(), contig_vec.end(), pairCompare);
+  
+  //for (ContigFieldMap::const_iterator it = v.contigfieldmap.begin(); it != v.contigfieldmap.end(); it++)
+  //  out << "##contig=<ID=" << it->first << ",length=" << it->second << ">" << endl;
+  for (auto& i : contig_vec)
+    out << "##contig=<ID=" << i.second.first << ",length=" << i.second.second << ">" << std::endl;
   for (InfoMap::const_iterator it = v.infomap.begin(); it != v.infomap.end(); it++)
     out << "##INFO=<ID=" << it->first << "," << it->second << ">" << endl;
   for (FilterMap::const_iterator it = v.filtermap.begin(); it != v.filtermap.end(); it++) 
@@ -150,12 +170,14 @@ std::ostream& operator<<(std::ostream& out, const VCFEntry& v) {
   string sep = "\t";
   SnowTools::ReducedBreakEnd * be = v.id_num == 1 ? &v.bp->b1 : &v.bp->b2;
 
-  std::pair<std::string, std::string> samps = v.getSampStrings();
+  //std::pair<std::string, std::string> samps = v.getSampStrings();
   out << be->chr_name << sep  
       << be->gr.pos1 << sep << v.getIdString() << sep << v.getRefString() << sep << v.getAltString() << sep 
       << v.bp->quality << sep
       << v.bp->confidence << sep << info << sep 
-      << (v.bp->indel ? indel_format : sv_format) << sep << samps.first << sep << samps.second;
+      << (v.bp->indel ? indel_format : sv_format); // << sep << samps.first << sep << samps.second;
+  for (auto& i : v.bp->format_s)
+    out << sep << i;
   return out;
 }
 
@@ -167,7 +189,7 @@ bool VCFEntry::operator<(const VCFEntry &v) const {
 }
 
 // create a VCFFile from a snowman breakpoints file
-VCFFile::VCFFile(string file, const char* index, string id, bam_hdr_t * h) {
+VCFFile::VCFFile(string file, string id, bam_hdr_t * h, const VCFHeader& vheader) {
 
   analysis_id = id;
 
@@ -183,14 +205,11 @@ VCFFile::VCFFile(string file, const char* index, string id, bam_hdr_t * h) {
   // read in the header of the csv
   string line;
 
-  string sample_id_tum = analysis_id + "T";
-  string sample_id_norm= analysis_id + "N";
+  //string sample_id_tum = analysis_id + "T";
+  //string sample_id_norm= analysis_id + "N";
 
-  // make the VCFHeader
-  sv_header.filedate = "";
-  sv_header.source = "snowmanSV";
-  indel_header.filedate = "";
-  indel_header.source = "snowmanSV";
+  sv_header    = vheader;
+  indel_header = vheader;
 
   // add the filters that apply to SVs
   sv_header.addFilterField("NODISC","Rearrangement was not detected independently by assembly");
@@ -200,59 +219,45 @@ VCFFile::VCFFile(string file, const char* index, string id, bam_hdr_t * h) {
   sv_header.addFilterField("TOOSHORT","Contig alignment for part of this rearrangement has <= 25bp match to reference");
   sv_header.addFilterField("PASS", "Strong assembly support, strong discordant support, or combined support. Strong MAPQ"); //3+ split reads, 0 normal split reads, 60/60 contig MAPQ OR 3+ discordant reads or 60/60 MAPQ with 4+ split reads");
   sv_header.addFilterField("MULTIMATCH", "Low MAPQ and this contig fragment maps well to multiple locations"); //3+ split reads, 0 normal split reads, 60/60 contig MAPQ OR 3+ discordant reads or 60/60 MAPQ with 4+ split reads");
-  sv_header.addSampleField(sample_id_norm);
-  sv_header.addSampleField(sample_id_tum);
-  sv_header.colnames = sv_header.colnames + "\t" + sample_id_norm + "\t" + sample_id_tum;
+  //sv_header.addSampleField(sample_id_norm);
+  //sv_header.addSampleField(sample_id_tum);
+  //sv_header.colnames = sv_header.colnames + "\t" + sample_id_norm + "\t" + sample_id_tum;
 
   // add the filters that apply to indels
   indel_header.addFilterField("LOWMAPQ","Assembly contig has less than MAPQ 60");
   indel_header.addFilterField("WEAKASSEMBLY","4 or fewer split reads");
   indel_header.addFilterField("WEAKCIGARMATCH","For indels <= 5 bp, require 8+ split reads or 4+ and 3+ cigar matches");
-  indel_header.addFilterField("REPEAT", "3+ split reads, 60 contig MAPQ");
   indel_header.addFilterField("PASS", "3+ split reads, 60 contig MAPQ");
   indel_header.addFilterField("GRAYLISTANDPON", "Indel overlaps with panel of normals, and has overlap with tricky genomic region");
   indel_header.addFilterField("LOWAF", "Low allelic fraction and few tumor supporting reads");
   indel_header.addFilterField("LOWNORMCOV", "Fewer than 5 normal reads at this site");
-  indel_header.addSampleField(sample_id_norm);
-  indel_header.addSampleField(sample_id_tum);
-  indel_header.colnames = indel_header.colnames + "\t" + sample_id_norm + "\t" + sample_id_tum;
-
-  // set the time string
-  time_t t = time(0);   // get time now
-  struct tm * now = localtime( & t );
-  stringstream month;
-  stringstream mdate;
-  if ( (now->tm_mon+1) < 10)
-    month << "0" << now->tm_mon+1;
-  else 
-    month << now->tm_mon+1;
-  mdate << (now->tm_year + 1900) << month.str() <<  now->tm_mday;
-
-  indel_header.filedate = mdate.str();
-  sv_header.filedate = mdate.str();
+  //indel_header.addSampleField(sample_id_norm);
+  //indel_header.addSampleField(sample_id_tum);
+  //indel_header.colnames = indel_header.colnames + "\t" + sample_id_norm + "\t" + sample_id_tum;
 
   //add the SV info fields
   sv_header.addInfoField("REPSEQ","1","String","Repeat sequence near the event");
+  sv_header.addInfoField("NM","1","Integer","Number of mismatches of this alignment fragment to reference");
+  sv_header.addInfoField("MATENM","1","Integer","Number of mismatches of partner alignment fragment to reference");
   sv_header.addInfoField("SVTYPE","1","String","Type of structural variant");
   sv_header.addInfoField("HOMSEQ","1","String","Sequence of base pair identical micro-homology at event breakpoints. Plus strand sequence displayed.");
   sv_header.addInfoField("IMPRECISE","0","Flag", "Imprecise structural variation");
   sv_header.addInfoField("SECONDARY","0","Flag", "SV calls comes from a secondary alignment");
   sv_header.addInfoField("HOMLEN","1","Integer","Length of base pair identical micro-homology at event breakpoints");
-  sv_header.addInfoField("BKDIST","1","Integer","Distance between breakpoints (-1 if difference chromosomes");
+  //sv_header.addInfoField("BKDIST","1","Integer","Distance between breakpoints (-1 if difference chromosomes");
   sv_header.addInfoField("MAPQ","1","Integer","Mapping quality (BWA-MEM) of this fragement of the contig (-1 if discordant only)");
   sv_header.addInfoField("MATEMAPQ","1","Integer","Mapping quality of the partner fragment of the contig");
-  sv_header.addInfoField("NSPLIT","1","Integer","Number of split reads from the normal BAM");
-  sv_header.addInfoField("TSPLIT","1","Integer","Number of split reads from the tumor BAM");
-  sv_header.addInfoField("TDISC","1","Integer","Number of discordant read pairs from the tumor BAM");
-  sv_header.addInfoField("NDISC","1","Integer","Number of discordant read pairs from the normal BAM");
+  //sv_header.addInfoField("NSPLIT","1","Integer","Number of split reads from the normal BAM");
+  //sv_header.addInfoField("TSPLIT","1","Integer","Number of split reads from the tumor BAM");
+  //sv_header.addInfoField("TDISC","1","Integer","Number of discordant read pairs from the tumor BAM");
+  //sv_header.addInfoField("NDISC","1","Integer","Number of discordant read pairs from the normal BAM");
   sv_header.addInfoField("MATEID","1","String","ID of mate breakends");
   sv_header.addInfoField("SOMATIC","0","Flag","Variant is somatic");
   sv_header.addInfoField("SUBN","1","Integer","Number of secondary alignments associated with this contig fragment");
-  sv_header.addInfoField("TCOV","1","Integer","Max tumor coverage at break");
-  sv_header.addInfoField("NCOV","1","Integer","Max normal coverage at break");
-  sv_header.addInfoField("TFRAC","1","String","Tumor allelic fraction at break. -1 for undefined");
-  sv_header.addInfoField("NFRAC","1","String","Normal allelic fraction at break. -1 for undefined");
-
+  //sv_header.addInfoField("TCOV","1","Integer","Max tumor coverage at break");
+  //sv_header.addInfoField("NCOV","1","Integer","Max normal coverage at break");
+  //sv_header.addInfoField("TFRAC","1","String","Tumor allelic fraction at break. -1 for undefined");
+  //sv_header.addInfoField("NFRAC","1","String","Normal allelic fraction at break. -1 for undefined");
 
   sv_header.addFormatField("READ_ID",".","String","ALT supporting Read IDs");
   sv_header.addFormatField("NALT_SR","1","Integer","Number of ALT support Split Reads");           
@@ -271,23 +276,35 @@ VCFFile::VCFFile(string file, const char* index, string id, bam_hdr_t * h) {
   indel_header.addInfoField("SCTG","1","String","Identifier for the contig assembled by SnowmanSV to make the indel call");
   indel_header.addInfoField("MAPQ","1","Integer","Mapping quality (BWA-MEM) of the assembled contig");
   indel_header.addInfoField("SPAN","1","Integer","Size of the indel");
-  indel_header.addInfoField("NCIGAR","1","Integer","Number of normal reads with cigar strings supporting this indel");
-  indel_header.addInfoField("TCIGAR","1","Integer","Number of tumor reads with cigar strings supporting this indel");
-  indel_header.addInfoField("NSPLIT","1","Integer","Number of normal reads with read-to-contig alignments supporting this indel");
-  indel_header.addInfoField("TSPLIT","1","Integer","Number of tumor reads with read-to-contig alignments supporting this indel");
-  indel_header.addFormatField("READ_ID",".","String","ALT supporting Read IDs");
-  indel_header.addFormatField("NALT_SR","1","Integer","Number of ALT support Split Reads");           
-  indel_header.addFormatField("NALT_RP","1","Integer","Number of ALT support aberrant Read Pairs");
-  indel_header.addFormatField("NREF","1","Integer","Number of REF support Reads");
-  indel_header.addFormatField("NALT","1","Integer","Number of ALT support reads or pairs");
+
+  indel_header.addFormatField("GT", "1","String", "Genotype (currently not supported. Always 0/1)");
+  indel_header.addFormatField("AD", "1","Integer", "Allele depth: Number of reads supporting the variant");
+  indel_header.addFormatField("DP","1","Integer","Depth of coverage: Number of reads covering site.");
+  indel_header.addFormatField("GQ", "1","String", "Genotype quality (currently not supported. Always 0)");
+  indel_header.addFormatField("PL","1","Integer","Normalized likelihood of the current genotype (currently not supported, always 0)");
+  indel_header.addFormatField("SR","1","Integer","Number of spanning reads for this variants");
+  indel_header.addFormatField("CR","1","Integer","Number of cigar-supported reads for this variant");
+  indel_header.addFormatField("LR","1","Numeric","Log-odds that this variant is REF vs AF=0.5");
+  indel_header.addFormatField("LO","1","Numeric","Log-odds that this variant is real vs artifact");
+  indel_header.addFormatField("SL","1","Numeric","Alignment-quality Scaled log-odds, where LO is LO * (MAPQ - 2*NM)/60");
+
+  sv_header.addFormatField("GT", "1","String", "Genotype (currently not supported. Always 0/1)");
+  sv_header.addFormatField("AD", "1","Integer", "Allele depth: Number of reads supporting the variant");
+  sv_header.addFormatField("DP","1","Integer","Depth of coverage: Number of reads covering site.");
+  sv_header.addFormatField("GQ", "1","String", "Genotype quality (currently not supported. Always 0)");
+  sv_header.addFormatField("PL","1","Integer","Normalized likelihood of the current genotype (currently not supported, always 0)");
+  sv_header.addFormatField("SR","1","Integer","Number of spanning reads for this variants");
+  sv_header.addFormatField("DR","1","Integer","Number of discordant-supported reads for this variant");
+  sv_header.addFormatField("LR","1","Numeric","Log-odds that this variant is REF vs AF=0.5");
+  sv_header.addFormatField("LO","1","Numeric","Log-odds that this variant is real vs artifact");
+  sv_header.addFormatField("SL","1","Numeric","Alignment-quality Scaled log-odds, where LO is LO * (MAPQ - 2*NM)/60");
+
+  indel_header.addInfoField("LOD","1","Numeric","Sample-combined LogOdds of real vs artifact");
   indel_header.addInfoField("REPSEQ","1","String","Repeat sequence near the event");
-  indel_header.addInfoField("TCOV","1","Integer","Tumor coverage at break");
-  indel_header.addInfoField("NCOV","1","Integer","Normal coverage at break");
-  indel_header.addInfoField("TFRAC","1","String","Tumor allelic fraction at break. -1 for undefined");
-  indel_header.addInfoField("NFRAC","1","String","Normal allelic fraction at break. -1 for undefined");
   indel_header.addInfoField("GRAYLIST","0","Flag","Indel is low quality and cross a difficult region of genome");
   indel_header.addInfoField("SOMATIC","0","Flag","Variant is somatic");
   indel_header.addInfoField("PON","1","Integer","Number of normal samples that have this indel present");
+  indel_header.addInfoField("NM","1","Integer","Number of mismatches of this alignment fragment to reference");
 
   // keep track of exact positions to keep from duplicating
   // read the reference if not open
@@ -414,7 +431,21 @@ void VCFFile::deduplicate() {
       }
     }
   }
+
+  // dedupe the indels
+  std::cerr << "...hashing indels" << std::endl;
+  std::unordered_set<std::string> hashr;
+  VCFEntryPairMap tmp_indels;
+  for (auto& i : indels) {
+    std::string hh = std::to_string(i.second->e1.bp->b1.gr.chr) + ":" + std::to_string(i.second->e1.bp->b1.gr.pos1) + 
+      "_" + i.second->e1.getRefString() + "_" + i.second->e1.getAltString();
+      if (!hashr.count(hh)) {
+	hashr.insert(hh); 
+	tmp_indels.insert(pair<int, VCFEntryPair*>(i.first, i.second));
+      }
+  }
   
+  indels = tmp_indels;
 }
 
 // print a breakpoint pair
@@ -480,7 +511,7 @@ void VCFFile::writeIndels(string basename, bool zip) const {
       continue;
 
     stringstream ss;
-    if (i.bp->somatic_score >= 4) {
+    if (i.bp->somatic_score >= SOMATIC_LOD) {
       if (zip) 
 	__write_to_zip_vcf(i, s_bg);
       else 
@@ -580,7 +611,7 @@ void VCFFile::writeSVs(string basename, bool zip) const {
       continue;
     
     // somatic
-    if ( i.bp->somatic_score >= 4 ) { 
+    if ( i.bp->somatic_score >= SOMATIC_LOD) { 
       if (zip) 
 	__write_to_zip_vcf(i, s_bg);
       else
@@ -684,31 +715,38 @@ std::unordered_map<std::string, std::string> VCFEntry::fillInfoFields() const {
 
   // put all the common fields in 
   info_fields["SPAN"] = std::to_string(bp->getSpan());
-  info_fields["NSPLIT"] = std::to_string(bp->nsplit);
-  info_fields["TSPLIT"] = std::to_string(bp->tsplit);
   info_fields["SCTG"] = bp->cname;
   if (!bp->indel) {
     info_fields["EVDNC"] = bp->evidence;
     info_fields["SVTYPE"] = "BND";
   }
 
+  if (bp->repeat)
+    info_fields["REPSEQ"] = std::string(bp->repeat);
+
   if (bp->pon)
     info_fields["PON"] = to_string(bp->pon);
 
-  if (bp->num_align != 1)
+  if (bp->num_align != 1) {
     info_fields["MATEID"] = to_string(id) + ":" + to_string(id_num == 1 ? 2 : 1);
+    if (id_num == 1) {
+      info_fields["NM"] = std::to_string(bp->b1.nm);
+      info_fields["MATENM"] = std::to_string(bp->b2.nm);
+    } else {
+      info_fields["NM"] = std::to_string(bp->b2.nm);
+      info_fields["MATENM"] = std::to_string(bp->b1.nm);
+    }
+  }
 
-  info_fields["NCOV"]      = std::to_string(bp->ncov); 
-  info_fields["TCOV"]      = std::to_string(bp->tcov);
-  info_fields["NFRAC"]     = std::to_string((float)bp->af_n/100.0); 
-  info_fields["TFRAC"]     = std::to_string((float)bp->af_t/100.0); 
-  
+  if (bp->num_align == 1)
+    info_fields["NM"] = std::to_string(bp->b1.nm);
+
   if (id_num == 1)
     info_fields["MAPQ"] = std::to_string(bp->b1.mapq);
   else
     info_fields["MAPQ"] = std::to_string(bp->b2.mapq);
 
-  if (bp->somatic_score >= 4)
+  if (bp->somatic_score >= SOMATIC_LOD)
     info_fields["SOMATIC"] = "";
   
   // put all the info fields for SVs
@@ -721,14 +759,10 @@ std::unordered_map<std::string, std::string> VCFEntry::fillInfoFields() const {
 	info_fields["SUBN"] = to_string(bp->b2.sub_n);
     }
 
-    info_fields["NDISC"] = std::to_string(bp->dc.ncount);
-    info_fields["TDISC"] = std::to_string(bp->dc.tcount);
-    //if (bp->homology != "x") info_fields["HOMSEQ"] = bp->homology;
-    //if (bp->insertion != "x") info_fields["INSERTION"] = bp->insertion;
     if (bp->homology) info_fields["HOMSEQ"] = std::string(bp->homology);
     if (bp->insertion) info_fields["HOMSEQ"] = std::string(bp->insertion);
     info_fields["NUMPARTS"] = std::to_string(bp->num_align);
-    //if (bp->evidence=="DSCRD") 
+
     if (bp->imprecise)
       info_fields["IMPRECISE"] = ""; 
     if (bp->secondary) 
@@ -744,14 +778,14 @@ std::unordered_map<std::string, std::string> VCFEntry::fillInfoFields() const {
   }
 
   else {
-  
-    info_fields["NCIGAR"] = std::to_string(bp->ncigar);
-    info_fields["TCIGAR"] = std::to_string(bp->tcigar);
+
+    lod_ss << std::setprecision(4) << bp->true_lod;
+    info_fields["LOD"] = lod_ss.str();
+    lod_ss.str(std::string());
     if (bp->blacklist)
       info_fields["GRAYLIST"]  = "";
     if (bp->dbsnp)
-      //if (!bp->rs.empty() && bp->rs != "x")
-      info_fields["DBSNP"] = ""; //bp->rs; 
+      info_fields["DBSNP"] = "TRUE"; //bp->rs; 
   }
 
   return info_fields;
@@ -833,4 +867,8 @@ std::pair<std::string, std::string> VCFEntry::getSampStrings() const {
   return std::pair<std::string, std::string>(samp1, samp2);
 
 
+}
+
+void VCFHeader::addContigField(string id, int len) {
+  contigfieldmap[id] = std::to_string(len);
 }

@@ -1,11 +1,13 @@
 #include "refilter.h"
 
 #include "vcf.h"
-#include "SnowTools/BreakPoint.h"
+#include "SnowTools/BreakPoint2.h"
+#include "SnowTools/BamWalker.h"
 #include <iostream>
 #include <getopt.h>
 
 #include "SnowTools/SnowUtils.h"
+#include "SnowmanUtils.h"
 #include "SnowTools/gzstream.h"
 
 #include <sstream>
@@ -25,10 +27,11 @@ namespace opt {
   static int verbose = 1;
 }
 
-static const char* shortopts = "hxi:a:v:q:g:m:";
+static const char* shortopts = "hxi:a:v:q:g:m:b:";
 static const struct option longopts[] = {
   { "help",                    no_argument, NULL, 'h' },
   { "input-bps",               required_argument, NULL, 'i'},
+  { "bam",                     required_argument, NULL, 'b'},
   { "panel-of-normals",        required_argument, NULL, 'q'},
   { "indel-mask",              required_argument, NULL, 'm'},
   { "reference-genome",        required_argument, NULL, 'g'},
@@ -47,6 +50,7 @@ static const char *BP_USAGE_MESSAGE =
 "  -v, --verbose                        Select verbosity level (0-4). Default: 1 \n"
 "  -h, --help                           Display this help and exit\n"
 "  -g, --reference-genome               Path to indexed reference genome to be used by BWA-MEM. Default is Broad hg19 (/seq/reference/...)\n"
+"  -b, --opt-bam                        Input BAM file to get header from\n"
 "  Required input\n"
 "  -i, --input-bps                      Original bps.txt.gz file\n"
 "  Optional input\n"                       
@@ -119,12 +123,12 @@ void runRefilterBreakpoints(int argc, char** argv) {
   //faidx_t * findex = fai_load(opt::ref_index.c_str());  // load the reference
   
   // open the output file
-  igzstream iz(opt::input_file.c_str());
+  /*igzstream iz(opt::input_file.c_str());
   if (!iz) {
     std::cerr << "Can't read file " << opt::input_file << std::endl;
     exit(EXIT_FAILURE);
   }
-  
+  */
   // read in the PON
   //std::unique_ptr<SnowTools::PON> pmap;
   //SnowTools::BreakPoint::readPON(opt::pon, pmap);
@@ -139,7 +143,36 @@ void runRefilterBreakpoints(int argc, char** argv) {
   SnowTools::GRC grv_mask;
   if (opt::indel_mask.length()) 
     grv_mask.regionFileToGRV(opt::indel_mask, 0, NULL);
-  
+ 
+
+  VCFHeader header;
+  header.filedate = SnowmanUtils::fileDateString();
+  header.source = "";//opt::args;
+  header.reference = "";//opt::refgenome;
+
+  // primary VCFs
+  std::cerr << " input file " << opt::input_file << std::endl;
+  if (SnowTools::read_access_test(opt::input_file)) {
+    if (opt::verbose)
+      std::cerr << "...making the primary VCFs (unfiltered and filtered) from file " << opt::input_file << std::endl;
+    VCFFile snowvcf(opt::input_file, opt::analysis_id, bwalker.header(), header);
+    std::string basename = opt::analysis_id + ".snowman.unfiltered.";
+    snowvcf.include_nonpass = true;
+    snowvcf.writeIndels(basename, false);
+    snowvcf.writeSVs(basename, false);
+
+    basename = opt::analysis_id + ".snowman.";
+    snowvcf.include_nonpass = false;
+    snowvcf.writeIndels(basename, false);
+    snowvcf.writeSVs(basename, false);
+
+  } else {
+    std::cerr << "Failed to make VCF. Could not file bps file " << opt::input_file << std::endl;
+  }
+
+
+  /*
+ 
   ogzstream oz(opt::output_file.c_str(), std::ios::out);
   if (!oz) {
     std::cerr << "Can't write to output file " << opt::output_file << std::endl;
@@ -161,7 +194,7 @@ void runRefilterBreakpoints(int argc, char** argv) {
   while (std::getline(iz, line, '\n')) {
     
     if (++count % 10000 == 1 && opt::verbose > 0)
-      std::cerr << "filtering breakpoint " << count << std::endl;
+      std::cerr << "filtering breakpoint " << SnowTools::AddCommas(count) << std::endl;
     
     SnowTools::BreakPoint bp(line, bwalker.header());
     
@@ -196,7 +229,7 @@ void runRefilterBreakpoints(int argc, char** argv) {
   }
   
   oz.close();
-  
+  */
   // make the VCF files
   /*
     if (opt::verbose)
