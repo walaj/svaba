@@ -33,9 +33,10 @@ snowman_LDADD = \
 
 snowman_LDFLAGS = -pthread -std=c++11
 
-snowman_SOURCES = SnowmanUtils.cpp snowman.cpp workqueue.h SnowmanAssemblerEngine.cpp vcf.cpp SnowmanRead.cpp \
+snowman_SOURCES = run_snowman2.cpp SnowmanUtils.cpp snowman.cpp workqueue.h SnowmanAssemblerEngine.cpp vcf.cpp SnowmanRead.cpp \
 		SnowmanOverlapAlgorithm.cpp SnowmanASQG.cpp \
-		SnowmanAssemble.h SnowmanAssemble.cpp run_snowman.cpp genpon.cpp \
+		SnowmanAssemble.h SnowmanAssemble.cpp genpon.cpp \
 		KmerFilter.cpp SnowmanBamWalker.cpp benchmark.cpp PonWalker.cpp ReadSim.cpp \
-		SeqFrag.cpp SimGenome.cpp BamSplitter.cpp SimTrainerWalker.cpp refilter.cpp LearnBamParams.cpp
+		SeqFrag.cpp SimGenome.cpp BamSplitter.cpp SimTrainerWalker.cpp refilter.cpp LearnBamParams.cpp \
+		PowerLawSim.cpp AssemblyBamWalker.cpp assembly2vcf.cpp
 

@@ -55,11 +55,11 @@ class ReadSim {
 
   void addAllele(const std::string& s, double af);
 
-  Indel makeInsErrors(std::string& s, bool keep_size = true);
+  Indel makeInsErrors(std::string& s, bool keep_size = true, int ins_size = -1);
 
   Indel makeDelErrors(std::string& s, int sstart, const std::string& refseq);
 
-  Indel makeDelErrors(std::string& s);
+  Indel makeDelErrors(std::string& s, int ins_size = -1);
 
   void makeClipErrors(std::string& s, double er, int min_clip_len, int max_clip_len);
 

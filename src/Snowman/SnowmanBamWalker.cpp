@@ -4,8 +4,7 @@
 //#define DEBUG_SNOWMAN_BAMWALKER 1
 #define MIN_MAPQ_FOR_MATE_LOOKUP 0
 
-//#define DEBUG_GIVEN_READ 1
-//#define QNAME "D0UK2ACXX120515:6:2209:7783:72545"
+//#define QNAME "D0EN0ACXX111207:4:2308:18196:48214"
 
 static const std::string ILLUMINA_PE_PRIMER_2p0 = "CAAGCAGAAGACGGCAT";
 static const std::string FWD_ADAPTER_A = "AGATCGGAAGAGC";
@@ -64,7 +63,7 @@ bool SnowmanBamWalker::isDuplicate(BamRead &r)
   int pos_key = r.Position() + r.MatePosition()*3 + 1332 * r.NumMatchBases() + 12345 * r.AlignmentFlag() + 221*r.InsertSize();
   std::string key = std::to_string(pos_key) + r.Sequence();
 
-#ifdef DEBUG_GIVEN_READ
+#ifdef QNAME
   if (r.Qname() == QNAME)
     std::cerr << pos_key << std::endl;
   if (pos_key == 127580527 && r.Qname() != QNAME)
@@ -85,8 +84,6 @@ void SnowmanBamWalker::readBam(const SnowTools::DBSnpFilter* dbs)
   
   BamRead r;
 
-  //BamReadVector all_reads;
-
   bool rule_pass;
   int reads_to_start = reads.size();
 
@@ -101,13 +98,15 @@ void SnowmanBamWalker::readBam(const SnowTools::DBSnpFilter* dbs)
   SnowTools::BamReadVector mate_reads;
 
   size_t countr = 0;
-  while (GetNextRead(r, rule_pass))
-    {
-
-#ifdef DEBUG_GIVEN_READ
+  while (GetNextRead(r, rule_pass)) {
+#ifdef QNAME
       if (r.Qname() == QNAME) 
 	std::cerr << " read seen " << r << std::endl;
 #endif
+
+
+      if (countr > 1e6)
+	break;
 
       bool qcpass = !r.DuplicateFlag() && !r.QCFailFlag(); 
 
@@ -149,7 +148,7 @@ void SnowmanBamWalker::readBam(const SnowTools::DBSnpFilter* dbs)
       bool is_dup = isDuplicate(r);
       //bool is_dup = false;
 
-#ifdef DEBUG_GIVEN_READ
+#ifdef QNAME
       if (r.Qname() == QNAME) 
 	std::cerr << " read has qcpass " << qcpass << " blacklisted " << blacklisted << " rule_pass " << rule_pass << " isDup " << is_dup << " " << r << std::endl;
 #endif
@@ -170,13 +169,9 @@ void SnowmanBamWalker::readBam(const SnowTools::DBSnpFilter* dbs)
 	  if (countr % 10000 == 0 && m_region.size() == 0) //debug
 	    std::cerr << "...read in " << SnowTools::AddCommas<size_t>(countr) << " weird reads for whole genome read-in. At pos " << r.Brief() << std::endl;
 	  
-	  if (disc_only) {
-	    //	    r.SetSequence("A");
-	    //r.RemoveAllTags();
-	  }
 
 	  // add the ID tag
-	  std::string srn =  prefix+std::to_string(r.AlignmentFlag()) + "_" + r.Qname();
+	  std::string srn =  prefix + "_" + std::to_string(r.AlignmentFlag()) + "_" + r.Qname();
 	  assert(srn.length());
 	  r.AddZTag("SR", srn);
 	  //r.AddIntTag("VR", 1);
@@ -184,7 +179,7 @@ void SnowmanBamWalker::readBam(const SnowTools::DBSnpFilter* dbs)
 	  // get the weird coverage
 	  weird_cov.addRead(r);
 
-#ifdef DEBUG_GIVEN_READ
+#ifdef QNAME
       if (r.Qname() == QNAME) 
 	std::cerr << " read added " << r << std::endl;
 #endif
@@ -199,7 +194,7 @@ void SnowmanBamWalker::readBam(const SnowTools::DBSnpFilter* dbs)
 	}
     } // end the read loop
 
-#ifdef DEBUG_GIVEN_READ
+#ifdef QNAME
   for (auto& j : reads)
       if (j.Qname() == QNAME) 
 	std::cerr << " read KEPT right after loop " << j << std::endl;
@@ -214,7 +209,7 @@ void SnowmanBamWalker::readBam(const SnowTools::DBSnpFilter* dbs)
     reads = tmpr;
   }
 
-#ifdef DEBUG_GIVEN_READ
+#ifdef QNAME
   for (auto& j : reads)
       if (j.Qname() == QNAME) 
 	std::cerr << " read KEPT-PREFILTER " << j << std::endl;
@@ -229,18 +224,22 @@ void SnowmanBamWalker::readBam(const SnowTools::DBSnpFilter* dbs)
   // clean out the buffer
   subSampleToWeirdCoverage(max_cov);
 
-#ifdef DEBUG_GIVEN_READ
+#ifdef QNAME
   for (auto& j : reads)
       if (j.Qname() == QNAME) 
 	std::cerr << " read KEPT-POST SUBSAMPLE " << j << std::endl;
 #endif
+
+  // realign discordants
+  if (main_bwa)
+    realignDiscordants(reads);
 
   // calculate the mate region
   if (get_mate_regions && m_region.size() /* don't get mate regions if reading whole bam */) {
     calculateMateRegions();
   }
 
-#ifdef DEBUG_GIVEN_READ
+#ifdef QNAME
   for (auto& j : reads)
       if (j.Qname() == QNAME) 
 	std::cerr << " read KEPT " << j << std::endl;
@@ -479,4 +478,29 @@ bool SnowmanBamWalker::hasAdapter(const BamRead& r) const {
     }
   */  
 
+}
+
+void SnowmanBamWalker::realignDiscordants(SnowTools::BamReadVector& reads) {
+
+  const int secondary_cap = 20;
+  SnowTools::BamReadVector brv;
+
+  for (auto& r : reads) {
+
+    if (std::abs(r.InsertSize()) >= 1000) {
+      SnowTools::BamReadVector als;
+      main_bwa->alignSingleSequence(r.Sequence(), r.Qname(), als, 0.95, secondary_cap);
+      if (als.size() < 10) {
+	brv.push_back(r);
+	r.AddIntTag("DD", als.size());
+      }
+
+    } else {
+      brv.push_back(r);
+    }
+  }
+  
+  //std::cerr << "...removed " << (reads.size()-brv.size()) << " of " << reads.size() << std::endl;
+  reads = brv;
+  
 }

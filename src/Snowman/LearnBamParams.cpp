@@ -9,7 +9,7 @@ std::ostream& operator<<(std::ostream& out, const BamParams& p) {
   out << "@@@ Estimated fraction of reads that are bad:    " << p.frac_bad << std::endl;
   out << "@@@ Estimated mean coverage: " <<  p.mean_cov << std::endl;
   out << "@@@ Read length: " << p.readlen << std::endl;
-  out << "@@@ Max mapping qualiy: " << p.max_mapq << std::endl;
+  out << "@@@ Max mapping quality: " << p.max_mapq;
   return out;
 }
 

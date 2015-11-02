@@ -207,15 +207,18 @@ std::ostream& operator<<(std::ostream& out, const Indel& i) {
   return out;
 }
 
-Indel ReadSim::makeDelErrors(std::string& s) {
+Indel ReadSim::makeDelErrors(std::string& s, int del_size) {
 
-  const std::vector<int> sizer = {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
-				  2,2,2,2,2,2,2,2,2,2,3,3,3,3,4,4,4,4,4,5,5,5,6,6,
-				  7,8,9,10,11,12,13,14,15,16,17,18,20,22,24,26};
+  std::vector<int> sizer = {del_size}; 
+  if (del_size <= 0)
+    sizer = {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+	2,2,2,2,2,2,2,2,2,2,3,3,3,3,4,4,4,4,4,5,5,5,6,6,
+	7,8,9,10,11,12,13,14,15,16,17,18,20,22,24,26};
 
   uint32_t rpos = s.length() + 1;
   // get a random size
-  int ds = getRandomIndelSize();
+  //int ds = getRandomIndelSize();
+  int ds = del_size;
 
   size_t failsafe = 0;
   while (rpos + ds > s.length() && failsafe < 1000) {
@@ -228,6 +231,7 @@ Indel ReadSim::makeDelErrors(std::string& s) {
   }
 
   // get the replacement sequence
+  //std::cerr << del_size << " rpos " << rpos << " s.length() " << s.length() << std::endl;
   s = s.substr(0, rpos) + s.substr(rpos + ds, s.length() - rpos - ds); // + refseq.substr(rpos + s.length(), ds);
 
   return Indel(); //{ds, 'D', rpos};
@@ -274,17 +278,20 @@ int ReadSim::getRandomIndelSize() const {
   return s[rr];
 }
 
-Indel ReadSim::makeInsErrors(std::string& s, bool keep_size) {
+Indel ReadSim::makeInsErrors(std::string& s, bool keep_size, int indel_size) {
 
+  std::vector<int> sizer = {indel_size};
 
-  const std::vector<int> sizer = {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
-				  2,2,2,2,2,2,2,2,2,2,3,3,3,3,4,4,4,4,4,5,5,5,6,6,
-				  7,8,9,10,11,12,13,14,15,16,17,18,20,22,24,26};
-
+  if (indel_size <= 0) 
+    sizer = {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+	2,2,2,2,2,2,2,2,3,3,3,3,4,4,4,4,4,5,5,5,6,6,
+	7,8,9,10,11,12,13,14,15,16,17,18,20,22,24,26};
+  
   const char TCGA[5] = "TCGA";
 
   // get a random size
-  int is = getRandomIndelSize();
+  //int is = getRandomIndelSize();
+  int is = indel_size;
 
   // generate the random insertion piece
   std::string ins(is, 'N');

@@ -2,8 +2,14 @@
 #define SNOWMAN_UTILS_H__
 
 #include "SnowTools/BamRead.h"
+#include "SnowTools/BWAWrapper.h"
+#include "SnowTools/BamWalker.h"
 #include "SnowTools/GenomicRegionCollection.h"
+#include <sstream>
+#include <unordered_map>
+
 #include <ctime>
+
 
 namespace SnowmanUtils {
 
@@ -39,6 +45,18 @@ struct SnowTimer {
   }
 
   void print(std::stringstream& s, std::ofstream& log, bool cerr);
+
+  std::string fileDateString();
+
+  std::string __bamOptParse(std::unordered_map<std::string, std::string>& obam, std::istringstream& arg, int sample_number, const std::string& prefix);
+
+  void __openWriterBam(const SnowTools::BamWalker& bwalker, const std::string& name, SnowTools::BamWalker& wbam);
+
+  void __open_bed(const std::string& f, SnowTools::GRC& b, bam_hdr_t* h);
+
+  bool __header_has_chr_prefix(bam_hdr_t * h);
+
+  faidx_t * __open_index_and_writer(const std::string& index, SnowTools::BWAWrapper * b, const std::string& wname, SnowTools::BamWalker& writer, faidx_t * findex);
 
 }
 

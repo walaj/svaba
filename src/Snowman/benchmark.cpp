@@ -1,169 +1,187 @@
-#include "benchmark.h"
+ #include "benchmark.h"
 
-#include <getopt.h>
-#include <iostream>
-#include <string>
-#include <sstream>
-#include <fstream>
-#include <cstdlib>
-#include <algorithm>
+ #include <getopt.h>
+ #include <iostream>
+ #include <string>
+ #include <sstream>
+ #include <fstream>
+ #include <cstdlib>
+ #include <algorithm>
 
-#include "vcf.h"
-#include "SnowTools/SnowToolsCommon.h"
-#include "SnowTools/GenomicRegion.h"
-#include "SnowTools/SnowUtils.h"
-#include "SnowmanAssemblerEngine.h"
-#include "KmerFilter.h"
-#include "ReadSim.h"
-#include "SeqFrag.h"
-#include "SimGenome.h"
-#include "SimTrainerWalker.h"
-#include "BamSplitter.h"
+ #include "vcf.h"
+ #include "SnowTools/SnowToolsCommon.h"
+ #include "SnowTools/GenomicRegion.h"
+ #include "SnowTools/SnowUtils.h"
+ #include "SnowmanAssemblerEngine.h"
+ #include "KmerFilter.h"
+ #include "ReadSim.h"
+ #include "SeqFrag.h"
+ #include "SimGenome.h"
+ #include "SimTrainerWalker.h"
+ #include "BamSplitter.h"
+ #include "SnowmanUtils.h"
 
-#include "SnowTools/BWAWrapper.h"
-#include "SnowTools/AlignedContig.h"
-#include "SnowTools/Fractions.h"
+ #include "SnowTools/BWAWrapper.h"
+ #include "SnowTools/AlignedContig2.h"
+ #include "SnowTools/Fractions.h"
+ #include "PowerLawSim.h"
 
+ static std::vector<double> snv_error_rates;
+ static std::vector<double> del_error_rates;
+ static std::vector<double> ins_error_rates;
+ static std::vector<double> coverages;
+ static std::vector<double> fractions;
 
-static std::vector<double> snv_error_rates;
-static std::vector<double> del_error_rates;
-static std::vector<double> ins_error_rates;
-static std::vector<double> coverages;
-static std::vector<double> fractions;
+ static SnowTools::GRC regions;
+ static SnowTools::Fractions fractions_bed;
+ static SnowTools::BamWalker bwalker;
+ static faidx_t * findex;
 
-static SnowTools::GRC regions;
-static SnowTools::Fractions fractions_bed;
-static SnowTools::BamWalker bwalker;
-static faidx_t * findex;
+ #define DEFAULT_SNV_RATE 0.01
+ #define DEFAULT_DEL_RATE 0.05
+ #define DEFAULT_INS_RATE 0.05
+ #define DEFAULT_COV 10
 
-#define DEFAULT_SNV_RATE 0.01
-#define DEFAULT_DEL_RATE 0.05
-#define DEFAULT_INS_RATE 0.05
-#define DEFAULT_COV 10
+ namespace opt {
 
-namespace opt {
+   static std::string refgenome = SnowTools::REFHG19;  
+   static int mode = -1;
+   static size_t readlen = 101;
+   static int num_runs = 100;
+   static uint32_t seed = 0;
+   static std::string regionFile = "";
+   static std::string bam = "";
+   static int isize_mean = 250;
+   static int isize_sd = 50;
 
-  static std::string refgenome = SnowTools::REFHG19;  
-  static int mode = -1;
-  static size_t readlen = 101;
-  static int num_runs = 100;
-  static uint32_t seed = 0;
-  static std::string regionFile = "";
-  static std::string bam = "";
-  static int isize_mean = 250;
-  static int isize_sd = 50;
+   static int nbreaks = 10;
+   static int nindels = 10;
 
-  static int nbreaks = 10;
-  static int nindels = 10;
+   static std::string string_id = "noid";
 
-  static std::string string_id = "noid";
+   static std::string frac_bed_file;
 
-  static std::string frac_bed_file;
+   static bool scramble = false;
 
-  static bool scramble = false;
+   static int viral_count = 0;
 
-  static int viral_count = 0;
-}
+   static std::string blacklist;
+ }
 
-enum { 
-  OPT_ASSEMBLY,
-  OPT_SIMBREAKS,
-  OPT_ISIZE_MEAN,
-  OPT_ISIZE_SD,
-  OPT_SPLITBAM,
-  OPT_SCRAMBLE
-};
-
-
-static const char *BENCHMARK_USAGE_MESSAGE =
-"Usage: snowman benchmark\n\n"
-"  Description: Various benchmarking tests for Snowman\n"
-"\n"
-"  General options\n"
-"  -v, --verbose                        Select verbosity level (0-4). Default: 1 \n"
-"  -G, --reference-genome               Indexed ref genome for BWA-MEM. Default (Broad): /seq/reference/...)\n"
-"  -s, --seed                           Seed for the random number generator\n"
-"  -A, --string-id                      String to name output files with (e.g. <string-id>_0_01.bam\n"
-"  Choose one of the following:\n"     
-"      --test-assembly                  Generate single-end reads from small contigs to test assembly/remapping\n"
-"      --sim-breaks                     Simulate rearrangements and indels and output paired-end reads\n"
-"      --split-bam                      Divide up a BAM file into smaller sub-sampled files, with no read overlaps between files. Preserves read-pairs\n"
-"  Shared Options for Test and Simulate:\n"
-"  -c, --read-covearge                  Desired coverage. Input as comma-separated to test multiple (test assembly)\n"
-"  -b, --bam                            BAM file to train the simulation with\n"
-"  -k, --regions                        Regions to simulate breaks or test assembly\n"
-"  -E, --snv-error-rate                 The random SNV error rate per base. Input as comma-separated to test multiple (test assembly)\n"
-"  -I, --ins-error-rate                 The random insertion error rate per read. Input as comma-separated to test multiple (test assembly)\n"
-"  -D, --del-error-rate                 The random deletion error rate per read. Input as comma-separated to test multiple (test assembly)\n"
-"  Test Assembly (--test-assembly) Options:\n"
-"  -n, --num-runs                       Number of random trials to run\n"
-"  Simulate Breaks (--sim-breaks)  Options:\n"
-"      --isize-mean                     Desired mean insert size for the simulated reads\n"
-"      --isize-sd                       Desired std. dev. forinsert size for the simulated reads\n"
-"  -R, --num-rearrangements             Number of rearrangements to simulate\n"
-"  -X, --num-indels                     Number of indels to simulate\n"
-"  -M, --viral-integration              Number of segments to integrate viruses into. (Reduces amount of space for indels)\n"
-"      --add-scrambled-inserts          Add scrambled inserts at junctions, randomly between 0 and 100 bp with p(0) = 50% and p(1-100) = 50%;\n"
-"  Split Bam (--split-bam)  Options:\n"
-"  -f. --fractions                      Fractions to split the bam into\n"
-"\n";
+ enum { 
+   OPT_ASSEMBLY,
+   OPT_SIMBREAKS,
+   OPT_ISIZE_MEAN,
+   OPT_ISIZE_SD,
+   OPT_SPLITBAM,
+   OPT_SCRAMBLE,
+   OPT_POWERSIM,
+   OPT_REALIGN,
+   OPT_BLACKLIST
+ };
 
 
-static const char* shortopts = "haG:c:n:s:k:b:E:I:D:R:X:A:f:M:";
-static const struct option longopts[] = {
-  { "help",                 no_argument, NULL, 'h' },
-  { "reference-genome",     required_argument, NULL, 'G' },
-  { "string-id",            required_argument, NULL, 'A' },
-  { "seed",                 required_argument, NULL, 's' },
-  { "num-runs",             required_argument, NULL, 'n' },
-  { "regions",              required_argument, NULL, 'k' },
-  { "bam",                  required_argument, NULL, 'b' },
-  { "read-coverage",        required_argument, NULL, 'c' },
-  { "snv-error-rate",       required_argument, NULL, 'E' },
-  { "del-error-rate",       required_argument, NULL, 'D' },
-  { "ins-error-rate",       required_argument, NULL, 'I' },
-  { "num-rearrangements",   required_argument, NULL, 'R' },
-  { "fractions",            required_argument, NULL, 'f' },
-  { "num-indels",           required_argument, NULL, 'X' },
-  { "viral-integration",    required_argument, NULL, 'M' },
-  { "isize-mean",           required_argument, NULL, OPT_ISIZE_MEAN},
-  { "isize-sd",             required_argument, NULL, OPT_ISIZE_SD},
-  { "test-assembly",        no_argument, NULL, OPT_ASSEMBLY},
-  { "sim-breaks",           no_argument, NULL, OPT_SIMBREAKS},
-  { "split-bam",            no_argument, NULL, OPT_SPLITBAM},
-  { "add-scrambled-inserts",no_argument, NULL, OPT_SCRAMBLE},
-  { NULL, 0, NULL, 0 }
-};
+ static const char *BENCHMARK_USAGE_MESSAGE =
+ "Usage: snowman benchmark\n\n"
+ "  Description: Various benchmarking tests for Snowman\n"
+ "\n"
+ "  General options\n"
+ "  -v, --verbose                        Select verbosity level (0-4). Default: 1 \n"
+ "  -G, --reference-genome               Indexed ref genome for BWA-MEM. Default (Broad): /seq/reference/...)\n"
+ "  -s, --seed                           Seed for the random number generator\n"
+ "  -A, --string-id                      String to name output files with (e.g. <string-id>_0_01.bam\n"
+ "  Choose one of the following:\n"     
+ "      --test-assembly                  Generate single-end reads from small contigs to test assembly/remapping\n"
+ "      --sim-breaks                     Simulate rearrangements and indels and output paired-end reads\n"
+ "      --split-bam                      Divide up a BAM file into smaller sub-sampled files, with no read overlaps between files. Preserves read-pairs\n"
+ "      --realign-test                   Randomly sample the reference genome and test ability of BWA-MEM to realign to reference for different sizes / error rates\n"
+ "  Shared Options for Test and Simulate:\n"
+ "  -c, --read-covearge                  Desired coverage. Input as comma-separated to test multiple (test assembly)\n"
+ "  -b, --bam                            BAM file to train the simulation with\n"
+ "  -k, --regions                        Regions to simulate breaks or test assembly\n"
+ "  -E, --snv-error-rate                 The random SNV error rate per base. Input as comma-separated to test multiple (test assembly)\n"
+ "  -I, --ins-error-rate                 The random insertion error rate per read. Input as comma-separated to test multiple (test assembly)\n"
+ "  -D, --del-error-rate                 The random deletion error rate per read. Input as comma-separated to test multiple (test assembly)\n"
+ "  Test Assembly (--test-assembly) Options:\n"
+ "  -n, --num-runs                       Number of random trials to run\n"
+ "  Simulate Breaks (--sim-breaks)  Options:\n"
+ "      --isize-mean                     Desired mean insert size for the simulated reads\n"
+ "      --isize-sd                       Desired std. dev. forinsert size for the simulated reads\n"
+ "  -R, --num-rearrangements             Number of rearrangements to simulate\n"
+ "  -X, --num-indels                     Number of indels to simulate\n"
+ "  -M, --viral-integration              Number of segments to integrate viruses into. (Reduces amount of space for indels)\n"
+ "      --add-scrambled-inserts          Add scrambled inserts at junctions, randomly between 0 and 100 bp with p(0) = 50% and p(1-100) = 50%;\n"
+ "  Simulate Breaks with Power Law(--sim-breaks-power)  Options:\n"
+ "      --blacklist                      BED file specifying blacklist regions not to put breaks in\n"
+ "  Split Bam (--split-bam)  Options:\n"
+ "  -f. --fractions                      Fractions to split the bam into\n"
+ "\n";
 
-void runBenchmark(int argc, char** argv) {
 
-  parseBenchmarkOptions(argc, argv);
+ static const char* shortopts = "haG:c:n:s:k:b:E:I:D:R:X:A:f:M:";
+ static const struct option longopts[] = {
+   { "help",                 no_argument, NULL, 'h' },
+   { "reference-genome",     required_argument, NULL, 'G' },
+   { "string-id",            required_argument, NULL, 'A' },
+   { "seed",                 required_argument, NULL, 's' },
+   { "num-runs",             required_argument, NULL, 'n' },
+   { "regions",              required_argument, NULL, 'k' },
+   { "bam",                  required_argument, NULL, 'b' },
+   { "read-coverage",        required_argument, NULL, 'c' },
+   { "snv-error-rate",       required_argument, NULL, 'E' },
+   { "del-error-rate",       required_argument, NULL, 'D' },
+   { "ins-error-rate",       required_argument, NULL, 'I' },
+   { "num-rearrangements",   required_argument, NULL, 'R' },
+   { "fractions",            required_argument, NULL, 'f' },
+   { "num-indels",           required_argument, NULL, 'X' },
+   { "viral-integration",    required_argument, NULL, 'M' },
+   { "isize-mean",           required_argument, NULL, OPT_ISIZE_MEAN},
+   { "isize-sd",             required_argument, NULL, OPT_ISIZE_SD},
+   { "test-assembly",        no_argument, NULL, OPT_ASSEMBLY},
+   { "blacklist",            required_argument, NULL, OPT_BLACKLIST},
+   { "sim-breaks-power",     no_argument, NULL, OPT_POWERSIM},
+   { "sim-breaks",           no_argument, NULL, OPT_SIMBREAKS},
+   { "split-bam",            no_argument, NULL, OPT_SPLITBAM},
+   { "add-scrambled-inserts",no_argument, NULL, OPT_SCRAMBLE},
+   { "realign-test",no_argument, NULL, OPT_REALIGN},
+   { NULL, 0, NULL, 0 }
+ };
 
-  std::cerr << 
-    "-----------------------------------------" << std::endl << 
-    "--- Running Snowman Benchmarking Test ---" << std::endl <<
-    "-----------------------------------------" << std::endl;
-  if (opt::mode == OPT_ASSEMBLY)
-    std::cerr << "********* RUNNING ASSEMBLY TEST ***********" << std::endl;
-  else if (opt::mode == OPT_SIMBREAKS)
-    std::cerr << "********* RUNNING SIMULATE BREAKS ***********" << std::endl;
-  else if (opt::mode == OPT_SPLITBAM)
-    std::cerr << "********* RUNNING SPLIT BAM ***********" << std::endl;
+ void runBenchmark(int argc, char** argv) {
 
-  if (opt::mode == OPT_ASSEMBLY || opt::mode == OPT_SIMBREAKS) {
-    std::cerr << "    Error rates:" << std::endl;
-    std::cerr << errorRateString(snv_error_rates, "SNV") << std::endl;
-    std::cerr << errorRateString(ins_error_rates, "Del") << std::endl;
-    std::cerr << errorRateString(del_error_rates, "Ins") << std::endl;
-    std::cerr << errorRateString(coverages, "Coverages") << std::endl;
-    std::cerr << "    Insert size: " << opt::isize_mean << "(" << opt::isize_sd << ")" << std::endl;
-  } else if (opt::mode == OPT_SPLITBAM) {
-    std::cerr << errorRateString(fractions, "Fractions") << std::endl;
+   parseBenchmarkOptions(argc, argv);
+
+   std::cerr << 
+     "-----------------------------------------" << std::endl << 
+     "--- Running Snowman Benchmarking Test ---" << std::endl <<
+     "-----------------------------------------" << std::endl;
+   if (opt::mode == OPT_ASSEMBLY)
+     std::cerr << "********* RUNNING ASSEMBLY TEST ***********" << std::endl;
+   else if (opt::mode == OPT_SIMBREAKS)
+     std::cerr << "********* RUNNING SIMULATE BREAKS ***********" << std::endl;
+   else if (opt::mode == OPT_SPLITBAM)
+     std::cerr << "********* RUNNING SPLIT BAM ***********" << std::endl;
+   else if (opt::mode == OPT_REALIGN)
+     std::cerr << "********* RUNNING REALIGN TEST ***********" << std::endl;    
+
+   if (opt::mode == OPT_ASSEMBLY || opt::mode == OPT_SIMBREAKS) {
+     std::cerr << "    Error rates:" << std::endl;
+     std::cerr << errorRateString(snv_error_rates, "SNV") << std::endl;
+     std::cerr << errorRateString(ins_error_rates, "Del") << std::endl;
+     std::cerr << errorRateString(del_error_rates, "Ins") << std::endl;
+     std::cerr << errorRateString(coverages, "Coverages") << std::endl;
+     std::cerr << "    Insert size: " << opt::isize_mean << "(" << opt::isize_sd << ")" << std::endl;
+   } else if (opt::mode == OPT_SPLITBAM) {
+     std::cerr << errorRateString(fractions, "Fractions") << std::endl;
+   }
+
+   // open the BAM
+   if (opt::bam.length() && SnowTools::read_access_test(opt::bam)) 
+     bwalker = SnowTools::BamWalker(opt::bam);
+   else if (opt::mode == OPT_REALIGN || opt::mode == OPT_SPLITBAM) {
+     std::cerr << "NEED TO INPUT VALID BAM (perhaps just to get header info)" << std::endl;
+     exit(EXIT_FAILURE);
   }
-
-  // open the BAM
-  if (opt::bam.length()) 
-    bwalker = SnowTools::BamWalker(opt::bam);
     // parse the region file
   if (opt::regionFile.length()) {
     if (SnowTools::read_access_test(opt::regionFile)) {
@@ -201,6 +219,16 @@ void runBenchmark(int argc, char** argv) {
     //  fractions_bed.readBEDfile(opt::frac_bed_file.length(), 0, bwalker.header());
   }
 
+  findex = fai_load(opt::refgenome.c_str());  // load the reference
+
+  SnowTools::GRC blacklist;
+  if (opt::mode == OPT_POWERSIM && !opt::blacklist.empty()) {
+    std::cerr << "...reading blacklist file " << opt::blacklist << std::endl;
+    blacklist.regionFileToGRV(opt::blacklist, 0, bwalker.header());
+    blacklist.createTreeMap();
+    std::cerr << "...read in " << blacklist.size() << " blacklist regions " << std::endl;
+  }
+
   // 
   if (opt::mode == OPT_ASSEMBLY)
     assemblyTest();
@@ -208,6 +236,21 @@ void runBenchmark(int argc, char** argv) {
     genBreaks();
   else if (opt::mode == OPT_SPLITBAM)
     splitBam();
+  else if (opt::mode == OPT_REALIGN)
+    realignRandomSegments();
+  else if (opt::mode == OPT_POWERSIM)  {
+
+    std::cerr << "...opening output" << std::endl;
+    std::ofstream outfasta;
+    SnowmanUtils::fopen("tumor_seq.fa", outfasta);
+    
+    std::ofstream events;
+    SnowmanUtils::fopen("events.txt", events);
+    
+    PowerLawSim(findex, opt::nbreaks, -1.0001, blacklist, outfasta, events);
+    outfasta.close();
+    events.close();
+  }
   else 
     std::cerr << "Mode not recognized. Chose from: --test-assembly, --sim-breaks, --split-bam" << std::endl;
 
@@ -249,7 +292,7 @@ std::string genBreaks() {
   }
   
   std::cerr << "...loading the reference genome" << std::endl;
-  findex = fai_load(opt::refgenome.c_str());  // load the reference
+
 
   SnowTools::GenomicRegion gg = regions[0];
   std::cerr << "--Generating breaks on: " << gg << std::endl; 
@@ -549,6 +592,9 @@ void assemblyTest() {
     switch (c) {
     case 'h': die = true; break;
     case OPT_ASSEMBLY: opt::mode = OPT_ASSEMBLY; break;
+    case OPT_REALIGN: opt::mode = OPT_REALIGN; break;
+    case OPT_POWERSIM: opt::mode = OPT_POWERSIM; break;
+    case OPT_BLACKLIST: arg >> opt::blacklist; break;
     case 'G': arg >> opt::refgenome; break;
     case 'n': arg >> opt::num_runs; break;
     case 's': arg >> opt::seed; break;
@@ -632,5 +678,126 @@ void assemblyTest() {
     ss << " " << i << ",";
   
   return SnowTools::cutLastChar(ss.str());
+  
+}
+
+void realignRandomSegments() {
+  
+  ReadSim rs;
+
+  std::cerr << "...loading reference genome" << std::endl;
+  SnowTools::BWAWrapper bwa; 
+  bwa.retrieveIndex(opt::refgenome);
+
+  std::ofstream results;
+  SnowmanUtils::fopen("realign.results.csv", results);
+
+  results << "ID" << "\t" << "chr" << "\t" << "pos1" << "\t" << "pos2" << "\t" << "width" << "\t" << "num_aligns" << "\t" << "correct_hit_num" << "\t" << "snv_rate" << "\t" << "del_size" << "\t" << "ins_size" << std::endl;
+  
+  const int RUN_NUM = 1000;
+
+  size_t tcount = 0;
+    
+
+  std::string chrstring;
+
+  std::vector<int> widths = {70, 101, 250};
+  std::vector<double> snv_rate = {0, 0.01, 0.05};
+  std::vector<int> indel_size = {0, 1, 5, 20, 50};
+
+  for (size_t ins = 0; ins < 2; ++ins) { //insertion or del
+    for (auto& iii : indel_size) {
+      for (auto& snv : snv_rate) {
+	for (auto& k : widths) {
+	  ++tcount;
+	  for (size_t i = 0; i < RUN_NUM; ++i) {
+	    if (i == 0)
+	      std::cerr << "...working on width " << k << " and SNV rate " << snv << "\t" << (ins == 1 ? "INS" : "DEL") << "\t" << iii << ". " << tcount << " of " << (2 * widths.size() * snv_rate.size() * indel_size.size()) << std::endl;
+	    
+	    SnowTools::GenomicRegion gr;
+	    gr.random(rand());
+	    gr.pos2 = gr.pos1 + k - 1 + (ins == 0 ? iii : 0); // add sequence to deletion ones, because it gets removed later
+	    chrstring = bwalker.header()->target_name[gr.chr]; //std::to_string(gr.chr+1);
+	    
+	    int len;
+	    char * seq = faidx_fetch_seq(findex, const_cast<char*>(chrstring.c_str()), gr.pos1, gr.pos2 - 1, &len);
+	    
+	    std::string s;
+	    if (seq)
+	      s = std::string(seq);
+	    else 
+	      continue;
+	    
+	    if (s.find("N") != std::string::npos)
+	      continue;
+	    
+	    rs.makeSNVErrors(s, snv);
+	    
+	    if (gr.width() < iii + 10)
+	      continue;
+
+	    if (ins == 1 && iii > 0)
+	      rs.makeInsErrors(s, true, iii);
+	    else if (iii > 0)
+	      rs.makeDelErrors(s, iii);      
+	    
+	    SnowTools::BamReadVector aligns;
+	    bwa.alignSingleSequence(s, std::to_string(i), aligns, 0.90, 50);
+	    
+	    /*
+	    BamReadVector tmp;
+	    if (iii > 0 && aligns.size() == 1) {
+	      for (auto& r : aligns) {
+		if (ins == 1) {
+		  int g = r.MaxInsertionBases();
+		  if (g && g - 2 < iii && g + 2 > iii)
+		    tmp.push_back(r);
+		} else {
+		  int d = r.MaxDeletionBases();
+		  if (d && d - 2 < iii && d + 2 > iii)
+		    tmp.push_back(r);
+		}
+	      }
+	      aligns = tmp;
+	    }
+	    */
+
+	    int align_num = -1;
+	    for (size_t j = 0; j < aligns.size(); ++j) {
+	      
+	      SnowTools::GenomicRegion gr_this = aligns[j].asGenomicRegion();
+	      gr_this.pad(100);
+	      if (gr.getOverlap(gr_this)) {
+		
+		if (iii == 0) { 
+		  align_num = j;
+		  break;
+		} else {
+		  if (ins == 1) {
+		    int g = aligns[j].MaxInsertionBases();
+		    if (g && g - 2 < iii && g + 2 > iii) {
+		      align_num = j;
+		      break;
+		    }
+		  } else {
+		    int d = aligns[j].MaxDeletionBases();
+		    if (d && d - 2 < iii && d + 2 > iii) {
+		      align_num = j;
+		      break;
+		    }
+		  }
+		}
+	      }
+	      
+	    }
+	    
+	    results << i << "\t" << chrstring << "\t" << gr.pos1 << "\t" << gr.pos2 << "\t" << k << "\t" << aligns.size() << "\t" << align_num << "\t" << snv << "\t" << (ins == 0 ? iii : 0) << "\t" << (ins == 1 ? iii : 0) << std::endl;
+	    
+	  }
+	}
+      }
+    }
+  }
+  results.close();
   
 }

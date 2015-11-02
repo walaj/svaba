@@ -6,7 +6,7 @@
 #include <unordered_set>
 #include <vector>
 #include "SnowTools/GenomicRegion.h"
-#include "SnowTools/AlignedContig.h"
+#include "SnowTools/BreakPoint2.h"
 //#include "faidx.h"
 
 using namespace std;
@@ -61,7 +61,7 @@ struct VCFHeader {
   void addFormatField(string field, string number, string type, string description);
   void addSampleField(string field);
 
-  void addContigField(string id, string assembly, string length, string species);
+  void addContigField(string id, int len);
 
 };
 
@@ -104,6 +104,7 @@ struct VCFEntryPair {
   // data
   VCFEntry e1, e2;
   SnowTools::ReducedBreakPoint * bp;
+
   //SupportingReadsMap supp_reads;
 
   bool getOverlaps(int pad, VCFEntryPair &v);
@@ -130,7 +131,7 @@ struct VCFFile {
   VCFFile(string file, string tmethod);
 
   // create a VCFFile from a csv
-  VCFFile(string file, const char* index, string analysis_id, bam_hdr_t *h);
+  VCFFile(string file, string id, bam_hdr_t * h, const VCFHeader& vheader);
 
   string filename;
   string method;

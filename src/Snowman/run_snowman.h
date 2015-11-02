@@ -9,7 +9,7 @@
 
 #include "SnowTools/GenomicRegionCollection.h"
 #include "SnowTools/BWAWrapper.h"
-#include "SnowTools/AlignedContig.h"
+#include "SnowTools/AlignedContig2.h"
 #include "SnowmanAssemblerEngine.h"
 #include "SnowTools/DiscordantCluster.h"
 #include "SnowTools/BamWalker.h"
@@ -31,7 +31,10 @@ void sendThreads(SnowTools::GRC& regions_torun);
 bool runBigChunk(const SnowTools::GenomicRegion& region); 
 SnowTools::GRC makeAssemblyRegions(const SnowTools::GenomicRegion& region);
 void alignReadsToContigs(SnowTools::BWAWrapper& bw, const SnowTools::USeqVector& usv, BamReadVector& bav_this, std::vector<SnowTools::AlignedContig>& this_alc);
-
+SnowmanBamWalker __make_walkers(const std::string& p, const std::string& b, const SnowTools::GenomicRegion& region, int& tcount, int& ncount);
+MateRegionVector __collect_normal_mate_regions(std::unordered_map<std::string, SnowmanBamWalker>& walkers);
+MateRegionVector __collect_somatic_mate_regions(std::unordered_map<std::string, SnowmanBamWalker>& walkers, MateRegionVector& bl);
+SnowTools::GRC __get_exclude_on_badness(std::unordered_map<std::string, SnowmanBamWalker>& walkers, const SnowTools::GenomicRegion& region);
 /** @brief p-thread work item that calls Snowman on a small region
 
     Detailed description follows here.

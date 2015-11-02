@@ -191,7 +191,7 @@ top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 AUTOMAKE_OPTIONS = foreign
-SUBDIRS = SnowTools/bwa SnowTools/htslib SnowTools/src src/SGA/SQG src/SGA/Bigraph src/SGA/Algorithm src/SGA/StringGraph src/SGA/SuffixTools src/Snowman 
+SUBDIRS = SnowTools src/SGA/SQG src/SGA/Bigraph src/SGA/Algorithm src/SGA/StringGraph src/SGA/SuffixTools src/Snowman 
 all: config.h
 	$(MAKE) $(AM_MAKEFLAGS) all-recursive
 
