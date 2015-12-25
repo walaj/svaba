@@ -97,8 +97,9 @@ namespace opt {
   //  static std::string pon = "";
 
   // parameters for filtering reads
-  static std::string rules = "global@!hardclip;!duplicate;!qcfail;phred[4,100];length[LLL,1000]%region@WG%!isize[0,1200];mapq[0,1000]%clip[10,1000]%ins[1,1000];mapq[0,100]%del[1,1000];mapq[1,1000]%mapped;!mate_mapped;mapq[1,1000]%mate_mapped;!mapped";
-  static int num_to_sample = 2000000;
+  //static std::string rules = "global@!hardclip;!duplicate;!qcfail;phred[4,100];length[LLL,1000]%region@WG%!isize[0,800]%ic%clip[10,1000]%ins[1,1000];mapq[0,100]%del[1,1000];mapq[1,1000]%mapped;!mate_mapped;mapq[1,1000]%mate_mapped;!mapped";
+  static std::string rules = "global@!hardclip!duplicate;!qcfail;phred[4,100]%region@WG%!isize[0,800]%ic%clip[10,1000]%ins[1,1000];mapq[0,100]%del[1,1000];mapq[1,1000]%mapped;!mate_mapped;mapq[1,1000]%mate_mapped;!mapped";
+  static int num_to_sample = 500000;
   static std::string motif_exclude;
   
   static int max_cov = 100;
@@ -313,7 +314,7 @@ void runSnowman(int argc, char** argv) {
   // open the Bam Headeres
   std::cerr << "...loading BAM indices" << std::endl;
   for (auto& b : opt::bam) 
-    bindices[b.first] = std::shared_ptr<hts_idx_t>(hts_idx_load(b.first.c_str(), HTS_FMT_BAI), bidx_delete());
+    bindices[b.first] = std::shared_ptr<hts_idx_t>(hts_idx_load(b.second.c_str(), HTS_FMT_BAI), bidx_delete());
 
   // learn some parameters
   LearnBamParams tparm(opt::tumor_bam);
@@ -344,7 +345,7 @@ void runSnowman(int argc, char** argv) {
     std::cerr << "Chunk was <= 0: READING IN WHOLE GENOME AT ONCE" << std::endl;
 
   int len_cutoff = 0.5 * opt::readlen;
-  opt::rules = myreplace(opt::rules, "LLL", std::to_string(len_cutoff));
+  //opt::rules = myreplace(opt::rules, "LLL", std::to_string(len_cutoff));
 
   // set the MiniRules to be applied to each region
   mr = new SnowTools::MiniRulesCollection(opt::rules);
@@ -792,7 +793,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 	BamReadVector ct_plus_microbe;
 
 	if (microbe_bwa && !SnowmanUtils::hasRepeat(i.getSeq())) {
-	    std::cerr << "microbe" << std::endl;
+	  
 	  // do the microbial alignment
 	  BamReadVector microbial_alignments;
 	  microbe_bwa->alignSingleSequence(i.getSeq(), i.getID(), microbial_alignments, 0.90, SECONDARY_CAP);
@@ -834,6 +835,9 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 	  }
 	}
 
+	if (!human_alignments.size())
+	  continue;
+
 	// add in the microbe alignments
 	human_alignments.insert(human_alignments.end(), ct_plus_microbe.begin(), ct_plus_microbe.end());
 
@@ -841,7 +845,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 	if (!human_alignments.size())
 	  continue;
 
-
+	
         SnowTools::AlignedContig ac(human_alignments);
 
 	// assign the local variable to each
@@ -884,6 +888,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 	a.blacklist(indel_blacklist_mask);
 	// add to the final structure
 	alc.push_back(a);
+
       }
       
     } // stop region loop
@@ -943,7 +948,6 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 
   // de duplicate the breakpoints
   std::sort(bp_glob.begin(), bp_glob.end());
-  SnowTools::BPVec tmprr = bp_glob; //debug
   bp_glob.erase( std::unique( bp_glob.begin(), bp_glob.end() ), bp_glob.end() );
   
   if (opt::verbose > 2)
@@ -975,10 +979,24 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
     std::cerr << "...removing somatic overlap with normal" << std::endl;
   std::unordered_set<std::string> norm_hash;
   for (auto& i : bp_glob) // hash the normals
-    if (!i.somatic_score)
+    if (!i.somatic_score) {
       norm_hash.insert(i.b1.hash());
+      norm_hash.insert(i.b2.hash());
+    }
   for (auto& i : bp_glob)  // find somatic that intersect with norm. Set somatic = 0;
-    if (i.somatic_score && norm_hash.count(i.b1.hash()))
+    if (i.somatic_score && (norm_hash.count(i.b1.hash()) || norm_hash.count(i.b2.hash())))
+      i.somatic_score = 0;
+
+  // remove somatic calls if they have a germline normal SV in them or indels with 
+  // 2+germline normal in same contig
+  if (opt::verbose > 2)
+    std::cerr << "...removing somatic calls that have germline SV" << std::endl;
+  std::unordered_set<std::string> bp_hash;
+  for (auto& i : bp_glob) // hash the normals
+    if (!i.somatic_score && i.evidence != "INDEL")
+      bp_hash.insert(i.cname);
+  for (auto& i : bp_glob)  // find somatic that intersect with norm. Set somatic = 0;
+    if (i.somatic_score && i.num_align > 1 && bp_hash.count(i.cname))
       i.somatic_score = 0;
 
   // add the ref and alt tags
@@ -1011,11 +1029,12 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
   
   // print the alignment plots
   size_t contig_counter = 0;
-  for (auto& i : alc)
+  for (auto& i : alc) {
     if (i.hasVariant()) {
       all_align << i << std::endl;
       ++contig_counter;
     }
+  }
 
   if (opt::verbose > 2)
     std::cerr << "...dumping discordant" << std::endl;
@@ -1147,12 +1166,6 @@ void alignReadsToContigs(SnowTools::BWAWrapper& bw, const SnowTools::USeqVector&
     assert(seqr.length());
     bw.alignSingleSequence(seqr, i.Qname(), brv, 0.60, 10000);
 
-
-    //debug
-    //if (i.Qname() == "D0UK2ACXX120515:6:2209:7783:72545")
-    //for (auto& r : brv)
-    //  std::cerr << r << " ss " << (r.NumMatchBases() * 0.9) << " AS " << r.GetIntTag("AS") << " aligned to " << usv[r.ChrID()].name << std::endl;
-    
     if (brv.size() == 0) 
       continue;
     
@@ -1226,7 +1239,7 @@ SnowmanBamWalker __make_walkers(const std::string& p, const std::string& b, cons
   walk.adapter_trim = opt::adapter_trim;
   walk.max_cov = opt::max_cov;
 
-  if (!region.isEmpty())
+  if (!region.isEmpty()) 
     walk.setBamWalkerRegion(region, bindices[p]);
   walk.SetMiniRulesCollection(*mr);
   walk.readBam();

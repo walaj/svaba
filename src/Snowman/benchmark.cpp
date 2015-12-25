@@ -77,7 +77,8 @@
    OPT_SCRAMBLE,
    OPT_POWERSIM,
    OPT_REALIGN,
-   OPT_BLACKLIST
+   OPT_BLACKLIST, 
+   OPT_REALIGN_SV
  };
 
 
@@ -95,6 +96,7 @@
  "      --sim-breaks                     Simulate rearrangements and indels and output paired-end reads\n"
  "      --split-bam                      Divide up a BAM file into smaller sub-sampled files, with no read overlaps between files. Preserves read-pairs\n"
  "      --realign-test                   Randomly sample the reference genome and test ability of BWA-MEM to realign to reference for different sizes / error rates\n"
+ "      --realign-sv-test                Make an SV (rearrangment) and simulate contigs from it. Test size of contigs vs alignment accuracy for SVs\n"
  "  Shared Options for Test and Simulate:\n"
  "  -c, --read-covearge                  Desired coverage. Input as comma-separated to test multiple (test assembly)\n"
  "  -b, --bam                            BAM file to train the simulation with\n"
@@ -142,6 +144,7 @@
    { "sim-breaks-power",     no_argument, NULL, OPT_POWERSIM},
    { "sim-breaks",           no_argument, NULL, OPT_SIMBREAKS},
    { "split-bam",            no_argument, NULL, OPT_SPLITBAM},
+   { "realign-sv-test",      no_argument, NULL, OPT_REALIGN_SV},
    { "add-scrambled-inserts",no_argument, NULL, OPT_SCRAMBLE},
    { "realign-test",no_argument, NULL, OPT_REALIGN},
    { NULL, 0, NULL, 0 }
@@ -163,6 +166,8 @@
      std::cerr << "********* RUNNING SPLIT BAM ***********" << std::endl;
    else if (opt::mode == OPT_REALIGN)
      std::cerr << "********* RUNNING REALIGN TEST ***********" << std::endl;    
+   else if (opt::mode == OPT_REALIGN_SV)
+     std::cerr << "********* RUNNING REALIGN SV TEST ***********" << std::endl;    
 
    if (opt::mode == OPT_ASSEMBLY || opt::mode == OPT_SIMBREAKS) {
      std::cerr << "    Error rates:" << std::endl;
@@ -178,7 +183,7 @@
    // open the BAM
    if (opt::bam.length() && SnowTools::read_access_test(opt::bam)) 
      bwalker = SnowTools::BamWalker(opt::bam);
-   else if (opt::mode == OPT_REALIGN || opt::mode == OPT_SPLITBAM) {
+   else if (opt::mode == OPT_REALIGN || opt::mode == OPT_SPLITBAM || opt::mode == OPT_REALIGN_SV) {
      std::cerr << "NEED TO INPUT VALID BAM (perhaps just to get header info)" << std::endl;
      exit(EXIT_FAILURE);
   }
@@ -238,6 +243,8 @@
     splitBam();
   else if (opt::mode == OPT_REALIGN)
     realignRandomSegments();
+  else if (opt::mode == OPT_REALIGN_SV)
+    realignBreaks();
   else if (opt::mode == OPT_POWERSIM)  {
 
     std::cerr << "...opening output" << std::endl;
@@ -593,6 +600,7 @@ void assemblyTest() {
     case 'h': die = true; break;
     case OPT_ASSEMBLY: opt::mode = OPT_ASSEMBLY; break;
     case OPT_REALIGN: opt::mode = OPT_REALIGN; break;
+    case OPT_REALIGN_SV: opt::mode = OPT_REALIGN_SV; break;
     case OPT_POWERSIM: opt::mode = OPT_POWERSIM; break;
     case OPT_BLACKLIST: arg >> opt::blacklist; break;
     case 'G': arg >> opt::refgenome; break;
@@ -679,6 +687,75 @@ void assemblyTest() {
   
   return SnowTools::cutLastChar(ss.str());
   
+}
+
+void realignBreaks() {
+  
+  ReadSim rs;
+  
+  std::cerr << "...loading reference genome" << std::endl;
+  SnowTools::BWAWrapper bwa; 
+  bwa.retrieveIndex(opt::refgenome);
+
+  std::ofstream results;
+  SnowmanUtils::fopen("realign.sv.results.csv", results);
+  
+  results << "id\tsize\tAlign1\tAlign2\tAlignBoth" << std::endl;
+  const int RUN_NUM = 1000;
+  size_t count = 0;
+
+  std::string chrstring1, chrstring2;
+  for (int k = 0; k < RUN_NUM; ++k) {
+  for (int i = 30; i < 500; i += 10) {
+
+    SnowTools::GenomicRegion gr1, gr2;
+    gr1.random(rand());
+    gr2.random(rand());
+    gr1.pos2 = gr1.pos1 + i/2; ; //+ k - 1 + (ins == 0 ? iii : 0); // add sequence to deletion ones, because it gets removed later
+    gr2.pos2 = gr2.pos2 + i/2;
+    chrstring1 = bwalker.header()->target_name[gr1.chr]; //std::to_string(gr.chr+1);
+    chrstring2 = bwalker.header()->target_name[gr2.chr]; //std::to_string(gr.chr+1);
+	
+    int len;
+    char * seq1 = faidx_fetch_seq(findex, const_cast<char*>(chrstring1.c_str()), gr1.pos1, gr1.pos2 - 1, &len);
+    char * seq2 = faidx_fetch_seq(findex, const_cast<char*>(chrstring2.c_str()), gr2.pos1, gr2.pos2 - 1, &len);
+    
+    std::string s1, s2;
+    if (seq1)
+      s1 = std::string(seq1);
+    else 
+      continue;
+    if (s1.find("N") != std::string::npos)
+      continue;
+
+    if (seq2)
+      s2 = std::string(seq2);
+    else 
+      continue;
+    if (s2.find("N") != std::string::npos)
+      continue;
+
+    
+    if (rand() % 2)
+      SnowTools::rcomplement(s2);
+    std::string ss = s1 + s2;
+
+    SnowTools::BamReadVector aligns;
+    bwa.alignSingleSequence(ss, std::to_string(i), aligns, 0.90, 2);
+    
+    bool a1 = false; bool a2 = false;
+    for (auto& jj : aligns) {
+      if (gr1.getOverlap(jj.asGenomicRegion())) 
+	a1 = true;
+      if (gr2.getOverlap(jj.asGenomicRegion()))       
+	a2 = true;
+    }
+
+    results << k << "\t" << i << "\t" << a1 << "\t" << a2 << "\t" << (a1 && a2) << std::endl;
+	    
+  }
+  }
+    
 }
 
 void realignRandomSegments() {

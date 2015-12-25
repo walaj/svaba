@@ -99,22 +99,29 @@ void runAssembly2VCF(int argc, char** argv)
 
   SnowTools::MiniRulesCollection * mr = new SnowTools::MiniRulesCollection(opt::rules);
 
-  SnowmanBamWalker twalk(opt::tumor_reads_bam);
-  SnowmanBamWalker nwalk(opt::normal_reads_bam);
-  twalk.prefix= "t000";  
-  nwalk.prefix= "n000";
-  twalk.max_cov = 500;
-  nwalk.max_cov = 500;
-  twalk.SetMiniRulesCollection(*mr);
-  nwalk.SetMiniRulesCollection(*mr);    
+  SnowmanBamWalker twalk, nwalk;
+  if (SnowTools::read_access_test(opt::tumor_reads_bam)) {
+    twalk = SnowmanBamWalker(opt::tumor_reads_bam);
+    twalk.prefix= "t000";  
+    twalk.max_cov = 500;
+    twalk.SetMiniRulesCollection(*mr);
+  } 
+  if (SnowTools::read_access_test(opt::normal_reads_bam)) {
+    nwalk = SnowmanBamWalker(opt::normal_reads_bam);
+    nwalk.prefix= "n000";
+    nwalk.max_cov = 500;
+    nwalk.SetMiniRulesCollection(*mr);    
+  }
     
   // read in the assembly bam file
   AssemblyBamWalker awalk(opt::assembly_bam);
   awalk.twalk = twalk;
   awalk.nwalk = nwalk;
   awalk.findex = findex;
-  awalk.tindex = std::shared_ptr<hts_idx_t>(hts_idx_load(opt::tumor_reads_bam.c_str(), HTS_FMT_BAI), bidx_delete());
-  awalk.nindex = std::shared_ptr<hts_idx_t>(hts_idx_load(opt::normal_reads_bam.c_str(), HTS_FMT_BAI), bidx_delete());
+  if (SnowTools::read_access_test(opt::tumor_reads_bam))
+    awalk.tindex = std::shared_ptr<hts_idx_t>(hts_idx_load(opt::tumor_reads_bam.c_str(), HTS_FMT_BAI), bidx_delete());
+  if (SnowTools::read_access_test(opt::normal_reads_bam))
+    awalk.nindex = std::shared_ptr<hts_idx_t>(hts_idx_load(opt::normal_reads_bam.c_str(), HTS_FMT_BAI), bidx_delete());
 
   std::cerr << awalk << std::endl;
 

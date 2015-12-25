@@ -213,6 +213,7 @@ VCFFile::VCFFile(string file, string id, bam_hdr_t * h, const VCFHeader& vheader
 
   // add the filters that apply to SVs
   sv_header.addFilterField("NODISC","Rearrangement was not detected independently by assembly");
+  sv_header.addFilterField("FOLDBACK","Rearrangement is inversion type with span < 80. Very likely fold-back Illumina error");
   sv_header.addFilterField("LOWMAPQ","Assembly contig has non 60/60 mapq and no discordant support");
   sv_header.addFilterField("WEAKASSEMBLY","4 or fewer split reads and no discordant support and span > 1500bp");
   sv_header.addFilterField("WEAKDISC","Fewer than 7 supporting discordant reads and no assembly support");
@@ -237,6 +238,7 @@ VCFFile::VCFFile(string file, string id, bam_hdr_t * h, const VCFHeader& vheader
 
   //add the SV info fields
   sv_header.addInfoField("REPSEQ","1","String","Repeat sequence near the event");
+  sv_header.addInfoField("READNAMES",".","String","IDs of ALT reads");
   sv_header.addInfoField("NM","1","Integer","Number of mismatches of this alignment fragment to reference");
   sv_header.addInfoField("MATENM","1","Integer","Number of mismatches of partner alignment fragment to reference");
   sv_header.addInfoField("SVTYPE","1","String","Type of structural variant");
@@ -259,12 +261,6 @@ VCFFile::VCFFile(string file, string id, bam_hdr_t * h, const VCFHeader& vheader
   //sv_header.addInfoField("TFRAC","1","String","Tumor allelic fraction at break. -1 for undefined");
   //sv_header.addInfoField("NFRAC","1","String","Normal allelic fraction at break. -1 for undefined");
 
-  sv_header.addFormatField("READ_ID",".","String","ALT supporting Read IDs");
-  sv_header.addFormatField("NALT_SR","1","Integer","Number of ALT support Split Reads");           
-  sv_header.addFormatField("NALT_RP","1","Integer","Number of ALT support aberrant Read Pairs");
-  sv_header.addFormatField("NREF","1","Integer","Number of REF support Reads");
-  sv_header.addFormatField("NALT","1","Integer","Number of ALT support reads or pairs");
-
   sv_header.addInfoField("NUMPARTS","1","Integer","If detected with assembly, number of parts the contig maps to. Otherwise 0");
   sv_header.addInfoField("EVDNC","1","String","Provides type of evidence for read. ASSMB is assembly only, ASDIS is assembly+discordant. DSCRD is discordant only.");
   sv_header.addInfoField("SCTG","1","String","Identifier for the contig assembled by SnowmanSV to make the SV call");
@@ -284,9 +280,9 @@ VCFFile::VCFFile(string file, string id, bam_hdr_t * h, const VCFHeader& vheader
   indel_header.addFormatField("PL","1","Integer","Normalized likelihood of the current genotype (currently not supported, always 0)");
   indel_header.addFormatField("SR","1","Integer","Number of spanning reads for this variants");
   indel_header.addFormatField("CR","1","Integer","Number of cigar-supported reads for this variant");
-  indel_header.addFormatField("LR","1","Numeric","Log-odds that this variant is REF vs AF=0.5");
-  indel_header.addFormatField("LO","1","Numeric","Log-odds that this variant is real vs artifact");
-  indel_header.addFormatField("SL","1","Numeric","Alignment-quality Scaled log-odds, where LO is LO * (MAPQ - 2*NM)/60");
+  indel_header.addFormatField("LR","1","Float","Log-odds that this variant is REF vs AF=0.5");
+  indel_header.addFormatField("LO","1","Float","Log-odds that this variant is real vs artifact");
+  indel_header.addFormatField("SL","1","Float","Alignment-quality Scaled log-odds, where LO is LO * (MAPQ - 2*NM)/60");
 
   sv_header.addFormatField("GT", "1","String", "Genotype (currently not supported. Always 0/1)");
   sv_header.addFormatField("AD", "1","Integer", "Allele depth: Number of reads supporting the variant");
@@ -295,11 +291,10 @@ VCFFile::VCFFile(string file, string id, bam_hdr_t * h, const VCFHeader& vheader
   sv_header.addFormatField("PL","1","Integer","Normalized likelihood of the current genotype (currently not supported, always 0)");
   sv_header.addFormatField("SR","1","Integer","Number of spanning reads for this variants");
   sv_header.addFormatField("DR","1","Integer","Number of discordant-supported reads for this variant");
-  sv_header.addFormatField("LR","1","Numeric","Log-odds that this variant is REF vs AF=0.5");
-  sv_header.addFormatField("LO","1","Numeric","Log-odds that this variant is real vs artifact");
-  sv_header.addFormatField("SL","1","Numeric","Alignment-quality Scaled log-odds, where LO is LO * (MAPQ - 2*NM)/60");
+  sv_header.addFormatField("LR","1","Float","Log-odds that this variant is REF vs AF=0.5");
+  sv_header.addFormatField("LO","1","Float","Log-odds that this variant is real vs artifact");
+  sv_header.addFormatField("SL","1","Float","Alignment-quality Scaled log-odds, where LO is LO * (MAPQ - 2*NM)/60");
 
-  indel_header.addInfoField("LOD","1","Numeric","Sample-combined LogOdds of real vs artifact");
   indel_header.addInfoField("REPSEQ","1","String","Repeat sequence near the event");
   indel_header.addInfoField("GRAYLIST","0","Flag","Indel is low quality and cross a difficult region of genome");
   indel_header.addInfoField("SOMATIC","0","Flag","Variant is somatic");
@@ -721,6 +716,9 @@ std::unordered_map<std::string, std::string> VCFEntry::fillInfoFields() const {
     info_fields["SVTYPE"] = "BND";
   }
 
+  if (!bp->read_names.empty())
+    info_fields["READNAMES"] = bp->read_names;
+
   if (bp->repeat)
     info_fields["REPSEQ"] = std::string(bp->repeat);
 
@@ -760,7 +758,7 @@ std::unordered_map<std::string, std::string> VCFEntry::fillInfoFields() const {
     }
 
     if (bp->homology) info_fields["HOMSEQ"] = std::string(bp->homology);
-    if (bp->insertion) info_fields["HOMSEQ"] = std::string(bp->insertion);
+    if (bp->insertion) info_fields["INSERTION"] = std::string(bp->insertion);
     info_fields["NUMPARTS"] = std::to_string(bp->num_align);
 
     if (bp->imprecise)

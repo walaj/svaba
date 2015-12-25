@@ -4,7 +4,11 @@
 //#define DEBUG_SNOWMAN_BAMWALKER 1
 #define MIN_MAPQ_FOR_MATE_LOOKUP 0
 
-//#define QNAME "D0EN0ACXX111207:4:2308:18196:48214"
+//#define QNAME "D0UW5ACXX120511:8:1206:4775:58710" 
+//#define QNAME "D0UW5ACXX120511:4:2306:10469:66645"
+
+// dont read in more reads than this at once
+#define FAIL_SAFE 20000
 
 static const std::string ILLUMINA_PE_PRIMER_2p0 = "CAAGCAGAAGACGGCAT";
 static const std::string FWD_ADAPTER_A = "AGATCGGAAGAGC";
@@ -60,14 +64,13 @@ bool SnowmanBamWalker::isDuplicate(BamRead &r)
 {
 
   // deduplicate by query-bases / position
-  int pos_key = r.Position() + r.MatePosition()*3 + 1332 * r.NumMatchBases() + 12345 * r.AlignmentFlag() + 221*r.InsertSize();
-  std::string key = std::to_string(pos_key) + r.Sequence();
+  //int pos_key = r.Position() + r.MatePosition()*3 + 1332 * r.NumMatchBases() + 12345 * r.AlignmentFlag() + 221*r.InsertSize();
+  //std::string key = std::to_string(pos_key) + r.Sequence();
+  std::string key = r.QualitySequence() + std::to_string(r.Position()) + "_" + std::to_string(r.MatePosition());
 
 #ifdef QNAME
   if (r.Qname() == QNAME)
-    std::cerr << pos_key << std::endl;
-  if (pos_key == 127580527 && r.Qname() != QNAME)
-    std::cerr << "DUP " << r << std::endl;
+    std::cerr << "dedupe key " << key << std::endl;
 #endif
 
   // its not already add, insert
@@ -104,8 +107,7 @@ void SnowmanBamWalker::readBam(const SnowTools::DBSnpFilter* dbs)
 	std::cerr << " read seen " << r << std::endl;
 #endif
 
-
-      if (countr > 1e6)
+      if (countr > FAIL_SAFE)
 	break;
 
       bool qcpass = !r.DuplicateFlag() && !r.QCFailFlag(); 
@@ -231,8 +233,8 @@ void SnowmanBamWalker::readBam(const SnowTools::DBSnpFilter* dbs)
 #endif
 
   // realign discordants
-  if (main_bwa)
-    realignDiscordants(reads);
+  //if (main_bwa)
+  //  realignDiscordants(reads);
 
   // calculate the mate region
   if (get_mate_regions && m_region.size() /* don't get mate regions if reading whole bam */) {
@@ -274,6 +276,9 @@ void SnowmanBamWalker::subSampleToWeirdCoverage(double max_coverage) {
       // this read should be randomly sampled, cov is too high
       if (this_cov > max_coverage) 
 	{
+	  #ifdef QNAME
+	  std::cerr << "subsampling because this_cov is " << this_cov << " and max cov is " << max_coverage << std::endl;
+	  #endif
 	  uint32_t k = __ac_Wang_hash(__ac_X31_hash_string(r.Qname().c_str()) ^ m_seed);
 	  if ((double)(k&0xffffff) / 0x1000000 <= sample_rate) // passed the random filter
 	    new_reads.push_back(r);
