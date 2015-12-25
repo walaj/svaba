@@ -26,7 +26,11 @@ int KmerFilter::correctReads(BamReadVector& vec) {
   for (auto& r : vec) {
 
     /// only correct valid reads
-    if (r.GetIntTag("VR") == -1)
+    //if (r.GetIntTag("VR") == -1)
+    //  continue;
+
+    // non-clipped mapped reads with no mismatches are OK (nothing to correct)
+    if (r.GetIntTag("NM") == 0 && r.NumClip() == 0 && r.MappedFlag()) 
       continue;
 
     std::string readSequence = r.QualitySequence(); //QualityTrimmedSequence(4, dum);
@@ -38,7 +42,7 @@ int KmerFilter::correctReads(BamReadVector& vec) {
     int nk = n - m_kmer_len + 1;
     std::vector<int> minPhredVector(nk, 25); // 25 is a dummy value
 
-        // Are all kmers in the read well-represented?
+    // Are all kmers in the read well-represented?
     bool allSolid = false;
     bool done = false;
     int rounds = 0;

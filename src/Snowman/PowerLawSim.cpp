@@ -10,7 +10,6 @@
 #define MAX_RAR_SIZE 35e6
 #define EVENT_BUFFER 4000
 
-
 void PowerLawSim(faidx_t* findex, int num_breaks, double power_law, SnowTools::GRC& grc, std::ofstream& outfasta, std::ofstream& events) {
 
   double frac_inter = 0.05;

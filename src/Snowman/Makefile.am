@@ -14,7 +14,8 @@ snowman_CPPFLAGS = \
 	-I$(top_srcdir)/SnowTools/src \
 	-I$(top_srcdir)/SnowTools \
 	-I$(top_srcdir)/SnowTools/htslib \
-	-I$(top_srcdir)/SnowTools/multifast-v1.4.2
+	-I$(top_srcdir)/SnowTools/multifast-v1.4.2 \
+	-I$(top_srcdir)/SnowTools/modular-boost
 
 snowman_LDADD = \
 	$(top_builddir)/src/SGA/SGA/libsga.a \
@@ -29,7 +30,9 @@ snowman_LDADD = \
 	$(top_builddir)/src/SGA/SuffixTools/libsuffixtools.a \
 	$(top_builddir)/src/SGA/Bigraph/libbigraph.a \
 	$(top_builddir)/src/SGA/Util/libutil.a \
-	$(top_builddir)/src/SGA/SQG/libsqg.a 
+	$(top_builddir)/src/SGA/SQG/libsqg.a \
+	$(top_builddir)/SnowTools/modular-boost/stage/lib/libboost_regex.a 
+
 
 snowman_LDFLAGS = -pthread -std=c++11
 
