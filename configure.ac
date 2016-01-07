@@ -5,7 +5,7 @@ AC_INIT(snowman, 1.0, jwala@broadinstitute.org)
 AM_INIT_AUTOMAKE(foreign)
 AC_CONFIG_SRCDIR([src/Snowman/snowman.cpp])
 AC_CONFIG_HEADER([config.h])
-AM_MAINTAINER_MODE([enable])
+AM_MAINTAINER_MODE([disable])
 ##m4_include([m4/m4_ax_openmp.m4])
 
 # Checks for programs.

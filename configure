@@ -1378,7 +1378,7 @@ Optional Features:
   --disable-option-checking  ignore unrecognized --enable/--with options
   --disable-FEATURE       do not include FEATURE (same as --enable-FEATURE=no)
   --enable-FEATURE[=ARG]  include FEATURE [ARG=yes]
-  --disable-maintainer-mode  disable make rules and dependencies not useful
+  --enable-maintainer-mode  enable make rules and dependencies not useful
 			  (and sometimes confusing) to the casual installer
   --disable-dependency-tracking  speeds up one-time build
   --enable-dependency-tracking   do not reject slow dependency extractors
@@ -2377,13 +2377,13 @@ am__tar='${AMTAR} chof - "$$tardir"'; am__untar='${AMTAR} xf -'
 ac_config_headers="$ac_config_headers config.h"
 
 
-{ $as_echo "$as_me:$LINENO: checking whether to disable maintainer-specific portions of Makefiles" >&5
-$as_echo_n "checking whether to disable maintainer-specific portions of Makefiles... " >&6; }
+{ $as_echo "$as_me:$LINENO: checking whether to enable maintainer-specific portions of Makefiles" >&5
+$as_echo_n "checking whether to enable maintainer-specific portions of Makefiles... " >&6; }
     # Check whether --enable-maintainer-mode was given.
 if test "${enable_maintainer_mode+set}" = set; then
   enableval=$enable_maintainer_mode; USE_MAINTAINER_MODE=$enableval
 else
-  USE_MAINTAINER_MODE=yes
+  USE_MAINTAINER_MODE=no
 fi
 
   { $as_echo "$as_me:$LINENO: result: $USE_MAINTAINER_MODE" >&5
