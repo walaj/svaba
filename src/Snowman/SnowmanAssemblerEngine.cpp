@@ -194,7 +194,7 @@ void SnowmanAssemblerEngine::doAssembly(ReadTable *pRT, ContigVector &contigs, i
   int min_overlap = m_min_overlap;
 
   int cutoff = 0;
-  if (pass == 0 || pass == 1)
+  if (pass == 0) // || pass == 1)
     cutoff = 50; //m_readlen;// + 10;
   //cutoff = 0; // debug
   else {
@@ -213,8 +213,8 @@ void SnowmanAssemblerEngine::doAssembly(ReadTable *pRT, ContigVector &contigs, i
                                                        seedStride, bIrreducibleOnly);
 
   bool exact = errorRate < 0.001f;
-  //pOverlapper->setExactModeOverlap(opt::assemb::error_rate < 0.001f/*false*/);
-  //pOverlapper->setExactModeIrreducible(opt::assemb::error_rate < 0.001f/*false*/);
+  //pOverlapper->setExactModeOverlap(errorRate < 0.001f/*false*/);
+  //pOverlapper->setExactModeIrreducible(errorRate < 0.001f/*false*/);
   pOverlapper->setExactModeOverlap(exact);
   pOverlapper->setExactModeIrreducible(exact);
 
