@@ -4,19 +4,17 @@
 //#define DEBUG_SNOWMAN_BAMWALKER 1
 #define MIN_MAPQ_FOR_MATE_LOOKUP 0
 
-//#define QNAME "D0UW5ACXX120511:8:1206:4775:58710" 
-//#define QNAME "D0UW5ACXX120511:4:2306:10469:66645"
+//#define QNAME "HHNYTCCXX151213:3:1115:22556:66654"
 
 // dont read in more reads than this at once
-#define FAIL_SAFE 20000
+#define FAIL_SAFE 10000
 
 static const std::string ILLUMINA_PE_PRIMER_2p0 = "CAAGCAGAAGACGGCAT";
 static const std::string FWD_ADAPTER_A = "AGATCGGAAGAGC";
 static const std::string FWD_ADAPTER_B = "AGATCGGAAAGCA";
 static const std::string REV_ADAPTER = "GCTCTTCCGATCT";
 
-bool SnowmanBamWalker::addCigar(BamRead &r, const SnowTools::DBSnpFilter* d)
-{
+bool SnowmanBamWalker::addCigar(BamRead &r, const SnowTools::DBSnpFilter* d) {
 
   // this is a 100% match
   if (r.CigarSize() == 1)
@@ -82,7 +80,7 @@ bool SnowmanBamWalker::isDuplicate(BamRead &r)
   return true;
 }
 
-void SnowmanBamWalker::readBam(const SnowTools::DBSnpFilter* dbs)
+void SnowmanBamWalker::readBam(std::ofstream * log, const SnowTools::DBSnpFilter* dbs)
 {
   
   BamRead r;
@@ -102,20 +100,25 @@ void SnowmanBamWalker::readBam(const SnowTools::DBSnpFilter* dbs)
 
   size_t countr = 0;
   while (GetNextRead(r, rule_pass)) {
+
 #ifdef QNAME
       if (r.Qname() == QNAME) 
 	std::cerr << " read seen " << r << std::endl;
 #endif
 
-      if (countr > FAIL_SAFE)
+      if (countr > FAIL_SAFE && log) {
+	(*log) << "...breaking at location " << r.Brief() << 
+	  (get_mate_regions ? " in main window" : " in mate window" )
+		  << " with " << SnowTools::AddCommas(countr) 
+		  << " reads " << std::endl;
 	break;
+      }
 
       bool qcpass = !r.DuplicateFlag() && !r.QCFailFlag(); 
 
       // add to all reads pile for kmer correction
       if (!r.DuplicateFlag() && !r.QCFailFlag()) {
-	cov.addRead(r);
-	//all_reads.push_back(r);
+	cov.addRead(r); 
       }
       
       // check if it passed blacklist
@@ -125,7 +128,7 @@ void SnowmanBamWalker::readBam(const SnowTools::DBSnpFilter* dbs)
       rule_pass = rule_pass && !blacklisted;
 
       // check if has adapter
-      if (adapter_trim) 
+      //if (adapter_trim && rule_pass)  //debug
 	rule_pass = rule_pass && !hasAdapter(r);
 
       // add to weird coverage
@@ -142,19 +145,21 @@ void SnowmanBamWalker::readBam(const SnowTools::DBSnpFilter* dbs)
 
       //bool dbsnp_fail = false;
       // add to the cigar map for all non-duplicate reads
-      if (qcpass && get_mate_regions) // only add cigar for non-mate regions
+      if (qcpass && get_mate_regions && rule_pass) // only add cigar for non-mate regions
 	addCigar(r, dbs);
       //dbsnp_fail = dbsnp_fail && (r.MaxInsertionBases() || r.MaxDeletionBases());
       //dbsnp_fail = false; // turn this off;
 
-      bool is_dup = isDuplicate(r);
-      //bool is_dup = false;
+      bool is_dup = false;
+      if (rule_pass)
+	is_dup = isDuplicate(r);
 
 #ifdef QNAME
       if (r.Qname() == QNAME) 
 	std::cerr << " read has qcpass " << qcpass << " blacklisted " << blacklisted << " rule_pass " << rule_pass << " isDup " << is_dup << " " << r << std::endl;
+      if (r.Qname() == QNAME)
+	std::cerr << " qual " << r.Qualities() << " trimmed seq " << r.QualitySequence() << std::endl;
 #endif
-
 
       //if (!rule_pass)
       //r.AddIntTag("VR", -1); 
@@ -170,7 +175,6 @@ void SnowmanBamWalker::readBam(const SnowTools::DBSnpFilter* dbs)
 	  ++countr;
 	  if (countr % 10000 == 0 && m_region.size() == 0) //debug
 	    std::cerr << "...read in " << SnowTools::AddCommas<size_t>(countr) << " weird reads for whole genome read-in. At pos " << r.Brief() << std::endl;
-	  
 
 	  // add the ID tag
 	  std::string srn =  prefix + "_" + std::to_string(r.AlignmentFlag()) + "_" + r.Qname();
@@ -180,21 +184,19 @@ void SnowmanBamWalker::readBam(const SnowTools::DBSnpFilter* dbs)
 	  
 	  // get the weird coverage
 	  weird_cov.addRead(r);
-
+	  
 #ifdef QNAME
-      if (r.Qname() == QNAME) 
+	  if (r.Qname() == QNAME) 
 	std::cerr << " read added " << r << std::endl;
 #endif
-
-
-	  reads.push_back(r); // adding later because of kmer correction
+      reads.push_back(r); // adding later because of kmer correction
 
 	  // check that we're not above the read limit
 	  if (reads.size() > m_limit && m_limit != 0)
 	    return;
 	  
 	}
-    } // end the read loop
+  } // end the read loop
 
 #ifdef QNAME
   for (auto& j : reads)
@@ -277,7 +279,10 @@ void SnowmanBamWalker::subSampleToWeirdCoverage(double max_coverage) {
       if (this_cov > max_coverage) 
 	{
 	  #ifdef QNAME
-	  std::cerr << "subsampling because this_cov is " << this_cov << " and max cov is " << max_coverage << std::endl;
+	  if (r.Qname() == QNAME) {
+	    std::cerr << "subsampling because this_cov is " << this_cov << " and max cov is " << max_coverage << " at position " << r.Position() << " and end position " << r.PositionEnd() << std::endl;
+	    std::cerr << " this cov 1 " << this_cov1 << " this_cov2 " << this_cov2 << std::endl;
+	  }
 	  #endif
 	  uint32_t k = __ac_Wang_hash(__ac_X31_hash_string(r.Qname().c_str()) ^ m_seed);
 	  if ((double)(k&0xffffff) / 0x1000000 <= sample_rate) // passed the random filter
@@ -348,9 +353,10 @@ void SnowmanBamWalker::calculateMateRegions() {
       // if mate not in main interval, check which mate regions it's in
       if (!main_region.getOverlap(mate) && r.MapQuality() > 0) 
 	{
+	  //std::cerr << r << " getOverlap " << tmp_mate_regions[0].getOverlap(mate) << std::endl;
 	  for (auto& k : tmp_mate_regions)
 	    if (k.getOverlap(mate)) {
-	      k.count++;
+	      ++k.count;
 	      continue;
 	    }
 	  //std::vector<int32_t> query_id, subject_id;

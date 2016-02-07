@@ -9,6 +9,8 @@
 #include "SnowmanBamWalker.h"
 #include "SnowmanUtils.h"
 
+#include "boost/filesystem/path.hpp" 
+
 #include "vcf.h"
 
 faidx_t * findex;
@@ -145,10 +147,15 @@ void runAssembly2VCF(int argc, char** argv)
   header.filedate = SnowmanUtils::fileDateString();
   header.source = opt::args;
   header.reference = opt::refgenome;
-  header.addSampleField(SnowTools::getFileName(opt::tumor_reads_bam));
-  header.colnames += "\t" + SnowTools::getFileName(opt::tumor_reads_bam); 
-  header.addSampleField(SnowTools::getFileName(opt::normal_reads_bam));
-  header.colnames += "\t" + SnowTools::getFileName(opt::normal_reads_bam); 
+  
+  boost::filesystem::path tfp(opt::tumor_reads_bam);
+  boost::filesystem::path nfp(opt::normal_reads_bam);
+
+  // TODO fix this
+  //header.addSampleField(tfp.filename());
+  //header.colnames += "\t" + tfp.filename(); 
+  //header.addSampleField(nfp.filename());
+  //header.colnames += "\t" + nfp.filename(); 
   
   bool zip = false;
   VCFFile snowvcf(file, "assembly", twalk.header(), header);

@@ -180,6 +180,17 @@ int overlapSize(const SnowTools::BamRead& query, const SnowTools::BamReadVector&
     else if (regionFile.find(":") != std::string::npos && regionFile.find("-") != std::string::npos)
       file_regions.add(SnowTools::GenomicRegion(regionFile, h));
     
+    // it's a single chromosome
+    else if (!regionFile.empty()) {
+      SnowTools::GenomicRegion gr(regionFile, "1", "1", h);
+      if (gr.chr == -1 || gr.chr >= h->n_targets) {
+	std::cerr << "ERROR: Trying to match chromosome " << regionFile << " to one in header, but not match found" << std::endl;
+	exit(EXIT_FAILURE);
+      } else {
+	gr.pos2 = h->target_len[gr.chr];
+	file_regions.add(gr);
+      }
+    }
     // add all chromosomes
     else {
       for (int i = 0; i < h->n_targets; i++) {
@@ -189,7 +200,7 @@ int overlapSize(const SnowTools::BamRead& query, const SnowTools::BamReadVector&
 	//  std::cerr << "chr id from header " << region_id << " name " << h->target_name[i] << " len " << h->target_len[i] << std::endl;
 	
 	if (region_id < 23) // don't add outsdie of 1-X
-	  file_regions.add(SnowTools::GenomicRegion(region_id, 30000, h->target_len[i]));
+	  file_regions.add(SnowTools::GenomicRegion(region_id, 1, h->target_len[i]));
       }
     }
     

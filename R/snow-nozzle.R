@@ -19,10 +19,10 @@
     suppressMessages(suppressWarnings(require(GenomicAlignments, quietly=TRUE)))
     
   #source(file.path(GIT.HOME,"isva", "sigUtils.R"))
-  source(file.path("/home/unix/jwala/GIT","isva", "sigUtils.R"))
-  source(file.path(GIT.HOME,"isva", "gChain.R"))
-  source(file.path(GIT.HOME,"isva", "grUtils.R"))
-  source(file.path(GIT.HOME,"isva", "trackData.R"))  
+  #source(file.path(GIT.HOME,"isva", "sigUtils.R"))
+  source(file.path(GIT.HOME,"dev/gChain/", "gChain.R"))
+  ##source(file.path(GIT.HOME,"grUtilts", "grUtils.R"))
+  source(file.path(GIT.HOME,"dev/gTrack/gTrack/R/", "gTrack.R"))  
   suppressMessages(suppressWarnings(require(Rsamtools, quietly=TRUE)))
   suppressMessages(suppressWarnings(require(RColorBrewer, quietly=TRUE)))
   suppressMessages(suppressWarnings(require(Nozzle.R1, quietly=TRUE)))
@@ -44,9 +44,9 @@ file.name = function(paths)
 .loadBreakpoints <- function(opt) {
 
   ## test
-  fp <- file.path("/xchip/gistic/Jeremiah/Projects/SnowmanWithIndel_140218","bps.txt.gz")
-  tab = read.table(gzfile(fp), header=T, sep='\t', stringsAsFactors=FALSE)
-  tab$reads = ""
+  #fp <- file.path("/xchip/gistic/Jeremiah/Projects/SnowmanWithIndel_140218","bps.txt.gz")
+  #tab = read.table(gzfile(fp), header=T, sep='\t', stringsAsFactors=FALSE)
+  #tab$reads = ""
 
   gr <- GRanges(c(tab$chr1, tab$chr2), IRanges(c(tab$pos1,tab$pos2), width=1)) #, strand=ifelse(c(tab$strand1, tab$strand2)=='+', 1,-1))
   strand(gr) = c(tab$strand1, tab$strand2)

@@ -642,6 +642,7 @@ am__EXEEXT_TRUE
 LTLIBOBJS
 LIBOBJS
 AM_CXXFLAGS
+boost_lib
 EGREP
 GREP
 CXXCPP
@@ -737,7 +738,6 @@ enable_option_checking
 enable_maintainer_mode
 enable_dependency_tracking
 with_boost
-with_samtools
 enable_development
 '
       ac_precious_vars='build_alias
@@ -1388,9 +1388,7 @@ Optional Features:
 Optional Packages:
   --with-PACKAGE[=ARG]    use PACKAGE [ARG=yes]
   --without-PACKAGE       do not use PACKAGE (same as --with-PACKAGE=no)
-  --with-boost=PATH       specify directory containing the bamtools library
-                          (http://github.com/pezmaster31/bamtools)
-  --with-samtools=PATH    specify directory containing the Samtools library
+  --with-boost=PATH       specify directory containing the boost library)
 
 Some influential environment variables:
   CXX         C++ compiler command
@@ -5069,41 +5067,42 @@ fi
 
 if test "$with_boost" -a -d "$with_boost"; then
     boost_include="-I$with_boost"
-##else
-##    boostr=/xchip/gistic/Jeremiah/boost_1_58_0
-##    boost_include="-I$boostr"
+    as_ac_File=`$as_echo "ac_cv_file_"$with_boost/stage/lib"" | $as_tr_sh`
+{ $as_echo "$as_me:$LINENO: checking for \"$with_boost/stage/lib\"" >&5
+$as_echo_n "checking for \"$with_boost/stage/lib\"... " >&6; }
+if { as_var=$as_ac_File; eval "test \"\${$as_var+set}\" = set"; }; then
+  $as_echo_n "(cached) " >&6
+else
+  test "$cross_compiling" = yes &&
+  { { $as_echo "$as_me:$LINENO: error: cannot check for file existence when cross compiling" >&5
+$as_echo "$as_me: error: cannot check for file existence when cross compiling" >&2;}
+   { (exit 1); exit 1; }; }
+if test -r ""$with_boost/stage/lib""; then
+  eval "$as_ac_File=yes"
+else
+  eval "$as_ac_File=no"
+fi
+fi
+ac_res=`eval 'as_val=${'$as_ac_File'}
+		 $as_echo "$as_val"'`
+	       { $as_echo "$as_me:$LINENO: result: $ac_res" >&5
+$as_echo "$ac_res" >&6; }
+as_val=`eval 'as_val=${'$as_ac_File'}
+		 $as_echo "$as_val"'`
+   if test "x$as_val" = x""yes; then
+  STAGE_PATH=1
+else
+  STAGE_PATH=0
 fi
 
-### CHECK FOR SAMTOOLS
+    if test ${STAGE_PATH} = 1; then
+        boost_lib="$with_boost/stage/lib"
+    else
+        boost_lib="$with_boost/lib"
+    fi
+    boost_lib_flag="-L/$boost_lib"
 
-# Check whether --with-samtools was given.
-if test "${with_samtools+set}" = set; then
-  withval=$with_samtools;
 fi
-
-if test "$with_samtools" -a -d "$with_samtools"; then
-    samtools_ldflags="-L$with_samtools"
-    samtools_include="-Iwith_samtools"
-    samtools_libs="-lbam"
-##else
-##    samtools_ldflags="-L /xchip/gistic/Jeremiah/GIT/samtools"
-##    samtools_include="-I /xchip/gistic/Jeremiah/GIT/samtools"
-##    samtools_libs="-lbam"
-fi
-
-### CHECK FOR SNOW TOOLS
-#AC_ARG_WITH(snowtools, AS_HELP_STRING([--with-snowtools=PATH],
-#	[specify directory containing the SnowTools library]))
-##if test "$with_snowtools" -a -d "$with_snowtools"; then
-#    snowtools_ldflags="-L$with_snowtools"
-#    snowtools_include="-I$with_snowtools -I$with_snowtools/multifast-v1.4.2 -I$with_snowtools/htslib"
-#    snowtools_libs="-lsnowtools"
-#else
-#    broad_st="/xchip/gistic/Jeremiah/GIT/SnowTools/src"
-#    snowtools_ldflags="-L$broad_st -Wl,-rpath,$broad_st/htslib -L$broad_st/htslib -L$broad_st/bwa"
-#    snowtools_include="-I$broad_st -I$broad_st/multifast-v1.4.2 -I$broad_st/htslib"
-#    snowtools_libs="-lhts -lbwa -lsnowtools"
-#fi
 
 # Check whether --enable-development was given.
 if test "${enable_development+set}" = set; then
@@ -5121,13 +5120,13 @@ CXXFLAGS="-O3"
 
 CFLAGS="-O3"
 
-CPPFLAGS="$CPPFLAGS $samtools_include $boost_include"
+CPPFLAGS="$CPPFLAGS $boost_include"
 
-LDFLAGS="$samtools_ldflags $LDFLAGS"
+LDFLAGS="$LDFLAGS $boost_lib_flag"
 
 
 # We always need to specify to link in bamtools
-LIBS="$LIBS $samtools_libs"
+LIBS="$LIBS -lboost_regex -lboost_filesystem -lboost_system"
 
 
 # Check for hash table headers
@@ -5294,23 +5293,162 @@ fi
 done
 
 
-# Make sure the bamtools headers can be found
-#AC_CHECK_HEADERS([api/BamReader.h],,[AC_MSG_ERROR([The bamtools library must be installed (http://github.com/pezmaster31/bamtools). You can specify its path with the --with-bamtools=PATH option])])
+# Make sure the boost headers can be found
 
-# Make sure Boost can be found
-##AC_CHECK_HEADERS([boost/algorithm/string.hpp],,[AC_MSG_ERROR([The Boost library must be installed (). You can specify its path with the --with-boost=PATH option])])
+for ac_header in boost/regex.hpp
+do
+as_ac_Header=`$as_echo "ac_cv_header_$ac_header" | $as_tr_sh`
+if { as_var=$as_ac_Header; eval "test \"\${$as_var+set}\" = set"; }; then
+  { $as_echo "$as_me:$LINENO: checking for $ac_header" >&5
+$as_echo_n "checking for $ac_header... " >&6; }
+if { as_var=$as_ac_Header; eval "test \"\${$as_var+set}\" = set"; }; then
+  $as_echo_n "(cached) " >&6
+fi
+ac_res=`eval 'as_val=${'$as_ac_Header'}
+		 $as_echo "$as_val"'`
+	       { $as_echo "$as_me:$LINENO: result: $ac_res" >&5
+$as_echo "$ac_res" >&6; }
+else
+  # Is the header compilable?
+{ $as_echo "$as_me:$LINENO: checking $ac_header usability" >&5
+$as_echo_n "checking $ac_header usability... " >&6; }
+cat >conftest.$ac_ext <<_ACEOF
+/* confdefs.h.  */
+_ACEOF
+cat confdefs.h >>conftest.$ac_ext
+cat >>conftest.$ac_ext <<_ACEOF
+/* end confdefs.h.  */
+$ac_includes_default
+#include <$ac_header>
+_ACEOF
+rm -f conftest.$ac_objext
+if { (ac_try="$ac_compile"
+case "(($ac_try" in
+  *\"* | *\`* | *\\*) ac_try_echo=\$ac_try;;
+  *) ac_try_echo=$ac_try;;
+esac
+eval ac_try_echo="\"\$as_me:$LINENO: $ac_try_echo\""
+$as_echo "$ac_try_echo") >&5
+  (eval "$ac_compile") 2>conftest.er1
+  ac_status=$?
+  grep -v '^ *+' conftest.er1 >conftest.err
+  rm -f conftest.er1
+  cat conftest.err >&5
+  $as_echo "$as_me:$LINENO: \$? = $ac_status" >&5
+  (exit $ac_status); } && {
+	 test -z "$ac_cxx_werror_flag" ||
+	 test ! -s conftest.err
+       } && test -s conftest.$ac_objext; then
+  ac_header_compiler=yes
+else
+  $as_echo "$as_me: failed program was:" >&5
+sed 's/^/| /' conftest.$ac_ext >&5
 
-# Make sure the seqan headers can be found
-##AC_CHECK_HEADERS([seqan/basic.h],,[AC_MSG_WARN([The seqan library must be installed (http://trac.seqan.de) for full functionality. You can specify its path with the --with-seqan=PATH option])])
+	ac_header_compiler=no
+fi
 
-# Make sure the HTSlib headers can be found
-#AC_CHECK_HEADERS([htslib/hts.h],,[AC_MSG_ERROR([The HTSlib library must be installed. You can specify its path with the --with-htslib=PATH option])])
+rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
+{ $as_echo "$as_me:$LINENO: result: $ac_header_compiler" >&5
+$as_echo "$ac_header_compiler" >&6; }
 
-## Make sure the snowtools headers can be found
-#AC_CHECK_HEADERS([SnowTools/SnowTools.h],,[AC_MSG_ERROR([The SnowTools library must be installed. You can specify its path with the --with-snowtools=PATH option])])
+# Is the header present?
+{ $as_echo "$as_me:$LINENO: checking $ac_header presence" >&5
+$as_echo_n "checking $ac_header presence... " >&6; }
+cat >conftest.$ac_ext <<_ACEOF
+/* confdefs.h.  */
+_ACEOF
+cat confdefs.h >>conftest.$ac_ext
+cat >>conftest.$ac_ext <<_ACEOF
+/* end confdefs.h.  */
+#include <$ac_header>
+_ACEOF
+if { (ac_try="$ac_cpp conftest.$ac_ext"
+case "(($ac_try" in
+  *\"* | *\`* | *\\*) ac_try_echo=\$ac_try;;
+  *) ac_try_echo=$ac_try;;
+esac
+eval ac_try_echo="\"\$as_me:$LINENO: $ac_try_echo\""
+$as_echo "$ac_try_echo") >&5
+  (eval "$ac_cpp conftest.$ac_ext") 2>conftest.er1
+  ac_status=$?
+  grep -v '^ *+' conftest.er1 >conftest.err
+  rm -f conftest.er1
+  cat conftest.err >&5
+  $as_echo "$as_me:$LINENO: \$? = $ac_status" >&5
+  (exit $ac_status); } >/dev/null && {
+	 test -z "$ac_cxx_preproc_warn_flag$ac_cxx_werror_flag" ||
+	 test ! -s conftest.err
+       }; then
+  ac_header_preproc=yes
+else
+  $as_echo "$as_me: failed program was:" >&5
+sed 's/^/| /' conftest.$ac_ext >&5
 
-## Make sure the samtools headers can be found
-##AC_CHECK_HEADERS([sam.h],,[AC_MSG_ERROR([The Samtools library must be installed. You can specify its path with the --with-samtools=PATH option])])
+  ac_header_preproc=no
+fi
+
+rm -f conftest.err conftest.$ac_ext
+{ $as_echo "$as_me:$LINENO: result: $ac_header_preproc" >&5
+$as_echo "$ac_header_preproc" >&6; }
+
+# So?  What about this header?
+case $ac_header_compiler:$ac_header_preproc:$ac_cxx_preproc_warn_flag in
+  yes:no: )
+    { $as_echo "$as_me:$LINENO: WARNING: $ac_header: accepted by the compiler, rejected by the preprocessor!" >&5
+$as_echo "$as_me: WARNING: $ac_header: accepted by the compiler, rejected by the preprocessor!" >&2;}
+    { $as_echo "$as_me:$LINENO: WARNING: $ac_header: proceeding with the compiler's result" >&5
+$as_echo "$as_me: WARNING: $ac_header: proceeding with the compiler's result" >&2;}
+    ac_header_preproc=yes
+    ;;
+  no:yes:* )
+    { $as_echo "$as_me:$LINENO: WARNING: $ac_header: present but cannot be compiled" >&5
+$as_echo "$as_me: WARNING: $ac_header: present but cannot be compiled" >&2;}
+    { $as_echo "$as_me:$LINENO: WARNING: $ac_header:     check for missing prerequisite headers?" >&5
+$as_echo "$as_me: WARNING: $ac_header:     check for missing prerequisite headers?" >&2;}
+    { $as_echo "$as_me:$LINENO: WARNING: $ac_header: see the Autoconf documentation" >&5
+$as_echo "$as_me: WARNING: $ac_header: see the Autoconf documentation" >&2;}
+    { $as_echo "$as_me:$LINENO: WARNING: $ac_header:     section \"Present But Cannot Be Compiled\"" >&5
+$as_echo "$as_me: WARNING: $ac_header:     section \"Present But Cannot Be Compiled\"" >&2;}
+    { $as_echo "$as_me:$LINENO: WARNING: $ac_header: proceeding with the preprocessor's result" >&5
+$as_echo "$as_me: WARNING: $ac_header: proceeding with the preprocessor's result" >&2;}
+    { $as_echo "$as_me:$LINENO: WARNING: $ac_header: in the future, the compiler will take precedence" >&5
+$as_echo "$as_me: WARNING: $ac_header: in the future, the compiler will take precedence" >&2;}
+    ( cat <<\_ASBOX
+## --------------------------------------- ##
+## Report this to jwala@broadinstitute.org ##
+## --------------------------------------- ##
+_ASBOX
+     ) | sed "s/^/$as_me: WARNING:     /" >&2
+    ;;
+esac
+{ $as_echo "$as_me:$LINENO: checking for $ac_header" >&5
+$as_echo_n "checking for $ac_header... " >&6; }
+if { as_var=$as_ac_Header; eval "test \"\${$as_var+set}\" = set"; }; then
+  $as_echo_n "(cached) " >&6
+else
+  eval "$as_ac_Header=\$ac_header_preproc"
+fi
+ac_res=`eval 'as_val=${'$as_ac_Header'}
+		 $as_echo "$as_val"'`
+	       { $as_echo "$as_me:$LINENO: result: $ac_res" >&5
+$as_echo "$ac_res" >&6; }
+
+fi
+as_val=`eval 'as_val=${'$as_ac_Header'}
+		 $as_echo "$as_val"'`
+   if test "x$as_val" = x""yes; then
+  cat >>confdefs.h <<_ACEOF
+#define `$as_echo "HAVE_$ac_header" | $as_tr_cpp` 1
+_ACEOF
+
+else
+  { { $as_echo "$as_me:$LINENO: error: The Boost library must be installed for Snowman. Specify its path with the --with-boost=PATH option" >&5
+$as_echo "$as_me: error: The Boost library must be installed for Snowman. Specify its path with the --with-boost=PATH option" >&2;}
+   { (exit 1); exit 1; }; }
+fi
+
+done
+
 
 ac_config_files="$ac_config_files Makefile SnowTools/src/Makefile src/SGA/Util/Makefile src/SGA/SQG/Makefile src/SGA/Bigraph/Makefile src/SGA/Algorithm/Makefile src/SGA/StringGraph/Makefile src/SGA/SuffixTools/Makefile src/SGA/SGA/Makefile src/Snowman/Makefile"
 

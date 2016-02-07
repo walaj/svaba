@@ -1,7 +1,7 @@
 #ifndef SNOWMAN_PON_WALKER_H__
 #define SNOWMAN_PON_WALKER_H__
 
-#include "SnowTools/DiscordantCluster.h"
+#include "DiscordantCluster.h"
 #include "SnowTools/BamWalker.h"
 #include <fstream>
 #include <pthread.h>

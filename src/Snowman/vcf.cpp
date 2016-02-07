@@ -212,6 +212,8 @@ VCFFile::VCFFile(string file, string id, bam_hdr_t * h, const VCFHeader& vheader
   indel_header = vheader;
 
   // add the filters that apply to SVs
+  sv_header.addFilterField("NOLOCAL","Contig realigned to region outside of local assembly region, and no disc support.");
+  sv_header.addFilterField("DUPREADS","Contig built from what appear to be duplicate reads (split reads all same contig cov))");
   sv_header.addFilterField("NODISC","Rearrangement was not detected independently by assembly");
   sv_header.addFilterField("FOLDBACK","Rearrangement is inversion type with span < 80. Very likely fold-back Illumina error");
   sv_header.addFilterField("LOWMAPQ","Assembly contig has non 60/60 mapq and no discordant support");
@@ -225,12 +227,13 @@ VCFFile::VCFFile(string file, string id, bam_hdr_t * h, const VCFHeader& vheader
   //sv_header.colnames = sv_header.colnames + "\t" + sample_id_norm + "\t" + sample_id_tum;
 
   // add the filters that apply to indels
-  indel_header.addFilterField("LOWMAPQ","Assembly contig has less than MAPQ 60");
+  indel_header.addFilterField("LOWMAPQ","Assembly contig has less than MAPQ 10");
   indel_header.addFilterField("WEAKASSEMBLY","4 or fewer split reads");
   indel_header.addFilterField("WEAKCIGARMATCH","For indels <= 5 bp, require 8+ split reads or 4+ and 3+ cigar matches");
   indel_header.addFilterField("PASS", "3+ split reads, 60 contig MAPQ");
   indel_header.addFilterField("GRAYLISTANDPON", "Indel overlaps with panel of normals, and has overlap with tricky genomic region");
-  indel_header.addFilterField("LOWAF", "Low allelic fraction and few tumor supporting reads");
+  indel_header.addFilterField("LOWAF", "Low allelic fraction  (< 0.05)");
+  indel_header.addFilterField("LOWAF", "LOD score < cutoff with --lod");
   indel_header.addFilterField("LOWNORMCOV", "Fewer than 5 normal reads at this site");
   //indel_header.addSampleField(sample_id_norm);
   //indel_header.addSampleField(sample_id_tum);

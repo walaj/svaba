@@ -90,7 +90,7 @@ if (opt$mode == "realign-test") {
   g <- ggplot(data=df2) + geom_line(aes(x=num_align, y=cdf, color=width)) + geom_point(aes(x=one.x, y=one.y, color=width)) +  theme_bw() + xlab("Number of alignments") + ylab("CDF") + facet_wrap(~ ins_size, nrow=1) + scale_y_continuous(limits=c(min(df2$one.y)-0.1,1), breaks=seq(0,1,by=0.2)) + labs(color="Sequence Length")
   pdf("~/public_html/realign_test_ins_cigcheck.pdf", width=7, height=2); print(g); dev.off()
   dfh2 <- .format_flag_df(df2)
-  g2 <- ggplot(data=dfh2,aes(x=factor(width),y=value,fill=factor(variable))) + geom_bar(position="stack", stat='identity') + facet_wrap(~ ins_size, nrow=1)
+  g2 <- ggplot(data=dfh2,aes(x=factor(width),y=value,fill=factor(variable))) + geom_bar(position="stack", stat='identity') + facet_wrap(~ ins_size, nrow=1) + scale_fill_manual(values=c("no_align"="black", "wrong_align"="red", "too_align"="purple","correct"="dark green"), labels=c("Unmapped", "Incorrect alignment", "> 1 alignment", "Accurate"), name="Alignment") + scale_y_continuous(breaks=seq(0,1,by=0.25), labels=c("0", "25", "50", "75", "100"), name="Percentage") + xlab("Sequence Length")
   pdf("~/public_html/realign_ins_flag.pdf", width=7, height=2); print(g2); dev.off()
  
   #g <- ggplot(data=ff) + geom_histogram(aes(x=num_aligns)) + scale_y_log10(limits=c(1, 10)) + theme_bw()

@@ -10,7 +10,6 @@
 
 #include <ctime>
 
-
 namespace SnowmanUtils {
 
 // make a structure to store timing opt

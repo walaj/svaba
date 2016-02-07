@@ -22,7 +22,7 @@
  #include "SnowmanUtils.h"
 
  #include "SnowTools/BWAWrapper.h"
- #include "SnowTools/AlignedContig2.h"
+ #include "AlignedContig2.h"
  #include "SnowTools/Fractions.h"
  #include "PowerLawSim.h"
 
@@ -440,7 +440,7 @@ void assemblyTest() {
   local_bwa.alignSingleSequence(local_ref, "local_ref", self_align, false, 0);
 
   // write out the index
-  local_bwa.writeIndexToFiles("local_ref");
+  local_bwa.writeIndex("local_ref.fa");
   std::ofstream fa;
   fa.open("local_ref.fa");
   fa << ">local_ref" << std::endl << local_ref << std::endl;
@@ -535,7 +535,7 @@ void assemblyTest() {
 	    bw2.SetWriteHeader(local_bwa.HeaderFromIndex());
 	    bw2.OpenWriteBam("contigs_to_ref.bam");
 	    for (auto& i : contigs_to_local)
-	      bw2.WriteAlignment(i);
+	      bw2.writeAlignment(i);
 	    
 	    // write the paired end fasta
 	    std::ofstream pe1;
@@ -557,7 +557,7 @@ void assemblyTest() {
 	    bw.SetWriteHeader(local_bwa.HeaderFromIndex());
 	    bw.OpenWriteBam("reads_to_ref_" + std::to_string(c) + ".bam");
 	    for (auto& i : reads_to_local)
-	      bw.WriteAlignment(i);
+	      bw.writeAlignment(i);
 	    
 	    SnowTools::BamWalker bwk;
 	    bwk.SetWriteHeader(local_bwa.HeaderFromIndex());
@@ -566,7 +566,7 @@ void assemblyTest() {
 	      std::string kc = i.GetZTag("KC");
 	      if (kc.length())
 		i.SetSequence(kc);
-	      bwk.WriteAlignment(i);
+	      bwk.writeAlignment(i);
 	    }
 	    
 	  }
@@ -702,7 +702,7 @@ void realignBreaks() {
   
   results << "id\tsize\tAlign1\tAlign2\tAlignBoth" << std::endl;
   const int RUN_NUM = 1000;
-  size_t count = 0;
+  //size_t count = 0;
 
   std::string chrstring1, chrstring2;
   for (int k = 0; k < RUN_NUM; ++k) {

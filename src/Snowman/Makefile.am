@@ -14,8 +14,7 @@ snowman_CPPFLAGS = \
 	-I$(top_srcdir)/SnowTools/src \
 	-I$(top_srcdir)/SnowTools \
 	-I$(top_srcdir)/SnowTools/htslib \
-	-I$(top_srcdir)/SnowTools/multifast-v1.4.2 \
-	-I$(top_srcdir)/SnowTools/modular-boost
+	-I$(top_srcdir)/SnowTools/multifast-v1.4.2 
 
 snowman_LDADD = \
 	$(top_builddir)/src/SGA/SGA/libsga.a \
@@ -31,12 +30,13 @@ snowman_LDADD = \
 	$(top_builddir)/src/SGA/Bigraph/libbigraph.a \
 	$(top_builddir)/src/SGA/Util/libutil.a \
 	$(top_builddir)/src/SGA/SQG/libsqg.a \
-	$(top_builddir)/SnowTools/modular-boost/stage/lib/libboost_regex.a 
+        @boost_lib@/libboost_regex.a
 
 
 snowman_LDFLAGS = -pthread -std=c++11
 
-snowman_SOURCES = run_snowman2.cpp SnowmanUtils.cpp snowman.cpp workqueue.h SnowmanAssemblerEngine.cpp vcf.cpp SnowmanRead.cpp \
+snowman_SOURCES = run_snowman2.cpp BreakPoint2.cpp AlignedContig2.cpp DiscordantCluster.cpp DBSnpFilter.cpp PONFilter.cpp \
+		SnowmanUtils.cpp snowman.cpp workqueue.h SnowmanAssemblerEngine.cpp vcf.cpp SnowmanRead.cpp \
 		SnowmanOverlapAlgorithm.cpp SnowmanASQG.cpp \
 		SnowmanAssemble.h SnowmanAssemble.cpp genpon.cpp \
 		KmerFilter.cpp SnowmanBamWalker.cpp benchmark.cpp PonWalker.cpp ReadSim.cpp \

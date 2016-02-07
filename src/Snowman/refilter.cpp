@@ -1,7 +1,7 @@
 #include "refilter.h"
 
 #include "vcf.h"
-#include "SnowTools/BreakPoint2.h"
+#include "BreakPoint2.h"
 #include "SnowTools/BamWalker.h"
 #include <iostream>
 #include <getopt.h>

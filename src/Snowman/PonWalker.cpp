@@ -86,7 +86,7 @@ void PonWalker::walkBam(std::ofstream& of, pthread_mutex_t* lock) {
       pthread_mutex_lock(lock);  
       std::cerr << "...writing to PON BAM for BAM id: " << id << std::endl; 
       for (auto& i : buff)
-	m_bw->WriteAlignment(i);
+	m_bw->writeAlignment(i);
       pthread_mutex_unlock(lock);  
       buff.clear();
     }
@@ -96,7 +96,7 @@ void PonWalker::walkBam(std::ofstream& of, pthread_mutex_t* lock) {
   pthread_mutex_lock(lock);  
   std::cerr << "...writing final for BAM " << id << std::endl; 
   for (auto& i : buff)
-    m_bw->WriteAlignment(i);
+    m_bw->writeAlignment(i);
     //i.save(of);
   pthread_mutex_unlock(lock);  
   m_disc.clear();
