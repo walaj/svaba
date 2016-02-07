@@ -11,7 +11,7 @@
 #include "SnowTools/STCoverage.h"
 #include "SnowTools/BWAWrapper.h"
 #include "SnowTools/Fractions.h"
-#include "SnowTools/DBSnpFilter.h"
+#include "DBSnpFilter.h"
 
 #include "htslib/khash.h"
 
@@ -53,7 +53,7 @@ class SnowmanBamWalker: public SnowTools::BamWalker {
   std::string prefix; // eg. tumor, normal
   SnowTools::GRC blacklist;
   
-  void readBam(const SnowTools::DBSnpFilter* dbs = nullptr);
+  void readBam(std::ofstream* log = nullptr, const SnowTools::DBSnpFilter* dbs = nullptr);
 
   void realignDiscordants(SnowTools::BamReadVector& reads);
   

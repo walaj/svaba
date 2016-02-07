@@ -1,5 +1,8 @@
 /* config.h.in.  Generated from configure.ac by autoheader.  */
 
+/* Define to 1 if you have the <boost/regex.hpp> header file. */
+#undef HAVE_BOOST_REGEX_HPP
+
 /* clock_getttime found */
 #undef HAVE_CLOCK_GETTIME
 

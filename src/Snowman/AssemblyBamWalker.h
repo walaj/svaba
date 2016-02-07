@@ -2,7 +2,7 @@
 #define SNOWMAN_ASSEMBLY_BAM_WALKER_H__
 
 #include "SnowTools/BamWalker.h"
-#include "SnowTools/AlignedContig2.h"
+#include "AlignedContig2.h"
 #include "SnowmanBamWalker.h"
 
 /** Walk along a BAM file generated from a de novo assembly,

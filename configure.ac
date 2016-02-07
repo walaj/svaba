@@ -1,4 +1,3 @@
-#                                               -*- Autoconf -*-
 # Process this file with autoconf to produce a configure script.
 AC_PREREQ(2.59) ## specificy version of autoconf
 AC_INIT(snowman, 1.0, jwala@broadinstitute.org)
@@ -22,40 +21,18 @@ AC_SEARCH_LIBS([gzopen],[z],,[AC_MSG_ERROR([libz not found, please install zlib 
 AC_SEARCH_LIBS([clock_gettime], [rt], [AC_DEFINE([HAVE_CLOCK_GETTIME], [1], [clock_getttime found])], )
 
 AC_ARG_WITH(boost, AS_HELP_STRING([--with-boost=PATH],
-	[specify directory containing the bamtools library (http://github.com/pezmaster31/bamtools)]))
+	[specify directory containing the boost library)]))
 if test "$with_boost" -a -d "$with_boost"; then
     boost_include="-I$with_boost"
-##else
-##    boostr=/xchip/gistic/Jeremiah/boost_1_58_0
-##    boost_include="-I$boostr"
+    AC_CHECK_FILE("$with_boost/stage/lib", STAGE_PATH=1, STAGE_PATH=0)
+    if test ${STAGE_PATH} = 1; then
+        boost_lib="$with_boost/stage/lib"  
+    else
+        boost_lib="$with_boost/lib"        
+    fi
+    boost_lib_flag="-L/$boost_lib"
+    AC_SUBST(boost_lib)
 fi
-
-### CHECK FOR SAMTOOLS
-AC_ARG_WITH(samtools, AS_HELP_STRING([--with-samtools=PATH],
-	[specify directory containing the Samtools library]))
-if test "$with_samtools" -a -d "$with_samtools"; then
-    samtools_ldflags="-L$with_samtools"
-    samtools_include="-Iwith_samtools"
-    samtools_libs="-lbam"
-##else
-##    samtools_ldflags="-L /xchip/gistic/Jeremiah/GIT/samtools"
-##    samtools_include="-I /xchip/gistic/Jeremiah/GIT/samtools"
-##    samtools_libs="-lbam"
-fi  
-
-### CHECK FOR SNOW TOOLS
-#AC_ARG_WITH(snowtools, AS_HELP_STRING([--with-snowtools=PATH],
-#	[specify directory containing the SnowTools library]))
-##if test "$with_snowtools" -a -d "$with_snowtools"; then
-#    snowtools_ldflags="-L$with_snowtools"
-#    snowtools_include="-I$with_snowtools -I$with_snowtools/multifast-v1.4.2 -I$with_snowtools/htslib"
-#    snowtools_libs="-lsnowtools"
-#else
-#    broad_st="/xchip/gistic/Jeremiah/GIT/SnowTools/src"
-#    snowtools_ldflags="-L$broad_st -Wl,-rpath,$broad_st/htslib -L$broad_st/htslib -L$broad_st/bwa"
-#    snowtools_include="-I$broad_st -I$broad_st/multifast-v1.4.2 -I$broad_st/htslib"
-#    snowtools_libs="-lhts -lbwa -lsnowtools"
-#fi  
 
 AC_ARG_ENABLE(development, AS_HELP_STRING([--enable-development],
 	[Turn on development options, like failing compilation on warnings]))
@@ -67,11 +44,11 @@ fi
 AC_SUBST(AM_CXXFLAGS, "-g -Wall -Wextra $fail_on_warning -Wno-unknown-pragmas -std=c++11 -I.")
 AC_SUBST(CXXFLAGS, "-O3")
 AC_SUBST(CFLAGS, "-O3")
-AC_SUBST(CPPFLAGS, "$CPPFLAGS $samtools_include $boost_include")
-AC_SUBST(LDFLAGS, "$samtools_ldflags $LDFLAGS")
+AC_SUBST(CPPFLAGS, "$CPPFLAGS $boost_include")
+AC_SUBST(LDFLAGS, "$LDFLAGS $boost_lib_flag")
 
 # We always need to specify to link in bamtools
-AC_SUBST(LIBS, "$LIBS $samtools_libs")
+AC_SUBST(LIBS, "$LIBS -lboost_regex -lboost_filesystem -lboost_system")
 
 # Check for hash table headers
 AC_CHECK_HEADERS([ \
@@ -80,23 +57,8 @@ AC_CHECK_HEADERS([ \
 		   unordered_set tr1/unordered_set ext/hash_set \
 ])
 
-# Make sure the bamtools headers can be found
-#AC_CHECK_HEADERS([api/BamReader.h],,[AC_MSG_ERROR([The bamtools library must be installed (http://github.com/pezmaster31/bamtools). You can specify its path with the --with-bamtools=PATH option])])
-
-# Make sure Boost can be found
-##AC_CHECK_HEADERS([boost/algorithm/string.hpp],,[AC_MSG_ERROR([The Boost library must be installed (). You can specify its path with the --with-boost=PATH option])])
-
-# Make sure the seqan headers can be found
-##AC_CHECK_HEADERS([seqan/basic.h],,[AC_MSG_WARN([The seqan library must be installed (http://trac.seqan.de) for full functionality. You can specify its path with the --with-seqan=PATH option])])
-
-# Make sure the HTSlib headers can be found
-#AC_CHECK_HEADERS([htslib/hts.h],,[AC_MSG_ERROR([The HTSlib library must be installed. You can specify its path with the --with-htslib=PATH option])])
-
-## Make sure the snowtools headers can be found
-#AC_CHECK_HEADERS([SnowTools/SnowTools.h],,[AC_MSG_ERROR([The SnowTools library must be installed. You can specify its path with the --with-snowtools=PATH option])])
-
-## Make sure the samtools headers can be found
-##AC_CHECK_HEADERS([sam.h],,[AC_MSG_ERROR([The Samtools library must be installed. You can specify its path with the --with-samtools=PATH option])])
+# Make sure the boost headers can be found
+AC_CHECK_HEADERS([boost/regex.hpp],,[AC_MSG_ERROR([The Boost library must be installed for Snowman. Specify its path with the --with-boost=PATH option])])
 
 AC_CONFIG_FILES([Makefile
                 SnowTools/src/Makefile

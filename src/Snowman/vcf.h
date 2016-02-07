@@ -6,7 +6,7 @@
 #include <unordered_set>
 #include <vector>
 #include "SnowTools/GenomicRegion.h"
-#include "SnowTools/BreakPoint2.h"
+#include "BreakPoint2.h"
 //#include "faidx.h"
 
 using namespace std;

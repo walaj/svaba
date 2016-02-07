@@ -9,9 +9,9 @@
 
 #include "SnowTools/GenomicRegionCollection.h"
 #include "SnowTools/BWAWrapper.h"
-#include "SnowTools/AlignedContig2.h"
+#include "AlignedContig2.h"
 #include "SnowmanAssemblerEngine.h"
-#include "SnowTools/DiscordantCluster.h"
+#include "DiscordantCluster.h"
 #include "SnowTools/BamWalker.h"
 
 #include "SnowmanUtils.h"

@@ -37,7 +37,7 @@ void BamSplitter::splitBam() {
 	// decide whether to keep
 	if (hash_val <= csum[i]/*sample_rate*/) {
 	  //r.RemoveAllTags();
-	  m_writers[i].WriteAlignment(r);
+	  m_writers[i].writeAlignment(r);
 	  ++all_counts[i];
 	  break;
 	}
@@ -104,7 +104,7 @@ void BamSplitter::fractionateBam(const std::string& outbam, SnowTools::Fractions
       // decide whether to keep
       if (hash_val <= sample_rate) {
 	//r.RemoveAllTags();
-	w.WriteAlignment(r);
+	w.writeAlignment(r);
       }
     }
 }

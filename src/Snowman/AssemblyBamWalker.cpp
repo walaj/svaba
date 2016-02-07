@@ -21,6 +21,11 @@ static struct timespec start;
 static SnowTools::MiniRulesCollection * mr;
 
 bool __good_contig(const SnowTools::BamReadVector& brv, const SnowTools::GenomicRegionVector& regions, int max_len, int max_mapq) {
+  // NO INDELS
+  return (brv.size() && regions.size() && brv.size() < 20  && (brv.size() > 1) && 
+	  brv[0].Length() < 20000 && brv[0].CigarSize() < 50 &&
+	  max_len > 250 && max_mapq >= 0);
+
   return (brv.size() && regions.size() && brv.size() < 20  && (brv.size() > 1 || brv[0].CigarSize() > 1) && 
 	  brv[0].Length() < 20000 && brv[0].CigarSize() < 20 &&
 	  max_len > 250 && max_mapq >= 0);
@@ -105,9 +110,11 @@ bool runAC(const ContigElement * c) {
   
   std::vector<SnowTools::BreakPoint> allbreaks = ac->getAllBreakPoints(false); // false says dont worry about "local"
   for (auto& i : allbreaks)
+    i.repeatFilter();
+  for (auto& i : allbreaks)
     i.addCovs(covs, clip_covs);
   for (auto& i : allbreaks)
-    i.scoreBreakpoint();
+    i.scoreBreakpoint(8, 2.5, 7);
   for (auto& i : allbreaks)
     i.setRefAlt(f, nullptr);
 
