@@ -70,7 +70,7 @@ SimGenome::SimGenome(const SnowTools::GenomicRegion& gr, int nbreaks, int ndels,
 
     // scramble the ends
     if (scramble) {
-      size_t left = 0, right = 0;
+      size_t right = 0;
       //if (i != 0 && sf.m_gr.strand != '+') // don't scramble left side of +
       //left = scramble_size[rand() % 200];
       //else if (i != index.size() && sf.m_gr.strand != '-') // dont' scramble right side - 

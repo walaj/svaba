@@ -872,7 +872,7 @@ namespace SnowTools {
     if (b1.gr < b2.gr)
       return;
     
-    flip(b1, b2);
+    std::swap(b1, b2);
     
   }
 

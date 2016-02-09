@@ -22,10 +22,10 @@ static SnowTools::MiniRulesCollection * mr;
 
 bool __good_contig(const SnowTools::BamReadVector& brv, const SnowTools::GenomicRegionVector& regions, int max_len, int max_mapq) {
   // NO INDELS
-  return (brv.size() && regions.size() && brv.size() < 20  && (brv.size() > 1) && 
+  /*  return (brv.size() && regions.size() && brv.size() < 20  && (brv.size() > 1) && 
 	  brv[0].Length() < 20000 && brv[0].CigarSize() < 50 &&
 	  max_len > 250 && max_mapq >= 0);
-
+  */
   return (brv.size() && regions.size() && brv.size() < 20  && (brv.size() > 1 || brv[0].CigarSize() > 1) && 
 	  brv[0].Length() < 20000 && brv[0].CigarSize() < 20 &&
 	  max_len > 250 && max_mapq >= 0);
@@ -141,7 +141,7 @@ bool runAC(const ContigElement * c) {
   ////////////////////////////////////
   pthread_mutex_lock(&snow_lock);  
   --num_to_run;
-  //all_align << (*ac) << std::endl;
+  all_align << (*ac) << std::endl;
   os_allbps << outr.str();
   ////////////////////////////////////
   // MUTEX UNLOCKED
@@ -165,9 +165,9 @@ void AssemblyBamWalker::walkDiscovar()
   nnindex = nindex;
   ttindex = tindex;
 
-  //SnowmanUtils::fopen("assembly.alignments.txt.gz", all_align);
+  SnowmanUtils::fopen("assembly.alignments.txt.gz", all_align);
   SnowmanUtils::fopen("assembly.bps.txt.gz", os_allbps);
-  os_allbps << SnowTools::BreakPoint::header() << endl;
+  os_allbps << SnowTools::BreakPoint::header() << std::endl;
 
   SnowTools::BamRead r;
   std::cerr << "...starting to walk assembly BAM" << std::endl;

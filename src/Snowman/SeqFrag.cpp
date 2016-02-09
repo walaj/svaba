@@ -260,8 +260,6 @@ void SeqFrag::addIndels(size_t n) {
   if (n == 0 || m_seq.length() < 5000)
     return;
 
-  int pos1 = 0, pos2 = 0;
-
   size_t spacing = m_seq.length() / (n+1);
   spacing = std::max((size_t)5000, spacing);
   std::vector<int> breaks;

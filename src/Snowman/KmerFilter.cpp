@@ -15,7 +15,7 @@ int KmerFilter::correctReads(BamReadVector& vec) {
   int corrected_reads = 0;
 
   //int intervalCacheLength = 10; // SGA defaul
-  int intervalCacheLength = 1; //vec[0].Length();
+  //int intervalCacheLength = 1; //vec[0].Length();
   BWTIntervalCache* pIntervalCache = nullptr; //new BWTIntervalCache(intervalCacheLength, pBWT);
   BWTIndexSet indices; //(pBWT, pRBWT, nullptr, pIntervalCache);
   indices.pBWT = pBWT;
@@ -221,7 +221,7 @@ void KmerFilter::__makeIndex(BamReadVector& vec) {
   for (auto& i : vec) {
 
     SeqItem si;
-    string sr, seq = "";
+    std::string sr, seq = "";
 
     //sr = i.GetZTag("SR");
     seq = i.QualitySequence(); //i.QualityTrimmedSequence(4, dum);

@@ -16,8 +16,11 @@
 #include "SnowTools/SnowToolsCommon.h"
 #include "DBSnpFilter.h"
 #include "PONFilter.h"
+#include "SnowTools/BLATWrapper.h"
 
 #include "boost/filesystem/path.hpp" 
+#include "boost/archive/text_oarchive.hpp"
+#include "boost/archive/text_iarchive.hpp"
 
 #define MIN_CONTIG_MATCH 35
 #define MATE_LOOKUP_MIN 3
@@ -47,16 +50,17 @@ static faidx_t * findex_viral;
 typedef std::unordered_map<std::string, size_t> SeqHash;
 static SeqHash over_represented_sequences;
 
-static SnowTools::BamWalker bwalker, r2c_writer, er_writer, b_microbe_writer, b_allwriter;
+static SnowTools::BamWalker bwalker, r2c_writer, er_writer, b_microbe_writer, b_allwriter, blat_allwriter;
 static SnowTools::BWAWrapper * microbe_bwa = nullptr;
 static SnowTools::BWAWrapper * main_bwa = nullptr;
+static SnowTools::BLATWrapper * main_blat = nullptr;
 static SnowTools::MiniRulesCollection * mr;
 static SnowTools::GRC blacklist, indel_blacklist_mask;
 static SnowTools::DBSnpFilter * dbsnp_filter;
 
 // output files
 static ogzstream all_align, os_allbps, all_disc_stream, os_cigmap, r2c_c;
-static ofstream log_file, bad_bed;
+static std::ofstream log_file, bad_bed;
 
 static SnowTools::GRC file_regions, regions_torun;
 
@@ -84,6 +88,10 @@ namespace opt {
   static std::string args = "snowman ";
 
   static bool exome = false;
+
+  static bool run_blat = true;
+
+  static std::string ooc = "/xchip/gistic/Jeremiah/blat/11.ooc";
 
   static int num_assembly_rounds = 2;
   static bool write_extracted_reads = false;
@@ -160,10 +168,11 @@ enum {
   OPT_GEMCODE_AWARE,
   OPT_NUM_ASSEMBLY_ROUNDS,
   OPT_NUM_TO_SAMPLE,
-  OPT_EXOME
+  OPT_EXOME,
+  OPT_NOBLAT
 };
 
-static const char* shortopts = "hzxt:n:p:v:r:G:r:e:g:k:c:a:m:B:M:D:Y:S:P:L:";
+static const char* shortopts = "hzxt:n:p:v:r:G:r:e:g:k:c:a:m:B:M:D:Y:S:P:L:O:";
 static const struct option longopts[] = {
   { "help",                    no_argument, NULL, 'h' },
   { "tumor-bam",               required_argument, NULL, 't' },
@@ -180,7 +189,8 @@ static const struct option longopts[] = {
   { "min-overlap",             required_argument, NULL, 'm' },
   { "dbsnp-vcf",               required_argument, NULL, 'D' },
   { "motif-filter",            required_argument, NULL, 'S' },
-  { "mate-lookup-min",        required_argument, NULL, 'L' },
+  { "mate-lookup-min",         required_argument, NULL, 'L' },
+  { "blat-ooc",                required_argument, NULL, 'O' },
   { "g-zip",                 no_argument, NULL, 'z' },
   { "read-tracking",         no_argument, NULL, OPT_READ_TRACK },
   { "write-extracted-reads", no_argument, NULL, OPT_WRITE_EXTRACTED_READS },
@@ -201,6 +211,7 @@ static const struct option longopts[] = {
   { "no-adapter-trim",       no_argument, NULL, OPT_ADAPTER_TRIM },
   { "num-assembly-rounds",   required_argument, NULL, OPT_NUM_ASSEMBLY_ROUNDS },
   { "assemble-by-tag",       required_argument, NULL, OPT_GEMCODE_AWARE },
+  { "no-blat",       no_argument, NULL, OPT_NOBLAT },
   { NULL, 0, NULL, 0 }
 };
 
@@ -275,6 +286,7 @@ void runSnowman(int argc, char** argv) {
   ss << 
     "***************************** PARAMS ****************************" << std::endl << 
     "    DBSNP Database file: " << opt::dbsnp << std::endl << 
+    "    BLAT OOC file:       " << opt::ooc << std::endl << 
     "    Indel PON file:      " << opt::pon << std::endl << 
     "    Max cov to assemble: " << opt::max_cov << std::endl << 
     "    ErrorRate: " << (opt::assemb::error_rate < 0.001f ? "EXACT (0)" : std::to_string(opt::assemb::error_rate)) << std::endl << 
@@ -285,6 +297,8 @@ void runSnowman(int argc, char** argv) {
     "    LOD cutoff (artifact vs real) :  " << opt::lod << std::endl << 
     "    LOD cutoff (somatic, at DBSNP):  " << opt::lod_db << std::endl << 
     "    LOD cutoff (somatic, no DBSNP):  " << opt::lod_no_db << std::endl;
+  if (!opt::run_blat)
+    ss << "    Running with BWA-MEM only (no BLAT)" << std::endl;
   if (opt::assemb::writeASQG)
     ss << "    Writing ASQG files. Suggest running R/snow-asqg2pdf.R -i <my.asqg> -o graph.pdf" << std::endl;
   if (opt::write_extracted_reads)
@@ -389,10 +403,32 @@ void runSnowman(int argc, char** argv) {
   opt::numThreads = std::min(num_jobs, opt::numThreads);
 
   // open the human reference
-  ss << "...loading the human reference sequence" << std::endl;
+  ss << "...loading the human reference sequence for BWA" << std::endl;
   SnowmanUtils::print(ss, log_file, opt::verbose > 0);
   main_bwa = new SnowTools::BWAWrapper();
   findex = SnowmanUtils::__open_index_and_writer(opt::refgenome, main_bwa, opt::analysis_id + ".contigs.bam", b_allwriter, findex);  
+
+  // open the BLAT reference
+  if (opt::run_blat) {
+    ss << "...loading the human reference sequence for BLAT" << std::endl;
+    SnowmanUtils::print(ss, log_file, opt::verbose > 0);
+    main_blat = new SnowTools::BLATWrapper();
+
+    // add a header made from the index, so BLAT can convert between reference names and ID #s
+    bam_hdr_t * bwa_header = main_bwa->HeaderFromIndex(); // creates new one in memory, need to destroy bwa_header
+
+    main_blat->addHeader(bwa_header);
+    main_blat->loadIndex(opt::refgenome, opt::ooc);
+
+    // serialize it
+    //std::ofstream brf("blatref.dat");
+    //boost::archive::text_oarchive oa(brf);
+    //oa << (*main_blat);
+
+    // open the BLAT writer
+    blat_allwriter.SetWriteHeader(bwa_header); // passes off to smart pointer, which will destory it
+    blat_allwriter.OpenWriteBam(opt::analysis_id + ".blat.bam"); // open and write header
+  }
 
   // open the mutex
   if (pthread_mutex_init(&snow_lock, NULL) != 0) {
@@ -414,7 +450,7 @@ void runSnowman(int argc, char** argv) {
   for (auto& b : opt::bam) 
     os_allbps << "\t" << boost::filesystem::path(b.second).filename();
   os_allbps << std::endl;
-  all_disc_stream << SnowTools::DiscordantCluster::header() << endl;
+  all_disc_stream << SnowTools::DiscordantCluster::header() << std::endl;
 
   // put args into string for VCF later
   for (int i = 0; i < argc; ++i)
@@ -533,6 +569,7 @@ void parseRunOptions(int argc, char** argv) {
     std::istringstream arg(optarg != NULL ? optarg : "");
     switch (c) {
     case OPT_REFILTER : opt::refilter = true; break;
+    case OPT_NOBLAT : opt::run_blat = false; break;
       case 'p': arg >> opt::numThreads; break;
       case 'm': arg >> opt::assemb::minOverlap; break;
       case 'a': arg >> opt::analysis_id; break;
@@ -541,6 +578,7 @@ void parseRunOptions(int argc, char** argv) {
       case 'M': arg >> opt::indel_mask; break;
       case 'Y': arg >> opt::microbegenome; break;
       case 'P': arg >> opt::pon; break;
+      case 'O': arg >> opt::ooc; break;
       case 'z': opt::zip = false; break;
       case 'h': help = true; break;
       case 'x': opt::r2c = true; break;
@@ -625,6 +663,8 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 {
   std::vector<SnowTools::AlignedContig> alc;
   BamReadVector all_contigs, all_microbial_contigs;
+
+  BamReadVector blat_alignments;
 
   // start some counters
   SnowmanUtils::SnowTimer st;
@@ -838,7 +878,8 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 	  continue;
 	
 	BamReadVector ct_alignments;
-	main_bwa->alignSingleSequence(i.getSeq(), i.getID(), ct_alignments, 0.90, SECONDARY_CAP);	
+	bool hardclip = false;
+	main_bwa->alignSingleSequence(i.getSeq(), i.getID(), ct_alignments, hardclip, 0.90, SECONDARY_CAP);	
 
 	if (opt::verbose > 3)
 	  for (auto& i : ct_alignments)
@@ -852,7 +893,8 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 	  
 	  // do the microbial alignment
 	  BamReadVector microbial_alignments;
-	  microbe_bwa->alignSingleSequence(i.getSeq(), i.getID(), microbial_alignments, 0.90, SECONDARY_CAP);
+	  bool hardclip = false;
+	  microbe_bwa->alignSingleSequence(i.getSeq(), i.getID(), microbial_alignments, hardclip, 0.90, SECONDARY_CAP);
 
 	  // if the microbe alignment is large enough and doesn't overlap human...
 	  for (auto& j : microbial_alignments) {
@@ -875,7 +917,26 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 	    assert(main_bwa->ChrIDToName(r.ChrID()).length());
 	    r.AddZTag("MC", main_bwa->ChrIDToName(r.ChrID()));
 	  }
+
+	// align with BLAT
+	if (main_blat) {
+	  for (auto& r : ct_alignments)
+	    if (r.NumClip() >= 20 || r.MaxDeletionBases() || r.MaxInsertionBases())
+	      main_blat->querySequence(r.Qname() + "_BLAT", r.Sequence(), blat_alignments);
+	}
 	
+	// same for BLAT alignments
+	if (main_blat)
+	  for (auto& r : blat_alignments) {
+	    //assert(main_bwa->ChrIDToName(r.ChrID()).length());
+	    if (r.ChrID() >= 0) {
+	      r.AddZTag("MC", main_bwa->ChrIDToName(r.ChrID()));
+	    } else {
+	      std::cerr << " FAILED TO PARSE CHR FOR BLAT " << std::endl;
+	    }
+
+	  }
+
 	// remove human alignments that are not as good as microbe
 	// that is, remove human alignments that intersect with microbe. 
 	// We can do this because we already removed microbial alignments taht 
@@ -891,6 +952,12 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 	  }
 	}
 
+	// add the BLAT hits
+	//for (auto& j : blat_alignments) {
+	//   human_alignments.push_back(j);
+	//   all_contigs.push_back(j);
+	//}
+
 	if (!human_alignments.size())
 	  continue;
 
@@ -900,7 +967,6 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 	// make the aligned contig object
 	if (!human_alignments.size())
 	  continue;
-
 	
         SnowTools::AlignedContig ac(human_alignments);
 
@@ -1087,9 +1153,9 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
   
   // dump the cigmaps
   for (auto& i : cigmap_n) 
-    os_cigmap << i.first << "\t" << i.second << "\tN" << endl;
+    os_cigmap << i.first << "\t" << i.second << "\tN" << std::endl;
   for (auto& i : cigmap_t) 
-    os_cigmap << i.first << "\t" << i.second << "\tT" << endl;
+    os_cigmap << i.first << "\t" << i.second << "\tT" << std::endl;
 
   if (opt::verbose > 2)
     std::cerr << "...writing alignments plot" << std::endl;
@@ -1130,9 +1196,13 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
   if (opt::verbose > 2)
     std::cerr << "...writing contigs" << std::endl;
 
-  if (!opt::disc_cluster_only)  
-  for (auto& i : all_contigs)
-    b_allwriter.writeAlignment(i);
+  if (!opt::disc_cluster_only) { 
+    for (auto& i : all_contigs)
+      b_allwriter.writeAlignment(i);
+    for (auto& i : blat_alignments)
+      blat_allwriter.writeAlignment(i);
+
+  }
   
   // write extracted reads
   if (opt::write_extracted_reads) {
@@ -1230,8 +1300,9 @@ void alignReadsToContigs(SnowTools::BWAWrapper& bw, const SnowTools::USeqVector&
 
     std::string seqr = i.QualitySequence();
     
+    bool hardclip = false;
     assert(seqr.length());
-    bw.alignSingleSequence(seqr, i.Qname(), brv, 0.60, 10000);
+    bw.alignSingleSequence(seqr, i.Qname(), brv, hardclip, 0.60, 10000);
 
     if (brv.size() == 0) 
       continue;

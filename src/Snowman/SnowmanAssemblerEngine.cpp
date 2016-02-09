@@ -48,7 +48,7 @@ void SnowmanAssemblerEngine::fillReadTable(SnowTools::BamReadVector& r)
   for (auto& i : r) {
 
     SeqItem si;
-    string sr, seq = "";
+    std::string sr, seq = "";
 
     // get the sequence
     sr = i.GetZTag("SR");
@@ -117,7 +117,7 @@ bool SnowmanAssemblerEngine::performAssembly(int num_assembly_rounds)
   
   //m_contigs = contigs0; return true; //debug
 
-  for (size_t yy = 1; yy != (num_assembly_rounds+1); yy++) {
+  for (int yy = 1; yy != (num_assembly_rounds+1); yy++) {
 
     if (contigs0.size() < 2) {
       for (auto& c: contigs0)
@@ -218,8 +218,8 @@ void SnowmanAssemblerEngine::doAssembly(ReadTable *pRT, ContigVector &contigs, i
   pOverlapper->setExactModeOverlap(exact);
   pOverlapper->setExactModeIrreducible(exact);
 
-  stringstream hits_stream;
-  stringstream asqg_stream;
+  std::stringstream hits_stream;
+  std::stringstream asqg_stream;
 
   SnowmanASQG::HeaderRecord headerRecord;
   headerRecord.setOverlapTag(min_overlap);
@@ -254,11 +254,11 @@ void SnowmanAssemblerEngine::doAssembly(ReadTable *pRT, ContigVector &contigs, i
 
   }
 
-  string line;
+  std::string line;
   bool bIsSelfCompare = true;
   ReadInfoTable* pQueryRIT = new ReadInfoTable(pRT_nd);
 
-  while(getline(hits_stream, line)) {
+  while(std::getline(hits_stream, line)) {
     size_t readIdx;
     size_t totalEntries;
     bool isSubstring; 
