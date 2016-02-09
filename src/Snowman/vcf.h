@@ -9,23 +9,21 @@
 #include "BreakPoint2.h"
 //#include "faidx.h"
 
-using namespace std;
+typedef std::unordered_map<std::string, std::string> InfoMap;
+typedef std::unordered_map<std::string, std::string> FormatMap;
+typedef std::unordered_map<std::string, std::string> FilterMap;
+typedef std::unordered_map<std::string, std::string> SampleMap;
+typedef std::unordered_map<std::string, std::string> ContigFieldMap;
 
-typedef unordered_map<string, string> InfoMap;
-typedef unordered_map<string, string> FormatMap;
-typedef unordered_map<string, string> FilterMap;
-typedef unordered_map<string, string> SampleMap;
-typedef unordered_map<string, string> ContigFieldMap;
-
-typedef unordered_map<string, bool> SupportingReadsMap;
-typedef pair<string,string> FormatPair;
-typedef unordered_map<string, pair<string,string>> FormatRecordMap;
+typedef std::unordered_map<std::string, bool> SupportingReadsMap;
+typedef std::pair<std::string,std::string> FormatPair;
+typedef std::unordered_map<std::string, std::pair<std::string,std::string>> FormatRecordMap;
 
 size_t ChrStringToNumber(const std::string& str);
 void runVCF(int argc, char** argv);
 void parseVCFOptions(int argc, char** argv);
-string getRefSequence(const std::string& chr_string, const SnowTools::GenomicRegion& gr, faidx_t *fi);
-string formatReadString(const std::string& readid, char type);
+std::string getRefSequence(const std::string& chr_string, const SnowTools::GenomicRegion& gr, faidx_t *fi);
+std::string formatReadString(const std::string& readid, char type);
 
 // structure to store a VCF header
 struct VCFHeader {
@@ -33,13 +31,13 @@ struct VCFHeader {
   VCFHeader() {}
   ~VCFHeader() {}
 
-  VCFHeader(string file);
+  VCFHeader(std::string file);
 
-  string fileformat = "VCFv4.2";
-  string filedate;
-  string source;
-  string reference = "hg19";
-  string colnames = "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT";
+  std::string fileformat = "VCFv4.2";
+  std::string filedate;
+  std::string source;
+  std::string reference = "hg19";
+  std::string colnames = "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT";
 
   InfoMap infomap; 
   FilterMap filtermap;
@@ -49,19 +47,19 @@ struct VCFHeader {
   ContigFieldMap contigfieldmap;
   
   // output it to a string
-  friend ostream& operator<<(ostream& out, const VCFHeader& v);
+  friend std::ostream& operator<<(std::ostream& out, const VCFHeader& v);
 
   //set the filedate string to the current date
   void setCurrentDate();
 
   //add an info field
-  void addInfoField(string field, string number, string type, string description);
+  void addInfoField(std::string field, std::string number, std::string type, std::string description);
 
-  void addFilterField(string field, string description);
-  void addFormatField(string field, string number, string type, string description);
-  void addSampleField(string field);
+  void addFilterField(std::string field, std::string description);
+  void addFormatField(std::string field, std::string number, std::string type, std::string description);
+  void addSampleField(std::string field);
 
-  void addContigField(string id, int len);
+  void addContigField(std::string id, int len);
 
 };
 
@@ -69,7 +67,7 @@ struct VCFEntry {
 
   VCFEntry() {}
   ~VCFEntry() {}
-  VCFEntry(string line, string method);
+  VCFEntry(std::string line, std::string method);
   VCFEntry(const SnowTools::BreakEnd& b);
 
   // data
@@ -82,7 +80,7 @@ struct VCFEntry {
   std::pair<std::string, std::string> getSampStrings() const;
 
   // output it to a string
-  friend ostream& operator<<(ostream& out, const VCFEntry& v);
+  friend std::ostream& operator<<(std::ostream& out, const VCFEntry& v);
 
   // define how to sort
   bool operator<(const VCFEntry &v) const;
@@ -93,7 +91,7 @@ struct VCFEntry {
 
 };
 
-typedef vector<VCFEntry> VCFEntryVec;
+typedef std::vector<VCFEntry> VCFEntryVec;
 
 struct VCFEntryPair {
 
@@ -109,18 +107,18 @@ struct VCFEntryPair {
 
   bool getOverlaps(int pad, VCFEntryPair &v);
 
-  void addCommonInfoTag(string tag, string value);
+  void addCommonInfoTag(std::string tag, std::string value);
 
-  string toCSVString() const;
+  std::string toCSVString() const;
 
   // output it to a string
-  friend ostream& operator<<(ostream& out, const VCFEntryPair& v);
+  friend std::ostream& operator<<(std::ostream& out, const VCFEntryPair& v);
 
 };
 
-typedef vector<VCFEntryPair> VCFEntryPairVec;
-typedef unordered_map<int, VCFEntryPair*> VCFEntryPairMap;
-typedef unordered_map<int, VCFEntry> VCFEntryMap;
+typedef std::vector<VCFEntryPair> VCFEntryPairVec;
+typedef std::unordered_map<int, VCFEntryPair*> VCFEntryPairMap;
+typedef std::unordered_map<int, VCFEntry> VCFEntryMap;
 
 // declare a structure to hold the entire VCF
 struct VCFFile {
@@ -128,17 +126,17 @@ struct VCFFile {
   VCFFile() {}
   ~VCFFile() {}
 
-  VCFFile(string file, string tmethod);
+  VCFFile(std::string file, std::string tmethod);
 
   // create a VCFFile from a csv
-  VCFFile(string file, string id, bam_hdr_t * h, const VCFHeader& vheader);
+  VCFFile(std::string file, std::string id, bam_hdr_t * h, const VCFHeader& vheader);
 
-  string filename;
-  string method;
+  std::string filename;
+  std::string method;
 
-  string analysis_id; 
+  std::string analysis_id; 
 
-  unordered_set<int> dups;
+  std::unordered_set<int> dups;
 
   //  VCFHeader header;
   VCFHeader indel_header;
@@ -149,10 +147,10 @@ struct VCFFile {
   bool include_nonpass = false;
 
   // output it to a string
-  friend ostream& operator<<(ostream& out, const VCFFile& v);
+  friend std::ostream& operator<<(std::ostream& out, const VCFFile& v);
   
   // write to file
-  bool write(string basename) const;
+  bool write(std::string basename) const;
 
   // write to csv file 
   bool writeCSV() const;
@@ -161,8 +159,8 @@ struct VCFFile {
   void deduplicate();
   
   //
-  void writeIndels(string basename, bool zip) const;
-  void writeSVs(string basename, bool zip) const;
+  void writeIndels(std::string basename, bool zip) const;
+  void writeSVs(std::string basename, bool zip) const;
   
 
 };
@@ -171,8 +169,8 @@ struct VCFFile {
 VCFFile mergeVCFFiles(VCFFile const &v1, VCFFile const &v2);
 VCFHeader mergeVCFHeaders(VCFHeader const &h1, VCFHeader const &h2);
 template<typename T> T mergeHeaderMaps(T const &m1, T const &m2);
-SupportingReadsMap ReadIDToReads(string readid);
+SupportingReadsMap ReadIDToReads(std::string readid);
 InfoMap mergeInfoFields(InfoMap const &m1, InfoMap const &m2);
-FormatRecordMap FormatStringToFormatRecordMap(string format, string samp1, string samp2);
+FormatRecordMap FormatStringToFormatRecordMap(std::string format, std::string samp1, std::string samp2);
 
 #endif

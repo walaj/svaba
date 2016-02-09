@@ -32,7 +32,7 @@
 // Standard C++ Library".
 // ============================================================================
 
-#include "SnowTools/gzstream.h"
+#include "gzstream.h"
 #include <iostream>
 #include <string.h>  // for memcpy
 

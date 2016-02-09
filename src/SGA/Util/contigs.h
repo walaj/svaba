@@ -6,9 +6,7 @@
 #include <unordered_map>
 #include "EncodedString.h"
 
-using namespace std;
-
-typedef unordered_map<string, unsigned> StringMap;
+typedef std::unordered_map<std::string, unsigned> StringMap;
 
 class Contig {
 
@@ -16,7 +14,7 @@ class Contig {
 
   Contig() {}
 
-  Contig(const string name, const string seq) :
+  Contig(const std::string name, const std::string seq) :
     m_name(name), m_seq(seq) {}
 
   ~Contig() {}
@@ -30,14 +28,14 @@ class Contig {
   // remove unneccesary tags to save space
   /*  void clearFinalTags() {
 
-    vector<BamTools::BamAlignment>::iterator it = m_bamalignments.begin();
+    std::vector<BamTools::BamAlignment>::iterator it = m_bamalignments.begin();
     for (; it != m_bamalignments.end(); it++) {
       it->RemoveTag("J2");
       it->RemoveTag("RP");
       it->RemoveTag("HP");
       it->RemoveTag("TS");
 
-      string jw; 
+      std::string jw; 
       it->GetTag("JW", jw);
       jw.erase(1,jw.length()-1);
       it->EditTag("JW", "Z", jw);
@@ -46,9 +44,9 @@ class Contig {
       }
       }*/
 
-  string getID() const { return m_name; }
+  std::string getID() const { return m_name; }
 
-  string getSeq() const { return m_seq.toString(); }
+  std::string getSeq() const { return m_seq.toString(); }
 
   //void addRead(BamTools::BamAlignment read, const int align, bool isInContig);
 
@@ -69,7 +67,7 @@ class Contig {
   /*int getContigTumorReadCount() const {
     int out = 0;
     for (vector<BamTools::BamAlignment>::const_iterator it = m_bamalignments.begin(); it != m_bamalignments.end(); it++) {
-      string tmp;
+      std::string tmp;
       string al;
       it->GetTag("JW", tmp);
       it->GetTag("AL", al);
@@ -88,14 +86,14 @@ class Contig {
    int ncount = 0;
  
  private: 
-   string m_name;
-   //string m_seq;
+   std::string m_name;
+   //std::string m_seq;
    DNAEncodedString m_seq;
    //vector<BamTools::BamAlignment> m_bamalignments;
    int m_contig_read_count = 0; // count of reads that actually built contig
 
 };
 
-typedef vector<Contig> ContigVector;
+typedef std::vector<Contig> ContigVector;
 
 #endif

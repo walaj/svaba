@@ -6,6 +6,7 @@
 
 #define MAX_CONTIG_SIZE 5000000
 #define MIN_INDEL_MATCH_BRACKET 30
+#define MAX_INDELS 10000
 
 namespace SnowTools {
 
@@ -517,8 +518,8 @@ namespace SnowTools {
     // find the start position of alignment ON CONTIG
     start = 0; 
     for (auto& i : /*m_align.GetCigar()*/ m_cigar) {
-      if (i.Type != 'M')
-	start += i.Length;
+      if (i.Type() != 'M')
+	start += i.Length();
       else
 	break;
     }
@@ -533,11 +534,11 @@ namespace SnowTools {
       
       // SET THE CONTIG BREAK (treats deletions and leading S differently)
       // the first M gets the break1, pos on the left
-      if (i.Type == 'M' && break1 == -1)
+      if (i.Type() == 'M' && break1 == -1)
 	break1 = currlen;
-      if (i.Type != 'D') // m_skip deletions but not leading S, but otherwise update
-	currlen += i.Length;
-      if (i.Type == 'M') // keeps triggering every M, with pos at the right
+      if (i.Type() != 'D') // m_skip deletions but not leading S, but otherwise update
+	currlen += i.Length();
+      if (i.Type() == 'M') // keeps triggering every M, with pos at the right
 	break2 = currlen;
     }
 
@@ -573,7 +574,7 @@ namespace SnowTools {
       assert(bp.num_align == 1);
     }
 
-    assert(fail_safe_count != 100);
+    assert(fail_safe_count != MAX_INDELS);
 
 }
 
@@ -586,12 +587,12 @@ namespace SnowTools {
     
     // print the cigar value per base
     for (auto& j : /*c.m_align.GetCigar()*/ c.m_cigar) { //c.align.CigarData) { // print releative to forward strand
-      if (j.Type == 'M')
-	out << std::string(j.Length, jsign);
-      else if (j.Type == 'I') 
-	out << std::string(j.Length, 'I');
-      else if (j.Type == 'S' || j.Type == 'H')
-	out << std::string(j.Length, '.');
+      if (j.Type() == 'M')
+	out << std::string(j.Length(), jsign);
+      else if (j.Type() == 'I') 
+	out << std::string(j.Length(), 'I');
+      else if (j.Type() == 'S' || j.Type() == 'H')
+	out << std::string(j.Length(), '.');
     }
     
     // print contig and genome breaks
@@ -691,18 +692,18 @@ namespace SnowTools {
     // reject if too many mismatches
     //size_t di_count = 0;
     for (auto& i : m_cigar)
-      if (i.Type == 'D' || i.Type == 'I')
+      if (i.Type() == 'D' || i.Type() == 'I')
     	++di_count;
     if (di_count > 2 && m_align.Qname().substr(0,2) == "c_") // only trim for snowman assembled contigs
       return false;
 
     // reject if it has small matches, could get confused. Fix later
     //for (auto& i : m_cigar) 
-    //  if (i.Type == 'M' && i.Length < 5)
+    //  if (i.Type() == 'M' && i.Length() < 5)
     //    return false;
     
      // reject if first alignment is I or D or start with too few M
-    if (m_cigar.begin()->Type == 'I' || m_cigar.begin()->Type == 'D' || m_cigar.back().Type == 'D' || m_cigar.back().Type == 'I') {
+    if (m_cigar.begin()->Type() == 'I' || m_cigar.begin()->Type() == 'D' || m_cigar.back().Type() == 'D' || m_cigar.back().Type() == 'I') {
       //std::cerr << "rejecting cigar for starting in I or D or < 5 M" << std::endl;
       return false;
     }
@@ -711,10 +712,10 @@ namespace SnowTools {
     size_t loc = 0; // keep track of which cigar field
     for (auto& i : m_cigar) {
       ++loc;
-      if ( (i.Type == 'D' || i.Type == 'I')) {
+      if ( (i.Type() == 'D' || i.Type() == 'I')) {
 	assert (loc != 1 && loc != m_cigar.size()); // shuldn't start with I or D
-	bool prev_match = (m_cigar[loc-2].Type == 'M' && m_cigar[loc-2].Length >= MIN_INDEL_MATCH_BRACKET);
-	bool post_match = (m_cigar[loc].Type == 'M' && m_cigar[loc].Length >= MIN_INDEL_MATCH_BRACKET);
+	bool prev_match = (m_cigar[loc-2].Type() == 'M' && m_cigar[loc-2].Length() >= MIN_INDEL_MATCH_BRACKET);
+	bool post_match = (m_cigar[loc].Type() == 'M' && m_cigar[loc].Length() >= MIN_INDEL_MATCH_BRACKET);
 	if (loc > idx && prev_match && post_match) { // require 15M+ folowoing I/D
 	  idx = loc;
 	  break;
@@ -749,30 +750,30 @@ namespace SnowTools {
       count++;
       
       // set the contig breakpoint
-      if (i.Type == 'M' || i.Type == 'I' || i.Type == 'S') 
-	curr += i.Length;
-      if (i.Type == 'D' && bp.b1.cpos == -1 && count == idx) {
+      if (i.Type() == 'M' || i.Type() == 'I' || i.Type() == 'S') 
+	curr += i.Length();
+      if (i.Type() == 'D' && bp.b1.cpos == -1 && count == idx) {
 	
 	bp.b1.cpos = curr-1;
 	bp.b2.cpos = curr;
       } 
-      if (i.Type == 'I' && bp.b1.cpos == -1 && count == idx) {
-	bp.b1.cpos = curr - i.Length - 1; // -1 because cpos is last MATCH
+      if (i.Type() == 'I' && bp.b1.cpos == -1 && count == idx) {
+	bp.b1.cpos = curr - i.Length() - 1; // -1 because cpos is last MATCH
 	bp.b2.cpos = curr/* - 1*/; 
-	bp.insertion = m_align.Sequence().substr(bp.b1.cpos+1, i.Length); // +1 because cpos is last MATCH.
+	bp.insertion = m_align.Sequence().substr(bp.b1.cpos+1, i.Length()); // +1 because cpos is last MATCH.
       }
       
       // set the genome breakpoint
       if (bp.b1.cpos > 0) {
-	if (i.Type == 'D') {
+	if (i.Type() == 'D') {
 	  if (!m_align.ReverseFlag()) {
 	    bp.b1.gr.pos1 =  m_align.Position() + gcurrlen; // dont count this one//bp.b1.cpos + align.Position; //gcurrlen + align.Position;
-	    bp.b2.gr.pos1 = bp.b1.gr.pos1 + i.Length + 1;
+	    bp.b2.gr.pos1 = bp.b1.gr.pos1 + i.Length() + 1;
 	  } else {
 	    bp.b2.gr.pos1 =  (m_align.PositionEnd()-1) - gcurrlen; //bp.b1.cpos + align.Position; //gcurrlen + align.Position;
-	    bp.b1.gr.pos1 =  bp.b2.gr.pos1 - i.Length - 1;
+	    bp.b1.gr.pos1 =  bp.b2.gr.pos1 - i.Length() - 1;
 	  }
-	} else if (i.Type == 'I') {
+	} else if (i.Type() == 'I') {
 	  if (!m_align.ReverseFlag()) {
 	    bp.b1.gr.pos1 = m_align.Position() + gcurrlen; //gcurrlen + align.Position;
 	    bp.b2.gr.pos1 = bp.b1.gr.pos1 + 1;	
@@ -786,8 +787,8 @@ namespace SnowTools {
       }
       
       // update the position on the genome
-      if (i.Type == 'M' || i.Type == 'D') {
-	gcurrlen += i.Length;
+      if (i.Type() == 'M' || i.Type() == 'D') {
+	gcurrlen += i.Length();
       } 
       
       

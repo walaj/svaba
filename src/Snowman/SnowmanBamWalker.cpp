@@ -27,13 +27,13 @@ bool SnowmanBamWalker::addCigar(BamRead &r, const SnowTools::DBSnpFilter* d) {
   
   for (auto& i : r.GetCigar()) {
       // if it's a D or I, add it to the list
-      if (i.Type == 'D' || i.Type == 'I') {	
+      if (i.Type() == 'D' || i.Type() == 'I') {	
 	//cigar_ss << r_id(r) << "_" << pos << "_" << /*r_cig_len(r,i) <<*/ r_cig_type(r, i);
 
-	cigar_ss << r.ChrID() << "_" << pos << "_" << i.Length << i.Type;
+	cigar_ss << r.ChrID() << "_" << pos << "_" << i.Length() << i.Type();
 	++cigmap[cigar_ss.str()];
 
-	//cigar_ss << r.ChrID() << "_" << pos; // << "_" << i.Length << i.Type;
+	//cigar_ss << r.ChrID() << "_" << pos; // << "_" << i.Length() << i.Type();
 	if (prefix == "n")
 	  for (int kk = -2; kk <= 2; ++kk) { // add this and neighbors
 	    uint32_t cigs = r.ChrID() * 1e9 + pos;
@@ -50,8 +50,8 @@ bool SnowmanBamWalker::addCigar(BamRead &r, const SnowTools::DBSnpFilter* d) {
       }
       
     // move along the REFERENCE
-      if (!(i.Type == 'I') && !(i.Type == 'S') && !(i.Type == 'H'))
-      pos += i.Length;
+      if (!(i.Type() == 'I') && !(i.Type() == 'S') && !(i.Type() == 'H'))
+      pos += i.Length();
   }
   
   return has_dbsnp_hit;
@@ -448,7 +448,8 @@ void SnowmanBamWalker::filterMicrobial(SnowTools::BWAWrapper * b) {
 
   for (auto& r : reads) {
     BamReadVector micro_alignments;
-    b->alignSingleSequence(r.Sequence(), r.Qname(), micro_alignments, true, 1000);
+    bool hardclip = false;
+    b->alignSingleSequence(r.Sequence(), r.Qname(), micro_alignments, hardclip, true, 1000);
     if (micro_alignments.size() == 0)
       new_reads.push_back(r);
     else if (micro_alignments[0].NumMatchBases() <= r.Length() * 0.8)
@@ -500,7 +501,7 @@ void SnowmanBamWalker::realignDiscordants(SnowTools::BamReadVector& reads) {
 
     if (std::abs(r.InsertSize()) >= 1000) {
       SnowTools::BamReadVector als;
-      main_bwa->alignSingleSequence(r.Sequence(), r.Qname(), als, 0.95, secondary_cap);
+      main_bwa->alignSingleSequence(r.Sequence(), r.Qname(), als, false, 0.95, secondary_cap);
       if (als.size() < 10) {
 	brv.push_back(r);
 	r.AddIntTag("DD", als.size());

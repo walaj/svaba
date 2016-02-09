@@ -5450,7 +5450,7 @@ fi
 done
 
 
-ac_config_files="$ac_config_files Makefile SnowTools/src/Makefile src/SGA/Util/Makefile src/SGA/SQG/Makefile src/SGA/Bigraph/Makefile src/SGA/Algorithm/Makefile src/SGA/StringGraph/Makefile src/SGA/SuffixTools/Makefile src/SGA/SGA/Makefile src/Snowman/Makefile"
+ac_config_files="$ac_config_files Makefile SnowTools/htslib/Makefile SnowTools/src/Makefile src/SGA/Util/Makefile src/SGA/SQG/Makefile src/SGA/Bigraph/Makefile src/SGA/Algorithm/Makefile src/SGA/StringGraph/Makefile src/SGA/SuffixTools/Makefile src/SGA/SGA/Makefile src/Snowman/Makefile"
 
 
 cat >confcache <<\_ACEOF
@@ -6097,6 +6097,7 @@ do
     "config.h") CONFIG_HEADERS="$CONFIG_HEADERS config.h" ;;
     "depfiles") CONFIG_COMMANDS="$CONFIG_COMMANDS depfiles" ;;
     "Makefile") CONFIG_FILES="$CONFIG_FILES Makefile" ;;
+    "SnowTools/htslib/Makefile") CONFIG_FILES="$CONFIG_FILES SnowTools/htslib/Makefile" ;;
     "SnowTools/src/Makefile") CONFIG_FILES="$CONFIG_FILES SnowTools/src/Makefile" ;;
     "src/SGA/Util/Makefile") CONFIG_FILES="$CONFIG_FILES src/SGA/Util/Makefile" ;;
     "src/SGA/SQG/Makefile") CONFIG_FILES="$CONFIG_FILES src/SGA/SQG/Makefile" ;;

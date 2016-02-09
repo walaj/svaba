@@ -9,10 +9,6 @@ function(paths)
     return(gsub('(^|(.*\\/))?([^\\/]*)$', '\\2', paths))
   }
 
-require(data.table)
-suppressMessages(suppressWarnings(require(GenomicRanges, quietly = TRUE)))
-suppressMessages(suppressWarnings(require(gplots, quietly = TRUE)))
-
 ra_breaks <-
 function(rafile, keep.features = T, seqlengths = hg_seqlengths(), chr.convert = T, snowman = FALSE,  breakpointer = FALSE, seqlevels = NULL,
     get.loose = FALSE ## if TRUE will return a list with fields $junctions and $loose.ends
@@ -811,8 +807,12 @@ opt = parse_args(parseobj)
 if (is.null(opt$input))
   stop(print_help(parseobj))
 
-require(GenomicRanges)
+print("...loading required packages")
+suppressMessages(suppressWarnings(require(data.table, quietly = TRUE)))
+suppressMessages(suppressWarnings(require(GenomicRanges, quietly = TRUE)))
+suppressMessages(suppressWarnings(require(gplots, quietly = TRUE)))
 
+print("...importing tracks")
 basedir <- "/xchip/gistic/Jeremiah/tracks"
 genes <- readRDS(file.path(basedir, 'gr.allgenes.rds'))
 genes <- genes[width(genes) < 2e6] 
@@ -821,22 +821,26 @@ cgc = read.delim('/home/unix/marcin/DB/COSMIC/cancer_gene_census.tsv', strings =
 cgc <- genes[genes$gene %in% cgc$Symbol]
 
 ## read in file
+print("...reading bps file")
 suppressWarnings(bks <- fread(paste("gunzip -c", opt$input)))
 
+##bks[, SL_t := as.numeric(gsub(".*?:.*?:.*?:.*?:.*?:.*?:.*?:.*?:.*?:(.*?)", "\\1", sim_wnormal_10x_s3.bam))]
+setnames(bks, paste("V",seq(35),sep=""), c("chr1","pos1","strand1","chr2","pos2","strand2","ref","alt","span","mapq1","mapq2","nm1","nm2","disc_mapq1","disc_mapq2","sub_n1","sub_n2","homology","insertion","contig ","numalign","confidence","evidence","quality","secondary_alignment",
+    "somatic_score","somatic_lod","true_lod","pon_samples","repeat_seq","graylist","DBSNP","reads","normal","tumor"))
 ## filter out discorant only
 if (nrow(bks))
-  bks <- bks[(bks$evidence != "DSCRD" | bks$evidence == "DSCRD" && bks$tdisc >= opt$discsupport) & bks$evidence != "INDEL" & bks$confidence == "PASS" & bks$somatic_score >= 4]
+  bks <- bks[(bks$evidence != "DSCRD" | bks$evidence == "DSCRD" && bks$tdisc >= opt$discsupport) & bks$evidence != "INDEL" & bks$confidence == "PASS" & bks$somatic_score >= 1]
 ## filter out bad ASSMB
-if (nrow(bks) && sum(bks$evidence == "ASSMB" & bks$tsplit < opt$splitsupport))
-  bks <- bks[-(bks$evidence == "ASSMB" & bks$tsplit < opt$splitsupport)]
+#if (nrow(bks) && sum(bks$evidence == "ASSMB" & bks$tsplit < opt$splitsupport))
+#  bks <- bks[-(bks$evidence == "ASSMB" & bks$tsplit < opt$splitsupport)]
 
 if (nrow(bks) == 0) {
   print("No rearrangements found")
   quit(status=0)
 }
 
-## clean up
-bks[,c("DBSNP","reads","tumor_allelic_fraction","normal_allelic_fraction","repeat_seq","pon_samples","graylist","somatic_score") := NULL]
+## Clean up
+suppressWarnings(bks <- bks[,c("DBSNP","reads","tumor_allelic_fraction","normal_allelic_fraction","repeat_seq","pon_samples","graylist","somatic_score") := NULL])
 
 ## remove dups
 setkey(bks, chr1, pos1, chr2, pos2)
@@ -844,8 +848,6 @@ bks <- unique(bks)
 
 gr1 <- with(bks, GRanges(chr1, IRanges(pos1,width=1)))
 gr2 <- with(bks, GRanges(chr2, IRanges(pos2,width=1)))
-
-print(bks)
 
 ## get the genes
 fo1 <- gr.findoverlaps(gr1, genes)

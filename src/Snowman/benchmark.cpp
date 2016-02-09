@@ -437,7 +437,7 @@ void assemblyTest() {
 
   // align local_seq to itself
   SnowTools::BamReadVector self_align;
-  local_bwa.alignSingleSequence(local_ref, "local_ref", self_align, false, 0);
+  local_bwa.alignSingleSequence(local_ref, "local_ref", self_align, false, false, 0);
 
   // write out the index
   local_bwa.writeIndex("local_ref.fa");
@@ -481,7 +481,7 @@ void assemblyTest() {
 	  for (auto& i : reads) {
 	    if (i.find("N") == std::string::npos) {
 	      SnowTools::BamReadVector read_hits;
-	      local_bwa.alignSingleSequence(i, "read_" + std::to_string(++count), read_hits, false, 0);
+	      local_bwa.alignSingleSequence(i, "read_" + std::to_string(++count), read_hits, false,false, 0);
 	      if (read_hits.size())
 		reads_to_local.push_back(read_hits[0]);
 	    }
@@ -512,7 +512,7 @@ void assemblyTest() {
 	  SnowTools::BamReadVector contigs_to_local;
 	  for (auto& i : engine.getContigs()) {
 	    SnowTools::BamReadVector ct_alignments;
-	    local_bwa.alignSingleSequence(i.getSeq(), i.getID(), ct_alignments, false, 0);
+	    local_bwa.alignSingleSequence(i.getSeq(), i.getID(), ct_alignments, false, false, 0);
 	    SnowTools::AlignedContig ac(ct_alignments);
 	    //ac.alignReads(reads_to_local);
 	    //std::cout << ac;
@@ -685,7 +685,9 @@ void assemblyTest() {
   for (auto& i : v)
     ss << " " << i << ",";
   
-  return SnowTools::cutLastChar(ss.str());
+  std::string out = ss.str();
+  out.pop_back();
+  return out;
   
 }
 
@@ -709,8 +711,8 @@ void realignBreaks() {
   for (int i = 30; i < 500; i += 10) {
 
     SnowTools::GenomicRegion gr1, gr2;
-    gr1.random(rand());
-    gr2.random(rand());
+    gr1.random();
+    gr2.random();
     gr1.pos2 = gr1.pos1 + i/2; ; //+ k - 1 + (ins == 0 ? iii : 0); // add sequence to deletion ones, because it gets removed later
     gr2.pos2 = gr2.pos2 + i/2;
     chrstring1 = bwalker.header()->target_name[gr1.chr]; //std::to_string(gr.chr+1);
@@ -741,7 +743,7 @@ void realignBreaks() {
     std::string ss = s1 + s2;
 
     SnowTools::BamReadVector aligns;
-    bwa.alignSingleSequence(ss, std::to_string(i), aligns, 0.90, 2);
+    bwa.alignSingleSequence(ss, std::to_string(i), aligns, false, 0.90, 2);
     
     bool a1 = false; bool a2 = false;
     for (auto& jj : aligns) {
@@ -792,7 +794,7 @@ void realignRandomSegments() {
 	      std::cerr << "...working on width " << k << " and SNV rate " << snv << "\t" << (ins == 1 ? "INS" : "DEL") << "\t" << iii << ". " << tcount << " of " << (2 * widths.size() * snv_rate.size() * indel_size.size()) << std::endl;
 	    
 	    SnowTools::GenomicRegion gr;
-	    gr.random(rand());
+	    gr.random();
 	    gr.pos2 = gr.pos1 + k - 1 + (ins == 0 ? iii : 0); // add sequence to deletion ones, because it gets removed later
 	    chrstring = bwalker.header()->target_name[gr.chr]; //std::to_string(gr.chr+1);
 	    
@@ -819,7 +821,7 @@ void realignRandomSegments() {
 	      rs.makeDelErrors(s, iii);      
 	    
 	    SnowTools::BamReadVector aligns;
-	    bwa.alignSingleSequence(s, std::to_string(i), aligns, 0.90, 50);
+	    bwa.alignSingleSequence(s, std::to_string(i), aligns, false, 0.90, 50);
 	    
 	    /*
 	    BamReadVector tmp;

@@ -22,8 +22,8 @@
 
 using namespace std;
 
-static string sv_format = "GT:AD:DP:GQ:PL:SR:DR:LR:LO:SL"; //"NALT:NALT_RP:NALT_SR:READ_ID";
-static string indel_format = "GT:AD:DP:GQ:PL:SR:CR:LR:LO:SL";
+static std::string sv_format = "GT:AD:DP:GQ:PL:SR:DR:LR:LO:SL"; //"NALT:NALT_RP:NALT_SR:READ_ID";
+static std::string indel_format = "GT:AD:DP:GQ:PL:SR:CR:LR:LO:SL";
 static InfoMap flag_map;
 static int global_id = 0;
 static std::stringstream lod_ss;
@@ -31,19 +31,19 @@ static std::stringstream lod_ss;
 static std::unordered_map<std::string, int> cname_count;
 
 void __write_to_zip_vcf(const VCFEntry& v, BGZF * f) {
-  stringstream ss;
+  std::stringstream ss;
   ss << v << endl;
   if (!bgzf_write(f, ss.str().c_str(), ss.str().length())) 
     cerr << "Could not write bzipped vcf for line " << ss.str() << endl;
 }
 
 // forward declare
-void tabixVcf(const string &fn);
+void tabixVcf(const std::string &fn);
 
 // comparator for info fields
 // lhs < rhs
 // want READ_ID to be > than everything
-bool compareInfoFields(const pair<string,string> &lhs, const pair<string,string> &rhs) {
+bool compareInfoFields(const pair<std::string,std::string> &lhs, const pair<std::string,std::string> &rhs) {
   return ( (rhs.first == "READ_ID" && lhs.first != "READ_ID") || ( (rhs.first != "READ_ID" && lhs.first != "READ_ID") && lhs.first < rhs.first));
 }
 
@@ -88,7 +88,7 @@ std::ostream& operator<<(std::ostream& out, const VCFHeader& v) {
 }
 
 //add an info field
-void VCFHeader::addInfoField(string field, string number, string type, string description) {
+void VCFHeader::addInfoField(std::string field, std::string number, std::string type, std::string description) {
 
   if (infomap.find(field) != infomap.end()) {
     cerr << "Warning: Info field already exists: " << field << endl;
@@ -96,44 +96,44 @@ void VCFHeader::addInfoField(string field, string number, string type, string de
   }
     
   if (type == "Flag")
-    flag_map.insert(pair<string,string>(field, type));
+    flag_map.insert(pair<std::string,std::string>(field, type));
 
-  string net = "Number=" + number + ",Type=" + type + ",Description=\"" + description + "\"";
+  std::string net = "Number=" + number + ",Type=" + type + ",Description=\"" + description + "\"";
   infomap[field] = net;
   return;
 
 }
 
 //add a filter field
-void VCFHeader::addFilterField(string field, string description) {
+void VCFHeader::addFilterField(std::string field, std::string description) {
 
   if (filtermap.find(field) != filtermap.end()) {
     cerr << "Warning: Filter field already exists" << endl;
     return;
   }
     
-  string net = "Description=\"" + description + "\"";
+  std::string net = "Description=\"" + description + "\"";
   filtermap[field] = net;
   return;
 
 }
 
 //add a format field
-void VCFHeader::addFormatField(string field, string number, string type, string description) {
+void VCFHeader::addFormatField(std::string field, std::string number, std::string type, std::string description) {
 
   if (formatmap.find(field) != formatmap.end()) {
     cerr << "Warning: Format field already exists" << endl;
     return;
   }
 
-  string net = "Number=" + number + ",Type=" + type + ",Description=\"" + description + "\"";    
+  std::string net = "Number=" + number + ",Type=" + type + ",Description=\"" + description + "\"";    
   formatmap[field] = net;
   return;
 
 }
 
 //add a sample field
-void VCFHeader::addSampleField(string field) {
+void VCFHeader::addSampleField(std::string field) {
 
   if (samplemap.find(field) != samplemap.end()) {
     cerr << "Warning: Sample field already exists" << endl;
@@ -151,14 +151,14 @@ std::ostream& operator<<(std::ostream& out, const VCFEntry& v) {
   std::unordered_map<std::string, std::string> info_fields = v.fillInfoFields();
 
   // move to a vector to be sorted
-  vector<pair<string, string> > tmpvec; // id, evertythign else
+  vector<pair<string, std::string> > tmpvec; // id, evertythign else
   for (InfoMap::const_iterator it = info_fields.begin(); it != info_fields.end(); it++) 
-    tmpvec.push_back(pair<string,string>(it->first, it->second)); 
+    tmpvec.push_back(pair<std::string,std::string>(it->first, it->second)); 
   sort(tmpvec.begin(), tmpvec.end(), compareInfoFields); // sort it
 
-  string info;
-  string equals = "=";
-  for (vector<pair<string, string> >::const_iterator it = tmpvec.begin(); it != tmpvec.end(); it++) {
+  std::string info;
+  std::string equals = "=";
+  for (vector<pair<std::string, std::string> >::const_iterator it = tmpvec.begin(); it != tmpvec.end(); it++) {
     if (!(it->first == "HOMSEQ" && v.bp->imprecise) && !(it->first=="HOMLEN" && v.bp->imprecise) && !(it->first=="INSERTION" && v.bp->imprecise))// dont print some fields if imprecise
       info = info + it->first + ( (flag_map.count(it->first) == 0) ? "=" : "") + it->second + ";"; // dont print = for flags
   }
@@ -167,7 +167,7 @@ std::ostream& operator<<(std::ostream& out, const VCFEntry& v) {
   if (info.length() > 0)
     info = info.substr(0, info.length() - 1);
 
-  string sep = "\t";
+  std::string sep = "\t";
   SnowTools::ReducedBreakEnd * be = v.id_num == 1 ? &v.bp->b1 : &v.bp->b2;
 
   //std::pair<std::string, std::string> samps = v.getSampStrings();
@@ -189,7 +189,7 @@ bool VCFEntry::operator<(const VCFEntry &v) const {
 }
 
 // create a VCFFile from a snowman breakpoints file
-VCFFile::VCFFile(string file, string id, bam_hdr_t * h, const VCFHeader& vheader) {
+VCFFile::VCFFile(std::string file, std::string id, bam_hdr_t * h, const VCFHeader& vheader) {
 
   analysis_id = id;
 
@@ -203,7 +203,7 @@ VCFFile::VCFFile(string file, string id, bam_hdr_t * h, const VCFHeader& vheader
   }
 
   // read in the header of the csv
-  string line;
+  std::string line;
 
   //string sample_id_tum = analysis_id + "T";
   //string sample_id_norm= analysis_id + "N";
@@ -351,13 +351,13 @@ VCFFile::VCFFile(string file, string id, bam_hdr_t * h, const VCFHeader& vheader
 }
 
 // return a sequence from the reference
-string getRefSequence(const std::string& chr_name, const SnowTools::GenomicRegion& gr, faidx_t * fi) {
+std::string getRefSequence(const std::string& chr_name, const SnowTools::GenomicRegion& gr, faidx_t * fi) {
 
   int len;
   char * seq = faidx_fetch_seq(fi, const_cast<char*>(chr_name.c_str()), gr.pos1-1, gr.pos2-1, &len);
   
   if (seq) {
-    return string(seq);
+    return std::string(seq);
   } else {
     return "N";
   }
@@ -464,10 +464,10 @@ bool VCFEntry::operator==(const VCFEntry &v) const {
 // write out somatic and germline INDEL vcfs
 void VCFFile::writeIndels(string basename, bool zip) const {
 
-  string gname = basename + "germline.indel.vcf.gz";
-  string sname = basename + "somatic.indel.vcf.gz";
-  string gname_nz = basename + "germline.indel.vcf";
-  string sname_nz = basename + "somatic.indel.vcf";
+  std::string gname = basename + "germline.indel.vcf.gz";
+  std::string sname = basename + "somatic.indel.vcf.gz";
+  std::string gname_nz = basename + "germline.indel.vcf";
+  std::string sname_nz = basename + "somatic.indel.vcf";
 
   ofstream out_g, out_s;
 
@@ -477,7 +477,7 @@ void VCFFile::writeIndels(string basename, bool zip) const {
   if (zip) {
     g_bg = bgzf_open(gname.c_str(), "w");
     s_bg = bgzf_open(sname.c_str(), "w");
-    stringstream indel_h;
+    std::stringstream indel_h;
     indel_h << indel_header << endl;
     if (!bgzf_write(g_bg, indel_h.str().c_str(), indel_h.str().length())) {
       cerr << "Could not write bzipped vcf" << endl;
@@ -508,7 +508,7 @@ void VCFFile::writeIndels(string basename, bool zip) const {
     if (!i.bp->pass && !include_nonpass)
       continue;
 
-    stringstream ss;
+    std::stringstream ss;
     if (i.bp->somatic_score >= SOMATIC_LOD) {
       if (zip) 
 	__write_to_zip_vcf(i, s_bg);
@@ -541,9 +541,9 @@ void VCFFile::writeIndels(string basename, bool zip) const {
 }
 
 // write out somatic and germline SV vcfs
-void VCFFile::writeSVs(string basename, bool zip) const {
+void VCFFile::writeSVs(std::string basename, bool zip) const {
   
-  string gname, sname, gname_nz, sname_nz; 
+  std::string gname, sname, gname_nz, sname_nz; 
   gname = basename + "germline.sv.vcf.gz";
   sname = basename + "somatic.sv.vcf.gz";
   gname_nz = basename + "germline.sv.vcf";
@@ -557,7 +557,7 @@ void VCFFile::writeSVs(string basename, bool zip) const {
   if (zip) {
     g_bg = bgzf_open(gname.c_str(), "w");
     s_bg = bgzf_open(sname.c_str(), "w");
-    stringstream sv_h;
+    std::stringstream sv_h;
     sv_h << sv_header << endl;
     if (!bgzf_write(g_bg, sv_h.str().c_str(), sv_h.str().length())) {
       cerr << "Could not write bzipped vcf" << endl;
@@ -584,8 +584,8 @@ void VCFFile::writeSVs(string basename, bool zip) const {
       //++id_counter;
       //VCFEntryPair tmppair = it->second;
 
-      //tmppair.e1.idcommon = to_string(id_counter) + ":" + analysis_id;
-      //tmppair.e2.idcommon = to_string(id_counter) + ":" + analysis_id;
+      //tmppair.e1.idcommon = std::to_string(id_counter) + ":" + analysis_id;
+      //tmppair.e2.idcommon = std::to_string(id_counter) + ":" + analysis_id;
       //tmppair.e1.id = tmppair.e1.idcommon + ":1";
       //tmppair.e2.id = tmppair.e2.idcommon + ":2";
       //tmppair.e1.info_fields["MATEID"] = tmppair.e2.id;
@@ -640,7 +640,7 @@ void VCFFile::writeSVs(string basename, bool zip) const {
 
 
 // tabix the vcf
-void tabixVcf(const string &fn) {
+void tabixVcf(const std::string &fn) {
 
   // tabix it
   tbx_conf_t conf = tbx_conf_gff;
@@ -671,10 +671,10 @@ std::string formatReadString(const std::string& readid, char type) {
   
   // parse the readids
   SupportingReadsMap suppr;
-  istringstream iss_r(readid);
-  string thisread;
-  string new_readid = "";
-  set<string> dup;
+  std::istringstream iss_r(readid);
+  std::string thisread;
+  std::string new_readid = "";
+  set<std::string> dup;
 
   // regex to clean out the t, n identifer
   regex regc("[a-z][0-9]+_(.*?)$");
@@ -682,13 +682,13 @@ std::string formatReadString(const std::string& readid, char type) {
 
   while (getline(iss_r, thisread, ',')) {
     
-    string thisread_clean; // get only the read name
+    std::string thisread_clean; // get only the read name
     if (!regex_search(thisread, smatchr, regc))
       cerr << "FAILED TO MATCH ON "<< thisread << endl;
     else 
       thisread_clean = smatchr[1].str();
 
-    suppr.insert(pair<string,bool>(thisread_clean, false));
+    suppr.insert(pair<std::string,bool>(thisread_clean, false));
     
     if (thisread.at(0) == type && !dup.count(thisread_clean)) {
       new_readid += thisread_clean + ",";
@@ -726,10 +726,10 @@ std::unordered_map<std::string, std::string> VCFEntry::fillInfoFields() const {
     info_fields["REPSEQ"] = std::string(bp->repeat);
 
   if (bp->pon)
-    info_fields["PON"] = to_string(bp->pon);
+    info_fields["PON"] = std::to_string(bp->pon);
 
   if (bp->num_align != 1) {
-    info_fields["MATEID"] = to_string(id) + ":" + to_string(id_num == 1 ? 2 : 1);
+    info_fields["MATEID"] = std::to_string(id) + ":" + std::to_string(id_num == 1 ? 2 : 1);
     if (id_num == 1) {
       info_fields["NM"] = std::to_string(bp->b1.nm);
       info_fields["MATENM"] = std::to_string(bp->b2.nm);
@@ -755,9 +755,9 @@ std::unordered_map<std::string, std::string> VCFEntry::fillInfoFields() const {
 
     if (id_num == 1) {
       if (bp->b1.sub_n)
-	info_fields["SUBN"] = to_string(bp->b1.sub_n);
+	info_fields["SUBN"] = std::to_string(bp->b1.sub_n);
       else if (bp->b2.sub_n)
-	info_fields["SUBN"] = to_string(bp->b2.sub_n);
+	info_fields["SUBN"] = std::to_string(bp->b2.sub_n);
     }
 
     if (bp->homology) info_fields["HOMSEQ"] = std::string(bp->homology);
@@ -771,9 +771,9 @@ std::unordered_map<std::string, std::string> VCFEntry::fillInfoFields() const {
 
     if (info_fields["EVDNC"] != "ASSMB") {
       if (id_num == 1)
-	info_fields["DISC_MAPQ"] = to_string(bp->dc.mapq1);
+	info_fields["DISC_MAPQ"] = std::to_string(bp->dc.mapq1);
       else
-	info_fields["DISC_MAPQ"] = to_string(bp->dc.mapq2);
+	info_fields["DISC_MAPQ"] = std::to_string(bp->dc.mapq2);
     }
 
   }
@@ -808,14 +808,14 @@ std::string VCFEntry::getAltString() const {
   
   std::string ref = getRefString();
 
-  stringstream ptag;
+  std::stringstream ptag;
   if (id_num == 1) {
     ptag << bp->b2.chr_name << ":" << bp->b2.gr.pos1;
   } else {
     ptag << bp->b1.chr_name << ":" << bp->b1.gr.pos1;
   }
   
-  stringstream alt;
+  std::stringstream alt;
   if (bp->b1.gr.strand == '+' && bp->b2.gr.strand == '+') {
     alt << ref << "]" << ptag.str() << "]";
   } else if (bp->b1.gr.strand =='+' && bp->b2.gr.strand == '-') {
@@ -838,9 +838,9 @@ std::string VCFEntry::getAltString() const {
 std::string VCFEntry::getIdString() const {
 
   if (!bp->indel)
-    return(to_string(id) + ":" + to_string(id_num));
+    return(std::to_string(id) + ":" + std::to_string(id_num));
 
-  return(to_string(id));
+  return(std::to_string(id));
 
 }
 
@@ -858,11 +858,11 @@ std::pair<std::string, std::string> VCFEntry::getSampStrings() const {
   
   std::string samp1, samp2;
   if (!bp->indel) {
-    samp2 = to_string(numt) + ":" + to_string(bp->dc.tcount) + ":" + to_string(bp->tsplit) + ":" + new_readid_t;
-    samp1 = to_string(numn) + ":" + to_string(bp->dc.ncount) + ":" + to_string(bp->nsplit) + ":" + new_readid_n;
+    samp2 = std::to_string(numt) + ":" + std::to_string(bp->dc.tcount) + ":" + std::to_string(bp->tsplit) + ":" + new_readid_t;
+    samp1 = std::to_string(numn) + ":" + std::to_string(bp->dc.ncount) + ":" + std::to_string(bp->nsplit) + ":" + new_readid_n;
   } else {
-    samp2 = to_string(bp->tsplit) + ":" + new_readid_t;
-    samp1 = to_string(bp->nsplit) + ":" + new_readid_n;
+    samp2 = std::to_string(bp->tsplit) + ":" + new_readid_t;
+    samp1 = std::to_string(bp->nsplit) + ":" + new_readid_n;
   }
 
   return std::pair<std::string, std::string>(samp1, samp2);
@@ -870,6 +870,6 @@ std::pair<std::string, std::string> VCFEntry::getSampStrings() const {
 
 }
 
-void VCFHeader::addContigField(string id, int len) {
+void VCFHeader::addContigField(std::string id, int len) {
   contigfieldmap[id] = std::to_string(len);
 }
