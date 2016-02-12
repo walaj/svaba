@@ -34,6 +34,7 @@ SnowmanSV/src/Snowman/snowman -t tumor.bam -n normal.bam -k 22 -G ref.fa -a test
 
 ## get help
 snowman --help
+```
 
 Description
 -----------
