@@ -656,7 +656,7 @@ namespace SnowTools {
     
     double ratio = n.alt > 0 ? (double)t.alt / (double)n.alt : 100;
     double taf = t.cov > 0 ? (double)t.alt / (double)t.cov : 0;
-    bool immediate_reject = ratio <= 5 || n.alt > 2; // can't call somatic with 3+ reads or <5x more tum than norm ALT
+    bool immediate_reject = (ratio <= 12 && n.cov > 10) || n.alt >= 2; // can't call somatic with 3+ reads or <5x more tum than norm ALT
   
   if (evidence == "INDEL") {
     
