@@ -114,7 +114,7 @@ bool runAC(const ContigElement * c) {
   for (auto& i : allbreaks)
     i.addCovs(covs, clip_covs);
   for (auto& i : allbreaks)
-    i.scoreBreakpoint(8, 2.5, 7);
+    i.scoreBreakpoint(8, 2.5, 7, 3);
   for (auto& i : allbreaks)
     i.setRefAlt(f, nullptr);
 

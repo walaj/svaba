@@ -89,7 +89,7 @@ namespace opt {
 
   static bool exome = false;
 
-  static bool run_blat = true;
+  static bool run_blat = false;
 
   static std::string ooc = "/xchip/gistic/Jeremiah/blat/11.ooc";
 
@@ -149,6 +149,7 @@ namespace opt {
   static double lod = 8;
   static double lod_db = 7;
   static double lod_no_db = 2.5;
+  static double lod_germ = 3;
 
 }
 
@@ -157,6 +158,7 @@ enum {
   OPT_LOD,
   OPT_DLOD,
   OPT_NDLOD,
+  OPT_LODGERM,
   OPT_DISC_CLUSTER_ONLY,
   OPT_READ_TRACK,
   OPT_NO_ASSEMBLE_NORMAL,
@@ -199,6 +201,7 @@ static const struct option longopts[] = {
   { "lod",                   required_argument, NULL, OPT_LOD },
   { "lod-dbsnp",             required_argument, NULL, OPT_DLOD },
   { "lod-no-dbsnp",          required_argument, NULL, OPT_NDLOD },
+  { "lod-germ",              required_argument, NULL, OPT_LODGERM },
   { "discordant-only",       no_argument, NULL, OPT_DISCORDANT_ONLY },
   { "num-to-sample",         required_argument, NULL, OPT_NUM_TO_SAMPLE },
   { "refilter",              no_argument, NULL, OPT_REFILTER },
@@ -211,7 +214,7 @@ static const struct option longopts[] = {
   { "no-adapter-trim",       no_argument, NULL, OPT_ADAPTER_TRIM },
   { "num-assembly-rounds",   required_argument, NULL, OPT_NUM_ASSEMBLY_ROUNDS },
   { "assemble-by-tag",       required_argument, NULL, OPT_GEMCODE_AWARE },
-  { "no-blat",       no_argument, NULL, OPT_NOBLAT },
+  { "with-blat",             no_argument, NULL, OPT_NOBLAT },
   { NULL, 0, NULL, 0 }
 };
 
@@ -229,9 +232,10 @@ static const char *RUN_USAGE_MESSAGE =
 "  -G, --reference-genome               Path to indexed reference genome to be used by BWA-MEM. Default is Broad hg19 (/seq/reference/...)\n"
 "  -t, --tumor-bam                      Tumor BAM file\n"
 "  Variant filtering and classification\n"
-"      --lod                            LOD cutoff to classify indel as real / artifact [8]\n"
+"      --lod                            LOD cutoff to classify somatic indel as real / artifact (tests AF=0 vs AF=MaxLikelihood(AF)) [8]\n"
 "      --lod-dbsnp                      LOD cutoff to classify indel as somatic (at DBsnp site) [7]\n"
 "      --lod-no-dbsnp                   LOD cutoff to classify indel as somatic (not at DBsnp site) [2.5]\n"
+"      --lod-germ                       LOD cutoff for germline indels that variant is real (tests AF=0 vs AF=0.5)[3]\n"
 "  Optional input\n"                       
 "  -n, --normal-bam                     Normal BAM file\n"
 "  -r, --rules                          VariantBam style rules string to determine which reads to do assembly on. See documentation for default.\n"
@@ -255,6 +259,7 @@ static const char *RUN_USAGE_MESSAGE =
 "      --num-assembly-rounds            Number of times to run the assembler per window. > 1 will bootstrap the assembly with error rate = 0.05.\n"
 "      --num-to-sample                  When learning about BAM, number of reads to sample. Default 1,000,000.\n"
 "      --motif-filter                   Add a motif file to exclude reads that contain this motif (e.g. illumina adapters).\n"
+"      --with-blat                      Run BLAT on assembled contigs that have clips/indels to reference. Single-thread only. In-development. Outputs *.blat.bam\n"
 "  Assembly params\n"
 "      --write-asqg                     Output an ASQG graph file for each 5000bp window. Default: false\n"
 "  -e, --error-rate                     Fractional difference two reads can have to overlap. See SGA param. 0 is fast, but requires exact. Default: 0.05\n"
@@ -295,8 +300,9 @@ void runSnowman(int argc, char** argv) {
     "    Remove clipped reads with adapters? " << (opt::adapter_trim ? "TRUE" : "FALSE") << std::endl << 
     "    Minimum number of reads for mate lookup " << opt::mate_lookup_min << std::endl <<
     "    LOD cutoff (artifact vs real) :  " << opt::lod << std::endl << 
-    "    LOD cutoff (somatic, at DBSNP):  " << opt::lod_db << std::endl << 
-    "    LOD cutoff (somatic, no DBSNP):  " << opt::lod_no_db << std::endl;
+    "    LOD cutoff (somatic vs germline, at DBSNP):  " << opt::lod_db << std::endl << 
+    "    LOD cutoff (somatic vs germlin, no DBSNP):  " << opt::lod_no_db << std::endl << 
+    "    LOD cutoff (germline, AF>=0.5 vs AF=0):  " << opt::lod_germ << std::endl;
   if (!opt::run_blat)
     ss << "    Running with BWA-MEM only (no BLAT)" << std::endl;
   if (opt::assemb::writeASQG)
@@ -448,7 +454,7 @@ void runSnowman(int argc, char** argv) {
   // write the headers
   os_allbps << SnowTools::BreakPoint::header();
   for (auto& b : opt::bam) 
-    os_allbps << "\t" << boost::filesystem::path(b.second).filename();
+    os_allbps << "\t" << b.first << "_" << boost::filesystem::path(b.second).filename().string();
   os_allbps << std::endl;
   all_disc_stream << SnowTools::DiscordantCluster::header() << std::endl;
 
@@ -539,14 +545,14 @@ void makeVCFs() {
 
     std::cerr << "...writing unfiltered VCFs" << std::endl;
     snowvcf.include_nonpass = true;
-    snowvcf.writeIndels(basename, opt::zip);
-    snowvcf.writeSVs(basename, opt::zip);
+    snowvcf.writeIndels(basename, opt::zip, opt::bam.size() == 1);
+    snowvcf.writeSVs(basename, opt::zip, opt::bam.size() == 1);
 
     std::cerr << "...writing filtered VCFs" << std::endl;
     basename = opt::analysis_id + ".snowman.";
     snowvcf.include_nonpass = false;
-    snowvcf.writeIndels(basename, opt::zip);
-    snowvcf.writeSVs(basename, opt::zip);
+    snowvcf.writeIndels(basename, opt::zip, opt::bam.size() == 1);
+    snowvcf.writeSVs(basename, opt::zip, opt::bam.size() == 1);
 
   } else {
     std::cerr << "Failed to make VCF. Could not file bps file " << file << std::endl;
@@ -569,7 +575,7 @@ void parseRunOptions(int argc, char** argv) {
     std::istringstream arg(optarg != NULL ? optarg : "");
     switch (c) {
     case OPT_REFILTER : opt::refilter = true; break;
-    case OPT_NOBLAT : opt::run_blat = false; break;
+    case OPT_NOBLAT : opt::run_blat = true; break;
       case 'p': arg >> opt::numThreads; break;
       case 'm': arg >> opt::assemb::minOverlap; break;
       case 'a': arg >> opt::analysis_id; break;
@@ -594,9 +600,10 @@ void parseRunOptions(int argc, char** argv) {
     case OPT_ADAPTER_TRIM: opt::adapter_trim = false; break;
     case OPT_NO_ASSEMBLE_NORMAL: opt::no_assemble_normal = true; break;
     case OPT_EXOME: opt::exome = true; break;
-    case OPT_LOD: opt::lod = true; break;
-    case OPT_DLOD: opt::lod_db = true; break;
-    case OPT_NDLOD: opt::lod_no_db = true; break;
+    case OPT_LOD: arg >> opt::lod; break;
+    case OPT_DLOD: arg >> opt::lod_db; break;
+    case OPT_NDLOD: arg >> opt::lod_no_db; break;
+    case OPT_LODGERM: arg >> opt::lod_germ; break;
     case OPT_MAX_COV: arg >> opt::max_cov;  break;
     case OPT_NUM_TO_SAMPLE: arg >> opt::num_to_sample;  break;
     case OPT_READ_TRACK: opt::no_reads = false; break;
@@ -920,9 +927,13 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 
 	// align with BLAT
 	if (main_blat) {
-	  for (auto& r : ct_alignments)
-	    if (r.NumClip() >= 20 || r.MaxDeletionBases() || r.MaxInsertionBases())
-	      main_blat->querySequence(r.Qname() + "_BLAT", r.Sequence(), blat_alignments);
+	  std::set<std::string> sset;
+	  for (auto& r : ct_alignments) {
+	    std::string q = r.Qname();
+	    if (!sset.count(q) && (r.NumClip() >= 20 || r.MaxDeletionBases() || r.MaxInsertionBases()))
+	      main_blat->querySequence(q + "_BLAT", r.Sequence(), blat_alignments);
+	    sset.insert(q);
+	  }
 	}
 	
 	// same for BLAT alignments
@@ -934,7 +945,6 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 	    } else {
 	      std::cerr << " FAILED TO PARSE CHR FOR BLAT " << std::endl;
 	    }
-
 	  }
 
 	// remove human alignments that are not as good as microbe
@@ -1101,7 +1111,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
     std::cerr << "...scoring breakpoints" << std::endl;
 
   for (auto& i : bp_glob)
-    i.scoreBreakpoint(opt::lod, opt::lod_db, opt::lod_no_db);
+    i.scoreBreakpoint(opt::lod, opt::lod_db, opt::lod_no_db, opt::lod_germ);
 
   // label somatic breakpoints that intersect directly with normal as NOT somatic
   if (opt::verbose > 2)

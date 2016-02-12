@@ -232,9 +232,10 @@ VCFFile::VCFFile(std::string file, std::string id, bam_hdr_t * h, const VCFHeade
   indel_header.addFilterField("WEAKCIGARMATCH","For indels <= 5 bp, require 8+ split reads or 4+ and 3+ cigar matches");
   indel_header.addFilterField("PASS", "3+ split reads, 60 contig MAPQ");
   indel_header.addFilterField("GRAYLISTANDPON", "Indel overlaps with panel of normals, and has overlap with tricky genomic region");
-  indel_header.addFilterField("LOWAF", "Low allelic fraction  (< 0.05)");
-  indel_header.addFilterField("LOWAF", "LOD score < cutoff with --lod");
+  indel_header.addFilterField("LOWAF", "LOD score < cutoff with --lod or allelic fraction < 0.05");
   indel_header.addFilterField("LOWNORMCOV", "Fewer than 5 normal reads at this site");
+  indel_header.addFilterField("GERMLOWAF", "Germline variant with support for being AF of 0.5+ (LR) less than cutoff");
+
   //indel_header.addSampleField(sample_id_norm);
   //indel_header.addSampleField(sample_id_tum);
   //indel_header.colnames = indel_header.colnames + "\t" + sample_id_norm + "\t" + sample_id_tum;
@@ -283,7 +284,7 @@ VCFFile::VCFFile(std::string file, std::string id, bam_hdr_t * h, const VCFHeade
   indel_header.addFormatField("PL","1","Integer","Normalized likelihood of the current genotype (currently not supported, always 0)");
   indel_header.addFormatField("SR","1","Integer","Number of spanning reads for this variants");
   indel_header.addFormatField("CR","1","Integer","Number of cigar-supported reads for this variant");
-  indel_header.addFormatField("LR","1","Float","Log-odds that this variant is REF vs AF=0.5");
+  indel_header.addFormatField("LR","1","Float","Log-odds that this variant is AF=0 vs AF>=0.5");
   indel_header.addFormatField("LO","1","Float","Log-odds that this variant is real vs artifact");
   indel_header.addFormatField("SL","1","Float","Alignment-quality Scaled log-odds, where LO is LO * (MAPQ - 2*NM)/60");
 
@@ -303,6 +304,8 @@ VCFFile::VCFFile(std::string file, std::string id, bam_hdr_t * h, const VCFHeade
   indel_header.addInfoField("SOMATIC","0","Flag","Variant is somatic");
   indel_header.addInfoField("PON","1","Integer","Number of normal samples that have this indel present");
   indel_header.addInfoField("NM","1","Integer","Number of mismatches of this alignment fragment to reference");
+  indel_header.addInfoField("READNAMES",".","String","IDs of ALT reads");
+  indel_header.addInfoField("LOD","1","Float","Log of the odds that variant is real vs artifact");
 
   // keep track of exact positions to keep from duplicating
   // read the reference if not open
@@ -462,13 +465,18 @@ bool VCFEntry::operator==(const VCFEntry &v) const {
 }
 
 // write out somatic and germline INDEL vcfs
-void VCFFile::writeIndels(string basename, bool zip) const {
+void VCFFile::writeIndels(string basename, bool zip, bool onefile) const {
 
   std::string gname = basename + "germline.indel.vcf.gz";
   std::string sname = basename + "somatic.indel.vcf.gz";
   std::string gname_nz = basename + "germline.indel.vcf";
   std::string sname_nz = basename + "somatic.indel.vcf";
 
+  if (onefile) {
+    gname_nz = basename + "indel.vcf";
+    gname    = basename + "indel.vcf.gz";
+  }
+    
   ofstream out_g, out_s;
 
   BGZF* g_bg = NULL;
@@ -476,20 +484,23 @@ void VCFFile::writeIndels(string basename, bool zip) const {
 
   if (zip) {
     g_bg = bgzf_open(gname.c_str(), "w");
-    s_bg = bgzf_open(sname.c_str(), "w");
+    if (!onefile) s_bg = bgzf_open(sname.c_str(), "w");
     std::stringstream indel_h;
     indel_h << indel_header << endl;
     if (!bgzf_write(g_bg, indel_h.str().c_str(), indel_h.str().length())) {
       cerr << "Could not write bzipped vcf" << endl;
     }
-    if (!bgzf_write(s_bg, indel_h.str().c_str(), indel_h.str().length())) {
-      cerr << "Could not write bzipped vcf" << endl;
+    if (!onefile)
+      if (!bgzf_write(s_bg, indel_h.str().c_str(), indel_h.str().length())) {
+	cerr << "Could not write bzipped vcf" << endl;
     }
   } else {
     out_g.open(gname_nz.c_str());
-    out_s.open(sname_nz.c_str());
+    if (!onefile)
+      out_s.open(sname_nz.c_str());
     out_g << indel_header << endl;
-    out_s << indel_header << endl;
+    if (!onefile)
+      out_s << indel_header << endl;
   }
 
   VCFEntryVec tmpvec;
@@ -509,7 +520,7 @@ void VCFFile::writeIndels(string basename, bool zip) const {
       continue;
 
     std::stringstream ss;
-    if (i.bp->somatic_score >= SOMATIC_LOD) {
+    if (!onefile && i.bp->somatic_score >= SOMATIC_LOD) {
       if (zip) 
 	__write_to_zip_vcf(i, s_bg);
       else 
@@ -526,28 +537,37 @@ void VCFFile::writeIndels(string basename, bool zip) const {
   
   if (zip) {
     bgzf_close(g_bg);
-    bgzf_close(s_bg);
+    if (!onefile)
+      bgzf_close(s_bg);
   } else {
     out_g.close();
-    out_s.close();
+    if (!onefile)
+      out_s.close();
   }
   
   if (zip) {
     // tabix it
     tabixVcf(gname);
-    tabixVcf(sname);
+    if (!onefile)
+      tabixVcf(sname);
   }
   
 }
 
 // write out somatic and germline SV vcfs
-void VCFFile::writeSVs(std::string basename, bool zip) const {
+void VCFFile::writeSVs(std::string basename, bool zip, bool onefile) const {
   
   std::string gname, sname, gname_nz, sname_nz; 
   gname = basename + "germline.sv.vcf.gz";
   sname = basename + "somatic.sv.vcf.gz";
   gname_nz = basename + "germline.sv.vcf";
   sname_nz = basename + "somatic.sv.vcf";
+
+  if (onefile) {
+    gname    = basename + "sv.vcf.gz";
+    gname_nz = basename + "sv.vcf";
+
+  }
 
   ofstream out_g, out_s;
 
@@ -556,21 +576,25 @@ void VCFFile::writeSVs(std::string basename, bool zip) const {
 
   if (zip) {
     g_bg = bgzf_open(gname.c_str(), "w");
-    s_bg = bgzf_open(sname.c_str(), "w");
+    if (!onefile)
+      s_bg = bgzf_open(sname.c_str(), "w");
     std::stringstream sv_h;
     sv_h << sv_header << endl;
     if (!bgzf_write(g_bg, sv_h.str().c_str(), sv_h.str().length())) {
       cerr << "Could not write bzipped vcf" << endl;
     }
-    if (!bgzf_write(s_bg, sv_h.str().c_str(), sv_h.str().length())) {
-      cerr << "Could not write bzipped vcf" << endl;
-    }
+    if (!onefile)
+      if (!bgzf_write(s_bg, sv_h.str().c_str(), sv_h.str().length())) {
+	cerr << "Could not write bzipped vcf" << endl;
+      }
   } else {
     out_g.open(gname_nz.c_str());
-    out_s.open(sname_nz.c_str());
+    if (!onefile)
+      out_s.open(sname_nz.c_str());
 
     out_g << sv_header << endl;
-    out_s << sv_header << endl;
+    if (!onefile)
+      out_s << sv_header << endl;
   }
     
   VCFEntryVec tmpvec;
@@ -609,7 +633,7 @@ void VCFFile::writeSVs(std::string basename, bool zip) const {
       continue;
     
     // somatic
-    if ( i.bp->somatic_score >= SOMATIC_LOD) { 
+    if (!onefile &&  i.bp->somatic_score >= SOMATIC_LOD) { 
       if (zip) 
 	__write_to_zip_vcf(i, s_bg);
       else
@@ -626,15 +650,20 @@ void VCFFile::writeSVs(std::string basename, bool zip) const {
   
   if (zip) {
     bgzf_close(g_bg);
-    bgzf_close(s_bg);
+    if (!onefile)
+      bgzf_close(s_bg);
   } else {
     out_s.close();
-    out_g.close();
+    if (!onefile)
+      out_g.close();
   }
 
   // tabix it
-  if (zip) 
-    tabixVcf(sname);
+  if (zip) {
+    if (!onefile)
+      tabixVcf(sname); 
+    tabixVcf(gname);
+  }
 
 }
 

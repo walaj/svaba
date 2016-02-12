@@ -161,13 +161,13 @@ void runAssembly2VCF(int argc, char** argv)
   VCFFile snowvcf(file, "assembly", twalk.header(), header);
   std::string basename = "assembly.unfiltered.";
   snowvcf.include_nonpass = true;
-  snowvcf.writeIndels(basename, zip);
-  snowvcf.writeSVs(basename, zip);
+  snowvcf.writeIndels(basename, zip, false);
+  snowvcf.writeSVs(basename, zip, false);
   
   basename = "assembly.";
   snowvcf.include_nonpass = false;
-  snowvcf.writeIndels(basename, zip);
-  snowvcf.writeSVs(basename, zip);
+  snowvcf.writeIndels(basename, zip, false);
+  snowvcf.writeSVs(basename, zip, false);
   
 
 

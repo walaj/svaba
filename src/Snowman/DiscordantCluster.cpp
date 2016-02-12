@@ -293,7 +293,7 @@ namespace SnowTools {
     std::string sep = "\t";
     
     // add the reads names (currently off)
-    std::string reads_string = "x";
+    std::string reads_string;
     if (with_read_names) 
       {
       for (auto& i : reads) 
@@ -302,17 +302,18 @@ namespace SnowTools {
 	  reads_string += tmp + ",";
 	}
       
-      if (reads_string.length() == 0)
+      if (reads_string.empty())
 	reads_string = "x";
       else
-	reads_string = reads_string.substr(0,reads_string.length() - 1);
+	reads_string.pop_back(); // delete last comma
       }
     
     std::stringstream out;
     out << m_reg1.chr+1 << sep << m_reg1.pos1 << sep << m_reg1.strand << sep 
 	<< m_reg2.chr+1 << sep << m_reg2.pos1 << sep << m_reg2.strand << sep 
 	<< tcount << sep << ncount << sep << mapq1 << sep 
-	<< mapq2 << sep << m_contig << sep << reads_string;
+	<< mapq2 << sep << (m_contig.length() ? m_contig : "x") << sep << reads_string
+	<< sep << toRegionString();
 
     return (out.str());
     
@@ -326,7 +327,6 @@ namespace SnowTools {
     if (m_reg1.pos1 < b.m_reg1.pos1)
       return true;
     return false;
-    
   }
   
   /**

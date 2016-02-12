@@ -274,7 +274,7 @@ namespace SnowTools {
    
    /*! Score a breakpoint with a QUAL score, and as somatic or germline
     */
-   void scoreBreakpoint(double LOD_CUTOFF, double DBCUTOFF, double NODBCUTOFF);
+   void scoreBreakpoint(double LOD_CUTOFF, double DBCUTOFF, double NODBCUTOFF, double LRCUTOFF);
    
    /*! Compute the allelic fraction (tumor and normal) for this BreakPoint.
     *
