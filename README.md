@@ -9,8 +9,6 @@ Installation
 ------------
 We recommend compiling with GCC-4.8 or greater.
 
-<img src="https://raw.githubusercontent.com/broadinstitute/SnowmanSV/master/figures/labels_sm.png?token=AGmfiBN2zZrv7tFaZXAdEAKTY7xxo7ROks5Vy2oswA%3D%3D" width="200">
-
 ```
 ### if on Broad Institute servers, add GCC-4.9
 reuse -q GCC-4.9
@@ -108,3 +106,5 @@ Snowman can refilter the bps.txt.gz file to produce new VCFs with different stri
 > ``-i`` - input bps.txt.gz file
 
 [vbam]: https://github.com/jwalabroad/VariantBam
+
+[license]: https://github.com/broadinstitute/variant-bam/blob/master/LICENSE
