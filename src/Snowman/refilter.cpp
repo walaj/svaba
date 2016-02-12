@@ -12,20 +12,39 @@
 
 #include <sstream>
 
+static ogzstream os_allbps_r;
+
 namespace opt {
 
-  static std::string input_file = "";
-  static std::string output_file = "";
+  static std::string input_file;
+  static std::string output_file;
   static std::string pon = "";
-  static std::string analysis_id = "noid";
+  static std::string analysis_id = "refilter";
   static bool noreads = false;
-  static std::string indel_mask = "";
+  static std::string indel_mask;
 
   static std::string ref_index = "/seq/references/Homo_sapiens_assembly19/v1/Homo_sapiens_assembly19.fasta";
+
+  static std::string normal_bam;
+  static std::string tumor_bam;
+
   static std::string bam;
 
   static int verbose = 1;
+
+  static double lod = 8;
+  static double lod_db = 7;
+  static double lod_no_db = 2.5;
+  static double lod_germ = 3;
 }
+
+enum { 
+  OPT_LOD,
+  OPT_DLOD,
+  OPT_NDLOD,
+  OPT_LODGERM
+};
+
 
 static const char* shortopts = "hxi:a:v:q:g:m:b:";
 static const struct option longopts[] = {
@@ -33,11 +52,18 @@ static const struct option longopts[] = {
   { "input-bps",               required_argument, NULL, 'i'},
   { "bam",                     required_argument, NULL, 'b'},
   { "panel-of-normals",        required_argument, NULL, 'q'},
+  { "tumor-bam",               required_argument, NULL, 't' },
+  { "normal-bam",               required_argument, NULL, 'n' },
   { "indel-mask",              required_argument, NULL, 'm'},
   { "reference-genome",        required_argument, NULL, 'g'},
   { "analysis-id",             required_argument, NULL, 'a'},
   { "no-reads",                no_argument, NULL, 'x'},
   { "verbose",                 required_argument, NULL, 'v' },
+  { "lod",                   required_argument, NULL, OPT_LOD },
+  { "lod-dbsnp",             required_argument, NULL, OPT_DLOD },
+  { "lod-no-dbsnp",          required_argument, NULL, OPT_NDLOD },
+  { "lod-germ",          required_argument, NULL, OPT_LODGERM },
+
   { NULL, 0, NULL, 0 }
 };
 
@@ -53,6 +79,11 @@ static const char *BP_USAGE_MESSAGE =
 "  -b, --opt-bam                        Input BAM file to get header from\n"
 "  Required input\n"
 "  -i, --input-bps                      Original bps.txt.gz file\n"
+"  -b, --bam                            BAM file used to grab header from\n"
+"  Variant filtering and classification\n"
+"      --lod                            LOD cutoff to classify indel as real / artifact [8]\n"
+"      --lod-dbsnp                      LOD cutoff to classify indel as somatic (at DBsnp site) [7]\n"
+"      --lod-no-dbsnp                   LOD cutoff to classify indel as somatic (not at DBsnp site) [2.5]\n"
 "  Optional input\n"                       
 "  -q, --panel-of-normals               Panel of normals files generated from snowman pon\n"                       
 "  -a, --id-string                      String specifying the analysis ID to be used as part of ID common.\n"
@@ -72,7 +103,6 @@ void parseBreakOptions(int argc, char** argv) {
     std::istringstream arg(optarg != NULL ? optarg : "");
     switch (c) {
     case 'h': die = true; break;
-    case 'b': arg >> opt::bam; break;
     case 'g': arg >> opt::ref_index; break;
     case 'm': arg >> opt::indel_mask; break;
     case 'i': arg >> opt::input_file; break;
@@ -80,6 +110,11 @@ void parseBreakOptions(int argc, char** argv) {
     case 'q': arg >> opt::pon; break;
     case 'a': arg >> opt::analysis_id; break;
     case 'x': opt::noreads = true; break;
+    case OPT_LOD: arg >> opt::lod; break;
+    case OPT_DLOD: arg >> opt::lod_db; break;
+    case OPT_NDLOD: arg >> opt::lod_no_db; break;
+    case OPT_LODGERM: arg >> opt::lod_germ; break;
+    case 'b': arg >> opt::bam; break; 
     }
   }
   
@@ -92,7 +127,7 @@ void parseBreakOptions(int argc, char** argv) {
   }
 
   if (die) {
-    std::cout << "\n" << BP_USAGE_MESSAGE;
+    std::cerr << "\n" << BP_USAGE_MESSAGE;
     exit(1);
   }
 }
@@ -103,12 +138,18 @@ void runRefilterBreakpoints(int argc, char** argv) {
   
   opt::output_file = opt::analysis_id + ".filtered.bps.txt.gz";
   if (opt::verbose > 0) {
-    std::cout << "Input bps file:  " << opt::input_file << std::endl;
-    std::cout << "Output bps file: " << opt::output_file << std::endl;
-    std::cout << "Panel of normals file: " << opt::pon << std::endl;
-    std::cout << "Indel mask BED:      " << opt::indel_mask << std::endl;
-    std::cout << "Analysis id: " << opt::analysis_id << std::endl;
+    std::cerr << "Input bps file:  " << opt::input_file << std::endl;
+    std::cerr << "Output bps file: " << opt::output_file << std::endl;
+    std::cerr << "Panel of normals file: " << opt::pon << std::endl;
+    std::cerr << "Indel mask BED:      " << opt::indel_mask << std::endl;
+    std::cerr << "Analysis id: " << opt::analysis_id << std::endl;
+    std::cerr << "    LOD cutoff (artifact vs real) :  " << opt::lod << std::endl << 
+    "    LOD cutoff (somatic, at DBSNP):  " << opt::lod_db << std::endl << 
+    "    LOD cutoff (somatic, no DBSNP):  " << opt::lod_no_db << std::endl <<
+    "    LOD cutoff (germline, AF>=0.5 vs AF=0):  " << opt::lod_germ << std::endl;
+
   }
+
     
   if (!SnowTools::read_access_test(opt::input_file)) {
     std::cerr << "ERROR: Cannot read file " << opt::input_file  << std::endl;
@@ -119,7 +160,7 @@ void runRefilterBreakpoints(int argc, char** argv) {
 
   // load the reference index
   //if (opt::verbose > 0)
-  //  std::cout << "attempting to load: " << opt::ref_index << std::endl;
+  //  std::cerr << "attempting to load: " << opt::ref_index << std::endl;
   //faidx_t * findex = fai_load(opt::ref_index.c_str());  // load the reference
   
   // open the output file
@@ -144,27 +185,78 @@ void runRefilterBreakpoints(int argc, char** argv) {
   if (opt::indel_mask.length()) 
     grv_mask.regionFileToGRV(opt::indel_mask, 0, NULL);
  
-
   VCFHeader header;
   header.filedate = SnowmanUtils::fileDateString();
   header.source = "";//opt::args;
   header.reference = "";//opt::refgenome;
 
+  // open bps file
+  std::string new_bps_file = opt::analysis_id + ".bps.txt.gz";
+  SnowmanUtils::fopen(new_bps_file, os_allbps_r);
+
+  // read in the BPS
+  std::vector<std::string> allele_names; // store with real name
+  std::map<std::string, SnowTools::SampleInfo> tmp_alleles;
+  std::string line, line2, val;
+  igzstream infile(opt::input_file.c_str(), std::ios::in);
+  size_t line_count = 0;
+  while (getline(infile, line, '\n')) {
+    if (line_count == 0) {
+      os_allbps_r << line << std::endl;
+      std::istringstream f(line);
+      size_t scount = 0;
+      while (std::getline(f, val, '\t')) {
+	++scount;
+	if (scount > 33) { // 34th column should be first sample ID
+	  assert(val.at(0) == 't' || val.at(0) == 'n');
+	    allele_names.push_back(val);
+	}
+      }
+
+    } else {
+	SnowTools::BreakPoint * bp = new SnowTools::BreakPoint(line, bwalker.header());
+
+	// fill in with the correct names from the header of bps.txt
+	std::string id = "";
+	for (auto& i : allele_names) {
+	  id += "A";
+	  tmp_alleles[i] = bp->allele[id];
+	}
+	bp->allele = tmp_alleles;
+
+	// fill in discordant info
+	for (auto& i : bp->allele) {
+	  if (i.first.at(0) == 't')
+	    bp->dc.tcount += i.second.disc;
+	  else
+	    bp->dc.tcount += i.second.disc;
+	}
+
+	// score them
+	bp->scoreBreakpoint(opt::lod, opt::lod_db, opt::lod_no_db, opt::lod_germ);
+	os_allbps_r << bp->toFileString(/*opt::no_reads*/false) << std::endl;
+	delete bp;
+      }
+    ++line_count;
+  }
+
+  os_allbps_r.close();
+  
   // primary VCFs
   std::cerr << " input file " << opt::input_file << std::endl;
-  if (SnowTools::read_access_test(opt::input_file)) {
+  if (SnowTools::read_access_test(new_bps_file)) {
     if (opt::verbose)
-      std::cerr << "...making the primary VCFs (unfiltered and filtered) from file " << opt::input_file << std::endl;
-    VCFFile snowvcf(opt::input_file, opt::analysis_id, bwalker.header(), header);
+      std::cerr << "...making the primary VCFs (unfiltered and filtered) from file " << new_bps_file << std::endl;
+    VCFFile snowvcf(new_bps_file, opt::analysis_id, bwalker.header(), header);
     std::string basename = opt::analysis_id + ".snowman.unfiltered.";
     snowvcf.include_nonpass = true;
-    snowvcf.writeIndels(basename, false);
-    snowvcf.writeSVs(basename, false);
+    snowvcf.writeIndels(basename, false, false);
+    snowvcf.writeSVs(basename, false, false);
 
     basename = opt::analysis_id + ".snowman.";
     snowvcf.include_nonpass = false;
-    snowvcf.writeIndels(basename, false);
-    snowvcf.writeSVs(basename, false);
+    snowvcf.writeIndels(basename, false, false);
+    snowvcf.writeSVs(basename, false, false);
 
   } else {
     std::cerr << "Failed to make VCF. Could not file bps file " << opt::input_file << std::endl;
@@ -180,7 +272,7 @@ void runRefilterBreakpoints(int argc, char** argv) {
   }
   
   if (opt::verbose)
-    std::cout << "...refiltering variants" << std::endl;
+    std::cerr << "...refiltering variants" << std::endl;
   
   // set the header
   oz << SnowTools::BreakPoint::header() << std::endl;
@@ -233,7 +325,7 @@ void runRefilterBreakpoints(int argc, char** argv) {
   // make the VCF files
   /*
     if (opt::verbose)
-    std::cout << "...converting filtered.bps.txt.gz to vcf files" << std::endl;
+    std::cerr << "...converting filtered.bps.txt.gz to vcf files" << std::endl;
     VCFFile filtered_vcf(opt::output_file, opt::ref_index.c_str(), '\t', opt::analysis_id);
     
     // output the vcfs

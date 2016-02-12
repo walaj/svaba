@@ -44,7 +44,7 @@ namespace SnowTools
 
     /** Return a string representing the output file header */
     static std::string header() { 
-      return "chr1\tpos1\tstrand1\tchr2\tpos2\tstrand2\ttcount\tncount\tmapq1\tmapq2\treads"; 
+      return "chr1\tpos1\tstrand1\tchr2\tpos2\tstrand2\ttcount\tncount\tmapq1\tmapq2\treads\tcname"; 
     }
     
     bool hasAssociatedAssemblyContig() const { return m_contig.length(); }
@@ -83,7 +83,7 @@ namespace SnowTools
 
     int tcount = 0;
     int ncount = 0; 
-    std::unordered_map<std::string, int> counts;
+    std::unordered_map<std::string, int> counts; // supporting read counts per sample (e.g. t001 - 4, n001 - 6)
 
     std::unordered_map<std::string, BamRead> reads;
     std::unordered_map<std::string, BamRead> mates;

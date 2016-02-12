@@ -50,7 +50,6 @@ namespace SnowTools {
       max_lod = std::max(max_lod, s.second.LO);
     }
 
-
     ss << b1.chr_name << sep << b1.gr.pos1 << sep << b1.gr.strand << sep 
        << b2.chr_name << sep << b2.gr.pos1 << sep << b2.gr.strand << sep 
        << ref << sep << alt << sep 
@@ -101,15 +100,30 @@ namespace SnowTools {
     dc = tdc;
     
     assert(tdc.reads.size());
-    std::string chr_name = bwa->ChrIDToName(tdc.reads.begin()->second.ChrID());
+    std::string chr_name1 = bwa->ChrIDToName(dc.m_reg1.chr); //bwa->ChrIDToName(tdc.reads.begin()->second.ChrID());
+    std::string chr_name2 = bwa->ChrIDToName(dc.m_reg2.chr); //bwa->ChrIDToName(tdc.reads.begin()->second.ChrID());
 
     int pos1 = (dc.m_reg1.strand == '+') ? dc.m_reg1.pos2 : dc.m_reg1.pos1;
     int pos2 = (dc.m_reg2.strand == '+') ? dc.m_reg2.pos2 : dc.m_reg2.pos1;
-    b1 = BreakEnd(GenomicRegion(dc.m_reg1.chr, pos1, pos1), dc.mapq1, chr_name);
-    b2 = BreakEnd(GenomicRegion(dc.m_reg2.chr, pos2, pos2), dc.mapq2, chr_name);
+    b1 = BreakEnd(GenomicRegion(dc.m_reg1.chr, pos1, pos1), dc.mapq1, chr_name1);
+    b2 = BreakEnd(GenomicRegion(dc.m_reg2.chr, pos2, pos2), dc.mapq2, chr_name2);
     b1.gr.strand = dc.m_reg1.strand;
     b2.gr.strand = dc.m_reg2.strand;
 
+    // add the supporting read info to allels
+    for (auto& rr : dc.reads) {
+      std::string nn = rr.second.GetZTag("SR");
+      allele[nn.substr(0,4)].supporting_reads.insert(nn);
+    }
+    
+    // add the alt counts
+    for (auto& i : allele) {
+      i.second.indel = false;
+      i.second.disc = allele[i.first].supporting_reads.size();
+      i.second.alt = i.second.disc;
+    }
+      
+    // give a unique id
     cname = dc.toRegionString();
 
   }
@@ -162,12 +176,13 @@ namespace SnowTools {
     std::string val;
     size_t count = 0;
 
-    SampleInfo aaa;
+
 
     std::string chr1, pos1, chr2, pos2, chr_name1, chr_name2, id; 
+    id = "";//dummmy
     char strand1 = '*', strand2 = '*';
     while (std::getline(iss, val, '\t')) {
-
+      SampleInfo aaa;
       try{
 	switch(++count) {
 	case 1: chr1 = val; chr_name1 = val; break;
@@ -212,6 +227,14 @@ namespace SnowTools {
 	  aaa.fromString(val);
 	  id += "A";
 	  allele[id] = aaa; //id is dummy. just keep in order as came in;
+
+	  // fill in the discordant info
+	  if (id == "A") // tumor
+	    dc.tcount = aaa.disc;
+	  else
+	    dc.ncount += aaa.disc;
+	    
+
 	  break;
 	}
       } catch(...) {
@@ -513,21 +536,23 @@ namespace SnowTools {
 	      for (auto& c : d.second.counts) {
 		allele[c.first].disc = c.second;
 		allele[c.first].indel = num_align == 1;
-
-		// add the discordant reads names to supporting reads for each sampleinfo
-		for (auto& rr : d.second.reads) {
-		  std::string nn = rr.second.GetZTag("SR");
-		  allele[nn.substr(0,4)].supporting_reads.insert(nn);
-		}
-		for (auto& rr : d.second.mates){
-		  std::string nn = rr.second.GetZTag("SR");
-		  allele[nn.substr(0,4)].supporting_reads.insert(nn);
-		}
-		
-		// adjust the alt counts
-		for (auto& aa : allele)
-		  aa.second.alt = aa.second.supporting_reads.size();
 	      }
+
+	      // add the discordant reads names to supporting reads for each sampleinfo
+	      for (auto& rr : d.second.reads) {
+		std::string nn = rr.second.GetZTag("SR");
+		allele[nn.substr(0,4)].supporting_reads.insert(nn);
+	      }
+	      
+	      // this is probably not necessary below (redundant with above?)
+	      //for (auto& rr : d.second.mates){
+	      //std::string nn = rr.second.GetZTag("SR");
+	      //allele[nn.substr(0,4)].supporting_reads.insert(nn);
+	      //}
+	      
+	      // adjust the alt counts
+	      for (auto& aa : allele)
+		aa.second.alt = aa.second.supporting_reads.size();
 
 	  } 
 	
@@ -550,8 +575,11 @@ namespace SnowTools {
       evidence = "ASSMB";
     else if (num_align > 2)
       evidence = "COMPL";
-    else 
-      std::cerr << "num_align" << num_align << " isdisc " << " issplit "  << std::endl;
+    else {
+      //std::cerr << "cname " << cname << " num_align" << num_align << " isdisc " << " issplit "  << std::endl;
+      //assert(false);
+      
+    }
 
     assert(evidence.length());
 
@@ -626,15 +654,14 @@ namespace SnowTools {
   
   void BreakPoint::__score_somatic(double NODBCUTOFF, double DBCUTOFF) {
     
-    double ratio = n.alt > 0 ? t.alt / n.alt : 100;
-    double taf = t.cov > 0 ? t.alt / t.cov : 0;
+    double ratio = n.alt > 0 ? (double)t.alt / (double)n.alt : 100;
+    double taf = t.cov > 0 ? (double)t.alt / (double)t.cov : 0;
     bool immediate_reject = ratio <= 5 || n.alt > 2; // can't call somatic with 3+ reads or <5x more tum than norm ALT
   
   if (evidence == "INDEL") {
     
     somatic_lod = n.LO_n;
 
-    //double somatic_ratio = n.alt > 0 ? t.alt/n.alt : 100;
     if (rs.empty())
       somatic_score = somatic_lod > NODBCUTOFF && !immediate_reject;
     else
@@ -806,7 +833,7 @@ namespace SnowTools {
     
   }
 
-  void BreakPoint::scoreBreakpoint(double LOD_CUTOFF, double DBCUTOFF, double NODBCUTOFF) {
+  void BreakPoint::scoreBreakpoint(double LOD_CUTOFF, double DBCUTOFF, double NODBCUTOFF, double LRCUTOFF) {
     
     // set the evidence (INDEL, DSCRD, etc)
     __set_evidence();
@@ -817,10 +844,16 @@ namespace SnowTools {
     // 
     double er = repeat_seq.length() > 10 ? 0.04 : ERROR_RATES[repeat_seq.length()];
     if (evidence == "INDEL" || true)
-      for (auto& i : allele)
+      for (auto& i : allele) {
 	i.second.modelSelection(er);
-    
+      }
     __combine_alleles();
+
+    // kludge. make sure we have included the DC counts (should have done this arleady...)
+    if (evidence == "DSCRD" || evidence == "ASDIS") {
+      t.disc = dc.tcount;
+      n.disc = dc.ncount;
+    }
 
     // scale the LOD for MAPQ    
     int mapqr1 = b1.local ? std::max(30, b1.mapq) : b1.mapq; // if local, don't drop below 30
@@ -863,6 +896,16 @@ namespace SnowTools {
     else
       quality = 0;
     
+    double LR = -1000000;
+    for (auto& i : allele)
+      LR = std::max(i.second.LO_n, LR);
+
+    // for the germline hits, check now that they have a high LR score (that they are AF of 0.5+, as expected for germline)
+    if (!somatic_score && num_align == 1) {
+      if (LR < LRCUTOFF)
+	confidence = "GERMLOWAF";
+    }
+
     assert(getSpan() > -2);
 
   }
@@ -886,10 +929,10 @@ namespace SnowTools {
       std::string tmp = r.second.GetZTag("SR");
       supp_reads[tmp] = true;
     }
-    for (auto& r : dc.mates) {
-      std::string tmp = r.second.GetZTag("SR");
-      supp_reads[tmp] = true;
-    }
+    //for (auto& r : dc.mates) {
+    //  std::string tmp = r.second.GetZTag("SR");
+    //  supp_reads[tmp] = true;
+    //}
     
     //add the reads from the breakpoint
     for (auto& r : reads) {
@@ -1138,10 +1181,10 @@ namespace SnowTools {
     
     // mutect log liklihood against error
     double ll = 0;
-    const double back_mutate_chance = 1;
+    const double back_mutate_chance = 0; // this should be zero? assume indel never accidentally back mutates
     ref = ref <= 0 ? 0 : ref;
     ll += ref * log10(f * e * back_mutate_chance  /* p(alt mut to ref) */ + (1-f)  * (1-e) /* p(ref not mutated) */ ); // ref
-    ll += alt * log10(f * (1 - e) /* p(alt not mut) */ + (1-f) * back_mutate_chance * e /* p (ref mut to alt) */); // alt
+    ll += alt * log10(f * (1 - e) /* p(alt not mut) */ + (1-f) * e /* p (ref mut to alt) */); // alt
 
     return ll;
 
@@ -1153,6 +1196,9 @@ namespace SnowTools {
       cov = alt;
     }
 
+    // make sure we get correct alt
+    alt = std::max(alt, std::max((int)supporting_reads.size(), cigar));
+
     af = cov > 0 ? (double)alt / (double)cov : 1;
     af = af > 1 ? 1 : af;
 
@@ -1162,8 +1208,9 @@ namespace SnowTools {
     LO = ll_alt - ll_err;
 
     //mutetct log likelihood normal
-    er = 0.0005; // make this low, so that ALT in REF is rare and NORM in TUM gives low somatic prob
-    double ll_alt_norm = __log_likelihood(cov - alt, alt, 0.5, er);
+    //er = 0.0005; // make this low, so that ALT in REF is rare and NORM in TUM gives low somatic prob
+    // actually, dont' worry about it too much. 3+ alt in ref excludes somatic anyways.
+    double ll_alt_norm = __log_likelihood(cov - alt, alt, std::max(0.5, af), er); // likelihood that variant is 0.5 or above
     double ll_ref_norm = __log_likelihood(cov - alt, alt, 0  , er);
     LO_n = ll_ref_norm - ll_alt_norm; // higher number means more likely to be REF than ALT
 
@@ -1180,7 +1227,6 @@ namespace SnowTools {
       genotype = "0/1";
 
   }
-  
 
   void BreakPoint::addCovs(const std::unordered_map<std::string, STCoverage*>& covs, const std::unordered_map<std::string, STCoverage*>& clip_covs) {
     for (auto& i : covs) 
@@ -1257,25 +1303,26 @@ namespace SnowTools {
     std::istringstream input(s);
     
     while (std::getline(input, val, ':')) {
+      //      std::cerr << val << std::endl;
       switch(++count) {
-      case 6: split = std::stoi(val);
-      case 7: cigar = std::stoi(val);
-      case 9: LO_n =   std::stod(val);
-      case 10: LO = std::stod(val);
-      case 11: SLO = std::stod(val);
-      case 8: 
+      case 6: split = std::stoi(val); break;
+      case 8: LO_n =   std::stod(val); break;
+      case 9: LO = std::stod(val); break;
+      case 10: SLO = std::stod(val); break;
+      case 7: 
 	if (indel)
 	  cigar = std::stoi(val);
 	else
 	  disc = std::stoi(val);
-      case 2: alt = std::stoi(val);
-      case 3: cov = std::stoi(val);
-      case 4: GQ = std::stod(val);
-      case 5: PL = std::stod(val);
-      case 1: genotype = val;
+	break;
+      case 2: alt = std::stoi(val); break;
+      case 3: cov = std::stoi(val); break;
+      case 4: GQ = std::stod(val);  break;
+      case 5: PL = std::stod(val);  break;
+      case 1: genotype = val; break;
       }
     }
-    
+    assert(s == toFileString());
   }
 
   void BreakPoint::__rep(int rep_num, std::string& rseq, bool fwd) {

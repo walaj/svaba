@@ -159,8 +159,8 @@ struct VCFFile {
   void deduplicate();
   
   //
-  void writeIndels(std::string basename, bool zip) const;
-  void writeSVs(std::string basename, bool zip) const;
+  void writeIndels(std::string basename, bool zip, bool onefile) const;
+  void writeSVs(std::string basename, bool zip, bool onefile) const;
   
 
 };

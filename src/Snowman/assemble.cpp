@@ -339,6 +339,7 @@ void assemble(std::stringstream& asqg_stream, int minOverlap, int maxEdges, bool
       if (it->getLength() >= cutoff) {
 	//std::string new_name = it->getID() + "_L" + it->getLength();
 	//it->setID(new_name);
+	it->setID(it->getID() + "C"); // post-pend with C to make distinguish between _2 and _22
 	contigs.push_back(*it);
       }
     }

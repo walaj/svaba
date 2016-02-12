@@ -1,24 +1,42 @@
 language: cpp
 
-compiler:
- - gcc
+compiler: 
+- gcc
 
-before_install:
- - git submodule update --init --recursive
- - sudo pip install cpp-coveralls
- - sudo add-apt-repository ppa:ubuntu-toolchain-r/test -y
- - sudo apt-get update
- - sudo apt-get install valgrind python-yaml libyaml-dev build-essential libssh2-1-dev libarchive-dev clang
- - sudo apt-get install gcc-4.9 g++-4.9
- - sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-4.9 20
- - sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-4.9 20
- - sudo update-alternatives --install /usr/bin/gcov gcov /usr/bin/gcov-4.9 20
- - sudo update-alternatives --config gcc
- - sudo update-alternatives --config g++
+env: 
+  global: 
+  - BOOST_VERSION_MIN="1.59.0"
+  - "BOOST_VERSION_MAX=\"1.60.0\" # List of required boost libraries to build"
+  - BOOST_LIBS="regex,system,test,filesystem"
 
-script:
- - ./configure && make
+before_install: 
+- git submodule update --init --recursive
+- sudo add-apt-repository ppa:ubuntu-toolchain-r/test -y
+- sudo apt-get update
+- sudo apt-get install valgrind python-yaml libyaml-dev build-essential libssh2-1-dev libarchive-dev clang
+- sudo apt-get install gcc-4.9 g++-4.9
+- sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-4.9 20
+- sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-4.9 20
+- sudo update-alternatives --install /usr/bin/gcov gcov /usr/bin/gcov-4.9 20
+- sudo update-alternatives --config gcc
+- sudo update-alternatives --config g++
+- if [ "${TRAVIS_BRANCH}" = "master" ]; then export BOOST_VERSION="${BOOST_VERSION_MIN}"; else export BOOST_VERSION="${BOOST_VERSION_MAX}"; fi
+- if [ -n "${BOOST_VERSION}" ]; then export BOOST_ROOT="${TRAVIS_BUILD_DIR}/../boost-trunk"; export CMAKE_MODULE_PATH="${BOOST_ROOT}"; fi
+- if [ "${CXX}" = "g++" ]; then export CXX="$(which g++-4.9)"; export CC="$(which gcc-4.9)"; fi
+- "if [ \"${TRAVIS_OS_NAME}\" = \"osx\" ]; then export DYLD_LIBRARY_PATH=\"${BOOST_ROOT}/lib\"; fi # c++ is a symlink to clang++, but the compiler behaves differently when invoked as c++"
+- if [ "${TRAVIS_OS_NAME}" = "osx" -a "${CXX}" = "clang++" ]; then export CXX="$(which c++)"; export CC="$(which cc)"; fi
+- .travis.scripts/travis-before-install.sh
 
-branches:
-    only:
-        - master	
+install: 
+- .travis.scripts/travis-install.sh
+
+script: 
+- ./configure --with-boost=${BOOST_ROOT} && make
+
+##after_success: 
+##- .travis.scripts/coveralls.sh
+
+branches: 
+  only: 
+  - master
+
