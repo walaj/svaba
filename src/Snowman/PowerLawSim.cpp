@@ -1,10 +1,10 @@
 #include "PowerLawSim.h"
-#include "SnowTools/SnowToolsCommon.h"
-#include <string>
+
 #include <cmath>
+#include <string>
 #include <cassert>
-#include <unordered_set>
 #include <algorithm>
+#include <unordered_set>
 
 #define MAX_DUP_DEL_INV_SIZE 2000
 #define MAX_RAR_SIZE 35e6

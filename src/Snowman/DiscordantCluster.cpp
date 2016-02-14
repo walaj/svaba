@@ -1,7 +1,7 @@
 #include "DiscordantCluster.h"
 
-#include <cassert>
 #include <set>
+#include <cassert>
 #include <numeric>
 
 #define DISC_PAD 200

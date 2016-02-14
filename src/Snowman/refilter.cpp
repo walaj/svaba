@@ -1,16 +1,16 @@
 #include "refilter.h"
 
+#include <getopt.h>
+#include <sstream>
+#include <iostream>
+
+#include "SnowTools/gzstream.h"
+#include "SnowTools/BamWalker.h"
+
 #include "vcf.h"
 #include "BreakPoint2.h"
-#include "SnowTools/BamWalker.h"
-#include <iostream>
-#include <getopt.h>
-
-#include "SnowTools/SnowUtils.h"
 #include "SnowmanUtils.h"
-#include "SnowTools/gzstream.h"
 
-#include <sstream>
 
 static ogzstream os_allbps_r;
 

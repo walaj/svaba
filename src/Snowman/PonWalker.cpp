@@ -1,5 +1,4 @@
 #include "PonWalker.h"
-#include "SnowTools/SnowUtils.h"
 
 using SnowTools::BamRead;
 using SnowTools::BamReadVector;

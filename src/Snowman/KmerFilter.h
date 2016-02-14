@@ -1,15 +1,13 @@
 #ifndef SNOWMAN_KMER_FILTER
 #define SNOWMAN_KMER_FILTER
 
-
-#include "CorrectionThresholds.h"
-#include "OverlapCommon.h"
-
 #include <map>
 #include <string>
 
-
 #include "SnowTools/BamRead.h"
+
+#include "CorrectionThresholds.h"
+#include "OverlapCommon.h"
 
 using SnowTools::BamRead;
 using SnowTools::BamReadVector;
