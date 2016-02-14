@@ -2,16 +2,16 @@
 
 #include <getopt.h>
 #include <string>
-#include <iostream>
 #include <sstream>
+#include <iostream>
 
+#include "vcf.h"
 #include "AssemblyBamWalker.h"
 #include "SnowmanBamWalker.h"
 #include "SnowmanUtils.h"
 
 #include "boost/filesystem/path.hpp" 
 
-#include "vcf.h"
 
 faidx_t * findex;
 

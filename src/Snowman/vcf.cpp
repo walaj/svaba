@@ -1,20 +1,18 @@
 #include "vcf.h"
 
-#include <string> 
-#include <unordered_set> 
-#include <iostream>
 #include <getopt.h>
-#include <sstream>
 #include <regex>
+#include <string> 
 #include <iomanip>
-
-#include "SnowTools/SnowUtils.h"
-#include "SnowTools/SnowToolsCommon.h"
-#include "SnowTools/gzstream.h"
-#include "SnowTools/GenomicRegionCollection.h"
+#include <sstream>
+#include <iostream>
+#include <unordered_set> 
 
 #include "htslib/tbx.h"
 #include "htslib/bgzf.h"
+
+#include "SnowTools/gzstream.h"
+#include "SnowTools/GenomicRegionCollection.h"
 
 #define VCF_SECONDARY_CAP 10
 #define SOMATIC_LOD 1

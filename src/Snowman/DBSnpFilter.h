@@ -1,13 +1,13 @@
 #ifndef SNOWTOOLS_DBSNP_FILTER_H__
 #define SNOWTOOLS_DBSNP_FILTER_H__
 
-#include <cstring>
 #include <vector>
+#include <cstring>
 #include <iostream>
-#include <sstream>
 #include <unordered_set>
 
 #include "SnowTools/GenomicRegionCollection.h"
+
 #include "BreakPoint2.h"
 
 namespace SnowTools {

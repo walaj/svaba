@@ -1,4 +1,5 @@
 #include "KmerFilter.h"
+
 #include "ReadTable.h"
 
 int KmerFilter::correctReads(BamReadVector& vec) {
