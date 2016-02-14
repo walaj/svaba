@@ -3,8 +3,8 @@
 
 #include <string>
 
-#include "SnowTools/GenomicRegion.h"
 #include "SnowTools/BWAWrapper.h"
+
 #include "ReadSim.h"
 
 using SnowTools::GenomicRegion;

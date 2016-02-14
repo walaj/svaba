@@ -1,30 +1,30 @@
  #include "benchmark.h"
 
  #include <getopt.h>
- #include <iostream>
  #include <string>
  #include <sstream>
  #include <fstream>
+ #include <iostream>
  #include <cstdlib>
  #include <algorithm>
 
  #include "vcf.h"
+ #include "SnowTools/Fractions.h"
+ #include "SnowTools/BWAWrapper.h"
  #include "SnowTools/SnowToolsCommon.h"
  #include "SnowTools/GenomicRegion.h"
- #include "SnowTools/SnowUtils.h"
- #include "SnowmanAssemblerEngine.h"
- #include "KmerFilter.h"
+
  #include "ReadSim.h"
  #include "SeqFrag.h"
  #include "SimGenome.h"
- #include "SimTrainerWalker.h"
+ #include "KmerFilter.h"
+ #include "PowerLawSim.h"
  #include "BamSplitter.h"
  #include "SnowmanUtils.h"
-
- #include "SnowTools/BWAWrapper.h"
  #include "AlignedContig2.h"
- #include "SnowTools/Fractions.h"
- #include "PowerLawSim.h"
+ #include "SimTrainerWalker.h"
+ #include "SnowmanAssemblerEngine.h"
+
 
  static std::vector<double> snv_error_rates;
  static std::vector<double> del_error_rates;

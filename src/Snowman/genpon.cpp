@@ -2,13 +2,12 @@
 
 #include <getopt.h>
 #include <string>
-#include <unordered_map>
 #include <sstream>
+#include <unordered_map>
 
 #include "SnowTools/gzstream.h"
-#include "SnowTools/SnowUtils.h"
+
 #include "PonWalker.h"
-#include "SnowTools/GenomicRegion.h"
 
 static pthread_mutex_t lock;
 

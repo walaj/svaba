@@ -1,14 +1,12 @@
 #ifndef SNOWMAN_UTILS_H__
 #define SNOWMAN_UTILS_H__
 
-#include "SnowTools/BamRead.h"
-#include "SnowTools/BWAWrapper.h"
-#include "SnowTools/BamWalker.h"
-#include "SnowTools/GenomicRegionCollection.h"
+#include <ctime>
 #include <sstream>
 #include <unordered_map>
 
-#include <ctime>
+#include "SnowTools/BamWalker.h"
+#include "SnowTools/BWAWrapper.h"
 
 namespace SnowmanUtils {
 
