@@ -2,6 +2,7 @@
 #define SNOWMAN_LEARN_BAM_PARAMS_H__
 
 #include <string>
+#inlcude <ostream>
 
 struct BamParams {
   

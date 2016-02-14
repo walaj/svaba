@@ -1,9 +1,10 @@
 #include "PONFilter.h"
-#include "SnowTools/SnowUtils.h"
-#include "SnowTools/gzstream.h"
 
-#include <sstream>
 #include <regex>
+#include <sstream>
+
+#include "SnowTools/gzstream.h"
+#include "SnowTools/SnowUtils.h"
 
 namespace SnowTools {
 

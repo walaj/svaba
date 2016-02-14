@@ -1,4 +1,5 @@
 #include "SnowmanUtils.h"
+
 #include <iomanip>
 
 namespace SnowmanUtils {

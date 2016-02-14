@@ -1,5 +1,4 @@
 #include "SnowmanBamWalker.h"
-#include <sstream>
 
 //#define DEBUG_SNOWMAN_BAMWALKER 1
 #define MIN_MAPQ_FOR_MATE_LOOKUP 0

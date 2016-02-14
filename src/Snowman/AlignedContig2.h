@@ -3,11 +3,11 @@
 
 #include <algorithm>
 
-#include "SnowTools/BamRead.h"
-#include "BreakPoint2.h"
-#include "DiscordantCluster.h"
 #include "SnowTools/BWAWrapper.h"
 #include "SnowTools/BamWalker.h"
+
+#include "BreakPoint2.h"
+#include "DiscordantCluster.h"
 
 namespace SnowTools {
 

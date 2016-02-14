@@ -1,10 +1,12 @@
 #ifndef SNOWMAN_PON_WALKER_H__
 #define SNOWMAN_PON_WALKER_H__
 
-#include "DiscordantCluster.h"
-#include "SnowTools/BamWalker.h"
-#include <fstream>
 #include <pthread.h>
+#include <fstream>
+
+#include "SnowTools/BamWalker.h"
+
+#include "DiscordantCluster.h"
 
 class DiscRead: public SnowTools::GenomicRegion
 {

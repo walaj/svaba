@@ -60,14 +60,11 @@
 
 //in core/include/seqan/bam_io/cigar.h had to add parenthesis around lhs.count and rhs.count
 
-#include <string>
-#include <iostream>
-#include "run_snowman.h"
 #include "vcf.h"
-#include <vector>
 #include "genpon.h"
-#include "benchmark.h"
 #include "refilter.h"
+#include "benchmark.h"
+#include "run_snowman.h"
 #include "assembly2vcf.h"
 
 #define AUTHOR "Jeremiah Wala <jwala@broadinstitute.org>"

@@ -1,9 +1,10 @@
 #include "AssemblyBamWalker.h"
+#include <chrono>
+#include <thread>
+
 #include "SnowmanUtils.h"
 #include "run_snowman.h"
 
-#include <chrono>
-#include <thread>
 
 //#define QNAME "5427150"
 

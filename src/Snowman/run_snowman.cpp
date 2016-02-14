@@ -1,15 +1,12 @@
 #include "run_snowman.h"
 
 #include <getopt.h>
-#include <iostream>
-#include <sstream>
-#include <unordered_map>
 #include <vector>
+#include <sstream>
+#include <iostream>
+#include <unordered_map>
 
-#include "vcf.h"
-#include "LearnBamParams.h"
 #include "bwa/bwa.h"
-#include "SnowmanUtils.h"
 
 #include "SnowTools/SnowUtils.h"
 #include "SnowTools/MiniRules.h"
@@ -17,6 +14,9 @@
 #include "SnowTools/DBSnpFilter.h"
 #include "SnowTools/PONFilter.h"
 
+#include "vcf.h"
+#include "SnowmanUtils.h"
+#include "LearnBamParams.h"
 //#define NO_LOAD_INDEX 1
 
 #define MIN_CONTIG_MATCH 35

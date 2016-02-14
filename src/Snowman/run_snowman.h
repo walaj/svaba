@@ -1,22 +1,22 @@
 #ifndef SNOWMAN_RUN_H__
 #define SNOWMAN_RUN_H__
 
+#include <pthread.h>
+
 #include <string>
 #include <vector>
-#include <unordered_map>
-#include <pthread.h>
 #include <ostream>
+#include <unordered_map>
 
-#include "SnowTools/GenomicRegionCollection.h"
-#include "SnowTools/BWAWrapper.h"
-#include "AlignedContig2.h"
-#include "SnowmanAssemblerEngine.h"
-#include "DiscordantCluster.h"
 #include "SnowTools/BamWalker.h"
+#include "SnowTools/BWAWrapper.h"
 
 #include "SnowmanUtils.h"
-
+#include "AlignedContig2.h"
 #include "SnowmanBamWalker.h"
+#include "DiscordantCluster.h"
+#include "SnowmanAssemblerEngine.h"
+
 #include "workqueue.h"
 
 void learnBamParams(SnowTools::BamWalker& walk, std::string id);
