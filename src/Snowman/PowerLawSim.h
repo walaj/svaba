@@ -2,6 +2,7 @@
 #define SNOWMAN_POWER_LAW_SIM_HH
 
 #include <fstream>
+
 #include "SnowTools/GenomicRegionCollection.h"
 #include "SnowTools/BWAWrapper.h"
 

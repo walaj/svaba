@@ -2,7 +2,7 @@
 #define SNOWMAN_SIMGENOME_H__
 
 #include "SeqFrag.h"
-#include "SnowTools/BWAWrapper.h"
+
 #include "ReadSim.h"
 
 class SimGenome {

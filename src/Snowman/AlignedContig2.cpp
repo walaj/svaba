@@ -1,5 +1,4 @@
 #include "AlignedContig2.h"
-#include "SnowTools/BamWalker.h"
 
 #include <regex>
 #include <unordered_map>

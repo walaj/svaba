@@ -2,10 +2,9 @@
 #define SNOWMAN_ASSEMBLER_ENGINE_H__
 
 #include "Util.h"
-#include "ReadTable.h"
 #include "contigs.h"
 #include "SGUtil.h"
-
+#include "ReadTable.h"
 #include "SnowTools/BamRead.h"
 
 class SnowmanAssemblerEngine

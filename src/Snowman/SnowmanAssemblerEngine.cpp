@@ -1,12 +1,15 @@
 #include "SnowmanAssemblerEngine.h"
 
+#include <map>
+
+#include "SGACommon.h"
+
+#include "SnowmanASQG.h"
 #include "SnowmanAssemble.h"
 #include "SnowmanOverlapAlgorithm.h"
-#include "SnowmanASQG.h"
-#include "SGACommon.h"
+
 #include "OverlapCommon.h"
 #include "CorrectionThresholds.h"
-#include <map>
 
 #define MAX_OVERLAPS_PER_ASSEMBLY 20000
 //#define DEBUG_ENGINE 1

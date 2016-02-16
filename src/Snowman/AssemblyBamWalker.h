@@ -2,6 +2,7 @@
 #define SNOWMAN_ASSEMBLY_BAM_WALKER_H__
 
 #include "SnowTools/BamWalker.h"
+
 #include "AlignedContig2.h"
 #include "SnowmanBamWalker.h"
 

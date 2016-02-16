@@ -3,10 +3,12 @@
 #include <getopt.h>
 #include <iomanip>
 #include <cassert>
+
+#include <boost/regex.hpp>
+
 #include "SnowTools/gzstream.h"
 
 #include "SnowmanUtils.h"
-#include <boost/regex.hpp>
 
 #define T_SPLIT_BUFF 15
 #define N_SPLIT_BUFF 8

@@ -3,19 +3,17 @@
 
 #include <cstdlib>
 #include <string>
-#include <unordered_map>
 #include <map>
+#include <unordered_map>
+#include <unordered_set>
+
 #include "htslib/faidx.h"
 
-#include "SnowTools/GenomicRegion.h"
-#include "SnowTools/GenomicRegionCollection.h"
-#include "DiscordantCluster.h"
-#include "SnowTools/BamRead.h"
 #include "SnowTools/BWAWrapper.h"
-#include "PONFilter.h"
-
-#include <unordered_set>
 #include "SnowTools/STCoverage.h"
+
+#include "PONFilter.h"
+#include "DiscordantCluster.h"
 
 namespace SnowTools {
 

@@ -6,21 +6,20 @@
 #include <unordered_map>
 #include <vector>
 
-#include "vcf.h"
-#include "LearnBamParams.h"
 #include "bwa/bwa.h"
-#include "SnowmanUtils.h"
-
-#include "SnowTools/SnowUtils.h"
-#include "SnowTools/MiniRules.h"
-#include "SnowTools/SnowToolsCommon.h"
-#include "DBSnpFilter.h"
-#include "PONFilter.h"
-#include "SnowTools/BLATWrapper.h"
 
 #include "boost/filesystem/path.hpp" 
 #include "boost/archive/text_oarchive.hpp"
 #include "boost/archive/text_iarchive.hpp"
+
+#include "SnowTools/MiniRules.h"
+#include "SnowTools/BLATWrapper.h"
+
+#include "vcf.h"
+#include "PONFilter.h"
+#include "DBSnpFilter.h"
+#include "SnowmanUtils.h"
+#include "LearnBamParams.h"
 
 #define MIN_CONTIG_MATCH 35
 #define MATE_LOOKUP_MIN 3
