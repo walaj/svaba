@@ -4,9 +4,11 @@ library(optparse)
 
 option_list = list(
     make_option(c("-i", "--input"),  type = "character", default = NULL,  help = "Input asqg file from snowman run --write-asqg or sga"),
+    make_option(c("-c", "--inputcc"),  type = "character", default = NULL,  help = "Input cc file from snowman run --write-asqg or sga"),  
     make_option(c("-o", "--output"), type = "character", default = "graph.pdf",  help = "Output pdf to write the graph"),
     make_option(c("-d", "--height"), type = "numeric", default = 20,  help = "Height"),
-    make_option(c("-w", "--width"), type = "numeric", default = 20,  help = "Width")
+    make_option(c("-w", "--width"), type = "numeric", default = 20,  help = "Width"),
+    make_option(c("-m", "--mincount"), type = "numeric", default = 1,  help = "Remove nodes with fewer than m components")
 )
 
 parseobj = OptionParser(option_list=option_list)
@@ -16,6 +18,7 @@ if (is.null(opt$input))
   stop(print_help(parseobj))
 
 require(igraph)
+require(data.table)
 #opt$input ="/xchip/gistic/Jeremiah/Projects/SnowmanPaper/Benchmark/150830/tmp.graph.after.asqg"
 
 vert.file = paste(opt$input, "vert", sep=".")
@@ -51,13 +54,30 @@ g <- graph.data.frame(edges, directed=FALSE, vertices=verts)
 ## vert lengths
 vert.lens <- structure(nchar(tab$seq), names=tab$rname)
 
+## open the cc file
+if (file.info(opt$inputcc)$size > 0) {
+  cc <- fread(opt$inputcc)
+  cc$col <- sample(colors(), length(unique(cc$V2)))[match(cc$V2, unique(cc$V2))]
+  setkey(cc, col)
+  
+  V(g)$color = "black"
+  for (x in cc$col) {
+    V(g)$color[verts$verts %in% cc[x]$V1] <- x
+  }
+}
+
 ## format the verts
 V(g)$names = paste(as.character(verts$verts), "len:", vert.lens[as.character(verts$verts)])
-V(g)$color = "#FFCCCC"
+
 ##V(g)$color[V(g)$names %in% this_reads] <- 'red'
 
 ## format the edges
 E(g)$lab <- tab.e$overlap_end2 - tab.e$overlap_start2
+
+## cluster
+V(g)$community <- membership(cl<-clusters(g))
+good_communities <- which(cl$csize >= opt$mincount)
+g <- delete.vertices(g, V(g)[!community %in% good_communities])
 
 pdf(opt$output, height=opt$height, width=opt$width)
 plot(g, vertex.color=V(g)$color, vertex.label=V(g)$names, edge.label=E(g)$lab, vertex.size=2)

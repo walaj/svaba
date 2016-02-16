@@ -182,6 +182,18 @@ void Bigraph::merge(Vertex* pV1, Edge* pEdge)
     Vertex* pV2 = pEdge->getEnd();
     //std::cout << "Merging " << pV1->getID() << " with " << pV2->getID() << "\n";
 
+    // jeremiah connected component tracking
+    if (m_get_components) {
+      int lab1 = m_connected_components[pV1->getID()];
+      int lab2 = m_connected_components[pV2->getID()];
+      ++m_label;
+      m_connected_components[pV1->getID()] = m_label;
+      m_connected_components[pV2->getID()] = m_label;
+      for (auto& i : m_connected_components)
+	if (i.second == lab1 || i.second == lab2)
+	  i.second = m_label;
+    }
+
     //JEREMIAH
     //pV1->addParent(pV2->getID());
     //std::cerr << "LEN: " << pV1->getParentID().size() << std::endl;
@@ -282,10 +294,12 @@ void Bigraph::simplify(EdgeDir dir)
         while(iter != m_vertices.end())
         {
 
-	  //std::cerr << "--VERTEX: dir " << dir << " " << iter->first << " seq len " << iter->second->getSeqLen() << std::endl;
+
 
             // Get the edges for this direction
             EdgePtrVec edges = iter->second->getEdges(dir);
+
+	    //std::cout << "--VERTEX: dir " << dir << " " << iter->first << " seq len " << iter->second->getSeqLen() << " eges size " << edges.size() << std::endl;
 
 	    // for (auto& i : edges)
 	    // std::cerr << "    EDGE: " << i->getStartID() << " " << i->getEndID()<< std::endl;
@@ -331,6 +345,19 @@ void Bigraph::renameVertices(const std::string& prefix)
     {
         std::stringstream ss;
         ss << prefix << currIdx;
+	std::string newlab = ss.str();
+
+	// jeremiah
+	if (m_get_components) {
+	  int label = m_connected_components[iter->second->getID()];
+	  if (label) { // is a connected component
+	    for (auto& i : m_connected_components) {
+	      if (i.second == label)
+		m_reads_on_contigs[newlab].push_back(i.first); // i.first is read name of merged read
+	    }
+	  }
+	}
+
         iter->second->setID(ss.str());
         vertexPtrVec[currIdx] = iter->second;
         ++iter;

@@ -22,17 +22,18 @@
 
 void walkExtra(StringGraph * pGraph, SGWalkVector& outWalks);
 
-void assemble(std::stringstream& asqg_stream, int minOverlap, int maxEdges, bool bExact, 
+StringGraph* assemble(std::stringstream& asqg_stream, int minOverlap, int maxEdges, bool bExact, 
 	      int trimLengthThreshold, bool bPerformTR, bool bValidate, int numTrimRounds, 
               int resolveSmallRepeatLen, int numBubbleRounds, double maxBubbleGapDivergence, 
               double maxBubbleDivergence, int maxIndelLength, int cutoff, std::string prefix, 
-              ContigVector &contigs, bool walk_all)
+		      ContigVector &contigs, bool walk_all, bool get_components)
 {
 
   AssemblyOptions ao;
-  
-  StringGraph* pGraph = SGUtil::loadASQG(asqg_stream, minOverlap, true, maxEdges);
-  
+
+  StringGraph * pGraph = SGUtil::loadASQG(asqg_stream, minOverlap, true, maxEdges);
+  pGraph->m_get_components = get_components;
+
   if(bExact)
     pGraph->setExactMode(true);
   
@@ -84,30 +85,32 @@ void assemble(std::stringstream& asqg_stream, int minOverlap, int maxEdges, bool
 	pGraph->visit(smoothingVisit);
       pGraph->simplify(); 
     }
+
+  pGraph->renameVertices(prefix);
+
+  SGVisitorContig av;
+  pGraph->visit(av);
   
-    pGraph->renameVertices(prefix);
-
-    SGVisitorContig av;
-    pGraph->visit(av);
-
-    ContigVector tmp = av.m_ct;
-    for (ContigVector::const_iterator it = tmp.begin(); it != tmp.end(); it++) {
-      if ((int)(it->getLength()) >= cutoff) {
-	contigs.push_back(*it);
-      }
+  ContigVector tmp = av.m_ct;
+  for (ContigVector::const_iterator it = tmp.begin(); it != tmp.end(); it++) {
+    if ((int)(it->getLength()) >= cutoff) {
+      contigs.push_back(Contig(it->getID() + "C", it->getSeq())); //postpend with character to distribugish _2 from _22
     }
-
-    if (walk_all && false) {
+  }
+  
+  /*  if (walk_all) {
       SGWalkVector outWalks;
       walkExtra(pGraph, outWalks);
       for (auto& i : outWalks) {
-	std::string seqr = i.getString(SGWT_START_TO_END);
-	if ((int)seqr.length() >= cutoff) 
-	  contigs.push_back(Contig(i.pathSignature(), seqr));
+      std::string seqr = i.getString(SGWT_START_TO_END);
+      if ((int)seqr.length() >= cutoff) 
+      contigs.push_back(Contig(i.pathSignature(), seqr));
       }
-    }
+      }*/
+  
 
-    delete pGraph;
+  return pGraph;
+  //    delete pGraph;
    
 }
 

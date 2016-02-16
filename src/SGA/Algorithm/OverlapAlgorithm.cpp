@@ -18,6 +18,7 @@ static const AlignFlags preSufAF(true, true, false);
 // Perform the overlap
 OverlapResult OverlapAlgorithm::overlapRead(const SeqRecord& read, int minOverlap, OverlapBlockList* pOutList) const
 {
+  
     OverlapResult r;
     if(static_cast<int>(read.seq.length()) < minOverlap)
         return r;
@@ -514,6 +515,7 @@ void OverlapAlgorithm::terminateContainedBlocks(OverlapBlockList& containedBlock
 // x, there are at least floor(x * error_rate) + 1 seeds.
 void OverlapAlgorithm::calculateSeedParameters(const std::string& w, const int minOverlap, int& seed_length, int& seed_stride) const
 {
+
     int read_len = w.length();
     seed_length = 0;
     

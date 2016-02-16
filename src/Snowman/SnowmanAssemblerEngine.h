@@ -4,6 +4,7 @@
 #include "Util.h"
 #include "ReadTable.h"
 #include "contigs.h"
+#include "SGUtil.h"
 
 #include "SnowTools/BamRead.h"
 
@@ -14,23 +15,35 @@ class SnowmanAssemblerEngine
   SnowmanAssemblerEngine() {}
   
   SnowmanAssemblerEngine(const std::string& id, double er, size_t mo, size_t rl) : m_id(id), m_error_rate(er), m_min_overlap(mo), m_readlen(rl) {}
+  
+  bool hasRepeat(const std::string& seq);
+  
+  void fillReadTable(SnowTools::BamReadVector& r);
+  
+  void fillReadTable(const std::vector<std::string>& r);
+  
+  bool performAssembly(int num_assembly_rounds);
+  
+  void doAssembly(ReadTable *pRT, ContigVector &contigs, int pass);
+  
+  void setToWriteASQG() { m_write_asqg = true; }
+  
+  ContigVector getContigs() const { return m_contigs; }
+  
+  void clearContigs() { m_contigs.clear(); }
 
-    bool hasRepeat(const std::string& seq);
-    
-    void fillReadTable(SnowTools::BamReadVector& r);
+  ReadTable* removeDuplicates(ReadTable* pRT);
 
-    void fillReadTable(const std::vector<std::string>& r);
-
-    bool performAssembly(int num_assembly_rounds);
-
-    void doAssembly(ReadTable *pRT, ContigVector &contigs, int pass);
-
-    void setToWriteASQG() { m_write_asqg = true; }
-
-    ContigVector getContigs() const { return m_contigs; }
+  void calculateSeedParameters(int read_len, const int minOverlap, int& seed_length, int& seed_stride) const;
 
  private:
 
+    void print_results(const ContigVector& cc) const;
+
+    void remove_exact_dups(ContigVector& cc) const;
+
+    void write_asqg(const StringGraph * oGraph, std::stringstream& asqg_stream, std::stringstream& hits_stream, int pass) const;
+    
     std::string m_id;
     double m_error_rate;
     size_t m_min_overlap;
