@@ -44,7 +44,7 @@ class SnowmanBamWalker: public SnowTools::BamWalker {
  SnowmanBamWalker(const std::string& in) : SnowTools::BamWalker(in) {}
   
   SnowmanBamWalker(const std::string& in, SnowTools::BWAWrapper * b, int rlen, 
-		  const std::string p, const SnowTools::GRC& bl) : 
+		  const std::string& p, const SnowTools::GRC& bl) : 
   SnowTools::BamWalker(in), main_bwa(b), readlen(rlen), prefix(p), blacklist(bl) {  }
 
 

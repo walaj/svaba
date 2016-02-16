@@ -421,7 +421,8 @@ namespace SnowTools {
     m_global_bp = bp;
     m_global_bp.b1 = m_frag_v[bstart].makeBreakEnd(true);
     m_global_bp.b2 = m_frag_v[bend].makeBreakEnd(false);
-    
+    m_global_bp.complex=true;
+
     // set the strands
     //m_global_bp.gr1.strand = m_frag_v[bstart].align.IsReverseStrand() ? '-' : '+';
     //m_global_bp.gr2.strand = m_frag_v[bend].align.IsReverseStrand()   ? '+' : '-';
@@ -866,8 +867,8 @@ namespace SnowTools {
     if (!m_global_bp.isEmpty())
       out.push_back(m_global_bp);
     
-    if (m_global_bp.num_align == 2) // if complex, don't get the locals
-      out.insert(out.end(), m_local_breaks.begin(), m_local_breaks.end());
+    //if (m_global_bp.num_align == 2) // if complex, don't get the locals
+    out.insert(out.end(), m_local_breaks.begin(), m_local_breaks.end());
     out.insert(out.end(), m_global_bp_secondaries.begin(), m_global_bp_secondaries.end());
     
     return out;
@@ -1010,7 +1011,7 @@ namespace SnowTools {
     if (bad) 
       m_global_bp = BreakPoint();
     
-    m_local_breaks.clear();
+    //m_local_breaks.clear();
 
   }
   

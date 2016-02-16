@@ -792,13 +792,14 @@ function(gr, basic=FALSE) {
 library(optparse)
 
 option_list = list(
-  make_option(c("-i", "--input"),  type = "character", default = NULL,  help = "Input SV VCF file"),
+  make_option(c("-i", "--input"),  type = "character", default = NULL,  help = "Input bps.txt.gz file"),
   make_option(c("-o", "--output"), type = "character", default = "no_id",  help = "Output annotation name"),
   make_option(c("-t", "--splitsupport"), type = "numeric", default = 4,  help = "Minimum number of tumor supporting reads for ASSMB"),
   make_option(c("-d", "--discsupport"), type = "numeric", default = 10,  help = "Minimum number of tumor support discordant for DSCRD"),
   make_option(c("-g", "--genes"), type = "logical", default = TRUE,  help = "Add genes to the plot?"),
   make_option(c("-H", "--height"), type = "numeric", default = 10,  help = "Height"),
-  make_option(c("-W", "--width"), type = "numeric", default = 10,  help = "Width")
+  make_option(c("-W", "--width"), type = "numeric", default = 10,  help = "Width"),
+  make_option(c("-N", "--nofilter"), type = "numeric", default = 0,  help = "Dont filter any events")
 )
 
 parseobj = OptionParser(option_list=option_list)
@@ -820,16 +821,23 @@ cgc <- readRDS(file.path(basedir, 'gr.allgenes.rds'))
 cgc = read.delim('/home/unix/marcin/DB/COSMIC/cancer_gene_census.tsv', strings = F)
 cgc <- genes[genes$gene %in% cgc$Symbol]
 
+filter = opt$nofilter == 0;
+
 ## read in file
 print("...reading bps file")
-suppressWarnings(bks <- fread(paste("gunzip -c", opt$input)))
+if (grepl("gz$", opt$input)) {
+  suppressWarnings(bks <- fread(paste("gunzip -c", opt$input), header=TRUE))
+} else {
+  suppressWarnings(bks <- fread(opt$input, header=TRUE))
+}
 
 ##bks[, SL_t := as.numeric(gsub(".*?:.*?:.*?:.*?:.*?:.*?:.*?:.*?:.*?:(.*?)", "\\1", sim_wnormal_10x_s3.bam))]
-setnames(bks, paste("V",seq(35),sep=""), c("chr1","pos1","strand1","chr2","pos2","strand2","ref","alt","span","mapq1","mapq2","nm1","nm2","disc_mapq1","disc_mapq2","sub_n1","sub_n2","homology","insertion","contig ","numalign","confidence","evidence","quality","secondary_alignment",
-    "somatic_score","somatic_lod","true_lod","pon_samples","repeat_seq","graylist","DBSNP","reads","normal","tumor"))
+#setnames(bks, paste("V",seq(35),sep=""), c("chr1","pos1","strand1","chr2","pos2","strand2","ref","alt","span","mapq1","mapq2","nm1","nm2","disc_mapq1","disc_mapq2","sub_n1","sub_n2","homology","insertion","contig ","numalign","confidence","evidence","quality","secondary_alignment",
+#    "somatic_score","somatic_lod","true_lod","pon_samples","repeat_seq","graylist","DBSNP","reads","normal","tumor"))
 ## filter out discorant only
-if (nrow(bks))
+if (nrow(bks) && filter) {
   bks <- bks[(bks$evidence != "DSCRD" | bks$evidence == "DSCRD" && bks$tdisc >= opt$discsupport) & bks$evidence != "INDEL" & bks$confidence == "PASS" & bks$somatic_score >= 1]
+}
 ## filter out bad ASSMB
 #if (nrow(bks) && sum(bks$evidence == "ASSMB" & bks$tsplit < opt$splitsupport))
 #  bks <- bks[-(bks$evidence == "ASSMB" & bks$tsplit < opt$splitsupport)]

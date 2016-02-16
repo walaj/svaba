@@ -18,6 +18,8 @@
 #include "Edge.h"
 #include "HashMap.h"
 
+#include <unordered_map>
+
 //
 // Typedefs
 //
@@ -182,6 +184,12 @@ class Bigraph
 
         // return the vertex map JEREMIAH
         //VertexPtrMap getVertexMap() { return m_vertices; }
+
+	//JEREMIAH
+	bool m_get_components = false;
+	std::unordered_map<std::string, int> m_connected_components;
+	int m_label = 0;
+	std::unordered_map<std::string, std::vector<std::string>> m_reads_on_contigs;
 
     private:
         

@@ -261,7 +261,7 @@ class RLBWT
         friend class BWTWriterAscii;
 
         // Default sample rates for the large (64-bit) and small (8-bit) occurrence markers
-        static const int DEFAULT_SAMPLE_RATE_LARGE = 8192;
+        static const int DEFAULT_SAMPLE_RATE_LARGE = 2; //8192;
         static const int DEFAULT_SAMPLE_RATE_SMALL = 2;
 
     private:

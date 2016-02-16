@@ -79,7 +79,7 @@ namespace opt {
 
   namespace assemb {
     static int minOverlap = -1;
-    static float error_rate = 0.00; 
+    static float error_rate = 0.02; 
     static bool writeASQG = false;
   }
 
@@ -93,7 +93,7 @@ namespace opt {
 
   static std::string ooc = "/xchip/gistic/Jeremiah/blat/11.ooc";
 
-  static int num_assembly_rounds = 2;
+  static int num_assembly_rounds = 1;
   static bool write_extracted_reads = false;
 
   static std::string pon;
@@ -227,7 +227,7 @@ static const char *RUN_USAGE_MESSAGE =
 "  -h, --help                           Display this help and exit\n"
 "  -p, --threads                        Use NUM threads to run snowman. Default: 1\n"
 "  -a, --id-string                      String specifying the analysis ID to be used as part of ID common.\n"
-"      --refilter                      Re-create the VCF files from the bps.txt.gz file. Need to supply correct id-string.\n"
+"      --refilter                       Recreate the VCF files from the bps.txt.gz file. Need to supply correct id-string.\n"
 "  Required input\n"
 "  -G, --reference-genome               Path to indexed reference genome to be used by BWA-MEM. Default is Broad hg19 (/seq/reference/...)\n"
 "  -t, --tumor-bam                      Tumor BAM file\n"
@@ -241,44 +241,42 @@ static const char *RUN_USAGE_MESSAGE =
 "  -r, --rules                          VariantBam style rules string to determine which reads to do assembly on. See documentation for default.\n"
 "  -m, --min-overlap                    Minimum read overlap, an SGA parameter. Default: 0.4* readlength\n"
 "  -k, --region-file                    Set a region txt file. Format: one region per line, Ex: 1,10000000,11000000\n"
-"  -P, --panel-of-normals               Panel of normals gzipped txt file generated from snowman pon\n"
-"  -M, --indel-mask                     BED-file with graylisted regions for stricter indel calling.\n"
+  //"  -P, --panel-of-normals               Panel of normals gzipped txt file generated from snowman pon\n"
+  //"  -M, --indel-mask                     BED-file with graylisted regions for stricter indel calling.\n"
 "  -D, --dbsnp-vcf                      DBsnp database (VCF) to compare indels against\n"
 "  -B, --blacklist                      BED-file with blacklisted regions to not extract any reads from.\n"
+"  -V, --microbial-genome               Path to indexed reference genome of microbial sequences to be used by BWA-MEM to filter reads.\n"
 "  -z, --g-zip                          Gzip and tabix the output VCF files. Default: off\n"
 "  -L, --min-lookup-min                 Minimum number of somatic reads required to attempt mate-region lookup [3]\n"
 "      --r2c-bam                        Output a BAM of reads that aligned to a contig, and fasta of kmer corrected sequences\n"
 "      --discordant-only                Only run the discordant read clustering module, skip assembly. Default: off\n"
 "      --read-tracking                  Track supporting reads. Increases file sizes.\n"
-"      --max-coverage                   Maximum weird read coverage to send to assembler (per BAM). Subsample reads to achieve max if overflow. Defualt 500\n"
-"  -V, --microbial-genome               Path to indexed reference genome of microbial sequences to be used by BWA-MEM to filter reads.\n"
+"      --max-coverage                   Maximum weird read coverage to send to assembler (per BAM). Subsample reads to achieve max if overflow. [500]\n"
 "      --write-extracted-reads          For the tumor BAM, write the extracted reads (those sent to assembly) to a BAM file. Good for debugging.\n"
 "      --no-adapter-trim                Don't peform Illumina adapter trimming, which removes reads with AGATCGGAAGAGC present.\n"
 "      --assemble-by-tag                Separate the assemblies and read-to-contig mapping by the given read tag. Useful for 10X Genomics data (e.g. --aseembly-by-tag BX).\n"
 "      --no-assemble-normal             Don't kmer correct or assembly normal reads. Still maps normal reads to contigs. Increases speed for somatic-only queries.\n"
-"      --num-assembly-rounds            Number of times to run the assembler per window. > 1 will bootstrap the assembly with error rate = 0.05.\n"
+"      --num-assembly-rounds            Number of times to run the assembler per window. > 1 will bootstrap the assembly with error rate = 0.05. [1]\n"
 "      --num-to-sample                  When learning about BAM, number of reads to sample. Default 1,000,000.\n"
 "      --motif-filter                   Add a motif file to exclude reads that contain this motif (e.g. illumina adapters).\n"
 "      --with-blat                      Run BLAT on assembled contigs that have clips/indels to reference. Single-thread only. In-development. Outputs *.blat.bam\n"
 "  Assembly params\n"
-"      --write-asqg                     Output an ASQG graph file for each 5000bp window. Default: false\n"
-"  -e, --error-rate                     Fractional difference two reads can have to overlap. See SGA param. 0 is fast, but requires exact. Default: 0.05\n"
-"  -c, --chunk-size                     Amount of genome to read in at once. High numbers have fewer I/O rounds, but more memory. Default 1000000 (1M). Suggested 50000000 (50M) or 'chr' for exomes\n"
+"      --write-asqg                     Output an ASQG graph file for each assembly window.\n"
+"  -e, --error-rate                     Fractional difference two reads can have to overlap. See SGA param. 0 is fast, but requires exact matches and error correcting. [0.02]\n"
+"  -c, --chunk-size                     Size of a local assembly window (in bp). [25000]\n"
 "\n";
 
 void runSnowman(int argc, char** argv) {
 
   parseRunOptions(argc, argv);
 
+  // test
+  //run_test_assembly();
+
   SnowmanUtils::fopen(opt::analysis_id + ".log", log_file);
 
   if (opt::refilter) {
-
     // read in all of the breakpoints
-    
-    
-
-
     makeVCFs();
     return;
   }
@@ -757,7 +755,6 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
       }
     }
   
-
   // do the kmer filtering
   BamReadVector bav_this_tum, bav_this_norm;
   if (!opt::disc_cluster_only) {
@@ -787,13 +784,23 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
     }
 
   }
-  
+
   // do the discordant read clustering
   if (opt::verbose > 1)
     std::cerr << "...doing the discordant read clustering" << std::endl;
 
   SnowTools::DiscordantClusterMap dmap = SnowTools::DiscordantCluster::clusterReads(bav_this, region);
   
+  // remove the hardclips
+  BamReadVector bav_tmp;
+  for (auto& i : bav_this)
+    if (i.NumHardClip() == 0) 
+      bav_tmp.push_back(i);
+  bav_this = bav_tmp;
+
+  //for (auto& i : bav_this)
+  //  std::cout << i << std::endl;
+
   // 
   if (opt::verbose > 3)
     for (auto& i : dmap)
@@ -844,7 +851,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 
 	// make assembler engines
 	for (auto& brv : bx_reads) {
-	  bx_engines[brv.first] = SnowmanAssemblerEngine(name + "BX_" + brv.first, opt::assemb::error_rate, opt::assemb::minOverlap, opt::readlen);	  
+	  bx_engines[brv.first] = SnowmanAssemblerEngine(name + "BX_" + brv.first, opt::assemb::error_rate, opt::assemb::minOverlap, opt::readlen);
 	  std::unordered_map<std::string, SnowmanAssemblerEngine>::iterator en = bx_engines.find(brv.first);
 	  en->second.fillReadTable(brv.second) ;
 	  en->second.performAssembly(opt::num_assembly_rounds);
@@ -864,9 +871,9 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 	  engine.fillReadTable(bav_this_tum);	
 
 	engine.performAssembly(opt::num_assembly_rounds);
-	
+
 	all_contigs_this = engine.getContigs();
-	
+
 	if (opt::verbose > 1)
 	  std::cerr << "Assembled " << engine.getContigs().size() << " contigs for " << name << std::endl; 
       }
@@ -1118,7 +1125,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
     std::cerr << "...removing somatic overlap with normal" << std::endl;
   std::unordered_set<std::string> norm_hash;
   for (auto& i : bp_glob) // hash the normals
-    if (!i.somatic_score) {
+    if (!i.somatic_score && i.confidence == "PASS" && i.evidence == "INDEL") {
       norm_hash.insert(i.b1.hash());
       norm_hash.insert(i.b2.hash());
       norm_hash.insert(i.b1.hash(1));
@@ -1127,8 +1134,9 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
       //norm_hash.insert(i.b1.hash(-2));
     }
   for (auto& i : bp_glob)  // find somatic that intersect with norm. Set somatic = 0;
-    if (i.somatic_score && (norm_hash.count(i.b1.hash()) || norm_hash.count(i.b2.hash())))
+    if (i.somatic_score && (norm_hash.count(i.b1.hash()) || norm_hash.count(i.b2.hash()))) {
       i.somatic_score = 0;
+    }
 
   // remove somatic calls if they have a germline normal SV in them or indels with 
   // 2+germline normal in same contig
@@ -1396,7 +1404,7 @@ SnowmanBamWalker __make_walkers(const std::string& p, const std::string& b, cons
   if (!region.isEmpty()) 
     walk.setBamWalkerRegion(region, bindices[p]);
   walk.SetMiniRulesCollection(*mr);
-  walk.readBam(&log_file, nullptr); //debug
+  walk.readBam(&log_file, nullptr); 
 
   if (p.at(0) == 't') {
     tcount += walk.reads.size();
@@ -1497,4 +1505,38 @@ SnowTools::GRC __get_exclude_on_badness(std::unordered_map<std::string, SnowmanB
   return excluded_bad_regions;
 
   
+}
+
+
+void run_test_assembly() {
+
+  BamReadVector bav_test;
+  std::string inputfile = "/xchip/gistic/Jeremiah/Data/HCC1143_mem.bam";
+  std::string dum2 = "dum";
+  SnowmanBamWalker walktest(inputfile, main_bwa, 101, dum2, blacklist);
+  SnowTools::GenomicRegion grtest("1:1,000,000-1,000,500", walktest.header());
+  walktest.setBamWalkerRegion(grtest);
+  walktest.readBam(nullptr, nullptr);
+  for (auto& r : walktest.reads)
+    bav_test.push_back(r);
+  SnowmanAssemblerEngine enginetest("test", opt::assemb::error_rate, 35, 101);
+  enginetest.fillReadTable(bav_test);
+
+  int seedLength, seedStride;
+  enginetest.calculateSeedParameters(101, 35, seedLength, seedStride);
+  std::cerr << "seed length " << seedLength << std::endl;;
+
+  BamReadVector bav_original = bav_test;
+  for (int i = 0; i < 100; ++i) {
+    KmerFilter kmer;
+    //int kmer_corrected = kmer.correctReads(bav_test);
+    if (i % 1 == 0)
+      std::cerr << "Assembling " << bav_test.size() << " read on " << SnowTools::AddCommas(i) << std::endl;
+    enginetest.performAssembly(1);
+    enginetest.clearContigs();
+    //bav_test = bav_original;
+  }
+  
+  exit(0);
+
 }

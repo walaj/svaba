@@ -257,6 +257,11 @@ namespace SnowTools {
     
     // keep track of reads to reject
     std::set<std::string> reject_qnames;
+
+    // get the homology length. this is useful because if read alignment ends in homologous region, it is not split
+    int homlen = b1.cpos - b2.cpos;
+    if (homlen < 0)
+      homlen = 0;
    
     // loop all of the aligned reads
     for (auto& j : bav) {
@@ -288,7 +293,7 @@ namespace SnowTools {
       std::string sample_id = sr.substr(0,4);
 
       int rightbreak1 = b1.cpos + (tumor_read ? T_SPLIT_BUFF : N_SPLIT_BUFF); // read must extend this far right of break1
-      int leftbreak1  = b1.cpos - (tumor_read ? T_SPLIT_BUFF : N_SPLIT_BUFF); // read must extend this far left break2
+      int leftbreak1  = b1.cpos - (tumor_read ? T_SPLIT_BUFF : N_SPLIT_BUFF); // read must extend this far left of break1
       int rightbreak2 = b2.cpos + (tumor_read ? T_SPLIT_BUFF : N_SPLIT_BUFF);
       int leftbreak2  = b2.cpos - (tumor_read ? T_SPLIT_BUFF : N_SPLIT_BUFF);
 
@@ -318,7 +323,15 @@ namespace SnowTools {
       bool both_split = issplit1 && issplit2;
       bool one_split = issplit1 || issplit2;
       // be more permissive for NORMAL, so keep out FPs
-      bool valid = (both_split && tumor_read) || (one_split && !tumor_read) || (one_split && insertion.length() >= 8);
+      bool valid = (both_split && (tumor_read || homlen > 0)) || (one_split && !tumor_read && homlen == 0) || (one_split && insertion.length() >= 8);
+      // requiring both break ends to be split for homlen > 0 is for situation beow
+      // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>A..........................
+      // ............................B>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+      // if we set break2 at pos B, then reads that end at A will count as splits on B,
+      // when they should count as non-splits on A. For any read, if it is non-split on one 
+      // segment, it should be non-split on all, for overlapping alignments like above. Not true of 
+      // insertions at junctions, where one can split at one and not the other because of the intervening sequence buffer
+
 
       // add the split reads for each end of the break
       // a read is split if it is spans both break ends for tumor, one break end for normal (to
@@ -567,13 +580,13 @@ namespace SnowTools {
 
     if (num_align == 1)
       evidence = "INDEL";
-    else if ( isdisc && num_align == 2 )
+    else if ( isdisc && !complex && num_align != 0) //num_align == 2 )
       evidence = "ASDIS";
     else if ( isdisc && num_align < 3)
       evidence = "DSCRD";
-    else if (num_align == 2)
+    else if (!complex) //num_align == 2)
       evidence = "ASSMB";
-    else if (num_align > 2)
+    else if (complex) //num_align > 2)
       evidence = "COMPL";
     else {
       //std::cerr << "cname " << cname << " num_align" << num_align << " isdisc " << " issplit "  << std::endl;
@@ -687,9 +700,10 @@ namespace SnowTools {
     somatic_score = 0;
   
   // kill if bad ratio
-  int r = n.alt > 0 ? t.alt / n.alt : 100;
+  double r = n.alt > 0 ? (double)t.alt / (double)n.alt : 100;
   if (r < 10)
     somatic_score = 0;
+
 }
 
   void BreakPoint::__set_total_reads() {
@@ -756,7 +770,7 @@ namespace SnowTools {
       confidence = "WEAKASSEMBLY";
     else if ((b1.sub_n && dc.mapq1 < 1) || (b2.sub_n && dc.mapq2 < 1))
       confidence = "MULTIMATCH";
-    else if ( (secondary && std::min(b1.mapq, b2.mapq) < 30) || (std::min(b1.mapq, b2.mapq) < 60 && b1.sub_n > 1) )
+    else if ( (secondary || b1.sub_n > 1) && (std::min(max_a_mapq, max_b_mapq) < 30 || std::max(dc.tcount, dc.ncount) < 10))  // || (std::min(b1.mapq, b2.mapq) < 60 && b1.sub_n > 1) 
       confidence = "SECONDARY";
     else if (b1.gr.chr != b2.gr.chr && std::max(t.split, n.split) < 5)
       confidence = "WEAKASSEMBLY";
@@ -1183,8 +1197,18 @@ namespace SnowTools {
     double ll = 0;
     const double back_mutate_chance = 0; // this should be zero? assume indel never accidentally back mutates
     ref = ref <= 0 ? 0 : ref;
-    ll += ref * log10(f * e * back_mutate_chance  /* p(alt mut to ref) */ + (1-f)  * (1-e) /* p(ref not mutated) */ ); // ref
-    ll += alt * log10(f * (1 - e) /* p(alt not mut) */ + (1-f) * e /* p (ref mut to alt) */); // alt
+
+    double arg1 = f * e * back_mutate_chance  /* p(alt mut to ref) */ + (1-f)  * (1-e); /* p(ref not mutated) */ 
+    if (arg1 > 0)
+      ll += ref * log10(arg1); // ref
+    //else //if (ref == 0)// get rid of NaN issue
+    //  ll = 0;
+
+    arg1 = f * (1 - e) /* p(alt not mut) */ + (1-f) * e; /* p (ref mut to alt) */
+    if (arg1 > 0)
+      ll += alt * log10(arg1); // alt
+    //else
+    // ll = 0
 
     return ll;
 
@@ -1303,6 +1327,11 @@ namespace SnowTools {
     std::istringstream input(s);
     
     while (std::getline(input, val, ':')) {
+      
+      // tmp fix
+      if (val.find("nan") != std::string::npos)
+	val = "0";
+
       //      std::cerr << val << std::endl;
       switch(++count) {
       case 6: split = std::stoi(val); break;
@@ -1322,7 +1351,7 @@ namespace SnowTools {
       case 1: genotype = val; break;
       }
     }
-    assert(s == toFileString());
+    //assert(s == toFileString()); // tmp turn off
   }
 
   void BreakPoint::__rep(int rep_num, std::string& rseq, bool fwd) {

@@ -223,6 +223,8 @@ namespace SnowTools {
    
    int pon = 0;
    int num_align = 0;
+
+   bool complex = false;
    
    bool isindel = false;
    bool blacklist = false;
