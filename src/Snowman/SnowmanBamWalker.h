@@ -2,18 +2,19 @@
 #define SNOWMAN_SNOWMAN_BAM_WALKER_H__
 
 #include <vector>
+#include <sstream>
 #include <unordered_map>
 #include <unordered_set>
-#include <sstream>
-
-#include "KmerFilter.h"
-#include "SnowTools/BamWalker.h"
-#include "SnowTools/STCoverage.h"
-#include "SnowTools/BWAWrapper.h"
-#include "SnowTools/Fractions.h"
-#include "DBSnpFilter.h"
 
 #include "htslib/khash.h"
+
+#include "SnowTools/BamWalker.h"
+#include "SnowTools/Fractions.h"
+#include "SnowTools/STCoverage.h"
+#include "SnowTools/BWAWrapper.h"
+
+#include "KmerFilter.h"
+#include "DBSnpFilter.h"
 
 #define GET_COVERAGE 1
 

@@ -1,12 +1,15 @@
 #ifndef SNOWMAN_VCF_GEN_H
 #define SNOWMAN_VCF_GEN_H
 
+#include <vector>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
-#include <vector>
+
 #include "SnowTools/GenomicRegion.h"
+
 #include "BreakPoint2.h"
+
 //#include "faidx.h"
 
 typedef std::unordered_map<std::string, std::string> InfoMap;

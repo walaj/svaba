@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <cassert>
+
 #include "SnowTools/GenomicRegion.h"
 
 struct Indel {

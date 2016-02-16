@@ -1,12 +1,14 @@
 #ifndef GENPON_H
 #define GENPON_H
 
-#include "PonWalker.h"
+#include <pthread.h>
 #include <string>
 #include <fstream>
-#include <pthread.h>
-#include "workqueue.h"
+
 #include "SnowTools/GenomicRegionCollection.h"
+
+#include "workqueue.h"
+#include "PonWalker.h"
 
 void parsePONOptions(int argc, char** argv);
 void runGeneratePONfromVCF(int argc, char** argv);

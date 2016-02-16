@@ -4,8 +4,6 @@
 #include <random>
 #include <cassert>
 
-#include "SnowTools/SnowUtils.h"
-
 void ReadSim::addAllele(const std::string& s, double af) {
   
   if (m_seq.size() && m_seq.back().length() != s.length()) {

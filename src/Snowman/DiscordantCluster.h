@@ -2,12 +2,11 @@
 #define DISCORDANT_CLUSTER_H__
 
 #include <string>
-#include <iostream>
 #include <vector>
-#include <unordered_map>
 #include <cassert>
+#include <iostream>
+#include <unordered_map>
 
-#include "SnowTools/GenomicRegion.h"
 #include "SnowTools/BamRead.h"
 
 namespace SnowTools 

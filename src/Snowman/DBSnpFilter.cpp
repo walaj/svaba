@@ -1,7 +1,4 @@
 #include "DBSnpFilter.h"
-#include "SnowTools/SnowUtils.h"
-
-#include <sstream> 
 
 namespace SnowTools {
 
