@@ -12,6 +12,8 @@
 
 #define T_SPLIT_BUFF 15
 #define N_SPLIT_BUFF 8
+// if the insert is this big or larger, don't require splits to span both sides
+#define INSERT_SIZE_TOO_BIG_SPAN_READS 16
 //#define LOD_CUTOFF 8
 //#define DBCUTOFF 15
 //#define NODBCUTOFF 2.5
@@ -276,13 +278,37 @@ namespace SnowTools {
 	std::vector<std::string> cigvec = j.GetSmartStringTag("SC"); // read against contig CIGAR
 	assert(cigvec.size() == cnvec.size());
 	size_t kk = 0;
-	for (; kk < cnvec.size(); kk++) 
-	  if (cnvec[kk] == cname) 
-	    if ( (cigvec[kk].find("D") != std::string::npos/* && insertion.length()*/) || 
-	    	 (cigvec[kk].find("I") != std::string::npos/* && !insertion.length()*/)) {
-	      read_should_be_skipped = true;
-	      break;
+	for (; kk < cnvec.size(); kk++)  // find the right contig r2c cigar (since can have one read to many contig)
+	  if (cnvec[kk] == cname)  { // found the right cigar string
+
+	    Cigar tcig = cigarFromString(cigvec[kk]);
+	    std::vector<int> del_breaks;
+	    std::vector<int> ins_breaks;
+	    int pos = 0;
+	    for(auto& i : tcig) {
+
+	      if (i.Type() == 'D') 
+		del_breaks.push_back(pos);
+	      else if (i.Type() == 'I')
+		ins_breaks.push_back(pos);
+
+	      // update position on contig
+	      if (i.ConsumesReference())
+		pos += i.Length(); // update position on contig
+
 	    }
+	    
+	    if (insertion.length()) { // for insertions, skip reads that have del to insertion at same pos
+	      for (auto& i : del_breaks)
+		if (i > b1.cpos - 2 || i < b1.cpos + 2) // if start of insertion is at start of a del of r2c
+		  read_should_be_skipped = true;
+	    } else { // for del, skip reads that have ins r2c to deletion at sam pos
+	      for (auto& i : ins_breaks)
+		if (i > b1.cpos - 2 || i < b1.cpos + 2) // if start of insertion is at start of a del of r2c
+		  read_should_be_skipped = true;
+	    }
+	       
+	  }
       }
       
       if (read_should_be_skipped)
@@ -325,7 +351,7 @@ namespace SnowTools {
       bool both_split = issplit1 && issplit2;
       bool one_split = issplit1 || issplit2;
       // be more permissive for NORMAL, so keep out FPs
-      bool valid = (both_split && (tumor_read || homlen > 0)) || (one_split && !tumor_read && homlen == 0) || (one_split && insertion.length() >= 8);
+      bool valid = (both_split && (tumor_read || homlen > 0)) || (one_split && !tumor_read && homlen == 0) || (one_split && insertion.length() >= INSERT_SIZE_TOO_BIG_SPAN_READS);
       // requiring both break ends to be split for homlen > 0 is for situation beow
       // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>A..........................
       // ............................B>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
@@ -635,7 +661,7 @@ namespace SnowTools {
       confidence = "LOWMAPQ";
     else if ( std::min(b1.mapq, b2.mapq) <= 30 && a.split <= 8 ) 
       confidence = "LOWMAPQ";
-    else if (a.split < 3 && span <= 1500 && span != -1) // small with little split
+    else if (a.split <= 3 && span <= 1500 && span != -1) // small with little split
       confidence = "WEAKASSEMBLY";
     else if (num_align == 2 && b1.gr.chr != b2.gr.chr && std::min(b1.matchlen, b2.matchlen) < 60) // inter-chr, but no disc reads, weird alignment
       confidence = "WEAKASSEMBLY";
@@ -913,8 +939,12 @@ namespace SnowTools {
       quality = 0;
     
     double LR = -1000000;
-    for (auto& i : allele)
-      LR = std::max(i.second.LO_n, LR);
+    for (auto& i : allele) {
+      LR = std::max(-i.second.LO_n, LR); 
+      // neg because want to evaluate likelihood that is ALT in normal 
+      // the original use was to get LL that is REF in normal (in order to call somatic)
+      // but for next filter, we want to see if we are confident in the germline call
+    }
 
     // for the germline hits, check now that they have a high LR score (that they are AF of 0.5+, as expected for germline)
     if (!somatic_score && num_align == 1) {
@@ -1242,7 +1272,7 @@ namespace SnowTools {
 
     //std::cerr << LO_n << " ll_ref_norm " << ll_ref_norm << " ll_alt_norm " << ll_alt_norm << 
     //  " cov-al " << (cov-alt) << " alt " << alt << " er " << er << " test 100 " << 
-    //  (__log_likelihood(100, 0, 0, er) - __log_likelihood(100, 0, 0.5, er)) << std::endl;
+    //  __log_likelihood(100, 100, 0, 0) << " " << __log_likelihood(100, 100, 0.5, 0) << std::endl;
 
     // genotype NOT SUPPORTED CURRENTLY
     if (af < 0.2) 

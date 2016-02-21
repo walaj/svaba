@@ -93,7 +93,7 @@
  "  -A, --string-id                      String to name output files with (e.g. <string-id>_0_01.bam\n"
  "  Choose one of the following:\n"     
  "      --test-assembly                  Generate single-end reads from small contigs to test assembly/remapping\n"
- "      --sim-breaks                     Simulate rearrangements and indels and output paired-end reads\n"
+ "      --sim-breaks-power               Simulate rearrangements and indels and output paired-end reads\n"
  "      --split-bam                      Divide up a BAM file into smaller sub-sampled files, with no read overlaps between files. Preserves read-pairs\n"
  "      --realign-test                   Randomly sample the reference genome and test ability of BWA-MEM to realign to reference for different sizes / error rates\n"
  "      --realign-sv-test                Make an SV (rearrangment) and simulate contigs from it. Test size of contigs vs alignment accuracy for SVs\n"
@@ -106,15 +106,15 @@
  "  -D, --del-error-rate                 The random deletion error rate per read. Input as comma-separated to test multiple (test assembly)\n"
  "  Test Assembly (--test-assembly) Options:\n"
  "  -n, --num-runs                       Number of random trials to run\n"
- "  Simulate Breaks (--sim-breaks)  Options:\n"
- "      --isize-mean                     Desired mean insert size for the simulated reads\n"
- "      --isize-sd                       Desired std. dev. forinsert size for the simulated reads\n"
- "  -R, --num-rearrangements             Number of rearrangements to simulate\n"
- "  -X, --num-indels                     Number of indels to simulate\n"
- "  -M, --viral-integration              Number of segments to integrate viruses into. (Reduces amount of space for indels)\n"
- "      --add-scrambled-inserts          Add scrambled inserts at junctions, randomly between 0 and 100 bp with p(0) = 50% and p(1-100) = 50%;\n"
+   // "  Simulate Breaks (--sim-breaks)  Options:\n"
+   //"      --isize-mean                     Desired mean insert size for the simulated reads\n"
+   //"      --isize-sd                       Desired std. dev. forinsert size for the simulated reads\n"
+   //"  -M, --viral-integration              Number of segments to integrate viruses into. (Reduces amount of space for indels)\n"
+   //"      --add-scrambled-inserts          Add scrambled inserts at junctions, randomly between 0 and 100 bp with p(0) = 50% and p(1-100) = 50%;\n"
  "  Simulate Breaks with Power Law(--sim-breaks-power)  Options:\n"
  "      --blacklist                      BED file specifying blacklist regions not to put breaks in\n"
+ "  -R, --num-rearrangements             Number of rearrangements to simulate\n"
+ "  -X, --num-indels                     Number of indels to simulate\n"
  "  Split Bam (--split-bam)  Options:\n"
  "  -f. --fractions                      Fractions to split the bam into\n"
  "\n";
@@ -455,44 +455,44 @@ void assemblyTest() {
 	  for (auto& D : del_error_rates) {
 	    for (auto& I : ins_error_rates) {
 	  	  
-	  // make the read vector
-	  ReadSim rs;
-	  rs.addAllele(local_ref, 1);
-	  
-	  // sample reads randomly
-	  //std::cerr << "...making read vector" << std::endl;
-	  std::vector<std::string> reads;  
-	  rs.sampleReadsToCoverage(reads, c, E, I, D, opt::readlen);
-
-	  // sample paired reads
-	  //std::cerr << "...making paired-end read vector" << std::endl;
-	  std::vector<std::string> reads1;
-	  std::vector<std::string> reads2;
-	  std::vector<std::string> qual1;
-	  std::vector<std::string> qual2;
-	  std::vector<std::string> qual = {std::string('I',opt::readlen)};
-	  rs.samplePairedEndReadsToCoverage(qual1, qual2, reads1, reads2, c, E, I, D, opt::readlen, 350, 50, qual);
-	  assert(reads1.size() == reads2.size());
-
-	  // align these reads to the local_seq
-	  //std::cerr << "...realigned to local_seq" << std::endl;
-	  SnowTools::BamReadVector reads_to_local;
-	  int count = 0;
-	  for (auto& i : reads) {
-	    if (i.find("N") == std::string::npos) {
-	      SnowTools::BamReadVector read_hits;
-	      local_bwa.alignSingleSequence(i, "read_" + std::to_string(++count), read_hits, false,false, 0);
-	      if (read_hits.size())
-		reads_to_local.push_back(read_hits[0]);
-	    }
-	  }
-	  
-	  // kmer filter the reads
-	  KmerFilter kmer;
-	  if (k == 1)
-	    kmer.correctReads(reads_to_local);
-	  
-	  //std::cerr << " Attempted align of " << reads.size() << " to local_seq. Got hits on " << reads_to_local.size() << std::endl;
+	      // make the read vector
+	      ReadSim rs;
+	      rs.addAllele(local_ref, 1);
+	      
+	      // sample reads randomly
+	      //std::cerr << "...making read vector" << std::endl;
+	      std::vector<std::string> reads;  
+	      rs.sampleReadsToCoverage(reads, c, E, I, D, opt::readlen);
+	      
+	      // sample paired reads
+	      //std::cerr << "...making paired-end read vector" << std::endl;
+	      std::vector<std::string> reads1;
+	      std::vector<std::string> reads2;
+	      std::vector<std::string> qual1;
+	      std::vector<std::string> qual2;
+	      std::vector<std::string> qual = {std::string('I',opt::readlen)};
+	      rs.samplePairedEndReadsToCoverage(qual1, qual2, reads1, reads2, c, E, I, D, opt::readlen, 350, 50, qual);
+	      assert(reads1.size() == reads2.size());
+	      
+	      // align these reads to the local_seq
+	      //std::cerr << "...realigned to local_seq" << std::endl;
+	      SnowTools::BamReadVector reads_to_local;
+	      int count = 0;
+	      for (auto& i : reads) {
+		if (i.find("N") == std::string::npos) {
+		  SnowTools::BamReadVector read_hits;
+		  local_bwa.alignSingleSequence(i, "read_" + std::to_string(++count), read_hits, false,false, 0);
+		  if (read_hits.size())
+		    reads_to_local.push_back(read_hits[0]);
+		}
+	      }
+	      
+	      // kmer filter the reads
+	      KmerFilter kmer;
+	      if (k == 1)
+		kmer.correctReads(reads_to_local);
+	      
+	      //std::cerr << " Attempted align of " << reads.size() << " to local_seq. Got hits on " << reads_to_local.size() << std::endl;
 	  
 	  // make plot of reads to contig
 	  //SnowTools::AlignedContig sa(self_align);  
@@ -642,6 +642,12 @@ void assemblyTest() {
     fractions = parseErrorRates(frac);
   else
     opt::frac_bed_file = frac;
+
+  // check that the bam is valid
+  if (opt::mode == OPT_SIMBREAKS && !SnowTools::read_access_test(opt::bam)) {
+    std::cerr << "ERROR: Input BAM required for --sim-breaks" << std::endl;
+    exit(EXIT_FAILURE);
+  }
 
   // set the default error rates
   if (!snv_error_rates.size())

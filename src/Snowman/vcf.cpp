@@ -248,6 +248,7 @@ VCFFile::VCFFile(std::string file, std::string id, bam_hdr_t * h, const VCFHeade
   sv_header.addInfoField("IMPRECISE","0","Flag", "Imprecise structural variation");
   sv_header.addInfoField("SECONDARY","0","Flag", "SV calls comes from a secondary alignment");
   sv_header.addInfoField("HOMLEN","1","Integer","Length of base pair identical micro-homology at event breakpoints");
+  sv_header.addInfoField("DBSNP","1","String","TRUE if variant overlaps a dbSNP site");
   //sv_header.addInfoField("BKDIST","1","Integer","Distance between breakpoints (-1 if difference chromosomes");
   sv_header.addInfoField("MAPQ","1","Integer","Mapping quality (BWA-MEM) of this fragement of the contig (-1 if discordant only)");
   sv_header.addInfoField("MATEMAPQ","1","Integer","Mapping quality of the partner fragment of the contig");
