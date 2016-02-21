@@ -1,7 +1,7 @@
 [![Build Status](https://magnum.travis-ci.com/broadinstitute/SnowmanSV.svg?token=QTnp48gNXtKQKRDpquf3&branch=master)](https://magnum.travis-ci.com/broadinstitute/SnowmanSV)
 
-Snowman - Structural Variation detection by String Graph Assembly
-=================================================================
+Snowman - Structural Variation Detection by Rolling Local Assembly
+==================================================================
 
 **License:** [GNU GPLv3][license] 
 
@@ -17,7 +17,7 @@ reuse -q GCC-4.9
 ############## (only if not already installed) ##########
 git clone --recursive https://github.com/boostorg/boost.git
 cd boost
-./bootstrap.sh --with-libraries=regex
+./bootstrap.sh --with-libraries=regex,test,filesystem,system
 ./b2
 
 ############### DOWNLOAD VARIANT BAM ############### 
@@ -50,12 +50,14 @@ Scope
 -----
 
 Snowman is currently configured to provide indel and rearrangement calls (and anything "in between"). It has been most widely tested
-as a somatic variant caller, and outputs separate VCFs for somatic and tumor. 
+as a somatic variant caller, and outputs separate VCFs for somatic and germline. If only a single 
 
 Required Inputs
 ---------------
 
-Any number of BAM/SAM/CRAM files can be supplied at once. Tumor files are input with ``-t`` and normal with ``-n``. All assemblies are done
+Any number of BAM/SAM/CRAM files can be supplied at once. Snowman uses random access of the BAMs to obtain pair-mate reads,
+and so requires the files to be indexed (``samtools index``). Tumor BAMs are input with ``-t`` and normal with ``-n``. The order
+does not matter. All assemblies are done
 jointly, combining reads across all of the BAM files. The source of the variant support reads is then tracked during realignment of reads to 
 assembly contigs. A BWA indexed reference genome must be supplied as well (``-G``). 
 
@@ -98,13 +100,59 @@ Filtering / Refiltering
 
 Snowman performs a series of log-likelihood calculations for each variant. The purpose is to first classify a variant as real vs artifact, 
 and then to determine if the variant is somatic or germline. These log-likelihoods are output in the VCF and bps.txt.gz file and described here:
-> ``LOD (LO)`` - Log of the odds that variant is real vs artifact. For indels, the likelihood of an artifact read is proportional to the length of local repeats (repeating units up to 5 long per unit)
-> ``LR`` - Log of the odds that the variant has allelic fraction (AF) of 0 or >=0.5. This is used for somatic vs germline classification
-> ``SL`` - Scaled LOD. LOD scores is heuristically scaled as: (min(Mapping quality #1, Mapping quality #2) - 2 * NM) / 60 * LOD
+* ``LOD (LO)`` - Log of the odds that variant is real vs artifact. For indels, the likelihood of an artifact read is proportional to the length of local repeats (repeating units up to 5 long per unit)
+* ``LR`` - Log of the odds that the variant has allelic fraction (AF) of 0 or >=0.5. This is used for somatic vs germline classification
+* ``SL`` - Scaled LOD. LOD scores is heuristically scaled as: (min(Mapping quality #1, Mapping quality #2) - 2 * NM) / 60 * LOD
 
 Snowman can refilter the bps.txt.gz file to produce new VCFs with different stringency cutoffs. To run, the following are required:
-> ``-b`` - a BAM from the original run, which is used just for its header
-> ``-i`` - input bps.txt.gz file
+* ``-b`` - a BAM from the original run, which is used just for its header
+* ``-i`` - input bps.txt.gz file
+
+Auxillary Tools
+---------------
+
+# ``snowman benchmark``
+
+Snowman ships with tools for testing the assemblies and for generating in-silico tumor genomes for testing.
+
+##### ``--sim-breaks-power``
+Simulates contigs containing structural variants.
+
+```
+### Simulate SVs and indels from the reference.
+-R <num_rearrangements> -X <num_indels> --add-scrambled-inserts
+
+```
+
+
+##### ``--split-bam``
+Simple tool for splitting a BAM file randomly into smaller fragments. This is useful for generating a sub-sampled BAM, 
+and ensuring that each of the subsampled BAMs have different reads in them. ``split-bam`` will use the read name (and a seed 
+provied with ``-s``) to generate the random numbers, which ensures that read-pairs are always sent to the same BAM.
+
+```
+### split BAM into 25% and 50% pieces at certain regions
+snowman benchmark --split-bam -b <in.bam> -f 0.2,0.5 -k <regions.bed>
+### split the entire BAM
+snowman benchmark --split-bam -b <in.bam> -f 0.2,0.5 
+```
+
+##### --realign-test
+Test the abiltiy of BWA-MEM to realign contigs of different lengths, with errors. Useful for gauging how often true indels will be missed 
+during the BWA-MEM realignment phase.
+```
+#### 
+snowman benchmark --realign-test
+```
+
+##### --realign-sv-test
+Test the abiltiy of BWA-MEM to realign SV contigs of different lengths, with errors. Useful for gauging how often true rearrangements will be missed 
+during the BWA-MEM realignment phase.
+```
+#### 
+snowman benchmark --realign-sv-test
+```
+
 
 [vbam]: https://github.com/jwalabroad/VariantBam
 

@@ -78,7 +78,7 @@ namespace opt {
 
   namespace assemb {
     static int minOverlap = -1;
-    static float error_rate = 0.02; 
+    static float error_rate = 0.025; 
     static bool writeASQG = false;
   }
 
@@ -89,6 +89,8 @@ namespace opt {
   static bool exome = false;
 
   static bool run_blat = false;
+
+  static bool kmer_filter = false;
 
   static std::string ooc = "/xchip/gistic/Jeremiah/blat/11.ooc";
 
@@ -170,7 +172,8 @@ enum {
   OPT_NUM_ASSEMBLY_ROUNDS,
   OPT_NUM_TO_SAMPLE,
   OPT_EXOME,
-  OPT_NOBLAT
+  OPT_NOBLAT,
+  OPT_KMER
 };
 
 static const char* shortopts = "hzxt:n:p:v:r:G:r:e:g:k:c:a:m:B:M:D:Y:S:P:L:O:";
@@ -206,6 +209,7 @@ static const struct option longopts[] = {
   { "refilter",              no_argument, NULL, OPT_REFILTER },
   { "r2c-bam",               no_argument, NULL, 'x' },
   { "write-asqg",            no_argument, NULL, OPT_ASQG   },
+  { "kmer-correct",              no_argument, NULL, OPT_KMER   },
   { "error-rate",            required_argument, NULL, 'e'},
   { "verbose",               required_argument, NULL, 'v' },
   { "blacklist",             required_argument, NULL, 'B' },
@@ -247,6 +251,7 @@ static const char *RUN_USAGE_MESSAGE =
 "  -V, --microbial-genome               Path to indexed reference genome of microbial sequences to be used by BWA-MEM to filter reads.\n"
 "  -z, --g-zip                          Gzip and tabix the output VCF files. Default: off\n"
 "  -L, --min-lookup-min                 Minimum number of somatic reads required to attempt mate-region lookup [3]\n"
+"      --kmer-correct                   Perform k-mer based error correction on the reads. Useful for noisy data, need to balance with error rate (w/kmer can have lower error rate). [off]\n"
 "      --r2c-bam                        Output a BAM of reads that aligned to a contig, and fasta of kmer corrected sequences\n"
 "      --discordant-only                Only run the discordant read clustering module, skip assembly. Default: off\n"
 "      --read-tracking                  Track supporting reads. Increases file sizes.\n"
@@ -380,6 +385,14 @@ void runSnowman(int argc, char** argv) {
       ss << "!!!!! Tumor and normal readlengths differ. Tumor: " << t_params.readlen << " Normal: " << n_params.readlen << std::endl;
   }
   SnowmanUtils::print(ss, log_file, opt::verbose);
+
+  // get the seed length for printing
+  int seedLength, seedStride;
+  SnowmanAssemblerEngine enginetest("test", opt::assemb::error_rate, opt::assemb::minOverlap, opt::readlen);
+  enginetest.calculateSeedParameters(opt::readlen, opt::assemb::minOverlap, seedLength, seedStride);
+  ss << "...calculated seed size for error rate of " << opt::assemb::error_rate << " and read length " << opt::readlen << " is " << seedLength << std::endl;
+  std::cerr << "..seed size w/error rate " << opt::assemb::error_rate << " and read length " << opt::readlen << " is " << seedLength << std::endl;
+
 
   // parse the region file, count number of jobs
   int num_jobs = SnowmanUtils::countJobs(opt::regionFile, file_regions, regions_torun,
@@ -629,6 +642,7 @@ void parseRunOptions(int argc, char** argv) {
       case OPT_DISCORDANT_ONLY: opt::disc_cluster_only = true; break;
       case OPT_WRITE_EXTRACTED_READS: opt::write_extracted_reads = true; break;
     case OPT_NUM_ASSEMBLY_ROUNDS: arg >> opt::num_assembly_rounds; break;
+    case OPT_KMER: opt::kmer_filter = true; break;
     case OPT_GEMCODE_AWARE: arg >> opt::gemcode; break;
       default: die= true; 
     }
@@ -760,7 +774,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
     KmerFilter kmer;
     int kmer_corrected = 0;
 
-    if (!opt::no_assemble_normal)
+    if (!opt::no_assemble_normal && opt::kmer_filter)
       kmer_corrected = kmer.correctReads(bav_this);
     else {
       for (auto& r : bav_this)
@@ -768,12 +782,13 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 	  bav_this_tum.push_back(r);
 	else
 	  bav_this_norm.push_back(r);
-      kmer_corrected = kmer.correctReads(bav_this_tum);
+      if (opt::kmer_filter)
+	kmer_corrected = kmer.correctReads(bav_this_tum);
       bav_this = bav_this_tum;
       bav_this.insert(bav_this.end(), bav_this_norm.begin(), bav_this_norm.end());
     }
     st.stop("k");
-    if (opt::verbose > 2)
+    if (opt::verbose > 2 && opt::kmer_filter)
       std::cerr << "...kmer corrected " << kmer_corrected << " reads of " << bav_this.size() << std::endl;
 
     // write them to fasta
