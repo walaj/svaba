@@ -27,7 +27,7 @@ namespace SnowTools {
      * @param const reference to an aligned sequencing read
      * @param flip If the contig sequence was flipped (rev of BAM record), need to track this. This flipping occurs in AlignedContig::AlignedContig
      */
-    AlignmentFragment(const BamRead &talign, bool flip, const std::unordered_set<std::string>& prefixes);
+    AlignmentFragment(const BamRead &talign, bool flip, const std::set<std::string>& prefixes);
     
     //! sort AlignmentFragment objects by start position
     bool operator < (const AlignmentFragment& str) const { return (start < str.start); }
@@ -115,7 +115,7 @@ namespace SnowTools {
     
     AlignedContig() {}
     
-    AlignedContig(const BamReadVector& bav);
+    AlignedContig(const BamReadVector& bav, const std::set<std::string>& pref);
     
     /*! Constructor which parses an alignment record from BWA (a potentially multi-line SAM record)
      * @param const reference to a string representing a SAM alignment (contains newlines if multi-part alignment)
@@ -278,7 +278,7 @@ namespace SnowTools {
   std::unordered_map<std::string, std::vector<int>> cov;
   std::vector<int> tum_cov, norm_cov;
 
-  std::unordered_set<std::string> prefixes; // store the sample ids. Needed to create accurate BreakPoint genotypes
+  std::set<std::string> prefixes; // store the sample ids. Needed to create accurate BreakPoint genotypes
 
   AlignmentFragmentVector m_frag_v; // store all of the individual alignment fragments 
  private:

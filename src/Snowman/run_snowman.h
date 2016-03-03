@@ -7,6 +7,7 @@
 #include <vector>
 #include <ostream>
 #include <unordered_map>
+#include <map>
 
 #include "SnowTools/BamWalker.h"
 #include "SnowTools/BWAWrapper.h"
@@ -32,9 +33,9 @@ bool runBigChunk(const SnowTools::GenomicRegion& region);
 SnowTools::GRC makeAssemblyRegions(const SnowTools::GenomicRegion& region);
 void alignReadsToContigs(SnowTools::BWAWrapper& bw, const SnowTools::USeqVector& usv, BamReadVector& bav_this, std::vector<SnowTools::AlignedContig>& this_alc);
 SnowmanBamWalker __make_walkers(const std::string& p, const std::string& b, const SnowTools::GenomicRegion& region, int& tcount, int& ncount);
-MateRegionVector __collect_normal_mate_regions(std::unordered_map<std::string, SnowmanBamWalker>& walkers);
-MateRegionVector __collect_somatic_mate_regions(std::unordered_map<std::string, SnowmanBamWalker>& walkers, MateRegionVector& bl);
-SnowTools::GRC __get_exclude_on_badness(std::unordered_map<std::string, SnowmanBamWalker>& walkers, const SnowTools::GenomicRegion& region);
+MateRegionVector __collect_normal_mate_regions(std::map<std::string, SnowmanBamWalker>& walkers);
+MateRegionVector __collect_somatic_mate_regions(std::map<std::string, SnowmanBamWalker>& walkers, MateRegionVector& bl);
+SnowTools::GRC __get_exclude_on_badness(std::map<std::string, SnowmanBamWalker>& walkers, const SnowTools::GenomicRegion& region);
 void run_test_assembly();
 /** @brief p-thread work item that calls Snowman on a small region
 

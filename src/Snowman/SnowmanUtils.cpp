@@ -226,7 +226,7 @@ int overlapSize(const SnowTools::BamRead& query, const SnowTools::BamReadVector&
   }
     
 
-  std::string __bamOptParse(std::unordered_map<std::string, std::string>& obam, std::istringstream& arg, int sample_number, const std::string& prefix) {
+  std::string __bamOptParse(std::map<std::string, std::string>& obam, std::istringstream& arg, int sample_number, const std::string& prefix) {
     std::stringstream ss;
     std::string bam;
     arg >> bam;

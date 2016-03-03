@@ -66,6 +66,8 @@
    static int viral_count = 0;
 
    static std::string blacklist;
+
+   static std::set<std::string> prefixes;
  }
 
  enum { 
@@ -153,6 +155,8 @@
  void runBenchmark(int argc, char** argv) {
 
    parseBenchmarkOptions(argc, argv);
+
+   opt::prefixes.insert(opt::bam);
 
    std::cerr << 
      "-----------------------------------------" << std::endl << 
@@ -513,7 +517,7 @@ void assemblyTest() {
 	  for (auto& i : engine.getContigs()) {
 	    SnowTools::BamReadVector ct_alignments;
 	    local_bwa.alignSingleSequence(i.getSeq(), i.getID(), ct_alignments, false, false, 0);
-	    SnowTools::AlignedContig ac(ct_alignments);
+	    SnowTools::AlignedContig ac(ct_alignments, opt::prefixes);
 	    //ac.alignReads(reads_to_local);
 	    //std::cout << ac;
 	    contigs_to_local.insert(contigs_to_local.begin(), ct_alignments.begin(), ct_alignments.end());

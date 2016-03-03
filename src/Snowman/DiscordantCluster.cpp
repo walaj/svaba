@@ -41,10 +41,11 @@ namespace SnowTools {
     for (auto& r : bav) {
 
       // is the read even discordant?
-      bool disc_r = (abs(r.InsertSize()) >= 1000) || (r.MateChrID() != r.ChrID());
+      bool non_fr = (r.ReverseFlag() == r.MateReverseFlag()) || (r.ReverseFlag() && r.Position() < r.MatePosition()) || (!r.ReverseFlag() && r.Position() > r.MatePosition());
+      bool disc_r = (abs(r.InsertSize()) >= 800) || (r.MateChrID() != r.ChrID()) || non_fr;
+
       if (tmp_map[r.Qname()] >= 2 && disc_r && !r.SecondaryFlag())
 	bav_dd.push_back(r);
-
     }
     
     if (!bav_dd.size())
@@ -201,7 +202,7 @@ namespace SnowTools {
 	  m_reg2.pos2 = endpos;
 	assert(m_reg2.width() < 5000);
       }
-  
+
     mapq1 = __getMeanMapq(false);
     mapq2 = __getMeanMapq(true);
     assert(mapq1 >= 0);
@@ -307,13 +308,16 @@ namespace SnowTools {
       else
 	reads_string.pop_back(); // delete last comma
       }
+
+    int pos1 = m_reg1.strand == '+' ? m_reg1.pos2 : m_reg1.pos1; // get the edge of the cluster
+    int pos2 = m_reg2.strand == '+' ? m_reg2.pos2 : m_reg2.pos1;
     
     std::stringstream out;
-    out << m_reg1.chr+1 << sep << m_reg1.pos1 << sep << m_reg1.strand << sep 
-	<< m_reg2.chr+1 << sep << m_reg2.pos1 << sep << m_reg2.strand << sep 
+    out << m_reg1.chr+1 << sep << pos1 << sep << m_reg1.strand << sep 
+	<< m_reg2.chr+1 << sep << pos2 << sep << m_reg2.strand << sep 
 	<< tcount << sep << ncount << sep << mapq1 << sep 
-	<< mapq2 << sep << (m_contig.length() ? m_contig : "x") << sep << (reads_string.length() ? reads_string : "x")
-	<< sep << toRegionString();
+	<< mapq2 << sep << (m_contig.length() ? m_contig : "x") << sep << toRegionString()
+	<< sep << (reads_string.length() ? reads_string : "x");
 
     return (out.str());
     

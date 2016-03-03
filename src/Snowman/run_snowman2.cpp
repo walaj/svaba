@@ -4,6 +4,7 @@
 #include <iostream>
 #include <sstream>
 #include <unordered_map>
+#include <map>
 #include <vector>
 
 #include "bwa/bwa.h"
@@ -34,14 +35,16 @@
 static BamParams t_params;
 static BamParams n_params;
 
+static std::set<std::string> prefixes;
+
 static SnowTools::PONFilter * pon_filter = nullptr;
 
 struct bidx_delete {
   void operator()(void* x) { hts_idx_destroy((hts_idx_t*)x); }
 };
 
-typedef std::unordered_map<std::string, std::shared_ptr<hts_idx_t>> BamIndexMap;
-typedef std::unordered_map<std::string, std::string> BamMap;
+typedef std::map<std::string, std::shared_ptr<hts_idx_t>> BamIndexMap;
+typedef std::map<std::string, std::string> BamMap;
 
 static BamIndexMap bindices;
 static faidx_t * findex;
@@ -109,7 +112,8 @@ namespace opt {
 
   // parameters for filtering reads
   //static std::string rules = "global@!hardclip;!duplicate;!qcfail;phred[4,100];length[LLL,1000]%region@WG%!isize[0,800]%ic%clip[10,1000]%ins[1,1000];mapq[0,100]%del[1,1000];mapq[1,1000]%mapped;!mate_mapped;mapq[1,1000]%mate_mapped;!mapped";
-  static std::string rules = "global@!hardclip;!duplicate;!qcfail;phred[4,100]%region@WG%!isize[0,800]%ic%clip[10,1000]%ins[1,1000];mapq[0,100]%del[1,1000];mapq[1,1000]%mapped;!mate_mapped;mapq[1,1000]%mate_mapped;!mapped";
+  //static std::string rules = "global@!hardclip;!duplicate;!qcfail;phred[4,100]%region@WG%discordant[0,800]%ic%clip[10,1000]%ins[1,1000];mapq[0,100]%del[1,1000];mapq[1,1000]%mapped;!mate_mapped;mapq[1,1000]%mate_mapped;!mapped";
+  static std::string rules = "global@!duplicate;!qcfail%region@WG%discordant[0,800]%ic%clip[5,1000];phred[4,100]%ins[1,1000]%del[1,1000]%mapped;!mate_mapped%mate_mapped;!mapped";
   static int num_to_sample = 500000;
   static std::string motif_exclude;
   
@@ -365,6 +369,10 @@ void runSnowman(int argc, char** argv) {
   std::cerr << "...loading BAM indices" << std::endl;
   for (auto& b : opt::bam) 
     bindices[b.first] = std::shared_ptr<hts_idx_t>(hts_idx_load(b.second.c_str(), HTS_FMT_BAI), bidx_delete());
+
+  // set the prefixes
+  for (auto& b : opt::bam)
+    prefixes.insert(b.first);
 
   // learn some parameters
   LearnBamParams tparm(opt::tumor_bam);
@@ -689,7 +697,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
   st.start();
 
   // setup for the BAM walkers
-  std::unordered_map<std::string, SnowmanBamWalker> walkers;
+  std::map<std::string, SnowmanBamWalker> walkers;
 
   // loop through the input bams and get reads
   int num_t_reads = 0, num_n_reads = 0, tcount = 0, ncount = 0;
@@ -999,7 +1007,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 	if (!human_alignments.size())
 	  continue;
 	
-        SnowTools::AlignedContig ac(human_alignments);
+        SnowTools::AlignedContig ac(human_alignments, prefixes);
 
 	// assign the local variable to each
 	ac.checkLocal(g);
@@ -1433,7 +1441,7 @@ SnowmanBamWalker __make_walkers(const std::string& p, const std::string& b, cons
 
 }
 
-MateRegionVector __collect_normal_mate_regions(std::unordered_map<std::string, SnowmanBamWalker>& walkers) {
+MateRegionVector __collect_normal_mate_regions(std::map<std::string, SnowmanBamWalker>& walkers) {
   
   MateRegionVector normal_mate_regions;
   for (auto& b : opt::bam)
@@ -1445,7 +1453,7 @@ MateRegionVector __collect_normal_mate_regions(std::unordered_map<std::string, S
 
 }
 
-MateRegionVector __collect_somatic_mate_regions(std::unordered_map<std::string, SnowmanBamWalker>& walkers, MateRegionVector& bl) {
+MateRegionVector __collect_somatic_mate_regions(std::map<std::string, SnowmanBamWalker>& walkers, MateRegionVector& bl) {
 
 
   MateRegionVector somatic_mate_regions;
@@ -1470,7 +1478,7 @@ MateRegionVector __collect_somatic_mate_regions(std::unordered_map<std::string, 
 
 }
 
-SnowTools::GRC __get_exclude_on_badness(std::unordered_map<std::string, SnowmanBamWalker>& walkers, const SnowTools::GenomicRegion& region) {
+SnowTools::GRC __get_exclude_on_badness(std::map<std::string, SnowmanBamWalker>& walkers, const SnowTools::GenomicRegion& region) {
   
   SnowTools::STCoverage * weird_normal = &(walkers[opt::normal_bam].bad_cov);
   SnowTools::STCoverage * cov_normal   = &(walkers[opt::normal_bam].cov);

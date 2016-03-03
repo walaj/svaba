@@ -799,7 +799,8 @@ option_list = list(
   make_option(c("-g", "--genes"), type = "logical", default = TRUE,  help = "Add genes to the plot?"),
   make_option(c("-H", "--height"), type = "numeric", default = 10,  help = "Height"),
   make_option(c("-W", "--width"), type = "numeric", default = 10,  help = "Width"),
-  make_option(c("-N", "--nofilter"), type = "numeric", default = 0,  help = "Dont filter any events")
+  make_option(c("-N", "--nofilter"), type = "numeric", default = 0,  help = "Dont filter any events"),
+  make_option(c("-s", "--minsize"), type = "numeric", default = 0,  help = "Minimum size to plot for SV") 
 )
 
 parseobj = OptionParser(option_list=option_list)
@@ -838,6 +839,11 @@ if (grepl("gz$", opt$input)) {
 if (nrow(bks) && filter) {
   bks <- bks[(bks$evidence != "DSCRD" | bks$evidence == "DSCRD" && bks$tdisc >= opt$discsupport) & bks$evidence != "INDEL" & bks$confidence == "PASS" & bks$somatic_score >= 1]
 }
+
+if (nrow(bks)) {
+  bks <- bks[bks$span > opt$minsize | bks$span < 0]
+}
+
 ## filter out bad ASSMB
 #if (nrow(bks) && sum(bks$evidence == "ASSMB" & bks$tsplit < opt$splitsupport))
 #  bks <- bks[-(bks$evidence == "ASSMB" & bks$tsplit < opt$splitsupport)]
