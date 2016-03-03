@@ -666,26 +666,15 @@ namespace SnowTools {
     else if (num_align == 2 && b1.gr.chr != b2.gr.chr && std::min(b1.matchlen, b2.matchlen) < 60) // inter-chr, but no disc reads, weird alignment
       confidence = "WEAKASSEMBLY";
     else if (num_align == 2 && std::min(b1.mapq, b2.mapq) < 50 && b1.gr.chr != b2.gr.chr) // interchr need good mapq for assembly only
-      confidence = "WEAKASSEMBLY";
+      confidence = "LOWMAPQ";
     else if (std::min(b1.matchlen, b2.matchlen) < 50 && af < 0.2) // not enough evidence
-      confidence = "WEAKASSEMBLY";      
-    //else if (std::max(t.split, n.split) < 5 && span < 500 && span != -1) // be more careful about small events
-    //  confidence = "WEAKASSEMBLY";      
-    //else if ( (germ && span == -1) || (germ && span > 1000000) ) // super short alignemtns are not to be trusted. Also big germline events
-    //  confidence = "WEAKASSEMBLY";
+      confidence = "LOWAF";      
     else if ((b1.sub_n && b1.mapq < 50) || (b2.sub_n && b2.mapq < 50) || (b1.sub_n + b2.sub_n) >= 2)
       confidence = "MULTIMATCH";
-    //else if (n.cov > 500 || t.cov==0 || n.cov == 0)
-    //  confidence = "BADREGION";
     else if (secondary && std::min(b1.mapq, b2.mapq) < 30)
       confidence = "SECONDARY";
     else if (repeat_seq.length() >= 10 && std::max(t.split, n.split) < 7)
       confidence = "WEAKASSEMBLY";
-    //else if ( (insertion.length() >= 100 || span < 1000) && (t.split <= 8 || n.split) ) // be extra strict for huge insertions or really low spans
-    //  confidence = "WEAKASSEMBLY";
-    // foldback filter
-    // else if (b1.gr.strand == b2.gr.strand && span > 0 && span < 200)
-    //  confidence = "FOLDBACK";
     else
       confidence = "PASS";
 
@@ -756,13 +745,6 @@ namespace SnowTools {
       
       t_reads = this_reads_t.size();
       n_reads = this_reads_n.size();
-      //} else if (evidence == "INDEL" || evidence == "ASSMB" || evidence == "COMPL") {
-      //t_reads = t.alt;
-      //n_reads = n.alt;
-      //} else if (evidence == "DSCRD") {
-      //t_reads = dc.tcount;
-      //n_reads = dc.ncount;
-      //} 
 
   }
 
@@ -785,23 +767,17 @@ namespace SnowTools {
 
     // check the mapq in different ways
     bool low_max_mapq = max_a_mapq <= 10 || max_b_mapq <= 10 || std::max(max_a_mapq, max_b_mapq) <= 30;
-
-    if (low_max_mapq || (b1.mapq < 30 && !b1.local) || (b2.mapq < 30 && !b2.local))
+    
+    if (low_max_mapq || (max_a_mapq < 30 && !b1.local) || (max_b_mapq < 30 && !b2.local))
       confidence = "LOWMAPQ";
-    else if ( std::max(t.split, n.split) <= 1 || total_count < 4 || (germ && (total_count <= 6) )) // stricter about germline
+    else if ( std::max(t.split, n.split) <= 1 || total_count < 4)
       confidence = "WEAKASSEMBLY";
-    else if (std::max(t.split, n.split) <= 3 && span < 2000 && span != -1) // be more careful about small events
-      confidence = "WEAKASSEMBLY";      
-    else if (std::max(t.split, n.split) <= 5 && span < 500 && span != -1) // be more careful about small events
-      confidence = "WEAKASSEMBLY";      
     else if ( total_count < 15 && germ && span == -1) // be super strict about germline interchrom
       confidence = "WEAKASSEMBLY";
     else if ((b1.sub_n && dc.mapq1 < 1) || (b2.sub_n && dc.mapq2 < 1))
       confidence = "MULTIMATCH";
     else if ( (secondary || b1.sub_n > 1) && (std::min(max_a_mapq, max_b_mapq) < 30 || std::max(dc.tcount, dc.ncount) < 10))  // || (std::min(b1.mapq, b2.mapq) < 60 && b1.sub_n > 1) 
       confidence = "SECONDARY";
-    else if (b1.gr.chr != b2.gr.chr && std::max(t.split, n.split) < 5)
-      confidence = "WEAKASSEMBLY";
     else
       confidence = "PASS";
 

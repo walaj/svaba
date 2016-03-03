@@ -4,6 +4,7 @@
 #include <ctime>
 #include <sstream>
 #include <unordered_map>
+#include <map>
 
 #include "SnowTools/BamWalker.h"
 #include "SnowTools/BWAWrapper.h"
@@ -45,7 +46,7 @@ struct SnowTimer {
 
   std::string fileDateString();
 
-  std::string __bamOptParse(std::unordered_map<std::string, std::string>& obam, std::istringstream& arg, int sample_number, const std::string& prefix);
+  std::string __bamOptParse(std::map<std::string, std::string>& obam, std::istringstream& arg, int sample_number, const std::string& prefix);
 
   void __openWriterBam(const SnowTools::BamWalker& bwalker, const std::string& name, SnowTools::BamWalker& wbam);
 

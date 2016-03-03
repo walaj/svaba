@@ -43,7 +43,7 @@ namespace SnowTools
 
     /** Return a string representing the output file header */
     static std::string header() { 
-      return "chr1\tpos1\tstrand1\tchr2\tpos2\tstrand2\ttcount\tncount\tmapq1\tmapq2\treads\tcname\tregion_string"; 
+      return "chr1\tpos1\tstrand1\tchr2\tpos2\tstrand2\ttcount\tncount\tmapq1\tmapq2\tcname\tregion_string\treads"; 
     }
     
     bool hasAssociatedAssemblyContig() const { return m_contig.length(); }

@@ -15,6 +15,7 @@ static ogzstream all_align, os_allbps;
 static std::string tt, nn; // so hacky
 static std::shared_ptr<hts_idx_t> ttindex, nnindex;
 static faidx_t* f;
+static std::set<std::string> prefixes;
 
 //static ofstream os_allbps;
 static struct timespec start;
@@ -89,7 +90,13 @@ bool runAC(const ContigElement * c) {
   SnowTools::BWAWrapper bw;
   bw.constructIndex(usv);
   
-  this_alc.push_back(SnowTools::AlignedContig(c->brv));
+  if (!prefixes.size()) {
+    prefixes.insert("t000"); 
+    prefixes.insert("n000");
+  }
+
+
+  this_alc.push_back(SnowTools::AlignedContig(c->brv, prefixes));
   SnowTools::AlignedContig * ac = &this_alc.back();
   for (auto& kk : ac->m_frag_v)
     kk.m_max_indel = 20;

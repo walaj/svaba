@@ -3,7 +3,7 @@
 //#define DEBUG_SNOWMAN_BAMWALKER 1
 #define MIN_MAPQ_FOR_MATE_LOOKUP 0
 
-//#define QNAME "HHNYTCCXX151213:3:1115:22556:66654"
+//#define QNAME "tum6780-DUP-946"
 
 // dont read in more reads than this at once
 #define FAIL_SAFE 10000
