@@ -35,9 +35,16 @@
 static BamParams t_params;
 static BamParams n_params;
 
+static SnowTools::GRC bad_mate_regions;
+
 static std::set<std::string> prefixes;
 
 static SnowTools::PONFilter * pon_filter = nullptr;
+
+// Declares a default Aligner
+//static StripedSmithWaterman::Aligner sw_aligner;
+// Declares a default filter
+//static StripedSmithWaterman::Filter sw_filter;
 
 struct bidx_delete {
   void operator()(void* x) { hts_idx_destroy((hts_idx_t*)x); }
@@ -97,7 +104,7 @@ namespace opt {
 
   static std::string ooc = "/xchip/gistic/Jeremiah/blat/11.ooc";
 
-  static int num_assembly_rounds = 1;
+  static int num_assembly_rounds = 3;
   static bool write_extracted_reads = false;
 
   static std::string pon;
@@ -109,6 +116,8 @@ namespace opt {
   static bool r2c = false;
   static bool zip = false;
   //  static std::string pon = "";
+
+  static int gap_open_penalty = 6;
 
   // parameters for filtering reads
   //static std::string rules = "global@!hardclip;!duplicate;!qcfail;phred[4,100];length[LLL,1000]%region@WG%!isize[0,800]%ic%clip[10,1000]%ins[1,1000];mapq[0,100]%del[1,1000];mapq[1,1000]%mapped;!mate_mapped;mapq[1,1000]%mate_mapped;!mapped";
@@ -177,7 +186,8 @@ enum {
   OPT_NUM_TO_SAMPLE,
   OPT_EXOME,
   OPT_NOBLAT,
-  OPT_KMER
+  OPT_KMER,
+  OPT_GAP_OPEN
 };
 
 static const char* shortopts = "hzxt:n:p:v:r:G:r:e:g:k:c:a:m:B:M:D:Y:S:P:L:O:";
@@ -201,6 +211,7 @@ static const struct option longopts[] = {
   { "blat-ooc",                required_argument, NULL, 'O' },
   { "g-zip",                 no_argument, NULL, 'z' },
   { "read-tracking",         no_argument, NULL, OPT_READ_TRACK },
+  { "gap-open-penalty",         required_argument, NULL, OPT_GAP_OPEN },
   { "write-extracted-reads", no_argument, NULL, OPT_WRITE_EXTRACTED_READS },
   { "no-assemble-normal",    no_argument, NULL, OPT_NO_ASSEMBLE_NORMAL },
   { "exome",                 no_argument, NULL, OPT_EXOME },
@@ -308,7 +319,8 @@ void runSnowman(int argc, char** argv) {
     "    LOD cutoff (artifact vs real) :  " << opt::lod << std::endl << 
     "    LOD cutoff (somatic vs germline, at DBSNP):  " << opt::lod_db << std::endl << 
     "    LOD cutoff (somatic vs germlin, no DBSNP):  " << opt::lod_no_db << std::endl << 
-    "    LOD cutoff (germline, AF>=0.5 vs AF=0):  " << opt::lod_germ << std::endl;
+    "    LOD cutoff (germline, AF>=0.5 vs AF=0):  " << opt::lod_germ << std::endl <<
+    "    Gap open penalty: " << opt::gap_open_penalty << std::endl;
   if (!opt::run_blat)
     ss << "    Running with BWA-MEM only (no BLAT)" << std::endl;
   if (opt::assemb::writeASQG)
@@ -430,6 +442,7 @@ void runSnowman(int argc, char** argv) {
   ss << "...loading the human reference sequence for BWA" << std::endl;
   SnowmanUtils::print(ss, log_file, opt::verbose > 0);
   main_bwa = new SnowTools::BWAWrapper();
+  main_bwa->setGapOpen(opt::gap_open_penalty);
   findex = SnowmanUtils::__open_index_and_writer(opt::refgenome, main_bwa, opt::analysis_id + ".contigs.bam", b_allwriter, findex);  
 
   // open the BLAT reference
@@ -605,6 +618,7 @@ void parseRunOptions(int argc, char** argv) {
       case 'O': arg >> opt::ooc; break;
       case 'z': opt::zip = false; break;
       case 'h': help = true; break;
+    case OPT_GAP_OPEN : arg >> opt::gap_open_penalty; break;
       case 'x': opt::r2c = true; break;
       case 'c': 
 	tmp = "";
@@ -720,44 +734,85 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 	cigmap_t[c.first] += c.second;
   }
 
+  MateRegionVector all_somatic_mate_regions;
+  all_somatic_mate_regions.add(MateRegion(region.chr, region.pos1, region.pos2)); // add the origional, don't want to double back
+
+  SnowTools::GRC badd;  
 #ifdef GET_MATES
-  MateRegionVector normal_mate_regions = __collect_normal_mate_regions(walkers);
+  const int MAX_MATE_ROUNDS = 3;
+  for (int jjj = 0; jjj <  MAX_MATE_ROUNDS; ++jjj) {
+    MateRegionVector normal_mate_regions = __collect_normal_mate_regions(walkers);
+    
+    // get the mates from somatic 3+ mate regions
+    MateRegionVector tmp_somatic_mate_regions = __collect_somatic_mate_regions(walkers, normal_mate_regions);
+    
+    // keep regions that haven't been visited before
+    MateRegionVector somatic_mate_regions;
+    for (auto& s : tmp_somatic_mate_regions) {
+      bool valid = true;
+      
+      // check if its not bad from mate region
+      for (auto& br : bad_mate_regions)
+	if (br.getOverlap(s))
+	  valid = false;
 
-  // get the mates from somatic 3+ mate regions
-  MateRegionVector somatic_mate_regions = __collect_somatic_mate_regions(walkers, normal_mate_regions);
-
-  // add these regions to the walker and get the reads
-  tcount = 0; ncount = 0;
-  if (somatic_mate_regions.size())
-  for (auto& b : opt::bam)
-    {
-      int oreads = walkers[b.first].reads.size();
-      walkers[b.first].setBamWalkerRegions(somatic_mate_regions.asGenomicRegionVector(), bindices[b.first]);
-      walkers[b.first].get_coverage = false;
-      walkers[b.first].readlen = (b.first == "n") ? n_params.readlen : t_params.readlen;
-      walkers[b.first].max_cov = opt::max_cov;
-      walkers[b.first].get_mate_regions = false;
-      walkers[b.first].readBam(&log_file, dbsnp_filter);
-      if (b.first == "t") {
-	tcount += (walkers[b.first].reads.size() - oreads);
-      } else {
-	ncount += (walkers[b.first].reads.size() - oreads);
+      // new region overlaps with one already seen
+      if (valid)
+	for (auto& ss : all_somatic_mate_regions) 
+	  if (s.getOverlap(ss)) 
+	    valid = false;
+      
+      if (valid) {
+	somatic_mate_regions.add(s);
+	all_somatic_mate_regions.add(s);
       }
     }
-
-  num_t_reads += tcount;
-  num_n_reads += ncount;
-
-  if (somatic_mate_regions.size() && opt::verbose > 1)
-    std::cerr << "           " << tcount << "/" << ncount << " Tumor/Normal mate reads in " << somatic_mate_regions.size() << " regions spanning " << SnowTools::AddCommas<int>(somatic_mate_regions.width()) << " bases" << std::endl;
-
+    
+    
+    for (auto& i : somatic_mate_regions)
+      log_file << "   somatic mate region " << i << " somatic count " << i.count << " origin " << i.partner << " on round " << (jjj+1) << std::endl;
+    if (opt::verbose > 3)
+      std::cerr << "...grabbing mate reads from " << somatic_mate_regions.size() << " regions spanning " << SnowTools::AddCommas(somatic_mate_regions.width()) << std::endl;
+    
+    
+    // add these regions to the walker and get the reads
+    tcount = 0; ncount = 0;
+    
+    if (somatic_mate_regions.size()) {
+      for (auto& b : opt::bam)
+	{
+	  int oreads = walkers[b.first].reads.size();
+	  walkers[b.first].m_limit = 1000;
+	  walkers[b.first].setBamWalkerRegions(somatic_mate_regions.asGenomicRegionVector(), bindices[b.first]);
+	  walkers[b.first].get_coverage = false;
+	  walkers[b.first].readlen = (b.first == "n") ? n_params.readlen : t_params.readlen;
+	  walkers[b.first].max_cov = opt::max_cov;
+	  walkers[b.first].get_mate_regions = jjj != MAX_MATE_ROUNDS;
+	  badd.concat(walkers[b.first].readBam(&log_file, dbsnp_filter));
+	  if (b.first == "t") {
+	    tcount += (walkers[b.first].reads.size() - oreads);
+	  } else {
+	    ncount += (walkers[b.first].reads.size() - oreads);
+	  }
+	}
+    }
+    
+    num_t_reads += tcount;
+    num_n_reads += ncount;
+    
+    if (somatic_mate_regions.size() && opt::verbose > 1)
+      std::cerr << "           " << tcount << "/" << ncount << " Tumor/Normal mate reads in " << somatic_mate_regions.size() << " regions spanning " << SnowTools::AddCommas<int>(somatic_mate_regions.width()) << " bases after round " << (jjj+1) << std::endl;
+    
+  }
+  
+  
   st.stop("m");
 #endif
-
+  
   // put all of the reads together and dedupe
   // also get rid of reads where normal weird reads are too high
   std::set<std::string> dedup;
-
+  
   //SnowTools::GRC excluded_bad_regions = __get_exclude_on_badness(walkers, region);;
   SnowTools::GRC excluded_bad_regions = SnowTools::GRC();
   std::unordered_set<std::string> excluded_bad_reads;
@@ -810,6 +865,10 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
   // do the discordant read clustering
   if (opt::verbose > 1)
     std::cerr << "...doing the discordant read clustering" << std::endl;
+
+  //for (auto& r : bav_this)
+  //  if (r.Qname() == "D0ENMACXX111207:1:2207:17771:106943")
+  //    std::cerr << " FOUND HER " << std::endl;
 
   SnowTools::DiscordantClusterMap dmap = SnowTools::DiscordantCluster::clusterReads(bav_this, region);
   
@@ -910,7 +969,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 #ifndef NO_LOAD_INDEX
       for (auto& i : all_contigs_this) {
 
-	if ((int)i.getSeq().length() < (t_params.readlen + 30))
+	if ((int)i.getSeq().length() < (t_params.readlen * 1.15))
 	  continue;
 	
 	BamReadVector ct_alignments;
@@ -1006,7 +1065,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 	// make the aligned contig object
 	if (!human_alignments.size())
 	  continue;
-	
+
         SnowTools::AlignedContig ac(human_alignments, prefixes);
 
 	// assign the local variable to each
@@ -1184,6 +1243,9 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
   // write to the global contig out
   pthread_mutex_lock(&snow_lock);  
 
+  // update the bad mate regions
+  bad_mate_regions.concat(badd);
+    
   if (opt::verbose > 2)
     std::cerr << "...dumping files" << std::endl;
 
@@ -1426,6 +1488,7 @@ SnowmanBamWalker __make_walkers(const std::string& p, const std::string& b, cons
   if (!region.isEmpty()) 
     walk.setBamWalkerRegion(region, bindices[p]);
   walk.SetMiniRulesCollection(*mr);
+  walk.m_limit = 8000;
   walk.readBam(&log_file, nullptr); 
 
   if (p.at(0) == 't') {
@@ -1468,11 +1531,6 @@ MateRegionVector __collect_somatic_mate_regions(std::map<std::string, SnowmanBam
   
   // reduce it down
   somatic_mate_regions.mergeOverlappingIntervals();
-
-  for (auto& i : somatic_mate_regions)
-    log_file << "   somatic mate region " << i << " somatic count " << i.count << " origin " << i.partner << std::endl;
-  if (opt::verbose > 3)
-    std::cerr << "...grabbing mate reads from " << somatic_mate_regions.size() << " regions spanning " << SnowTools::AddCommas(somatic_mate_regions.width()) << std::endl;
 
   return somatic_mate_regions;
 

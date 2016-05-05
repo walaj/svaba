@@ -162,7 +162,7 @@ function(rafile, keep.features = T, seqlengths = hg_seqlengths(), chr.convert = 
                       this.inf$MATECHROM = seqnames(vgr.pair2)
                       this.inf$MATEPOS = start(vgr.pair2)
                       this.inf$MALT = vgr.pair2$ALT
-                      
+
                       values(ra) = cbind(fixed(vcf)[bix[pix[vix]],], this.inf)
                       
                       if (is.null(values(ra)$TIER))
@@ -819,7 +819,7 @@ basedir <- "/xchip/gistic/Jeremiah/tracks"
 genes <- readRDS(file.path(basedir, 'gr.allgenes.rds'))
 genes <- genes[width(genes) < 2e6] 
 cgc <- readRDS(file.path(basedir, 'gr.allgenes.rds'))
-cgc = read.delim('/home/unix/marcin/DB/COSMIC/cancer_gene_census.tsv', strings = F)
+cgc = read.delim('/home/unix/marcin/DB/COSMIC/cancer_gene_census.tsv', strings = FALSE)
 cgc <- genes[genes$gene %in% cgc$Symbol]
 
 filter = opt$nofilter == 0;
@@ -832,15 +832,19 @@ if (grepl("gz$", opt$input)) {
   suppressWarnings(bks <- fread(opt$input, header=TRUE))
 }
 
+bks$tdisc <- as.integer(gsub("(.*?/.*?):.*?:.*?:.*?:.*?:.*?:(.*?):.*", "\\2", bks[,colnames(bks)[35], with=FALSE][[1]]))
+
 ##bks[, SL_t := as.numeric(gsub(".*?:.*?:.*?:.*?:.*?:.*?:.*?:.*?:.*?:(.*?)", "\\1", sim_wnormal_10x_s3.bam))]
 #setnames(bks, paste("V",seq(35),sep=""), c("chr1","pos1","strand1","chr2","pos2","strand2","ref","alt","span","mapq1","mapq2","nm1","nm2","disc_mapq1","disc_mapq2","sub_n1","sub_n2","homology","insertion","contig ","numalign","confidence","evidence","quality","secondary_alignment",
 #    "somatic_score","somatic_lod","true_lod","pon_samples","repeat_seq","graylist","DBSNP","reads","normal","tumor"))
 ## filter out discorant only
 if (nrow(bks) && filter) {
-  bks <- bks[(bks$evidence != "DSCRD" | bks$evidence == "DSCRD" && bks$tdisc >= opt$discsupport) & bks$evidence != "INDEL" & bks$confidence == "PASS" & bks$somatic_score >= 1]
+  print(paste("...filtering breakpoints. Min DSCRD support:", opt$discsupport, "Total non-indel and non-somatic:", sum(bks$evidence != "INDEL" & bks$confidence == "PASS" & bks$somatic_score >= 1)))
+  bks <- bks[(bks$evidence != "DSCRD" | (bks$evidence == "DSCRD" & bks$tdisc >= opt$discsupport)) & bks$evidence != "INDEL" & bks$confidence == "PASS" & bks$somatic_score >= 1]
 }
 
 if (nrow(bks)) {
+  print(paste("...filtering breakpoints to min size of", opt$minsize))
   bks <- bks[bks$span > opt$minsize | bks$span < 0]
 }
 
@@ -851,10 +855,13 @@ if (nrow(bks)) {
 if (nrow(bks) == 0) {
   print("No rearrangements found")
   quit(status=0)
+} else {
+  print(paste("Found", nrow(bks), "rearrangements"))
 }
 
 ## Clean up
 suppressWarnings(bks <- bks[,c("DBSNP","reads","tumor_allelic_fraction","normal_allelic_fraction","repeat_seq","pon_samples","graylist","somatic_score") := NULL])
+#suppressWarnings(bks <- bks[,c("DBSNP","reads","repeat_seq","pon_samples","graylist","somatic_score") := NULL])
 
 ## remove dups
 setkey(bks, chr1, pos1, chr2, pos2)
@@ -937,7 +944,15 @@ genes <- genes[width(genes) < 2e6]
 fo1 <- gr.findoverlaps(gr1+10e3, genes)
 fo2 <- gr.findoverlaps(gr2+10e3, genes)
 
-fo <- c(fo1,fo2)
+## annoying bug with seqinfo clash on 'c'
+if (length(fo1) && length(fo2)) {
+  fo <- c(fo1,fo2)
+} else if (length(fo1)) { 
+  fo <- fo1
+} else {
+  fo <- fo2
+}
+
 gene.dat <- data.frame()
 if (length(fo)) {
   fo <- fo[!duplicated(fo$subject.id)]

@@ -36,6 +36,8 @@ class AssemblyBamWalker: public SnowTools::BamWalker
 
     std::shared_ptr<hts_idx_t> tindex, nindex;
 
+    std::string id = "assembly_noid";
+
 };
 
 struct ContigElement {

@@ -521,10 +521,10 @@ namespace SnowTools {
 	homology = seq.substr(b2.cpos, b1.cpos-b2.cpos);
       else if (b2.cpos > b1.cpos)
 	insertion = seq.substr(b1.cpos, b2.cpos-b1.cpos);
-      if (insertion.length() == 0)
-	insertion = "x";
-      if (homology.length() == 0)
-	homology = "x";
+      //if (insertion.length() == 0)
+      //	;//insertion = "x";
+      //if (homology.length() == 0)
+      //;//homology = "x";
     } catch (...) {
       std::cerr << "Caught error with contig on global-getBreakPairs: " << cname << std::endl;
       std::cerr << b1.cpos << " " << b2.cpos << " seq.length() " << seq.length() << " num_align " << num_align << std::endl;
@@ -669,7 +669,7 @@ namespace SnowTools {
       confidence = "LOWMAPQ";
     else if (std::min(b1.matchlen, b2.matchlen) < 50 && af < 0.2) // not enough evidence
       confidence = "LOWAF";      
-    else if ((b1.sub_n && b1.mapq < 50) || (b2.sub_n && b2.mapq < 50) || (b1.sub_n + b2.sub_n) >= 2)
+    else if ((b1.sub_n && b1.mapq < 50) || (b2.sub_n && b2.mapq < 50) || std::max(b1.sub_n,b2.sub_n) >= 2)
       confidence = "MULTIMATCH";
     else if (secondary && std::min(b1.mapq, b2.mapq) < 30)
       confidence = "SECONDARY";
@@ -698,8 +698,8 @@ namespace SnowTools {
       somatic_score = somatic_lod > DBCUTOFF && !immediate_reject;	
 
     // reject if reall low AF and at DBSNP
-    if (taf < 0.2 && !rs.empty())
-      somatic_score = 0;
+    //if (taf < 0.2 && !rs.empty())
+    //  somatic_score = 0;
 
   } else {
     
@@ -959,7 +959,7 @@ namespace SnowTools {
     //add the reads from the breakpoint
     for (auto& r : reads) {
       std::string tmp = r.GetZTag("SR");
-      supp_reads[tmp];
+      supp_reads[tmp] = true;
     }
     
     // print reads to a string, delimit with a ,
@@ -1044,7 +1044,7 @@ namespace SnowTools {
       
     } else {
 
-      if (insertion.length() && insertion != "x") {
+      if (insertion.length() && !insertion.empty()) {
 
 	// reference
 	char * refi = faidx_fetch_seq(main_findex, const_cast<char*>(b1.chr_name.c_str()), b1.gr.pos1-1, b1.gr.pos1-1, &len);
@@ -1084,7 +1084,7 @@ namespace SnowTools {
   }
 
   int BreakPoint::getSpan() const { 
-    if (num_align == 1 && insertion == "") {// deletion
+    if (num_align == 1 && insertion.empty()) {// deletion
       return (abs((int)b1.gr.pos1 - (int)b2.gr.pos1) - 1);
     }
     if (num_align == 1) 

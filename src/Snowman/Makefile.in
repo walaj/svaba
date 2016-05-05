@@ -78,7 +78,8 @@ snowman_DEPENDENCIES = $(top_builddir)/src/SGA/SGA/libsga.a \
 	$(top_builddir)/SnowTools/multifast-v1.4.2/ahocorasick/build/libahocorasick.a \
 	$(top_builddir)/SnowTools/blat/lib/jkOwnLib.a \
 	$(top_builddir)/SnowTools/blat/lib/jkweb.a \
-	@boost_lib@/libboost_regex.a
+	@boost_lib@/libboost_regex.a @boost_lib@/libboost_filesystem.a \
+	@boost_lib@/libboost_system.a
 snowman_LINK = $(CXXLD) $(AM_CXXFLAGS) $(CXXFLAGS) $(snowman_LDFLAGS) \
 	$(LDFLAGS) -o $@
 DEFAULT_INCLUDES = -I.@am__isrc@ -I$(top_builddir)
@@ -220,7 +221,7 @@ snowman_LDADD = \
 	$(top_builddir)/src/SGA/SQG/libsqg.a \
 	$(top_builddir)/SnowTools/multifast-v1.4.2/ahocorasick/build/libahocorasick.a \
 	$(top_builddir)/SnowTools/blat/lib/jkOwnLib.a $(top_builddir)/SnowTools/blat/lib/jkweb.a \
-        @boost_lib@/libboost_regex.a
+        @boost_lib@/libboost_regex.a @boost_lib@/libboost_filesystem.a @boost_lib@/libboost_system.a
 
 snowman_LDFLAGS = -pthread -std=c++11
 snowman_SOURCES = run_snowman2.cpp BreakPoint2.cpp AlignedContig2.cpp DiscordantCluster.cpp DBSnpFilter.cpp PONFilter.cpp \

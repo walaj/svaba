@@ -54,7 +54,7 @@ class SnowmanBamWalker: public SnowTools::BamWalker {
   std::string prefix; // eg. tumor, normal
   SnowTools::GRC blacklist;
   
-  void readBam(std::ofstream* log = nullptr, const SnowTools::DBSnpFilter* dbs = nullptr);
+  SnowTools::GRC readBam(std::ofstream* log = nullptr, const SnowTools::DBSnpFilter* dbs = nullptr);
 
   void realignDiscordants(SnowTools::BamReadVector& reads);
   
@@ -107,6 +107,7 @@ class SnowmanBamWalker: public SnowTools::BamWalker {
   
   bool adapter_trim = true;
 
+  size_t m_limit = 0;
   //std::stringstream cigr;
  private:
   
@@ -118,8 +119,7 @@ class SnowmanBamWalker: public SnowTools::BamWalker {
   //std::unordered_map<std::string, bool> seq_map;
   std::unordered_set<std::string> seq_set;
   //std::unordered_set<int> seq_set;
-  
-  size_t m_limit = 0;
+ 
   
   uint32_t m_seed = 1337;
   

@@ -4,7 +4,7 @@
 #include <unordered_map>
 
 #define MAX_CONTIG_SIZE 5000000
-#define MIN_INDEL_MATCH_BRACKET 30
+#define MIN_INDEL_MATCH_BRACKET 1
 #define MAX_INDELS 10000
 
 namespace SnowTools {
@@ -189,7 +189,7 @@ namespace SnowTools {
     for (auto& i : ac.m_frag_v) 
       out << i << " Disc: " << ac.printDiscordantClusters() << " -- " << ac.getContigName() << std::endl;
     bool draw_divider = true;
-    for (auto& i : ac.m_frag_v) 
+    for (auto& i : ac.m_frag_v) {
       for (auto& j : i.secondaries) {
 	if (draw_divider) {
 	  out << std::string(ac.m_seq.length(), 'S') << std::endl;
@@ -197,10 +197,15 @@ namespace SnowTools {
 	}
 	out << j << " Disc: " << ac.printDiscordantClusters() << " -- " << ac.getContigName() << std::endl;
       }
-    
+    }
+
     // print the break locations for indel deletions
     for (auto& i : ac.m_frag_v) {
+      if (ac.getContigName() == "c_13_32912038_32913860_24C")
+      std::cerr << ac.getContigName() << " frags " << ac.m_frag_v.size() << " breaks " << i.getIndelBreaks().size() << std::endl;
       for (auto& j : i.getIndelBreaks()) {
+      if (ac.getContigName() == "c_13_32912038_32913860_24C")
+	std::cerr << ac.getContigName() << " " << j.num_align << " ins " << j.insertion << std::endl;
 	if (j.num_align == 1 && j.insertion == "") // deletion
 	  //std::cerr << j.b1.cpos << " " << j.b2.cpos << " name " << ac.getContigName() << " ins " << j.insertion << std::endl;
 	  out << std::string(j.b1.cpos, ' ') << "|" << std::string(j.b2.cpos-j.b1.cpos-1, ' ') << '|' << "   " << ac.getContigName() << std::endl;	
@@ -682,7 +687,9 @@ namespace SnowTools {
       
     }
   }
-  
+
+  // convention is that cpos and gpos for deletions refer to flanking REF sequence.
+  // eg a deletion of 1 bp of base 66 will have gpos1 = 65 and gpos2 = 67
   bool AlignmentFragment::parseIndelBreak(BreakPoint &bp) {
     
      // make sure we have a non-zero cigar
@@ -690,13 +697,14 @@ namespace SnowTools {
       std::cerr << "CIGAR of length 0 on " << *this << std::endl;
       return false;
     }
- 
+
     // reject if too many mismatches
-    //size_t di_count = 0;
-    for (auto& i : m_cigar)
-      if (i.Type() == 'D' || i.Type() == 'I')
-    	++di_count;
-    if (di_count > 2 && m_align.Qname().substr(0,2) == "c_") // only trim for snowman assembled contigs
+    if (di_count == 0) {
+      for (auto& i : m_cigar)
+	if (i.Type() == 'D' || i.Type() == 'I')
+	  ++di_count;
+    }
+    if (di_count > 3 && m_align.Qname().substr(0,2) == "c_") // only trim for snowman assembled contigs
       return false;
 
     // reject if it has small matches, could get confused. Fix later
@@ -706,7 +714,6 @@ namespace SnowTools {
     
      // reject if first alignment is I or D or start with too few M
     if (m_cigar.begin()->Type() == 'I' || m_cigar.begin()->Type() == 'D' || m_cigar.back().Type() == 'D' || m_cigar.back().Type() == 'I') {
-      //std::cerr << "rejecting cigar for starting in I or D or < 5 M" << std::endl;
       return false;
     }
     
@@ -724,8 +731,6 @@ namespace SnowTools {
 	}
       }
     }
-    
-    
 
     // we made it to the end, no more indels to report
     if (loc == m_cigar.size())
@@ -748,8 +753,8 @@ namespace SnowTools {
     assert(bp.cname.length());
     
     size_t count = 0; // count to make sure we are reporting the right indel
-    for (auto& i : m_cigar) { // want breaks in CONTIG coordinates, so use oriented cigar
-      count++;
+    for (auto& i : m_cigar) { // want breaks in CONTIG coordnates, so use oriented cigar
+      ++count;
       
       // set the contig breakpoint
       if (i.Type() == 'M' || i.Type() == 'I' || i.Type() == 'S') 
@@ -772,8 +777,9 @@ namespace SnowTools {
 	    bp.b1.gr.pos1 =  m_align.Position() + gcurrlen; // dont count this one//bp.b1.cpos + align.Position; //gcurrlen + align.Position;
 	    bp.b2.gr.pos1 = bp.b1.gr.pos1 + i.Length() + 1;
 	  } else {
-	    bp.b2.gr.pos1 =  (m_align.PositionEnd()-1) - gcurrlen; //bp.b1.cpos + align.Position; //gcurrlen + align.Position;
-	    bp.b1.gr.pos1 =  bp.b2.gr.pos1 - i.Length() - 1;
+	    bp.b2.gr.pos1 =  (m_align.PositionEnd()) - gcurrlen + 1; // snowman81 removed a -1, set to +1  //bp.b1.cpos + align.Position; //gcurrlen + align.Position;
+	    bp.b1.gr.pos1 =  bp.b2.gr.pos1 - i.Length()- 1; 
+
 	  }
 	} else if (i.Type() == 'I') {
 	  if (!m_align.ReverseFlag()) {
@@ -800,6 +806,9 @@ namespace SnowTools {
     bp.b1.gr.pos2 = bp.b1.gr.pos1; 
     bp.b2.gr.pos2 = bp.b2.gr.pos1;
    
+    if (m_align.Qname() == "c_13_32912038_32913860_24C" || m_align.Qname() == "c_13_32912038_32913860_9C")
+      std::cerr << m_align.Qname() << " bp1.cpos1 " << bp.b1.cpos << " " << bp.b2.cpos << " " << bp.b1.gr.pos1 << " " << bp.b2.gr.pos1 << " pos end " << (m_align.PositionEnd()) << " len " << m_align.Length() << std::endl;
+
     // should have been explicitly ordered in the creation above
     if (!(bp.b1.gr < bp.b2.gr)) {
       //std::cerr << "Warning: something went wrong in indelParseBreaks. Can't order breaks" << std::endl;

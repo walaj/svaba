@@ -48,7 +48,7 @@ AC_SUBST(CPPFLAGS, "$CPPFLAGS $boost_include")
 AC_SUBST(LDFLAGS, "$LDFLAGS $boost_lib_flag")
 
 # We always need to specify to link in bamtools
-AC_SUBST(LIBS, "$LIBS -lboost_regex -lboost_filesystem -lboost_system")
+AC_SUBST(LIBS, "$LIBS") # libboost_regex.a libboost_filesystem.a libboost_system.a")
 
 # Check for hash table headers
 AC_CHECK_HEADERS([ \

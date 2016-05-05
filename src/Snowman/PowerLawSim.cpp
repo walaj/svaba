@@ -46,7 +46,6 @@ void PowerLawSim(faidx_t* findex, int num_breaks, double power_law, SnowTools::G
       is[j] = TCGA[rand() % 3];      
     inserts.push_back(is);
   }
-    
 
   SVEvent e;
   std::string ename, etype;
@@ -143,8 +142,10 @@ void PowerLawSim(faidx_t* findex, int num_breaks, double power_law, SnowTools::G
       std::string seq2;
       if (rrr == 0) {
 
-	if (verbose) std::cerr << "...generating LEFT RAR of length " << rpower[i] << std::endl;      
-	SnowTools::GenomicRegion gr(e.reg1.chr, e.reg1.pos1 - rpower[i], e.reg1.pos1 - rpower[i] + EVENT_BUFFER);
+	if (verbose) 
+	  std::cerr << "...generating LEFT RAR of length " << rpower[i] << std::endl;      
+
+	SnowTools::GenomicRegion gr(e.reg1.chr, e.reg1.pos1 - rpower[i] - EVENT_BUFFER, e.reg1.pos1 - rpower[i]);
 	std::string chrstring = SnowTools::CHR_NAME[e.reg1.chr];
 	int len;
 	char * seq = faidx_fetch_seq(findex, const_cast<char*>(chrstring.c_str()), gr.pos1, gr.pos2 - 1, &len);
@@ -152,15 +153,19 @@ void PowerLawSim(faidx_t* findex, int num_breaks, double power_law, SnowTools::G
 	  break;
 	else
 	  seq2 = std::string(seq);
-	
+
         outstring = seq2 + inserts[i] + frag;
 	assert(outstring.length() < EVENT_BUFFER * 10);
 	events << SnowTools::CHR_NAME[gr.chr] << "\t" << gr.pos2 << "\t" << SnowTools::CHR_NAME[e.reg1.chr] << "\t" << e.reg1.pos1 << "\t+\t-\tN\t" << rpower[i] << "\tRAR\t" << (inserts[i].empty() ? "N" : inserts[i]) << "\t" << ename << std::endl;
+	//std::cerr << rpower[i] << " span " << (std::abs(gr.pos2 - e.reg1.pos1) - rpower[i]) << std::endl;
+	assert(rpower[i] == (e.reg1.pos1 - gr.pos2));
+
 
       // rearrange to right
       } else if (rrr == 1) {
 
-	if (verbose) std::cerr << "...generating RIGHT RAR of length " << rpower[i] << std::endl;      
+	if (verbose) 
+	  std::cerr << "...generating RIGHT RAR of length " << rpower[i] << std::endl;      
 	SnowTools::GenomicRegion gr(e.reg1.chr, e.reg1.pos2 + rpower[i], e.reg1.pos2 + rpower[i] + EVENT_BUFFER);
 	std::string chrstring = SnowTools::CHR_NAME[gr.chr];
 	int len;
@@ -173,6 +178,9 @@ void PowerLawSim(faidx_t* findex, int num_breaks, double power_law, SnowTools::G
 	events << SnowTools::CHR_NAME[e.reg1.chr] << "\t" << e.reg1.pos2 << "\t" << SnowTools::CHR_NAME[gr.chr] << "\t" << gr.pos1 << "\t+\t-\tN\t" << rpower[i] << "\tRAR\t" << (inserts[i].empty() ? "N" : inserts[i]) << "\t" << ename << std::endl;	
         outstring = frag + inserts[i] + seq2;
 	assert(outstring.length() < EVENT_BUFFER * 10);
+	//std::cerr << rpower[i] << " span " << (std::abs(gr.pos1 - e.reg1.pos2) - rpower[i]) << std::endl;
+	assert(rpower[i] == gr.pos1 - e.reg1.pos2);
+
       // rearrangement doesn't fit
       } else {
 	if (verbose) std::cerr << "FAILED TO FIT RAR of length " << rpower[i] << " on break " << e.reg1 << std::endl;

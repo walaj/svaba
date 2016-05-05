@@ -120,6 +120,7 @@ void runAssembly2VCF(int argc, char** argv)
   awalk.twalk = twalk;
   awalk.nwalk = nwalk;
   awalk.findex = findex;
+  awalk.id = opt::analysis_id;
   if (SnowTools::read_access_test(opt::tumor_reads_bam))
     awalk.tindex = std::shared_ptr<hts_idx_t>(hts_idx_load(opt::tumor_reads_bam.c_str(), HTS_FMT_BAI), bidx_delete());
   if (SnowTools::read_access_test(opt::normal_reads_bam))
@@ -158,13 +159,13 @@ void runAssembly2VCF(int argc, char** argv)
   //header.colnames += "\t" + nfp.filename(); 
   
   bool zip = false;
-  VCFFile snowvcf(file, "assembly", twalk.header(), header);
-  std::string basename = "assembly.unfiltered.";
+  VCFFile snowvcf(file, opt::analysis_id, twalk.header(), header);
+  std::string basename = opt::analysis_id + ".unfiltered.";
   snowvcf.include_nonpass = true;
   snowvcf.writeIndels(basename, zip, false);
   snowvcf.writeSVs(basename, zip, false);
   
-  basename = "assembly.";
+  basename = opt::analysis_id; //"assembly.";
   snowvcf.include_nonpass = false;
   snowvcf.writeIndels(basename, zip, false);
   snowvcf.writeSVs(basename, zip, false);
