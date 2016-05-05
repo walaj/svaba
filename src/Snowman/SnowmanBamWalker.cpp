@@ -3,10 +3,10 @@
 //#define DEBUG_SNOWMAN_BAMWALKER 1
 #define MIN_MAPQ_FOR_MATE_LOOKUP 0
 
-//#define QNAME "tum6780-DUP-946"
+//#define QNAME "D0ENMACXX111207:3:2105:3186:55517"
 
 // dont read in more reads than this at once
-#define FAIL_SAFE 10000
+#define FAIL_SAFE 8000
 
 static const std::string ILLUMINA_PE_PRIMER_2p0 = "CAAGCAGAAGACGGCAT";
 static const std::string FWD_ADAPTER_A = "AGATCGGAAGAGC";
@@ -79,7 +79,7 @@ bool SnowmanBamWalker::isDuplicate(BamRead &r)
   return true;
 }
 
-void SnowmanBamWalker::readBam(std::ofstream * log, const SnowTools::DBSnpFilter* dbs)
+SnowTools::GRC SnowmanBamWalker::readBam(std::ofstream * log, const SnowTools::DBSnpFilter* dbs)
 {
   
   BamRead r;
@@ -95,9 +95,12 @@ void SnowmanBamWalker::readBam(std::ofstream * log, const SnowTools::DBSnpFilter
   //else
   //  std::cerr << " on " << m_region.size() << " regions " << std::endl;
 
+  SnowTools::GRC bad_regions;
+
   SnowTools::BamReadVector mate_reads;
 
   size_t countr = 0;
+  int curr_reads = reads.size();
   while (GetNextRead(r, rule_pass)) {
 
 #ifdef QNAME
@@ -105,11 +108,25 @@ void SnowmanBamWalker::readBam(std::ofstream * log, const SnowTools::DBSnpFilter
 	std::cerr << " read seen " << r << std::endl;
 #endif
 
-      if (countr > FAIL_SAFE && log) {
-	(*log) << "...breaking at location " << r.Brief() << 
-	  (get_mate_regions ? " in main window" : " in mate window" )
-		  << " with " << SnowTools::AddCommas(countr) 
-		  << " reads " << std::endl;
+      if ((reads.size() - curr_reads) > m_limit && log && m_limit > 0) {
+	(*log) << "...breaking at " << r.Brief() << 
+	  (get_mate_regions ? " in main window " : " in mate window " ) 
+	       << m_region[m_region_idx]
+	       << " with " << SnowTools::AddCommas(reads.size() - curr_reads) 
+	       << " weird reads. Limit: " << SnowTools::AddCommas(m_limit) << std::endl;
+
+	curr_reads = reads.size();
+	bad_regions.add(m_region[m_region_idx]);
+
+	// try next region, return if no others to try
+	++m_region_idx; // increment to next region
+	if (m_region_idx >= m_region.size()) /// no more regions left
+	  break;
+	else { // move to next region
+	  countr = 0;
+	  __set_region(m_region[m_region_idx]);
+	  continue;
+	}
 	break;
       }
 
@@ -172,7 +189,7 @@ void SnowmanBamWalker::readBam(std::ofstream * log, const SnowTools::DBSnpFilter
 	  //r_add_Z_tag(r, "RL", rule_pass);
 
 	  ++countr;
-	  if (countr % 10000 == 0 && m_region.size() == 0) //debug
+	  if (countr % 10000 == 0 && m_region.size() == 0)
 	    std::cerr << "...read in " << SnowTools::AddCommas<size_t>(countr) << " weird reads for whole genome read-in. At pos " << r.Brief() << std::endl;
 
 	  // add the ID tag
@@ -190,10 +207,6 @@ void SnowmanBamWalker::readBam(std::ofstream * log, const SnowTools::DBSnpFilter
 #endif
       reads.push_back(r); // adding later because of kmer correction
 
-	  // check that we're not above the read limit
-	  if (reads.size() > m_limit && m_limit != 0)
-	    return;
-	  
 	}
   } // end the read loop
 
@@ -219,7 +232,7 @@ void SnowmanBamWalker::readBam(std::ofstream * log, const SnowTools::DBSnpFilter
 #endif
 
   if (reads.size() < 3)
-    return;
+    return bad_regions;
       
   // get rid of repats
   //removeRepeats();
@@ -248,7 +261,9 @@ void SnowmanBamWalker::readBam(std::ofstream * log, const SnowTools::DBSnpFilter
 	std::cerr << " read KEPT " << j << std::endl;
 #endif
 
-  
+ 
+  return bad_regions;
+ 
 }
 
 void SnowmanBamWalker::KmerCorrect() {

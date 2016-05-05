@@ -70,11 +70,11 @@
 #define AUTHOR "Jeremiah Wala <jwala@broadinstitute.org>"
 
 static const char *SNOWMAN_USAGE_MESSAGE =
-"----------------------------------------------------------------\n"
-"--- Snowman - Somatic Structural Variant and Indel Detection ---\n"
-"----------------------------------------------------------------\n"
+"--------------------------------------------------------\n"
+"--- Snowman - Structural Variant and Indel Detection ---\n"
+"--------------------------------------------------------\n"
 "Program: SnowmanSV \n"
-"FH Version: 63 \n"
+"FH Version: 80 \n"
 "Contact: Jeremiah Wala [ jwala@broadinstitute.org ]\n"
 "Usage: snowman <command> [options]\n\n"
 "Commands:\n"

@@ -12,7 +12,7 @@
 #include "CorrectionThresholds.h"
 
 #define MAX_OVERLAPS_PER_ASSEMBLY 20000
-//#define DEBUG_ENGINE 1
+#define DEBUG_ENGINE 1
 
 static std::string POLYA = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 static std::string POLYT = "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTT";
@@ -150,6 +150,15 @@ void SnowmanAssemblerEngine::doAssembly(ReadTable *pRT, ContigVector &contigs, i
   double errorRate = m_error_rate;
   int min_overlap = m_min_overlap;
   int cutoff = 0;
+
+  if (pass > 0) {
+    //min_overlap = m_min_overlap * 1.5;
+    errorRate = 0.03;
+  } 
+  if (pass == 2) 
+    min_overlap = 20;
+      
+
   /*
   if (pass == 0) // || pass == 1)
     cutoff = 50; //m_readlen;// + 10;
@@ -157,7 +166,7 @@ void SnowmanAssemblerEngine::doAssembly(ReadTable *pRT, ContigVector &contigs, i
   else {
     min_overlap = 35;
     errorRate = 0.05;
-    cutoff = m_readlen + 20;
+    cutoff = m_readlen * 1.10;
   }
   */
   bool exact = errorRate < 0.001f;
@@ -183,7 +192,7 @@ void SnowmanAssemblerEngine::doAssembly(ReadTable *pRT, ContigVector &contigs, i
   pSAr_nd->writeIndex();
 
   if (pass > 0)
-    cutoff = m_readlen + 20;
+    cutoff = m_readlen * 1.10;
 
   //int seedLength = min_overlap;
   //int seedStride = seedLength;

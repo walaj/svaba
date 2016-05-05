@@ -44,7 +44,7 @@ namespace SnowTools {
       bool non_fr = (r.ReverseFlag() == r.MateReverseFlag()) || (r.ReverseFlag() && r.Position() < r.MatePosition()) || (!r.ReverseFlag() && r.Position() > r.MatePosition());
       bool disc_r = (abs(r.InsertSize()) >= 800) || (r.MateChrID() != r.ChrID()) || non_fr;
 
-      if (tmp_map[r.Qname()] >= 2 && disc_r && !r.SecondaryFlag())
+      if (tmp_map[r.Qname()] >= 2 && disc_r)
 	bav_dd.push_back(r);
     }
     

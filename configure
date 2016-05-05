@@ -5126,8 +5126,8 @@ LDFLAGS="$LDFLAGS $boost_lib_flag"
 
 
 # We always need to specify to link in bamtools
-LIBS="$LIBS -lboost_regex -lboost_filesystem -lboost_system"
-
+LIBS="$LIBS"
+ # libboost_regex.a libboost_filesystem.a libboost_system.a")
 
 # Check for hash table headers
 

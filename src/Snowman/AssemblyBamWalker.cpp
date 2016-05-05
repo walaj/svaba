@@ -30,13 +30,12 @@ bool __good_contig(const SnowTools::BamReadVector& brv, const SnowTools::Genomic
   */
   return (brv.size() && regions.size() && brv.size() < 20  && (brv.size() > 1 || brv[0].CigarSize() > 1) && 
 	  brv[0].Length() < 20000 && brv[0].CigarSize() < 20 &&
-	  max_len > 250 && max_mapq >= 0);
+	  max_len > 101 && max_mapq >= 0);
 }
 
 //bool runAC(SnowTools::BamReadVector& brv, faidx_t * f, std::shared_ptr<hts_idx_t> pt, std::shared_ptr<hts_idx_t> pn,
 //	   const std::string& t, const std::string& n, const SnowTools::GenomicRegionVector& regions) {
 bool runAC(const ContigElement * c) {
-	   
   
   SnowmanBamWalker twalk(tt);
   SnowmanBamWalker nwalk(nn);
@@ -173,8 +172,8 @@ void AssemblyBamWalker::walkDiscovar()
   nnindex = nindex;
   ttindex = tindex;
 
-  SnowmanUtils::fopen("assembly.alignments.txt.gz", all_align);
-  SnowmanUtils::fopen("assembly.bps.txt.gz", os_allbps);
+  SnowmanUtils::fopen(id + ".alignments.txt.gz", all_align);
+  SnowmanUtils::fopen(id + ".bps.txt.gz", os_allbps);
   os_allbps << SnowTools::BreakPoint::header() << std::endl;
 
   SnowTools::BamRead r;
@@ -246,7 +245,7 @@ void AssemblyBamWalker::walkDiscovar()
 
 #ifdef QNAME      
       if (brv.size())
-	if (brv[0].Qname() == QNAME) {
+	if (brv[0].Qname() == QNAME || true) {
 	  std::cerr << " found it here -- checking " << std::endl;
 	  std::cerr << " brv.size() " << brv.size() << " regions.size() " << regions.size() << " brv.CigarSize() " << brv[0].CigarSize() << 
 	    " brv.Length() " << brv[0].Length() << " max_len " << max_len << " max_mapq " << max_mapq << std::endl;
@@ -375,6 +374,10 @@ void AssemblyBamWalker::walkDiscovar()
   std::cerr << "...done adding " << SnowTools::AddCommas(tmp_queue.size()) << " contigs. Firing up " << 
     numThreads << " re-alignment threads" << std::endl;
   num_to_run = tmp_queue.size();
+  
+  if (!num_to_run)
+    return;
+
   for (auto& i : tmp_queue) 
     queue.add(i);
   
