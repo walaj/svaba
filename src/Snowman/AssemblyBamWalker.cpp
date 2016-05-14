@@ -4,7 +4,7 @@
 
 #include "SnowmanUtils.h"
 #include "run_snowman.h"
-
+#include <fstream>
 
 //#define QNAME "5427150"
 
@@ -12,6 +12,7 @@
 static int num_to_run;
 static pthread_mutex_t snow_lock;
 static ogzstream all_align, os_allbps;
+//static std::ofstream all_align, os_allbps;
 static std::string tt, nn; // so hacky
 static std::shared_ptr<hts_idx_t> ttindex, nnindex;
 static faidx_t* f;
@@ -28,7 +29,14 @@ bool __good_contig(const SnowTools::BamReadVector& brv, const SnowTools::Genomic
 	  brv[0].Length() < 20000 && brv[0].CigarSize() < 50 &&
 	  max_len > 250 && max_mapq >= 0);
   */
-  return (brv.size() && regions.size() && brv.size() < 20  && (brv.size() > 1 || brv[0].CigarSize() > 1) && 
+  
+  // all hard clip?
+  int hc = 0;
+  for (auto& i : brv)
+    if (i.NumHardClip())
+      ++hc;
+  
+  return (brv.size() && hc != brv.size() && regions.size() && brv.size() < 20  && (brv.size() > 1 || brv[0].CigarSize() > 1) && 
 	  brv[0].Length() < 20000 && brv[0].CigarSize() < 20 &&
 	  max_len > 101 && max_mapq >= 0);
 }
@@ -40,14 +48,22 @@ bool runAC(const ContigElement * c) {
   SnowmanBamWalker twalk(tt);
   SnowmanBamWalker nwalk(nn);
   
+  SnowTools::GenomicRegionVector trimmed_regions;
+  for (auto& r : c->regions)
+    if (r.chr < 24)
+      trimmed_regions.push_back(r);
+
+  if (!trimmed_regions.size())
+    return true;
+
   twalk.prefix = "t000";
   nwalk.prefix = "n000";
   twalk.max_cov = 200;
   nwalk.max_cov = 200;
   twalk.get_mate_regions = false;
   nwalk.get_mate_regions = false;
-  twalk.setBamWalkerRegions(c->regions, ttindex);
-  nwalk.setBamWalkerRegions(c->regions, nnindex);
+  twalk.setBamWalkerRegions(trimmed_regions, ttindex);
+  nwalk.setBamWalkerRegions(trimmed_regions, nnindex);
 
   twalk.SetMiniRulesCollection(*mr);
   nwalk.SetMiniRulesCollection(*mr);
@@ -126,7 +142,7 @@ bool runAC(const ContigElement * c) {
     i.setRefAlt(f, nullptr);
 
   double region_width = 0;
-  for (auto& i : c->regions)
+  for (auto& i : trimmed_regions)
     region_width += i.width();
   double cov = (double)bav_this.size() / region_width * 250;
 
@@ -135,7 +151,7 @@ bool runAC(const ContigElement * c) {
     std::stringstream ss;
     ss << SnowTools::displayRuntime(start);
     std::cerr << "..read " << SnowTools::AddCommas(bav_this.size()) << " reads from " << 
-      c->regions.size() << " region starting at " << c->regions.at(0) << " Queue-left " << 
+      trimmed_regions.size() << " region starting at " << trimmed_regions.at(0) << " Queue-left " << 
       SnowTools::AddCommas(num_to_run) << " " << ss.str() << std::endl;
   }
 
@@ -148,7 +164,7 @@ bool runAC(const ContigElement * c) {
   ////////////////////////////////////
   pthread_mutex_lock(&snow_lock);  
   --num_to_run;
-  all_align << (*ac) << std::endl;
+  //all_align << (*ac) << std::endl;
   os_allbps << outr.str();
   ////////////////////////////////////
   // MUTEX UNLOCKED

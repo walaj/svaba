@@ -22,9 +22,21 @@ namespace SnowTools {
     
     if (!bav.size())
       return;
-    
+
+    // find the longest sequence, taking the first one. 
+    // make sure sequence dir is set to same as first alignment
+    for (auto& i : bav) {
+      if (i.Sequence().length() > m_seq.length()) {
+	if (i.ReverseFlag() == bav.begin()->ReverseFlag()) {
+	  m_seq = i.Sequence();
+	} else {
+	  m_seq = i.Sequence();
+	  SnowTools::rcomplement(m_seq);
+	}
+      }
+    }
+
     // set the sequence. Convention is store as it came off assembler for first alignment
-    m_seq = bav.begin()->Sequence();
     if (bav.begin()->ReverseFlag()) {
       SnowTools::rcomplement(m_seq);
     }

@@ -118,6 +118,11 @@ namespace opt {
   //  static std::string pon = "";
 
   static int gap_open_penalty = 6;
+  static int gap_extension_penalty = 1;
+  static int mismatch_penalty = 4;
+  static int zdrop = 100;
+  static int bandwidth = 100;
+  static float reseed_trigger = 1.5;
 
   // parameters for filtering reads
   //static std::string rules = "global@!hardclip;!duplicate;!qcfail;phred[4,100];length[LLL,1000]%region@WG%!isize[0,800]%ic%clip[10,1000]%ins[1,1000];mapq[0,100]%del[1,1000];mapq[1,1000]%mapped;!mate_mapped;mapq[1,1000]%mate_mapped;!mapped";
@@ -187,7 +192,12 @@ enum {
   OPT_EXOME,
   OPT_NOBLAT,
   OPT_KMER,
-  OPT_GAP_OPEN
+  OPT_GAP_OPEN,
+  OPT_GAP_EXTENSION,
+  OPT_MISMATCH,
+  OPT_ZDROP,
+  OPT_BANDWIDTH,
+  OPT_RESEED_TRIGGER
 };
 
 static const char* shortopts = "hzxt:n:p:v:r:G:r:e:g:k:c:a:m:B:M:D:Y:S:P:L:O:";
@@ -212,6 +222,11 @@ static const struct option longopts[] = {
   { "g-zip",                 no_argument, NULL, 'z' },
   { "read-tracking",         no_argument, NULL, OPT_READ_TRACK },
   { "gap-open-penalty",         required_argument, NULL, OPT_GAP_OPEN },
+  { "gap-extension-penalty",         required_argument, NULL, OPT_GAP_EXTENSION },
+  { "mismatch-penalty",         required_argument, NULL, OPT_MISMATCH },
+  { "z-dropoff",         required_argument, NULL, OPT_ZDROP },
+  { "reseed-trigger",         required_argument, NULL, OPT_RESEED_TRIGGER },
+  { "bandwidth",         required_argument, NULL, OPT_BANDWIDTH },
   { "write-extracted-reads", no_argument, NULL, OPT_WRITE_EXTRACTED_READS },
   { "no-assemble-normal",    no_argument, NULL, OPT_NO_ASSEMBLE_NORMAL },
   { "exome",                 no_argument, NULL, OPT_EXOME },
@@ -283,6 +298,13 @@ static const char *RUN_USAGE_MESSAGE =
 "      --write-asqg                     Output an ASQG graph file for each assembly window.\n"
 "  -e, --error-rate                     Fractional difference two reads can have to overlap. See SGA param. 0 is fast, but requires exact matches and error correcting. [0.02]\n"
 "  -c, --chunk-size                     Size of a local assembly window (in bp). [25000]\n"
+"  Alignment params\n"
+"      --gap-open-penalty               Set the BWA-MEM gap open penalty for contig to genome alignments. BWA-MEM -O [6]\n"
+"      --gap-extension-penalty          Set the BWA-MEM gap extension penalty for contig to genome alignments. BWA-MEM -E [1]\n"
+"      --mismatch-penalty               Set the BWA-MEM mismatch penalty for contig to genome alignments. BWA-MEM -b [4]\n"
+"      --bandwidth                      Set the BWA-MEM SW alignment bandwidth for contig to genome alignments. BWA-MEM -w [100]\n"
+"      --z-dropoff                      Set the BWA-MEM SW alignment Z-dropoff for contig to genome alignments. BWA-MEM -d [100]\n"
+"      --reseed-trigger                 Set the BWA-MEM reseed trigger for reseeding mems for contig to genome alignments. BWA-MEM -r [1.5]\n"
 "\n";
 
 void runSnowman(int argc, char** argv) {
@@ -320,7 +342,13 @@ void runSnowman(int argc, char** argv) {
     "    LOD cutoff (somatic vs germline, at DBSNP):  " << opt::lod_db << std::endl << 
     "    LOD cutoff (somatic vs germlin, no DBSNP):  " << opt::lod_no_db << std::endl << 
     "    LOD cutoff (germline, AF>=0.5 vs AF=0):  " << opt::lod_germ << std::endl <<
-    "    Gap open penalty: " << opt::gap_open_penalty << std::endl;
+    "    Gap open penalty: " << opt::gap_open_penalty << std::endl << 
+    "    Gap extension penalty: " << opt::gap_extension_penalty << std::endl <<
+    "    Mismatch penalty: " << opt::mismatch_penalty << std::endl <<
+    "    Aligment bandwidth: " << opt::bandwidth << std::endl <<
+    "    Z-dropoff: " << opt::zdrop << std::endl <<
+    "    Reseed trigger: " << opt::reseed_trigger << std::endl;
+
   if (!opt::run_blat)
     ss << "    Running with BWA-MEM only (no BLAT)" << std::endl;
   if (opt::assemb::writeASQG)
@@ -443,6 +471,12 @@ void runSnowman(int argc, char** argv) {
   SnowmanUtils::print(ss, log_file, opt::verbose > 0);
   main_bwa = new SnowTools::BWAWrapper();
   main_bwa->setGapOpen(opt::gap_open_penalty);
+  main_bwa->setGapExtension(opt::gap_extension_penalty);
+  main_bwa->setMismatchPenalty(opt::mismatch_penalty);
+  main_bwa->setZDropoff(opt::zdrop);
+  main_bwa->setBandwidth(opt::bandwidth);
+  main_bwa->setReseedTrigger(opt::reseed_trigger);
+
   findex = SnowmanUtils::__open_index_and_writer(opt::refgenome, main_bwa, opt::analysis_id + ".contigs.bam", b_allwriter, findex);  
 
   // open the BLAT reference
@@ -619,6 +653,11 @@ void parseRunOptions(int argc, char** argv) {
       case 'z': opt::zip = false; break;
       case 'h': help = true; break;
     case OPT_GAP_OPEN : arg >> opt::gap_open_penalty; break;
+    case OPT_MISMATCH : arg >> opt::mismatch_penalty; break;
+    case OPT_GAP_EXTENSION : arg >> opt::gap_extension_penalty; break;
+    case OPT_ZDROP : arg >> opt::zdrop; break;
+    case OPT_BANDWIDTH : arg >> opt::bandwidth; break;
+    case OPT_RESEED_TRIGGER : arg >> opt::reseed_trigger; break;
       case 'x': opt::r2c = true; break;
       case 'c': 
 	tmp = "";

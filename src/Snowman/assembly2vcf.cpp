@@ -135,9 +135,9 @@ void runAssembly2VCF(int argc, char** argv)
 
   // make the VCFs
   std::cerr << "...loading the bps files for conversion to VCF" << std::endl;
-  std::string file = "assembly.bps.txt.gz";
+  std::string file = opt::analysis_id + ".bps.txt.gz";
   if (!SnowTools::read_access_test(file))
-    file = "assembly.bps.txt";
+    file = opt::analysis_id + ".bps.txt";
 
   // put args into string for VCF later
   for (int i = 0; i < argc; ++i)
@@ -153,10 +153,10 @@ void runAssembly2VCF(int argc, char** argv)
   boost::filesystem::path nfp(opt::normal_reads_bam);
 
   // TODO fix this
-  //header.addSampleField(tfp.filename());
-  //header.colnames += "\t" + tfp.filename(); 
-  //header.addSampleField(nfp.filename());
-  //header.colnames += "\t" + nfp.filename(); 
+  header.addSampleField(nfp.filename().string());
+  header.colnames += "\t" + nfp.filename().string(); 
+  header.addSampleField(tfp.filename().string());
+  header.colnames += "\t" + tfp.filename().string(); 
   
   bool zip = false;
   VCFFile snowvcf(file, opt::analysis_id, twalk.header(), header);
@@ -165,7 +165,7 @@ void runAssembly2VCF(int argc, char** argv)
   snowvcf.writeIndels(basename, zip, false);
   snowvcf.writeSVs(basename, zip, false);
   
-  basename = opt::analysis_id; //"assembly.";
+  basename = opt::analysis_id + ".assembly."; //"assembly.";
   snowvcf.include_nonpass = false;
   snowvcf.writeIndels(basename, zip, false);
   snowvcf.writeSVs(basename, zip, false);

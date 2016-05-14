@@ -526,6 +526,7 @@ namespace SnowTools {
       //if (homology.length() == 0)
       //;//homology = "x";
     } catch (...) {
+      std::cerr << "cname: " << cname << " b1.cpos " << b1.cpos << " b2.cpos " << b2.cpos << " seq.length " << seq.length() << std::endl;
       std::cerr << "Caught error with contig on global-getBreakPairs: " << cname << std::endl;
       std::cerr << b1.cpos << " " << b2.cpos << " seq.length() " << seq.length() << " num_align " << num_align << std::endl;
     }
