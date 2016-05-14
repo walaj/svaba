@@ -12,7 +12,7 @@
 #include "CorrectionThresholds.h"
 
 #define MAX_OVERLAPS_PER_ASSEMBLY 20000
-#define DEBUG_ENGINE 1
+//#define DEBUG_ENGINE 1
 
 static std::string POLYA = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 static std::string POLYT = "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTT";
