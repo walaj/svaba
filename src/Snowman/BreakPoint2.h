@@ -31,7 +31,7 @@ namespace SnowTools {
    std::string chr_name;
    //char * chr_name;
    GenomicRegion gr;
-   uint32_t mapq:8, sub_n:8, nm:16;
+   int32_t mapq:8, sub_n:8, nm:16;
 
  };
 
