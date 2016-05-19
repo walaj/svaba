@@ -1,19 +1,20 @@
 noinst_LIBRARIES = libsga.a
 
 libsga_a_CPPFLAGS = \
-	-I$(top_srcdir)/sga/SGA/Util \
-	-I$(top_srcdir)/sga/SGA/Bigraph \
-	-I$(top_srcdir)/sga/SGA/SuffixTools \
-	-I$(top_srcdir)/sga/SGA/StringGraph \
-	-I$(top_srcdir)/sga/SGA/Concurrency \
-	-I$(top_srcdir)/sga/SGA/Algorithm \
-	-I$(top_srcdir)/sga/SGA/SQG \
-	-I$(top_srcdir)/sga/SGA/Scaffold \
-	-I$(top_srcdir)/sga/SGA/GraphDiff \
-	-I$(top_srcdir)/sga/SGA/Thirdparty
+	-I$(top_srcdir)/src/SGA/Util \
+	-I$(top_srcdir)/src/SGA/Bigraph \
+	-I$(top_srcdir)/src/SGA/SuffixTools \
+	-I$(top_srcdir)/src/SGA/StringGraph \
+	##-I$(top_srcdir)/src/SGA/Concurrency \
+	-I$(top_srcdir)/src/SGA/Algorithm \
+	-I$(top_srcdir)/src/SGA/SQG 
+	##-I$(top_srcdir)/src/SGA/Scaffold \
+	##-I$(top_srcdir)/src/SGA/GraphDiff \
+	##-I$(top_srcdir)/src/SGA/Thirdparty
 
-libsga_a_SOURCES = index.cpp index.h \
-              overlap.cpp overlap.h \
+libsga_a_SOURCES = \
+##index.cpp index.h \
+              ##overlap.cpp overlap.h \
 ##              assemble.cpp assemble.h \
 ##              correct.cpp correct.h \
 ##              oview.cpp oview.h \
@@ -44,3 +45,5 @@ libsga_a_SOURCES = index.cpp index.h \
             ##  haplotype-filter.h haplotype-filter.cpp \
               OverlapCommon.h OverlapCommon.cpp \
               SGACommon.h 
+
+# LocalWords:  srcdir
