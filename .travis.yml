@@ -5,7 +5,7 @@ compiler:
 
 env: 
   global: 
-  - BOOST_VERSION_MIN="1.59.0"
+  - BOOST_VERSION_MIN="1.60.0"
   - "BOOST_VERSION_MAX=\"1.60.0\" # List of required boost libraries to build"
   - BOOST_LIBS="regex,system,test,filesystem"
 
