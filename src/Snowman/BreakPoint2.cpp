@@ -90,6 +90,7 @@ namespace SnowTools {
   }
   
   ReducedBreakEnd::ReducedBreakEnd(const GenomicRegion& g, int mq, const std::string& chr_n) {
+    
     gr = g;
     mapq = mq;
     chr_name = chr_n;

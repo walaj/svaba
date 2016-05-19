@@ -44,7 +44,7 @@ namespace SnowTools {
       bool non_fr = (r.ReverseFlag() == r.MateReverseFlag()) || (r.ReverseFlag() && r.Position() < r.MatePosition()) || (!r.ReverseFlag() && r.Position() > r.MatePosition());
       bool disc_r = (abs(r.InsertSize()) >= 800) || (r.MateChrID() != r.ChrID()) || non_fr;
 
-      if (tmp_map[r.Qname()] >= 2 && disc_r)
+      if (/*tmp_map[r.Qname()] >= 2 && */disc_r)
 	bav_dd.push_back(r);
     }
     
@@ -95,7 +95,15 @@ namespace SnowTools {
     __convertToDiscordantCluster(dd, fwdrev, bav_dd);
     __convertToDiscordantCluster(dd, revfwd, bav_dd);
     __convertToDiscordantCluster(dd, revrev, bav_dd);
-    
+
+#ifdef DEBUG_CLUSTER
+    std::cerr << "----fwd cluster count: " << fwd.size() << std::endl;
+    std::cerr << "----rev cluster count: " << rev.size() << std::endl;
+    std::cerr << "----fwdfwd cluster count: " << fwdfwd.size() << std::endl;
+    std::cerr << "----fwdrev cluster count: " << fwdrev.size() << std::endl;
+    std::cerr << "----revfwd cluster count: " << revfwd.size() << std::endl;
+    std::cerr << "----revrev cluster count: " << revrev.size() << std::endl;
+#endif    
     // remove clusters that dont overlap with the window
     DiscordantClusterMap dd_clean;
     for (auto& i : dd) {
@@ -103,6 +111,13 @@ namespace SnowTools {
 	if (interval.isEmpty() /* whole genome */ || i.second.m_reg1.getOverlap(interval) > 0 || i.second.m_reg2.getOverlap(interval))
 	  dd_clean[i.first] = i.second;
     }
+
+#ifdef DEBUG_CLUSTER
+    for (auto& i : dd) 
+      std::cerr << "Before Clean: " << i.second << std::endl;
+    for (auto& i : dd_clean) 
+      std::cerr << "Clean: " << i.second << std::endl;
+#endif
 
     // score by number of maps
     for (auto d : dd_clean) {
@@ -139,7 +154,6 @@ namespace SnowTools {
     m_id = this_reads[0].Qname();
     assert(m_id.length());
     
-    //debug
     assert(this_reads.back().MatePosition() - this_reads[0].MatePosition() < 10000);
     assert(this_reads.back().Position() - this_reads[0].Position() < 10000);
     
@@ -153,7 +167,7 @@ namespace SnowTools {
 	assert(tmp.length());
 	reads[tmp] = i;
 	
-	counts[tmp.substr(0,4)]++;
+	++counts[tmp.substr(0,4)];
 
 	// set the qname map
 	std::string qn = i.Qname();
@@ -169,7 +183,7 @@ namespace SnowTools {
       }
 
     // loop through the big stack of reads and find the mates
-
+    
     addMateReads(all_reads);
     assert(reads.size() > 0);
 
@@ -203,10 +217,24 @@ namespace SnowTools {
 	assert(m_reg2.width() < 5000);
       }
 
+    // if no mates (we didn't look up), still make the mate region
+    if (mates.size() == 0) {
+      for (auto& i : reads) {
+	m_reg2.strand = i.second.MateReverseFlag() ? '-' : '+'; 
+	m_reg2.chr = i.second.MateChrID();
+	if (i.second.MatePosition() < m_reg2.pos1)
+	  m_reg2.pos1 = i.second.MatePosition();
+	int endpos = i.second.MatePosition() + i.second.Length();
+	if (endpos > m_reg2.pos2)
+	  m_reg2.pos2 = endpos;
+	assert(m_reg2.width() < 5000);
+      }
+    }
+
     mapq1 = __getMeanMapq(false);
     mapq2 = __getMeanMapq(true);
     assert(mapq1 >= 0);
-    assert(mapq2 >= 0);
+    assert(mapq2 >= -1); // can have -1 as placeholder if no mate reads (bc didnt do lookup)x
 
     // orient them correctly so that left end is first
     if (m_reg2 < m_reg1) {
@@ -215,8 +243,6 @@ namespace SnowTools {
       std::swap(mapq1, mapq2);
     }
 
-    //assert(m_reg1 < m_reg2 || (m_reg1.chr == m_reg2.chr && m_reg1.pos1 == m_reg2.pos2 && m_reg1.strand != m_reg2.strand));
-    
   }
   
   void DiscordantCluster::addMateReads(const BamReadVector& bav) 
@@ -245,7 +271,7 @@ namespace SnowTools {
 	  }
 	}
     }
-    
+    std::cerr << " MATES SIZE " << mates.size() << " READS SIZE " << reads.size() << " QNAME SISE " << qnames.size() << std::endl;
   }
   
   double DiscordantCluster::__getMeanMapq(bool mate) const 
@@ -260,6 +286,10 @@ namespace SnowTools {
 	tmapq.push_back(i.second.MapQuality());
     }
     
+    // if no mates, set to -1
+    if (!mates.size() && mate)
+      return -1;
+
     if (tmapq.size() > 0)
       mean = std::accumulate(tmapq.begin(), tmapq.end(), 0.0) / tmapq.size();
     return mean;
