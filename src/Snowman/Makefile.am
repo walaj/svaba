@@ -33,8 +33,8 @@ snowman_LDADD = \
 	$(top_builddir)/src/SGA/Util/libutil.a \
 	$(top_builddir)/src/SGA/SQG/libsqg.a \
 	$(top_builddir)/SnowTools/multifast-v1.4.2/ahocorasick/build/libahocorasick.a \
-	$(top_builddir)/SnowTools/blat/lib/jkOwnLib.a $(top_builddir)/SnowTools/blat/lib/jkweb.a \
-        @boost_lib@/libboost_regex.a @boost_lib@/libboost_filesystem.a @boost_lib@/libboost_system.a
+	$(top_builddir)/SnowTools/blat/lib/jkOwnLib.a $(top_builddir)/SnowTools/blat/lib/jkweb.a 
+##        @boost_lib@/libboost_regex.a @boost_lib@/libboost_filesystem.a @boost_lib@/libboost_system.a
 
 
 snowman_LDFLAGS = -pthread -std=c++11

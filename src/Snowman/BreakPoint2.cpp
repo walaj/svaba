@@ -4,15 +4,13 @@
 #include <iomanip>
 #include <cassert>
 
-#include <boost/regex.hpp>
-
 #include "SnowTools/gzstream.h"
 
 #include "SnowmanUtils.h"
 
 #define T_SPLIT_BUFF 15
 #define N_SPLIT_BUFF 8
-// if the insert is this big or larger, don't require splits to span both sides
+// if the insertion is this big or larger, don't require splits to span both sides
 #define INSERT_SIZE_TOO_BIG_SPAN_READS 16
 //#define LOD_CUTOFF 8
 //#define DBCUTOFF 15
@@ -22,13 +20,14 @@
 //#define NODBCUTOFF 2.5
 
 // define repeats
-static std::vector<std::string> repr = {"AAAAAAAAAA", "TTTTTTTTTT", "CCCCCCCCCC", "GGGGGGGGGG",
+/*static std::vector<std::string> repr = {"AAAAAAAAAA", "TTTTTTTTTT", "CCCCCCCCCC", "GGGGGGGGGG",
 				 "TATATATATATATA", "ATATATATATATAT", 
 				 "GCGCGCGCGCGCGC", "CGCGCGCGCGCGCG", 
 				 "TGTGTGTGTGTGTG", "GTGTGTGTGTGTGT", 
 				 "TCTCTCTCTCTCTC", "CTCTCTCTCTCTCT", 
 				 "CACACACACACACA", "ACACACACACACAC", 
 				 "GAGAGAGAGAGAGA", "AGAGAGAGAGAGAG"};
+*/
 
 static std::unordered_map<int, double> ERROR_RATES = {{0,1e-4}, {1,1e-4}, {2, 1e-4}, {3, 1e-4}, {4, 1e-4}, {5, 2e-4}, {6, 5e-4}, {7, 1e-3},
 						      {8,2e-3}, {9,3e-3}, {10, 1e-2}, {11, 2e-2}, {12, 3e-5}};
@@ -104,7 +103,6 @@ namespace SnowTools {
     num_align = 0;
     dc = tdc;
     
-    assert(tdc.reads.size());
     std::string chr_name1 = bwa->ChrIDToName(dc.m_reg1.chr); //bwa->ChrIDToName(tdc.reads.begin()->second.ChrID());
     std::string chr_name2 = bwa->ChrIDToName(dc.m_reg2.chr); //bwa->ChrIDToName(tdc.reads.begin()->second.ChrID());
 
@@ -115,17 +113,27 @@ namespace SnowTools {
     b1.gr.strand = dc.m_reg1.strand;
     b2.gr.strand = dc.m_reg2.strand;
 
+    // set the alt counts, counting only unique qnames
+    std::unordered_map<std::string, std::unordered_set<std::string>> alt_counts;
+
     // add the supporting read info to allels
     for (auto& rr : dc.reads) {
-      std::string nn = rr.second.GetZTag("SR");
-      allele[nn.substr(0,4)].supporting_reads.insert(nn);
+      std::string sr = rr.second.GetZTag("SR");
+      allele[sr.substr(0,4)].supporting_reads.insert(sr);
+      alt_counts[sr.substr(0,4)].insert(rr.second.Qname());
+    }
+    for (auto& rr : dc.mates) {
+      std::string sr = rr.second.GetZTag("SR");
+      allele[sr.substr(0,4)].supporting_reads.insert(rr.second.Qname());
+      alt_counts[sr.substr(0,4)].insert(rr.second.Qname());
     }
     
     // add the alt counts
     for (auto& i : allele) {
       i.second.indel = false;
-      i.second.disc = allele[i.first].supporting_reads.size();
-      i.second.alt = i.second.disc;
+      i.second.disc = alt_counts[i.first].size(); //allele[i.first].supporting_reads.size();
+      i.second.__adjust_alt_counts();
+      //i.second.alt = i.second.disc;
     }
       
     // give a unique id
@@ -164,9 +172,10 @@ namespace SnowTools {
     }
 
     // look for massive repeats in contig
-    for (auto& r : repr)
+    /*for (auto& r : repr)
       if (seq.find(r) != std::string::npos && r.length() > repeat_seq.length())
 	repeat_seq = r;
+    */
   }
 
 
@@ -180,8 +189,6 @@ namespace SnowTools {
     std::istringstream iss(line);
     std::string val;
     size_t count = 0;
-
-
 
     std::string chr1, pos1, chr2, pos2, chr_name1, chr_name2, id; 
     id = "";//dummmy
@@ -369,8 +376,6 @@ namespace SnowTools {
       
       if (valid) { 
 	
-	//reads.push_back(j);
-	//split_reads.insert(sr);
 	std::string qn = j.Qname();
 
 	// if read seen and other read was other mate, then reject
@@ -443,7 +448,8 @@ namespace SnowTools {
       // adjust the alt count
     for (auto& i : allele) {
       i.second.indel = num_align == 1;
-      i.second.alt = std::max((int)i.second.supporting_reads.size(), i.second.cigar);
+      i.second.__adjust_alt_counts();
+      //i.second.alt = std::max((int)i.second.supporting_reads.size(), i.second.cigar);
     }
 
   }
@@ -583,19 +589,18 @@ namespace SnowTools {
 
 	      // add the discordant reads names to supporting reads for each sampleinfo
 	      for (auto& rr : d.second.reads) {
-		std::string nn = rr.second.GetZTag("SR");
-		allele[nn.substr(0,4)].supporting_reads.insert(nn);
+		std::string sr = rr.second.GetZTag("SR");
+		allele[sr.substr(0,4)].supporting_reads.insert(sr);
 	      }
-	      
-	      // this is probably not necessary below (redundant with above?)
-	      //for (auto& rr : d.second.mates){
-	      //std::string nn = rr.second.GetZTag("SR");
-	      //allele[nn.substr(0,4)].supporting_reads.insert(nn);
-	      //}
-	      
+	      for (auto& rr : d.second.mates) {
+		std::string sr = rr.second.GetZTag("SR");
+		allele[sr.substr(0,4)].supporting_reads.insert(sr);
+	      }
+
 	      // adjust the alt counts
 	      for (auto& aa : allele)
-		aa.second.alt = aa.second.supporting_reads.size();
+		aa.second.__adjust_alt_counts();
+	      //aa.second.alt = aa.second.supporting_reads.size();
 
 	  } 
 	
@@ -687,8 +692,8 @@ namespace SnowTools {
   void BreakPoint::__score_somatic(double NODBCUTOFF, double DBCUTOFF) {
     
     double ratio = n.alt > 0 ? (double)t.alt / (double)n.alt : 100;
-    double taf = t.cov > 0 ? (double)t.alt / (double)t.cov : 0;
-    bool immediate_reject = (ratio <= 12 && n.cov > 10) || n.alt >= 2; // can't call somatic with 3+ reads or <5x more tum than norm ALT
+    //double taf = t.cov > 0 ? (double)t.alt / (double)t.cov : 0;
+    bool immediate_reject = (ratio <= 12 && n.cov > 10) || n.alt >= 2; // can't call somatic with 3+ normal reads or <5x more tum than norm ALT
   
   if (evidence == "INDEL") {
     
@@ -725,10 +730,20 @@ namespace SnowTools {
 
 }
 
-  void BreakPoint::__set_total_reads() {
+  /*  void BreakPoint::__set_total_reads() {
 
     // total unique read support
-    
+
+    t_reads = 0;
+    n_reads = 0;
+
+    for (auto& a : allele) {
+      if (a.first.at(0) == 't')
+	t_reads += a.alt;
+      else
+	n_reads += a.alt;
+    }
+
     //if (evidence == "ASDIS") {
       std::unordered_set<std::string> this_reads_t;
       std::unordered_set<std::string> this_reads_n;
@@ -749,6 +764,7 @@ namespace SnowTools {
       n_reads = this_reads_n.size();
 
   }
+  */
 
   void BreakPoint::__score_assembly_dscrd() {
 
@@ -763,6 +779,18 @@ namespace SnowTools {
     //int min_assm_mapq = std::min(this_mapq1, this_mapq2);
     //int max_assm_mapq = std::max(this_mapq1, this_mapq2);
     
+
+    // set the total number of supporting reads for tumor / normal
+    // these alt counts should already be one qname per alt (ie no dupes)
+    int t_reads = 0;
+    int n_reads = 0;
+    for (auto& a : allele) {
+      if (a.first.at(0) == 't')
+	t_reads += a.second.alt;
+      else
+	n_reads += a.second.alt;
+    }
+
     int total_count = t_reads + n_reads; //n.split + t.split + dc.ncount + dc.tcount;
 
     //double min_disc_mapq = std::min(dc.mapq1, dc.mapq2);
@@ -892,7 +920,8 @@ namespace SnowTools {
     }
     assert( (split == 0 && t.split == 0 && n.split==0) || (split > 0 && (t.split + n.split > 0)));
 
-    __set_total_reads();
+
+    //__set_total_reads();
 
     // do the scoring
     if (evidence == "ASSMB" || (evidence == "COMPL" && (dc.ncount + dc.tcount)==0))
@@ -970,11 +999,15 @@ namespace SnowTools {
       if (++lim > 50)
 	break;
 
-      boost::regex regr(".*?_[0-9]+_(.*)"); 
-      boost::cmatch pmatch;
-      if (i.first.at(0) == 't')
-	if (boost::regex_match(i.first.c_str(), pmatch, regr))
-	  supporting_reads = supporting_reads + "," + pmatch[1].str();
+      //boost::regex regr(".*?_[0-9]+_(.*)"); 
+      //boost::cmatch pmatch;
+      if (i.first.at(0) == 't') {
+	size_t posr = i.first.find("_", 5);
+	if (posr != std::string::npos)
+	  supporting_reads = supporting_reads + "," + i.first.substr(posr, i.first.length() - posr);
+	//if (boost::regex_match(i.first.c_str(), pmatch, regr))
+	//  supporting_reads = supporting_reads + "," + pmatch[1].str();
+      }
     }
     if (supporting_reads.size() > 0)
       supporting_reads = supporting_reads.substr(1, supporting_reads.size() - 1); // remove first _
@@ -1231,7 +1264,8 @@ namespace SnowTools {
     }
 
     // make sure we get correct alt
-    alt = std::max(alt, std::max((int)supporting_reads.size(), cigar));
+    //__adjust_alt_counts();
+    //alt = std::max(alt, std::max((int)supporting_reads.size(), cigar));
 
     af = cov > 0 ? (double)alt / (double)cov : 1;
     af = af > 1 ? 1 : af;
@@ -1290,7 +1324,8 @@ namespace SnowTools {
     for (auto& i : a2.supporting_reads)
       a.supporting_reads.insert(i);
     
-    a.alt = std::max((int)a.supporting_reads.size(), a.cigar);
+    //a.alt = std::max((int)a.supporting_reads.size(), a.cigar);
+    a.__adjust_alt_counts();
 
     return a;
   }
@@ -1441,6 +1476,18 @@ namespace SnowTools {
     
     if (gr.getOverlap(window))
       local = true;
+  }
+
+  void SampleInfo::__adjust_alt_counts() {
+    
+    // get unique qnames
+    std::unordered_set<std::string> qn;
+    for (auto& r : supporting_reads)
+      qn.insert(r.substr(5, r.length() - 5));
+    
+    // alt count is max of cigar or unique qnames (includes split and discordant)
+    alt = std::max((int)qn.size(), cigar);
+
   }
 
 }
