@@ -3,12 +3,12 @@ language: cpp
 compiler: 
 - gcc
 
+## List of required boost libraries to build, or just one to prevent compiling all of them...
 env: 
   global: 
   - BOOST_VERSION_MIN="1.60.0"
   - "BOOST_VERSION_MAX=\"1.61.0\" 
-  - BOOST_LIBS="system" ### List of required boost libraries to build, or just one to prevent compiling all of them...
-##  - BOOST_LIBS="regex,system,test,filesystem"
+  - BOOST_LIBS="system"
 
 before_install: 
 - git submodule update --init --recursive
