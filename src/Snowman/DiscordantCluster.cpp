@@ -185,7 +185,7 @@ namespace SnowTools {
     // loop through the big stack of reads and find the mates
     
     addMateReads(all_reads);
-    assert(reads.size() > 0);
+    assert(reads.size());
 
     // set the regions
     //m_reg1 = SnowTools::GenomicRegion(-1,REGPOS1,-1); // read region
@@ -204,7 +204,7 @@ namespace SnowTools {
 	  m_reg1.pos2 = endpos;
 	assert(m_reg1.width() < 5000);
       }
-    
+
     for (auto& i : mates) 
       {
 	m_reg2.strand = i.second.ReverseFlag() ? '-' : '+'; //r_strand(i.second) == '+'; //(!i.second->IsReverseStrand()) ? '+' : '-';
@@ -271,7 +271,8 @@ namespace SnowTools {
 	  }
 	}
     }
-    std::cerr << " MATES SIZE " << mates.size() << " READS SIZE " << reads.size() << " QNAME SISE " << qnames.size() << std::endl;
+
+    //std::cerr << " MATES SIZE " << mates.size() << " READS SIZE " << reads.size() << " QNAME SISE " << qnames.size() << std::endl;
   }
   
   double DiscordantCluster::__getMeanMapq(bool mate) const 

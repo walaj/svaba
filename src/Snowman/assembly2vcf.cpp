@@ -10,7 +10,7 @@
 #include "SnowmanBamWalker.h"
 #include "SnowmanUtils.h"
 
-#include "boost/filesystem/path.hpp" 
+//#include "boost/filesystem/path.hpp" 
 
 
 faidx_t * findex;
@@ -149,14 +149,18 @@ void runAssembly2VCF(int argc, char** argv)
   header.source = opt::args;
   header.reference = opt::refgenome;
   
-  boost::filesystem::path tfp(opt::tumor_reads_bam);
-  boost::filesystem::path nfp(opt::normal_reads_bam);
+  //boost::filesystem::path tfp(opt::tumor_reads_bam);
+  //boost::filesystem::path nfp(opt::normal_reads_bam);
 
   // TODO fix this
-  header.addSampleField(nfp.filename().string());
-  header.colnames += "\t" + nfp.filename().string(); 
-  header.addSampleField(tfp.filename().string());
-  header.colnames += "\t" + tfp.filename().string(); 
+  header.addSampleField(opt::tumor_reads_bam);
+  header.colnames += "\t" + opt::tumor_reads_bam;
+  header.addSampleField(opt::normal_reads_bam);
+  header.colnames += "\t" + opt::normal_reads_bam;
+  //header.addSampleField(nfp.filename().string());
+  //header.colnames += "\t" + nfp.filename().string(); 
+  //header.addSampleField(tfp.filename().string());
+  //header.colnames += "\t" + tfp.filename().string(); 
   
   bool zip = false;
   VCFFile snowvcf(file, opt::analysis_id, twalk.header(), header);

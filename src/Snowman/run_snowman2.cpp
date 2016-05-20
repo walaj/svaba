@@ -9,11 +9,11 @@
 
 #include "bwa/bwa.h"
 
-#include "boost/filesystem/path.hpp" 
-#include "boost/archive/text_oarchive.hpp"
-#include "boost/archive/text_iarchive.hpp"
+//#include "boost/filesystem/path.hpp" 
+//#include "boost/archive/text_oarchive.hpp"
+//#include "boost/archive/text_iarchive.hpp"
 
-#include "SnowTools/MiniRules.h"
+#include "SnowTools/MiniRules2.h"
 #include "SnowTools/BLATWrapper.h"
 
 #include "vcf.h"
@@ -127,7 +127,8 @@ namespace opt {
   // parameters for filtering reads
   //static std::string rules = "global@!hardclip;!duplicate;!qcfail;phred[4,100];length[LLL,1000]%region@WG%!isize[0,800]%ic%clip[10,1000]%ins[1,1000];mapq[0,100]%del[1,1000];mapq[1,1000]%mapped;!mate_mapped;mapq[1,1000]%mate_mapped;!mapped";
   //static std::string rules = "global@!hardclip;!duplicate;!qcfail;phred[4,100]%region@WG%discordant[0,800]%ic%clip[10,1000]%ins[1,1000];mapq[0,100]%del[1,1000];mapq[1,1000]%mapped;!mate_mapped;mapq[1,1000]%mate_mapped;!mapped";
-  static std::string rules = "global@!duplicate;!qcfail%region@WG%discordant[0,800]%ic%clip[5,1000];phred[4,100]%ins[1,1000]%del[1,1000]%mapped;!mate_mapped%mate_mapped;!mapped";
+  static std::string rules = "{\"global\" : {\"duplicate\" : false, \"qcfail\" : false}, \"\" : { \"rules\" : [{\"isize\" : [800,0]},{\"rr\" : true},{\"ff\" : true}, {\"rf\" : true}, {\"ic\" : true}, {\"clip\" : [5, 1000], \"phred\" : [4,100]}, {\"ins\" : [1,1000]}, {\"del\" : [1,1000]}, {\"mapped\": true , \"mate_mapped\" : false}, {\"mate_mapped\" : true, \"mapped\" : false}]}}";
+  //static std::string rules = "global@!duplicate;!qcfail%region@WG%discordant[0,800]%ic%clip[5,1000];phred[4,100]%ins[1,1000]%del[1,1000]%mapped;!mate_mapped%mate_mapped;!mapped";
   static int num_to_sample = 500000;
   static std::string motif_exclude;
   
@@ -519,7 +520,7 @@ void runSnowman(int argc, char** argv) {
   // write the headers
   os_allbps << SnowTools::BreakPoint::header();
   for (auto& b : opt::bam) 
-    os_allbps << "\t" << b.first << "_" << boost::filesystem::path(b.second).filename().string();
+    os_allbps << "\t" << b.first << "_" << b.second; //boost::filesystem::path(b.second).filename().string();
   os_allbps << std::endl;
   all_disc_stream << SnowTools::DiscordantCluster::header() << std::endl;
 
@@ -594,7 +595,7 @@ void makeVCFs() {
     bam_hdr_destroy(bwa_header);
 
   for (auto& b : opt::bam) {
-    boost::filesystem::path bpf(b.second);
+    //boost::filesystem::path bpf(b.second);
     std::string fname = b.second; //bpf.filename();
     header.addSampleField(fname);
     header.colnames += "\t" + fname; 
@@ -801,7 +802,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 	  if (s.getOverlap(ss)) 
 	    valid = false;
       
-      if (valid) {
+      if (valid && (s.count > opt::mate_lookup_min * 2 || jjj == 0)) { // be more strict about higher rounds
 	somatic_mate_regions.add(s);
 	all_somatic_mate_regions.add(s);
       }

@@ -170,7 +170,7 @@ namespace SnowTools {
    double SLO = 0; // MAPQ scaled log odds of variant vs error
    double LO_n = 0; // log odds of variant at af=0.5 vs ref (af=0) with errors
 
-   std::set<std::string> supporting_reads;
+   std::set<std::string> supporting_reads; // holds SR tags (not qnames)
 
    friend std::ostream& operator<<(std::ostream& out, const SampleInfo& a);
 
@@ -183,6 +183,8 @@ namespace SnowTools {
    std::string toFileString() const;
 
    void fromString(const std::string& s);
+
+   void __adjust_alt_counts();
    
  };
  
@@ -205,7 +207,7 @@ namespace SnowTools {
    // reads spanning this breakpoint
    BamReadVector reads;
 
-   int t_reads = 0, n_reads = 0;
+   //int t_reads = 0, n_reads = 0;
 
    // discordant reads supporting this aseembly bp
    DiscordantCluster dc;
