@@ -13,19 +13,17 @@ We recommend compiling with GCC-4.8 or greater.
 ### if on Broad Institute servers, add GCC-4.9
 reuse -q GCC-4.9
 
-############## DOWNLOAD AND INSTALL BOOST ###############
-############## (only if not already installed) ##########
-git clone --recursive https://github.com/boostorg/boost.git
-cd boost
-./bootstrap.sh --with-libraries=regex,test,filesystem,system
-./b2
+############## DOWNLOAD BOOST (if not installed) ###############
+wget https://sourceforge.net/projects/boost/files/boost/1.61.0/boost_1_61_0.tar.gz
+tar xzf boost_1_61_0.tar.gz
+## we only user header-only libraries, so no compiling of Boost is needed
 
 ############### DOWNLOAD VARIANT BAM ############### 
 git clone --recursive https://github.com/broadinstitute/SnowmanSVgit
 cd SnowmanSV
 
 ############### COMPILE AND INSTALL ###############
-./configure --with-boost=<path_to_boost>
+./configure --with-boost=<path_to_boost>  ## e.g. ~/boost_1_61_0
 make
 
 ############### QUICK START ############### 
@@ -50,14 +48,16 @@ Scope
 -----
 
 Snowman is currently configured to provide indel and rearrangement calls (and anything "in between"). It has been most widely tested
-as a somatic variant caller, and outputs separate VCFs for somatic and germline. If only a single 
+as a somatic variant caller, and outputs separate VCFs for somatic and germline. If only a single BAM is present, input with the ``-t`` flag. 
+In this case, the results will contain all calls, with no germline/somatic designation.
 
 Required Inputs
 ---------------
 
 Any number of BAM/SAM/CRAM files can be supplied at once. Snowman uses random access of the BAMs to obtain pair-mate reads,
 and so requires the files to be indexed (``samtools index``). Tumor BAMs are input with ``-t`` and normal with ``-n``. The order
-does not matter. All assemblies are done
+does not matter. At least one "tumor" BAM is required, although this could be just a single germline sample, or paired with a set of parents input
+with ``-n`` to search for de novo alterations. All assemblies are done
 jointly, combining reads across all of the BAM files. The source of the variant support reads is then tracked during realignment of reads to 
 assembly contigs. A BWA indexed reference genome must be supplied as well (``-G``). 
 
@@ -152,7 +152,6 @@ during the BWA-MEM realignment phase.
 #### 
 snowman benchmark --realign-sv-test
 ```
-
 
 [vbam]: https://github.com/jwalabroad/VariantBam
 
