@@ -29,8 +29,9 @@
 				 "GAGAGAGAGAGAGA", "AGAGAGAGAGAGAG"};
 */
 
-static std::unordered_map<int, double> ERROR_RATES = {{0,1e-4}, {1,1e-4}, {2, 1e-4}, {3, 1e-4}, {4, 1e-4}, {5, 2e-4}, {6, 5e-4}, {7, 1e-3},
-						      {8,2e-3}, {9,3e-3}, {10, 1e-2}, {11, 2e-2}, {12, 3e-5}};
+double scale_factor = 5.0;
+static std::unordered_map<int, double> ERROR_RATES = {{0,scale_factor * 1e-4}, {1, scale_factor * 1e-4}, {2, scale_factor * 1e-4}, {3, scale_factor * 1e-4}, {4, scale_factor * 1e-4}, {5, scale_factor * 2e-4}, {6, scale_factor * 5e-4}, {7, scale_factor * 1e-3},
+						      {scale_factor * 8,2e-3}, {9,scale_factor * 3e-3}, {10, scale_factor * 1e-2}, {11, scale_factor * 2e-2}, {12, scale_factor * 3e-5}};
 
 namespace SnowTools {
 
