@@ -128,7 +128,7 @@ namespace opt {
   //static std::string rules = "global@!hardclip;!duplicate;!qcfail;phred[4,100];length[LLL,1000]%region@WG%!isize[0,800]%ic%clip[10,1000]%ins[1,1000];mapq[0,100]%del[1,1000];mapq[1,1000]%mapped;!mate_mapped;mapq[1,1000]%mate_mapped;!mapped";
   //static std::string rules = "global@!hardclip;!duplicate;!qcfail;phred[4,100]%region@WG%discordant[0,800]%ic%clip[10,1000]%ins[1,1000];mapq[0,100]%del[1,1000];mapq[1,1000]%mapped;!mate_mapped;mapq[1,1000]%mate_mapped;!mapped";
   static std::string rules = "{\"global\" : {\"duplicate\" : false, \"qcfail\" : false}, \"\" : { \"rules\" : [{\"isize\" : [800,0]},{\"rr\" : true},{\"ff\" : true}, {\"rf\" : true}, {\"ic\" : true}, {\"clip\" : [5, 1000], \"phred\" : [4,100]}, {\"ins\" : [1,1000]}, {\"del\" : [1,1000]}, {\"mapped\": true , \"mate_mapped\" : false}, {\"mate_mapped\" : true, \"mapped\" : false}]}}";
-  //static std::string rules = "global@!duplicate;!qcfail%region@WG%discordant[0,800]%ic%clip[5,1000];phred[4,100]%ins[1,1000]%del[1,1000]%mapped;!mate_mapped%mate_mapped;!mapped";
+  //static std::string rules = "global@!duplicate;!qcfail%region@WG%discordant[0,600]%ic%clip[5,1000];phred[4,100]%ins[1,1000]%del[1,1000]%mapped;!mate_mapped%mate_mapped;!mapped";
   static int num_to_sample = 500000;
   static std::string motif_exclude;
   
@@ -171,6 +171,8 @@ namespace opt {
   static double lod_no_db = 2.5;
   static double lod_germ = 3;
 
+  static bool interchrom_lookup = true;
+
 }
 
 enum { 
@@ -201,7 +203,7 @@ enum {
   OPT_RESEED_TRIGGER
 };
 
-static const char* shortopts = "hzxt:n:p:v:r:G:r:e:g:k:c:a:m:B:D:Y:S:P:L:O:";
+static const char* shortopts = "hzxt:n:p:v:r:G:r:e:g:k:c:a:m:B:D:Y:S:P:L:O:I";
 static const struct option longopts[] = {
   { "help",                    no_argument, NULL, 'h' },
   { "tumor-bam",               required_argument, NULL, 't' },
@@ -221,6 +223,7 @@ static const struct option longopts[] = {
   { "mate-lookup-min",         required_argument, NULL, 'L' },
   { "blat-ooc",                required_argument, NULL, 'O' },
   { "g-zip",                 no_argument, NULL, 'z' },
+  { "no-interchrom-lookup",                 no_argument, NULL, 'I' },
   { "read-tracking",         no_argument, NULL, OPT_READ_TRACK },
   { "gap-open-penalty",         required_argument, NULL, OPT_GAP_OPEN },
   { "gap-extension-penalty",         required_argument, NULL, OPT_GAP_EXTENSION },
@@ -282,6 +285,7 @@ static const char *RUN_USAGE_MESSAGE =
 "  -V, --microbial-genome               Path to indexed reference genome of microbial sequences to be used by BWA-MEM to filter reads.\n"
 "  -z, --g-zip                          Gzip and tabix the output VCF files. Default: off\n"
 "  -L, --min-lookup-min                 Minimum number of somatic reads required to attempt mate-region lookup [3]\n"
+"      --no-interchrom-lookup           Don't do mate lookup for inter-chromosomal translocations. This increased run time at cost of power for translocations.\n"
 "      --kmer-correct                   Perform k-mer based error correction on the reads. Useful for noisy data, need to balance with error rate (w/kmer can have lower error rate). [off]\n"
 "      --r2c-bam                        Output a BAM of reads that aligned to a contig, and fasta of kmer corrected sequences\n"
 "      --discordant-only                Only run the discordant read clustering module, skip assembly. Default: off\n"
@@ -360,8 +364,10 @@ void runSnowman(int argc, char** argv) {
     ss << "    Writing read-to-contig files." << std::endl;
   if (opt::disc_cluster_only)
     ss << "    ######## ONLY DISCORDANT READ CLUSTERING. NO ASSEMBLY ##############" << std::endl;
+  if (!opt::interchrom_lookup)
+    ss << "    ######## NOT LOOKING UP MATES FOR INTERCHROMOSOMAL #################" << std::endl;
   ss <<
-    "*****************************************************************" << std::endl;			  
+    "*****************************************************************" << std::endl;	  
 
   SnowmanUtils::print(ss, log_file, opt::verbose > 0);
 
@@ -424,6 +430,8 @@ void runSnowman(int argc, char** argv) {
     opt::assemb::minOverlap = 0.4 * t_params.readlen;
   }
   ss << "...found read length of " << opt::readlen << ". Min Overlap is " << opt::assemb::minOverlap << std::endl;
+  ss << "...isize distribution (tumor):  " << t_params.mean_isize << " (" << t_params.sd_isize << ") Median: " << t_params.median_isize << std::endl;
+  ss << "...isize distribution (normal): " << n_params.mean_isize << " (" << n_params.sd_isize << ") Median: " << n_params.median_isize << std::endl;
   if (opt::assemb::minOverlap < 30)
     opt::assemb::minOverlap = 30;
   if (!opt::normal_bam.empty()) {
@@ -648,6 +656,7 @@ void parseRunOptions(int argc, char** argv) {
       case 'B': arg >> opt::blacklist; break;
       case 'L': arg >> opt::mate_lookup_min; break;
       case 'M': arg >> opt::indel_mask; break;
+    case 'I': opt::interchrom_lookup = false; break;
       case 'Y': arg >> opt::microbegenome; break;
       case 'P': arg >> opt::pon; break;
       case 'O': arg >> opt::ooc; break;
@@ -795,6 +804,10 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
       for (auto& br : bad_mate_regions)
 	if (br.getOverlap(s))
 	  valid = false;
+
+      // check if we are allowed to lookup interchromosomal
+      if (!opt::interchrom_lookup && s.chr != region.chr)
+	valid = false;
 
       // new region overlaps with one already seen
       if (valid)
