@@ -18,6 +18,10 @@ struct BamParams {
   int max_mapq;
   double mean_cov;
 
+  double mean_isize = 0;
+  double median_isize = 0;
+  double sd_isize = 0; 
+  
 };
 
 class LearnBamParams {

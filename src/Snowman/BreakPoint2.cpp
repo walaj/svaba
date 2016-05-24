@@ -657,7 +657,7 @@ namespace SnowTools {
       confidence = "NOLOCAL";
     else if ( (cov_span <= (readlen + 5 ) && cov_span > 0) || cov_span < 0)
       confidence = "DUPREADS";
-    else if (homology.length() >= 10)
+    else if (homology.length() >= 20 && (span > 1500 || span == -1) && std::max(b1.mapq, b2.mapq) < 60)
       confidence = "NODISC";
     else if (seq.length() < 101 + 30)
       confidence = "TOOSHORT";
