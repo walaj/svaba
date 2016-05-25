@@ -677,7 +677,7 @@ namespace SnowTools {
       confidence = "LOWMAPQ";
     else if (std::min(b1.matchlen, b2.matchlen) < 50 && af < 0.2) // not enough evidence
       confidence = "LOWAF";      
-    else if ((b1.sub_n && b1.mapq < 50) || (b2.sub_n && b2.mapq < 50) || std::max(b1.sub_n,b2.sub_n) >= 2)
+    else if ((b1.sub_n && b1.mapq < 50) || (b2.sub_n && b2.mapq < 50)) // || std::max(b1.sub_n,b2.sub_n) >= 2)
       confidence = "MULTIMATCH";
     else if (secondary && std::min(b1.mapq, b2.mapq) < 30)
       confidence = "SECONDARY";
