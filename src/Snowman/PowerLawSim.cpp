@@ -81,7 +81,7 @@ void PowerLawSim(faidx_t* findex, int num_breaks, double power_law, SnowTools::G
       genRandomSequence(frag, e.reg1, EVENT_BUFFER * 2 + rpower[i], findex, grc);
       try {outstring = frag.substr(0, EVENT_BUFFER) + frag.substr(EVENT_BUFFER + rpower[i], frag.length() - rpower[i] - EVENT_BUFFER);} catch (...) { std::cerr << " len " << (frag.length() - rpower[i] - EVENT_BUFFER)  << std::endl; } 
       assert(outstring.length() < EVENT_BUFFER * 10);
-      events << SnowTools::CHR_NAME[e.reg1.chr] << "\t" << (e.reg1.pos1+EVENT_BUFFER) << "\t" << SnowTools::CHR_NAME[e.reg1.chr] << "\t" << (e.reg1.pos1 + EVENT_BUFFER + rpower[i]) << "\t+\t-\tN\t" << rpower[i] << "\tdel\t" << (inserts[i].empty() ? "N" : inserts[i]) << "\t" << ename << std::endl;
+      events << SnowTools::CHR_NAME[e.reg1.chr] << "\t" << (e.reg1.pos1+EVENT_BUFFER) << "\t" << SnowTools::CHR_NAME[e.reg1.chr] << "\t" << (e.reg1.pos1 + EVENT_BUFFER + rpower[i]) << "\t+\t-\tN\t" << rpower[i] << "\tdel\tN\t" << ename << std::endl;
     // insertion
     } else if (rpower[i] <= 50) {
       etype = "ins";
@@ -93,7 +93,7 @@ void PowerLawSim(faidx_t* findex, int num_breaks, double power_law, SnowTools::G
 	ins[y] = TCGA[rand() % 3];
       outstring = frag.substr(0, EVENT_BUFFER) + ins + frag.substr(EVENT_BUFFER, frag.length() - EVENT_BUFFER);
       assert(outstring.length() < EVENT_BUFFER * 10);
-      events << SnowTools::CHR_NAME[e.reg1.chr] << "\t" << (e.reg1.pos1+EVENT_BUFFER) << "\t" << SnowTools::CHR_NAME[e.reg1.chr] << "\t" << (e.reg1.pos1 + EVENT_BUFFER + 1) << "\t+\t-\t" << ins << "\t" << rpower[i] << "\tins\t" << (inserts[i].empty() ? "N" : inserts[i]) << "\t" << ename << std::endl;
+      events << SnowTools::CHR_NAME[e.reg1.chr] << "\t" << (e.reg1.pos1+EVENT_BUFFER) << "\t" << SnowTools::CHR_NAME[e.reg1.chr] << "\t" << (e.reg1.pos1 + EVENT_BUFFER + 1) << "\t+\t-\t" << ins << "\t" << rpower[i] << "\tins\tN\t" << ename << std::endl;
     // TANDEM DUPLICATION
     } else if (rpower[i] < MAX_DUP_DEL_INV_SIZE && rval == 0) {
       etype = "DUP";
