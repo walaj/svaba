@@ -67,7 +67,7 @@ bool ClusterReader::generate(ClusterVector& out)
 bool ClusterReader::readCluster(ClusterRecord& record)
 {
     std::string line;
-    bool good = getline(*m_pReader, line);
+    bool good = getline(*m_pReader, line).good();
     if(!good || line.empty())
         return false;
     std::stringstream parser(line);

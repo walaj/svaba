@@ -129,7 +129,7 @@ namespace opt {
   //static std::string rules = "global@!hardclip;!duplicate;!qcfail;phred[4,100]%region@WG%discordant[0,800]%ic%clip[10,1000]%ins[1,1000];mapq[0,100]%del[1,1000];mapq[1,1000]%mapped;!mate_mapped;mapq[1,1000]%mate_mapped;!mapped";
   static std::string rules = "{\"global\" : {\"duplicate\" : false, \"qcfail\" : false}, \"\" : { \"rules\" : [{\"isize\" : [800,0]},{\"rr\" : true},{\"ff\" : true}, {\"rf\" : true}, {\"ic\" : true}, {\"clip\" : [5, 1000], \"phred\" : [4,100]}, {\"ins\" : [1,1000]}, {\"del\" : [1,1000]}, {\"mapped\": true , \"mate_mapped\" : false}, {\"mate_mapped\" : true, \"mapped\" : false}]}}";
   //static std::string rules = "global@!duplicate;!qcfail%region@WG%discordant[0,600]%ic%clip[5,1000];phred[4,100]%ins[1,1000]%del[1,1000]%mapped;!mate_mapped%mate_mapped;!mapped";
-  static int num_to_sample = 500000;
+  static int num_to_sample = 2000000;
   static std::string motif_exclude;
   
   static int max_cov = 100;
@@ -164,7 +164,7 @@ namespace opt {
   static std::string normal_bam;
   static std::string tumor_bam;
 
-  static int32_t mate_lookup_min = 3;
+  static size_t mate_lookup_min = 3;
 
   static double lod = 8;
   static double lod_db = 7;
@@ -1338,7 +1338,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 
   // send breakpoints to file
   for (auto& i : bp_glob)
-    if (i.hasMinimal() || true) {
+    if (i.hasMinimal() && i.confidence != "NOLOCAL") {
       os_allbps << i.toFileString(opt::no_reads) << std::endl;
       if (i.confidence == "PASS" && i.n.split == 0 && i.n.cigar == 0 && i.dc.ncount == 0 && opt::verbose > 1) {
 	std::cout << "SOM  " << i << std::endl;
@@ -1541,7 +1541,7 @@ SnowmanBamWalker __make_walkers(const std::string& p, const std::string& b, cons
   if (!region.isEmpty()) 
     walk.setBamWalkerRegion(region, bindices[p]);
   walk.SetMiniRulesCollection(*mr);
-  walk.m_limit = 8000;
+  walk.m_limit = 100000; //8000;
   walk.readBam(&log_file, nullptr); 
 
   if (p.at(0) == 't') {
@@ -1576,7 +1576,7 @@ MateRegionVector __collect_somatic_mate_regions(std::map<std::string, SnowmanBam
   for (auto& b : opt::bam)
     if (b.first.at(0) == 't')
       for (auto& i : walkers[b.first].mate_regions){
-	if ((int)i.count >= opt::mate_lookup_min && !bl.findOverlapping(i) && 
+	if (i.count >= opt::mate_lookup_min && !bl.findOverlapping(i) && 
 	    i.chr < 24 
 	    && (blacklist.size() == 0 || blacklist.findOverlapping(i) == 0))
 	  somatic_mate_regions.add(i); 
@@ -1589,7 +1589,7 @@ MateRegionVector __collect_somatic_mate_regions(std::map<std::string, SnowmanBam
 
 }
 
-SnowTools::GRC __get_exclude_on_badness(std::map<std::string, SnowmanBamWalker>& walkers, const SnowTools::GenomicRegion& region) {
+/*SnowTools::GRC __get_exclude_on_badness(std::map<std::string, SnowmanBamWalker>& walkers, const SnowTools::GenomicRegion& region) {
   
   SnowTools::STCoverage * weird_normal = &(walkers[opt::normal_bam].bad_cov);
   SnowTools::STCoverage * cov_normal   = &(walkers[opt::normal_bam].cov);
@@ -1623,7 +1623,8 @@ SnowTools::GRC __get_exclude_on_badness(std::map<std::string, SnowmanBamWalker>&
 	continue;
       else if (start < 0) 
 	start = i;
-      else if (i - end >= 2/* && end - start >= 50*/) {
+      else if (i - end >= 2 ) {
+      // && end - start >= 50) {
 	excluded_bad_regions.add(SnowTools::GenomicRegion(region.chr, start+region.pos1, end+region.pos1));
 	//bad_bed << bwalker.header()->target_name[region.chr] << "\t" << (start+region.pos1) << "\t" << (end+region.pos1) << std::endl;
 	start = i;
@@ -1638,9 +1639,9 @@ SnowTools::GRC __get_exclude_on_badness(std::map<std::string, SnowmanBamWalker>&
   return excluded_bad_regions;
 
   
-}
+}*/
 
-
+/*
 void run_test_assembly() {
 
   BamReadVector bav_test;
@@ -1672,4 +1673,4 @@ void run_test_assembly() {
   
   exit(0);
 
-}
+  }*/

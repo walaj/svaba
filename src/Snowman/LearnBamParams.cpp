@@ -6,7 +6,7 @@ std::ostream& operator<<(std::ostream& out, const BamParams& p) {
  
   out << "@@@ Estimated fraction of reads that are discordant: " << p.frac_disc << std::endl;
   out << "@@@ Estimated fraction of reads that are clipped:    " << p.frac_clip << std::endl;
-  out << "@@@ Estimated fraction of reads that are bad:    " << p.frac_bad << std::endl;
+  out << "@@@ Estimated fraction of low quality alignments:    " << p.frac_bad << std::endl;
   out << "@@@ Estimated mean coverage: " <<  p.mean_cov << std::endl;
   out << "@@@ Read length: " << p.readlen << std::endl;
   out << "@@@ Max mapping quality: " << p.max_mapq;
@@ -35,8 +35,10 @@ double CalcMHWScore(std::vector<int>& scores)
 
 void LearnBamParams::learnParams(BamParams& p, int max_count) {
 
+  SnowTools::GenomicRegionVector grv = {SnowTools::GenomicRegion(0, 1000000,2000000), SnowTools::GenomicRegion(1,1000000,2000000)};
   SnowTools::BamWalker bwalker;
   bwalker.OpenReadBam(bam);
+  bwalker.setBamWalkerRegions(grv);
 
   SnowTools::BamRead r;
 
@@ -73,8 +75,9 @@ void LearnBamParams::learnParams(BamParams& p, int max_count) {
       ++frac_disc;
     if (r.NumClip() >= 5)
       ++frac_clip;
-    if ( r.CigarSize() >= 6 || r.MapQuality() <= 5 || (r.QualitySequence().length() < 0.6 * readlen) )
+    if ( r.CigarSize() >= 6 || r.MapQuality() <= 5 || (r.QualitySequence().length() < 0.6 * readlen) ) {
       ++frac_bad;
+    }
 	
     if (r.InsertSize() > 0 && r.ProperOrientation() && r.InsertSize() < 10000)
       //&& r.ProperPair()) 
@@ -94,7 +97,7 @@ void LearnBamParams::learnParams(BamParams& p, int max_count) {
   p.mean_isize = isizer.size() > 0 ? sum / isizer.size() : 0;
   double mm = p.mean_isize;
 
-  p.median_isize = CalcMHWScore(isizer);
+  p.median_isize = isizer.size() ? CalcMHWScore(isizer) : 0;
 
   // get isize stdev
   std::vector<double> diff(isizer.size());
@@ -102,11 +105,11 @@ void LearnBamParams::learnParams(BamParams& p, int max_count) {
   double sq_sum = std::inner_product(diff.begin(), diff.end(), diff.begin(), 0.0);
   p.sd_isize = std::sqrt(sq_sum / isizer.size());
 
-  p.mean_cov = (pos2-pos1 > 0) ? cov_count * readlen / (pos2 - pos1) : 0;
+  p.mean_cov = (pos2 - pos1 > 0) ? cov_count * readlen / (pos2 - pos1) : 0;
   p.frac_disc = frac_disc / (double)count;
   p.frac_bad = frac_bad / (double)count;
   p.frac_clip = frac_clip / (double)count;
   p.readlen = readlen;
   p.max_mapq = mapq;
-  
+
 }
