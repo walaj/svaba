@@ -114,10 +114,10 @@ SnowTools::GRC SnowmanBamWalker::readBam(std::ofstream * log, const SnowTools::D
 	       << m_region[m_region_idx]
 	       << " with " << SnowTools::AddCommas(reads.size() - curr_reads) 
 	       << " weird reads. Limit: " << SnowTools::AddCommas(m_limit) << std::endl;
-
+	
 	curr_reads = reads.size();
 	bad_regions.add(m_region[m_region_idx]);
-
+	
 	// try next region, return if no others to try
 	++m_region_idx; // increment to next region
 	if (m_region_idx >= m_region.size()) /// no more regions left
