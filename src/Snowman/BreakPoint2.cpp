@@ -670,19 +670,19 @@ namespace SnowTools {
     else if ( std::min(b1.mapq, b2.mapq) <= 30 && a.split <= 8 ) 
       confidence = "LOWMAPQ";
     else if (a.split <= 3 && span <= 1500 && span != -1) // small with little split
-      confidence = "WEAKASSEMBLY";
+      confidence = "LOWSPLITSMALL";
     else if (num_align == 2 && b1.gr.chr != b2.gr.chr && std::min(b1.matchlen, b2.matchlen) < 60) // inter-chr, but no disc reads, weird alignment
-      confidence = "WEAKASSEMBLY";
+      confidence = "LOWICSUPPORT";
     else if (num_align == 2 && std::min(b1.mapq, b2.mapq) < 50 && b1.gr.chr != b2.gr.chr) // interchr need good mapq for assembly only
       confidence = "LOWMAPQ";
     else if (std::min(b1.matchlen, b2.matchlen) < 50 && af < 0.2) // not enough evidence
-      confidence = "LOWAF";      
+      confidence = "LOWMATCHLEN";      
     else if ((b1.sub_n && b1.mapq < 50) || (b2.sub_n && b2.mapq < 50)) // || std::max(b1.sub_n,b2.sub_n) >= 2)
       confidence = "MULTIMATCH";
     else if (secondary && std::min(b1.mapq, b2.mapq) < 30)
       confidence = "SECONDARY";
     else if (repeat_seq.length() >= 10 && std::max(t.split, n.split) < 7)
-      confidence = "WEAKASSEMBLY";
+      confidence = "WEAKSUPPORTHIREP";
     else
       confidence = "PASS";
 
@@ -802,9 +802,9 @@ namespace SnowTools {
     if (low_max_mapq || (max_a_mapq < 30 && !b1.local) || (max_b_mapq < 30 && !b2.local))
       confidence = "LOWMAPQ";
     else if ( std::max(t.split, n.split) <= 1 || total_count < 4)
-      confidence = "WEAKASSEMBLY";
+      confidence = "LOWSUPPORT";
     else if ( total_count < 15 && germ && span == -1) // be super strict about germline interchrom
-      confidence = "WEAKASSEMBLY";
+      confidence = "LOWSUPPORT";
     else if ((b1.sub_n && dc.mapq1 < 1) || (b2.sub_n && dc.mapq2 < 1))
       confidence = "MULTIMATCH";
     else if ( (secondary || b1.sub_n > 1) && (std::min(max_a_mapq, max_b_mapq) < 30 || std::max(dc.tcount, dc.ncount) < 10))  // || (std::min(b1.mapq, b2.mapq) < 60 && b1.sub_n > 1) 
@@ -827,7 +827,7 @@ namespace SnowTools {
       confidence = "PASS";
     else if ( disc_count < 8 || (dc.ncount > 0 && disc_count < 15) )  // be stricter about germline disc only
       confidence = "WEAKDISC";
-    else if ( getSpan() < min_span)
+    else if ( getSpan() < min_span && disc_count < 12)
       confidence = "LOWSPAN";
     else 
       confidence = "PASS";
@@ -865,7 +865,7 @@ namespace SnowTools {
     //  confidence="WEAKASSEMBLY";
     if (b1.mapq < 10)
       confidence="LOWMAPQ";
-    else if (max_lod <= LOD_CUTOFF) 
+    else if (max_lod < LOD_CUTOFF) 
       confidence = "LOWLOD";
     else if (af < 0.05) // if really low AF, get rid of 
       confidence = "VLOWAF";
