@@ -708,7 +708,7 @@ void parseRunOptions(int argc, char** argv) {
       case 'r': 
 	arg >> opt::rules; 
 	if (opt::rules == "all")
-	  opt::rules = "region@WG%all";
+	  opt::rules = "";
 	break;
       case OPT_DISCORDANT_ONLY: opt::disc_cluster_only = true; break;
       case OPT_WRITE_EXTRACTED_READS: opt::write_extracted_reads = true; break;
@@ -1217,7 +1217,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
   for (auto& i : dmap) {
     // DiscordantCluster not associated with assembly BP and has 2+ read support
     if (!i.second.hasAssociatedAssemblyContig() && (i.second.tcount + i.second.ncount) > 1) {
-      SnowTools::BreakPoint tmpbp(i.second, main_bwa);
+      SnowTools::BreakPoint tmpbp(i.second, main_bwa, dmap);
       //assert(tmpbp.b1.gr < tmpbp.b2.gr);
       bp_glob.push_back(tmpbp);
     }

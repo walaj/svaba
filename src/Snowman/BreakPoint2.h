@@ -238,7 +238,7 @@ namespace SnowTools {
    
    /** Construct a breakpoint from a cluster of discordant reads
     */
-   BreakPoint(const DiscordantCluster& tdc, const BWAWrapper * bwa);
+   BreakPoint(DiscordantCluster& tdc, const BWAWrapper * bwa, SnowTools::DiscordantClusterMap& dmap);
      
    BreakPoint() {}
    

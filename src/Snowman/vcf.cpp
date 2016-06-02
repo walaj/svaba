@@ -214,9 +214,11 @@ VCFFile::VCFFile(std::string file, std::string id, bam_hdr_t * h, const VCFHeade
   sv_header.addFilterField("DUPREADS","Contig built from what appear to be duplicate reads (split reads all same contig cov))");
   sv_header.addFilterField("NODISC","Rearrangement was not detected independently by assembly");
   sv_header.addFilterField("LOWSUPPORT","Fewer than 2 split reads or < 4 total alt reads for ASDISC");
+  sv_header.addFilterField("COMPETEDISC","Discordant cluster found with nearly same breakpoints, but different strands for DSCRD event");
   sv_header.addFilterField("LOWSPAN","Discordant read cluster (no split read support), and less than 10kb span and < 12 reads");
   //sv_header.addFilterField("FOLDBACK","Rearrangement is inversion type with span < 80. Very likely fold-back Illumina error");
   sv_header.addFilterField("LOWMAPQ","Assembly contig has non 60/60 mapq and no discordant support");
+  sv_header.addFilterField("LOWMAPQDISC","Both clusters of reads failed to achieve mean mapq of > 30 for DSCRD");
   sv_header.addFilterField("LOWSPLITSMALL","Fewer than 4 split reads for small events ( < 1500 bp)");
   sv_header.addFilterField("LOWICSUPPORT","Less than 60bp of contig match on one end of an inter-chromosomal break");
   sv_header.addFilterField("WEAKSUPPORTHIREP","Fewer then 7 split reads for variant with >= 10 bases of repeat sequence (need to be more strict)");
