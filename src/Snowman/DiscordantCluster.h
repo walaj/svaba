@@ -43,7 +43,7 @@ namespace SnowTools
 
     /** Return a string representing the output file header */
     static std::string header() { 
-      return "chr1\tpos1\tstrand1\tchr2\tpos2\tstrand2\ttcount\tncount\tmapq1\tmapq2\tcname\tregion_string\treads"; 
+      return "chr1\tpos1\tstrand1\tchr2\tpos2\tstrand2\ttcount\tncount\tmapq1\tmapq2\tcname\tregion_string\treads\tcompeting_id"; 
     }
     
     bool hasAssociatedAssemblyContig() const { return m_contig.length(); }
@@ -55,6 +55,9 @@ namespace SnowTools
     
     /** Add the read names supporting this cluster */
     void addRead(std::string name);
+
+    /** Return the ID associated with this cluster */
+    std::string ID() const { return m_id; } 
     
     /** Print this with region string and read counts and mapq */
     friend std::ostream& operator<<(std::ostream& out, const DiscordantCluster& dc);
@@ -97,6 +100,8 @@ namespace SnowTools
 
     int mapq1;
     int mapq2;
+
+    std::string m_id_competing; // id of discordant cluster with same span, different strands
 
   private:    
     std::string m_id;
