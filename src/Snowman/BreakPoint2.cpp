@@ -19,6 +19,8 @@
 //#define DBCUTOFF 7
 //#define NODBCUTOFF 2.5
 
+#define MIN_SOMATIC_RATIO 15
+
 // define repeats
 /*static std::vector<std::string> repr = {"AAAAAAAAAA", "TTTTTTTTTT", "CCCCCCCCCC", "GGGGGGGGGG",
 				 "TATATATATATATA", "ATATATATATATAT", 
@@ -586,7 +588,10 @@ namespace SnowTools {
 	bool bp1reg1 = bp1.getOverlap(d.second.m_reg1) > 0;
 	bool bp2reg2 = bp2.getOverlap(d.second.m_reg2) > 0;
 
-	bool pass = bp1reg1 && bp2reg2;
+	bool s1 = bp1.strand == d.second.m_reg1.strand;
+	bool s2 = bp2.strand == d.second.m_reg2.strand;
+
+	bool pass = bp1reg1 && bp2reg2 && s1 && s2;
 
 	/*	std::cerr << " gr1 " << gr1 << " gr2 " << gr2 << std::endl << 
 	  " m_reg1 " << d.second.m_reg1 << " m_reg2 " << 
@@ -669,6 +674,8 @@ namespace SnowTools {
     //int this_mapq1 = b1.local ? 60 : b1.mapq;
     //int this_mapq2 = b2.local ? 60 : b2.mapq;
 
+    int num_split = t.split + n.split;
+
     int cov_span = split_cov_bounds.second - split_cov_bounds.first ;
 
     if (!b1.local && !b2.local) // added this back in snowman71. 
@@ -676,8 +683,8 @@ namespace SnowTools {
       // aligned to way off region. Saw cases where this happend in tumor
       // and not normal, so false-called germline event as somatic.
       confidence = "NOLOCAL";
-    else if ( (cov_span <= (readlen + 5 ) && cov_span > 0) || cov_span < 0)
-      confidence = "DUPREADS";
+    else if ( num_split > 1 && ( (cov_span <= (readlen + 5 ) && cov_span > 0) || cov_span < 0) )
+      confidence = "DUPREADS"; // the same sequences keep covering the split
     else if (homology.length() >= 20 && (span > 1500 || span == -1) && std::max(b1.mapq, b2.mapq) < 60)
       confidence = "NODISC";
     else if (seq.length() < 101 + 30)
@@ -689,6 +696,10 @@ namespace SnowTools {
     else if (std::max(b1.mapq, b2.mapq) <= 40 || std::min(b1.mapq, b2.mapq) <= 10) 
       confidence = "LOWMAPQ";
     else if ( std::min(b1.mapq, b2.mapq) <= 30 && a.split <= 8 ) 
+      confidence = "LOWMAPQ";
+    else if (std::max(b1.nm, b2.nm) >= 10)
+      confidence = "LOWMAPQ";
+    else if ( (b1.matchlen < 50 && b1.mapq < 60) || (b2.matchlen < 50 && b2.mapq < 60) )
       confidence = "LOWMAPQ";
     else if (a.split <= 3 && span <= 1500 && span != -1) // small with little split
       confidence = "LOWSPLITSMALL";
@@ -718,6 +729,9 @@ namespace SnowTools {
     double ratio = n.alt > 0 ? (double)t.alt / (double)n.alt : 100;
     //double taf = t.cov > 0 ? (double)t.alt / (double)t.cov : 0;
     bool immediate_reject = (ratio <= 12 && n.cov > 10) || n.alt >= 2; // can't call somatic with 3+ normal reads or <5x more tum than norm ALT
+
+    double somatic_ratio = 0;
+    size_t ncount = 0;
   
   if (evidence == "INDEL") {
     
@@ -737,10 +751,10 @@ namespace SnowTools {
     somatic_lod = n.LO_n;
 
     // old model
-    size_t ncount = std::max(n.split, dc.ncount);
-    double somatic_ratio = ncount > 0 ? std::max(t.split,dc.tcount)/ncount : 100;
+    ncount = std::max(n.split, dc.ncount);
+    somatic_ratio = ncount > 0 ? std::max(t.split,dc.tcount)/ncount : 100;
     
-    somatic_score = somatic_ratio >= 20 && n.split < 2;
+    somatic_score = somatic_ratio >= MIN_SOMATIC_RATIO && n.split < 2;
   }
   
   // kill all if too many normal support
@@ -755,6 +769,8 @@ namespace SnowTools {
   double r = n.alt > 0 ? (double)t.alt / (double)n.alt : 100;
   if (r < 10)
     somatic_score = 0;
+
+  //std::cout << " n.alt " << n.alt << " n.disc " << n.disc << " n.split " << n.split << " somatic_score " << somatic_score << " cname " << cname << " somatic ratio " << somatic_ratio << " ncount " << ncount << " r artio " r << std::endl;
 
 }
 
@@ -828,15 +844,16 @@ namespace SnowTools {
     }
 
     int total_count = t_reads + n_reads; //n.split + t.split + dc.ncount + dc.tcount;
+    int disc_count = dc.tcount + dc.ncount;
 
     //double min_disc_mapq = std::min(dc.mapq1, dc.mapq2);
 
     // check the mapq in different ways
-    bool low_max_mapq = max_a_mapq <= 10 || max_b_mapq <= 10 || std::max(max_a_mapq, max_b_mapq) <= 30;
+    //bool low_max_mapq = max_a_mapq <= 10 || max_b_mapq <= 10 || std::max(max_a_mapq, max_b_mapq) <= 30;
 
-    if (low_max_mapq || (max_a_mapq < 30 && !b1.local) || (max_b_mapq < 30 && !b2.local) || (std::max(b1.sub_n, b2.sub_n) > 7 && std::min(b1.mapq, b2.mapq) < 10))
+    if ( (max_a_mapq < 30 && !b1.local) || (max_b_mapq < 30 && !b2.local) || (b1.sub_n > 7 && b1.mapq < 10 && !b1.local) || (b2.sub_n > 7 && b2.mapq < 10 && !b2.local) )
       confidence = "LOWMAPQ";
-    else if ( std::max(t.split, n.split) <= 1 || total_count < 4 || (std::max(t.split, n.split) <= 5 && cov_span < (readlen + 5)) )
+    else if ( total_count < 4 || (std::max(t.split, n.split) <= 5 && cov_span < (readlen + 5) && disc_count < 7) )
       confidence = "LOWSUPPORT";
     else if ( total_count < 15 && germ && span == -1) // be super strict about germline interchrom
       confidence = "LOWSUPPORT";
@@ -844,7 +861,7 @@ namespace SnowTools {
       confidence = "LOWICSUPPORT";
     else if ((b1.sub_n && dc.mapq1 < 1) || (b2.sub_n && dc.mapq2 < 1))
       confidence = "MULTIMATCH";
-    else if ( (secondary || b1.sub_n > 1) && (std::min(max_a_mapq, max_b_mapq) < 30 || std::max(dc.tcount, dc.ncount) < 10))  // || (std::min(b1.mapq, b2.mapq) < 60 && b1.sub_n > 1) 
+    else if ( ( (secondary || b1.sub_n > 1) && !b1.local) && (std::min(max_a_mapq, max_b_mapq) < 30 || std::max(dc.tcount, dc.ncount) < 10)) 
       confidence = "SECONDARY";
     else
       confidence = "PASS";
@@ -856,17 +873,18 @@ namespace SnowTools {
     t.alt = dc.tcount;
     n.alt = dc.ncount;
 
-    //int min_span = 600;
     int disc_count = dc.ncount + dc.tcount;
-    int disc_cutoff = 7;
-    //int max_span = 1e6;
-    if (getSpan() > 1e5 && (std::min(dc.mapq1, dc.mapq2) < 30 || std::max(dc.mapq1, dc.mapq2) <= 30)) // mapq here is READ mapq (37 std::max)
+    int hq_disc_count = dc.ncount_hq+ dc.tcount_hq;
+    int disc_cutoff = 6;
+    int hq_disc_cutoff = 5; // reads with both pair-mates have high MAPQ
+
+    if (hq_disc_count < hq_disc_cutoff && getSpan() > 1e5 && (std::min(dc.mapq1, dc.mapq2) < 30 || std::max(dc.mapq1, dc.mapq2) <= 30)) // mapq here is READ mapq (37 std::max)
       confidence = "LOWMAPQDISC";
     else if (getSpan() <= 1e5 && (std::min(dc.mapq1, dc.mapq2) < 25))
       confidence = "LOWMAPQDISC";
     else if (!dc.m_id_competing.empty())
       confidence = "COMPETEDISC";
-    else if (disc_count >= disc_cutoff) // && n.cov >= 10 && n.cov <= 200 && t.cov >= 10 && t.cov <= 1000)
+    else if (disc_count >= disc_cutoff || hq_disc_count >= hq_disc_cutoff) // && n.cov >= 10 && n.cov <= 200 && t.cov >= 10 && t.cov <= 1000)
       confidence = "PASS";
     else if ( disc_count < disc_cutoff) // || (dc.ncount > 0 && disc_count < 15) )  // be stricter about germline disc only
       confidence = "WEAKDISC";
@@ -970,17 +988,22 @@ namespace SnowTools {
     // do the scoring
     if (evidence == "ASSMB" || (evidence == "COMPL" && (dc.ncount + dc.tcount)==0))
       __score_assembly_only();
-    else if (evidence == "ASDIS" || (evidence == "COMPL" && (dc.ncount + dc.tcount)))
+    if (evidence == "ASDIS" || (evidence == "COMPL" && (dc.ncount + dc.tcount))) 
       __score_assembly_dscrd();
-    else if (evidence == "DSCRD")
+    if (evidence == "DSCRD")
       __score_dscrd();
-    else if (evidence == "INDEL") 
-      __score_indel(LOD_CUTOFF);
-    else {
-      std::cerr << "evidence " << evidence << std::endl;
-      std::cerr << "BreakPoint not classified. Exiting" << std::endl;
-      exit(EXIT_FAILURE);
+    if (evidence == "ASDIS" && confidence != "PASS") {
+      evidence = "DSCRD";
+      __score_dscrd();
     }
+
+    if (evidence == "INDEL") 
+      __score_indel(LOD_CUTOFF);
+    // else {
+    //   std::cerr << "evidence " << evidence << std::endl;
+    //   std::cerr << "BreakPoint not classified. Exiting" << std::endl;
+    //   exit(EXIT_FAILURE);
+    // }
 
     __score_somatic(NODBCUTOFF, DBCUTOFF);
 

@@ -144,8 +144,7 @@ SnowTools::GRC SnowmanBamWalker::readBam(std::ofstream * log, const SnowTools::D
       rule_pass = rule_pass && !blacklisted;
 
       // check if has adapter
-      //if (adapter_trim && rule_pass)  //debug
-	rule_pass = rule_pass && !hasAdapter(r);
+      rule_pass = rule_pass && !hasAdapter(r);
 
       // add to weird coverage
       if (rule_pass)
@@ -355,8 +354,8 @@ void SnowmanBamWalker::calculateMateRegions() {
     {
       SnowTools::GenomicRegion mate(r.MateChrID(), r.MatePosition(), r.MatePosition());
 
-      // skip if it is unmapped
-      if (r.MatePosition() < 0)
+      // skip if it is unmapped or is secondary alignment
+      if (r.MatePosition() < 0 || r.SecondaryFlag())
 	continue; 
 
       //debug
@@ -399,12 +398,12 @@ void SnowmanBamWalker::calculateMateRegions() {
 	mate_regions.add(i);
     }
   
-  #ifdef DEBUG_SNOWMAN_BAMWALKER
+#ifdef DEBUG_SNOWMAN_BAMWALKER
   std::cerr << "Final mate regions are:" << std::endl;
   for (auto& i : mate_regions)
     std::cerr << i << " read count " << i.count << std::endl;
-  #endif
-
+#endif
+  
 }
 
 
@@ -486,7 +485,7 @@ bool SnowmanBamWalker::hasAdapter(const BamRead& r) const {
   
   // toss it then if isize explans clip
   int exp_ins_size = r.Length() - r.NumClip(); // expected isize if has adapter
-  if ((exp_ins_size - 4) < std::abs(r.InsertSize()) && (exp_ins_size+4) > std::abs(r.InsertSize()))
+  if ((exp_ins_size - 6) < std::abs(r.InsertSize()) && (exp_ins_size + 6) > std::abs(r.InsertSize()))
     return true;
 
   std::string seq = r.Sequence();
