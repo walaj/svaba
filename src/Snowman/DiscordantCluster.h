@@ -65,6 +65,9 @@ namespace SnowTools
     /** Sort by coordinate */
     bool operator < (const DiscordantCluster& b) const;
 
+    /** Is this a valid cluster? */
+    bool valid() const;
+
     static std::unordered_map<std::string, DiscordantCluster> clusterReads(const BamReadVector& bav, const GenomicRegion& interval, int max_mapq_possible);
 
     static bool __add_read_to_cluster(BamReadClusterVector &cvec, BamReadVector &clust, const BamRead &a, bool mate);

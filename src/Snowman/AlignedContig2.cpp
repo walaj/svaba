@@ -213,11 +213,7 @@ namespace SnowTools {
 
     // print the break locations for indel deletions
     for (auto& i : ac.m_frag_v) {
-      if (ac.getContigName() == "c_13_32912038_32913860_24C")
-      std::cerr << ac.getContigName() << " frags " << ac.m_frag_v.size() << " breaks " << i.getIndelBreaks().size() << std::endl;
       for (auto& j : i.getIndelBreaks()) {
-      if (ac.getContigName() == "c_13_32912038_32913860_24C")
-	std::cerr << ac.getContigName() << " " << j.num_align << " ins " << j.insertion << std::endl;
 	if (j.num_align == 1 && j.insertion == "") // deletion
 	  //std::cerr << j.b1.cpos << " " << j.b2.cpos << " name " << ac.getContigName() << " ins " << j.insertion << std::endl;
 	  out << std::string(j.b1.cpos, ' ') << "|" << std::string(j.b2.cpos-j.b1.cpos-1, ' ') << '|' << "   " << ac.getContigName() << std::endl;	
@@ -378,16 +374,16 @@ namespace SnowTools {
 	  // order the breakpoint
 	  bp.order();
 
-	  if (a.m_align.SecondaryFlag() || b.m_align.SecondaryFlag())
-	    bp.secondary = true;
-	  
+	  bp.secondary = a.m_align.SecondaryFlag() || b.m_align.SecondaryFlag();
+
 	  assert(bp.valid());
 
 	  // add the the vector of breakpoints
-	  if (!bp.secondary) 
+	  if (!bp.secondary) {
 	    m_local_breaks.push_back(bp);
-	  else
+	  } else {
 	    m_local_breaks_secondaries.push_back(bp);	  
+	  }
 	}
       }
     } // end frag iterator loop
@@ -818,9 +814,6 @@ namespace SnowTools {
     bp.b1.gr.pos2 = bp.b1.gr.pos1; 
     bp.b2.gr.pos2 = bp.b2.gr.pos1;
    
-    if (m_align.Qname() == "c_13_32912038_32913860_24C" || m_align.Qname() == "c_13_32912038_32913860_9C")
-      std::cerr << m_align.Qname() << " bp1.cpos1 " << bp.b1.cpos << " " << bp.b2.cpos << " " << bp.b1.gr.pos1 << " " << bp.b2.gr.pos1 << " pos end " << (m_align.PositionEnd()) << " len " << m_align.Length() << std::endl;
-
     // should have been explicitly ordered in the creation above
     if (!(bp.b1.gr < bp.b2.gr)) {
       //std::cerr << "Warning: something went wrong in indelParseBreaks. Can't order breaks" << std::endl;
