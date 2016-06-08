@@ -185,7 +185,7 @@ int overlapSize(const SnowTools::BamRead& query, const SnowTools::BamReadVector&
     else if (!regionFile.empty()) {
       SnowTools::GenomicRegion gr(regionFile, "1", "1", h);
       if (gr.chr == -1 || gr.chr >= h->n_targets) {
-	std::cerr << "ERROR: Trying to match chromosome " << regionFile << " to one in header, but not match found" << std::endl;
+	std::cerr << "ERROR: Trying to match chromosome " << regionFile << " to one in header, but no match found" << std::endl;
 	exit(EXIT_FAILURE);
       } else {
 	gr.pos2 = h->target_len[gr.chr];

@@ -19,6 +19,8 @@
 //#define DBCUTOFF 7
 //#define NODBCUTOFF 2.5
 
+#define MIN_SOMATIC_RATIO 15
+
 // define repeats
 /*static std::vector<std::string> repr = {"AAAAAAAAAA", "TTTTTTTTTT", "CCCCCCCCCC", "GGGGGGGGGG",
 				 "TATATATATATATA", "ATATATATATATAT", 
@@ -99,7 +101,7 @@ namespace SnowTools {
 
 
   // make a breakpoint from a discordant cluster 
-  BreakPoint::BreakPoint(const DiscordantCluster& tdc, const BWAWrapper * bwa) {
+  BreakPoint::BreakPoint(DiscordantCluster& tdc, const BWAWrapper * bwa, SnowTools::DiscordantClusterMap& dmap) {
     
     num_align = 0;
     dc = tdc;
@@ -139,6 +141,27 @@ namespace SnowTools {
       
     // give a unique id
     cname = dc.toRegionString();
+
+    // check if another cluster overlaps, but different strands
+    for (auto& d : dmap) {
+
+      // don't overlap if on different chr, or same event
+      if (dc.m_reg1.chr != d.second.m_reg1.chr || dc.m_reg2.chr != d.second.m_reg2.chr || d.second.ID() == dc.ID())
+	continue;
+
+      // isolate and pad
+      SnowTools::GenomicRegion gr1 = d.second.m_reg1;
+      SnowTools::GenomicRegion gr2 = d.second.m_reg2;
+      gr1.pad(300);
+      gr2.pad(300);
+      
+      if (dc.m_reg1.getOverlap(gr1) && dc.m_reg2.getOverlap(gr2))
+	if (dc.m_reg1.strand != d.second.m_reg1.strand || dc.m_reg2.strand != d.second.m_reg2.strand) {
+	  dc.m_id_competing = d.second.ID();
+	  tdc.m_id_competing = d.second.ID();
+	  d.second.m_id_competing = dc.ID();
+	}
+    }
 
   }
   
@@ -565,7 +588,10 @@ namespace SnowTools {
 	bool bp1reg1 = bp1.getOverlap(d.second.m_reg1) > 0;
 	bool bp2reg2 = bp2.getOverlap(d.second.m_reg2) > 0;
 
-	bool pass = bp1reg1 && bp2reg2;
+	bool s1 = bp1.strand == d.second.m_reg1.strand;
+	bool s2 = bp2.strand == d.second.m_reg2.strand;
+
+	bool pass = bp1reg1 && bp2reg2 && s1 && s2;
 
 	/*	std::cerr << " gr1 " << gr1 << " gr2 " << gr2 << std::endl << 
 	  " m_reg1 " << d.second.m_reg1 << " m_reg2 " << 
@@ -648,6 +674,8 @@ namespace SnowTools {
     //int this_mapq1 = b1.local ? 60 : b1.mapq;
     //int this_mapq2 = b2.local ? 60 : b2.mapq;
 
+    int num_split = t.split + n.split;
+
     int cov_span = split_cov_bounds.second - split_cov_bounds.first ;
 
     if (!b1.local && !b2.local) // added this back in snowman71. 
@@ -655,8 +683,8 @@ namespace SnowTools {
       // aligned to way off region. Saw cases where this happend in tumor
       // and not normal, so false-called germline event as somatic.
       confidence = "NOLOCAL";
-    else if ( (cov_span <= (readlen + 5 ) && cov_span > 0) || cov_span < 0)
-      confidence = "DUPREADS";
+    else if ( num_split > 1 && ( (cov_span <= (readlen + 5 ) && cov_span > 0) || cov_span < 0) )
+      confidence = "DUPREADS"; // the same sequences keep covering the split
     else if (homology.length() >= 20 && (span > 1500 || span == -1) && std::max(b1.mapq, b2.mapq) < 60)
       confidence = "NODISC";
     else if (seq.length() < 101 + 30)
@@ -669,9 +697,15 @@ namespace SnowTools {
       confidence = "LOWMAPQ";
     else if ( std::min(b1.mapq, b2.mapq) <= 30 && a.split <= 8 ) 
       confidence = "LOWMAPQ";
+    else if (std::max(b1.nm, b2.nm) >= 10)
+      confidence = "LOWMAPQ";
+    else if ( (b1.matchlen < 50 && b1.mapq < 60) || (b2.matchlen < 50 && b2.mapq < 60) )
+      confidence = "LOWMAPQ";
     else if (a.split <= 3 && span <= 1500 && span != -1) // small with little split
       confidence = "LOWSPLITSMALL";
     else if (num_align == 2 && b1.gr.chr != b2.gr.chr && std::min(b1.matchlen, b2.matchlen) < 60) // inter-chr, but no disc reads, weird alignment
+      confidence = "LOWICSUPPORT";
+    else if (num_align == 2 && b1.gr.chr != b2.gr.chr && std::max(b1.nm, b2.nm) >= 3 && std::min(b1.matchlen, b2.matchlen) < 150) // inter-chr, but no disc reads, and too many nm
       confidence = "LOWICSUPPORT";
     else if (num_align == 2 && std::min(b1.mapq, b2.mapq) < 50 && b1.gr.chr != b2.gr.chr) // interchr need good mapq for assembly only
       confidence = "LOWMAPQ";
@@ -695,6 +729,9 @@ namespace SnowTools {
     double ratio = n.alt > 0 ? (double)t.alt / (double)n.alt : 100;
     //double taf = t.cov > 0 ? (double)t.alt / (double)t.cov : 0;
     bool immediate_reject = (ratio <= 12 && n.cov > 10) || n.alt >= 2; // can't call somatic with 3+ normal reads or <5x more tum than norm ALT
+
+    double somatic_ratio = 0;
+    size_t ncount = 0;
   
   if (evidence == "INDEL") {
     
@@ -714,20 +751,26 @@ namespace SnowTools {
     somatic_lod = n.LO_n;
 
     // old model
-    size_t ncount = std::max(n.split, dc.ncount);
-    double somatic_ratio = ncount > 0 ? std::max(t.split,dc.tcount)/ncount : 100;
+    ncount = std::max(n.split, dc.ncount);
+    somatic_ratio = ncount > 0 ? std::max(t.split,dc.tcount)/ncount : 100;
     
-    somatic_score = somatic_ratio >= 20 && n.split < 2;
+    somatic_score = somatic_ratio >= MIN_SOMATIC_RATIO && n.split < 2;
   }
   
   // kill all if too many normal support
   if (n.alt > 2)
     somatic_score = 0;
   
+  // kill if single normal read in discordant clsuter
+  if (evidence == "DSCRD" && n.alt > 0)
+    somatic_score = 0;
+
   // kill if bad ratio
   double r = n.alt > 0 ? (double)t.alt / (double)n.alt : 100;
   if (r < 10)
     somatic_score = 0;
+
+  //std::cout << " n.alt " << n.alt << " n.disc " << n.disc << " n.split " << n.split << " somatic_score " << somatic_score << " cname " << cname << " somatic ratio " << somatic_ratio << " ncount " << ncount << " r artio " r << std::endl;
 
 }
 
@@ -780,6 +823,14 @@ namespace SnowTools {
     //int min_assm_mapq = std::min(this_mapq1, this_mapq2);
     //int max_assm_mapq = std::max(this_mapq1, this_mapq2);
     
+    // get read length
+    int readlen = 0;
+    if (reads.size())
+      for (auto& i : reads)
+	readlen = std::max(i.Length(), readlen);
+
+    // how much of contig is covered by split reads
+    int cov_span = split_cov_bounds.second - split_cov_bounds.first ;
 
     // set the total number of supporting reads for tumor / normal
     // these alt counts should already be one qname per alt (ie no dupes)
@@ -793,21 +844,24 @@ namespace SnowTools {
     }
 
     int total_count = t_reads + n_reads; //n.split + t.split + dc.ncount + dc.tcount;
+    int disc_count = dc.tcount + dc.ncount;
 
     //double min_disc_mapq = std::min(dc.mapq1, dc.mapq2);
 
     // check the mapq in different ways
-    bool low_max_mapq = max_a_mapq <= 10 || max_b_mapq <= 10 || std::max(max_a_mapq, max_b_mapq) <= 30;
-    
-    if (low_max_mapq || (max_a_mapq < 30 && !b1.local) || (max_b_mapq < 30 && !b2.local))
+    //bool low_max_mapq = max_a_mapq <= 10 || max_b_mapq <= 10 || std::max(max_a_mapq, max_b_mapq) <= 30;
+
+    if ( (max_a_mapq < 30 && !b1.local) || (max_b_mapq < 30 && !b2.local) || (b1.sub_n > 7 && b1.mapq < 10 && !b1.local) || (b2.sub_n > 7 && b2.mapq < 10 && !b2.local) )
       confidence = "LOWMAPQ";
-    else if ( std::max(t.split, n.split) <= 1 || total_count < 4)
+    else if ( total_count < 4 || (std::max(t.split, n.split) <= 5 && cov_span < (readlen + 5) && disc_count < 7) )
       confidence = "LOWSUPPORT";
     else if ( total_count < 15 && germ && span == -1) // be super strict about germline interchrom
       confidence = "LOWSUPPORT";
+    else if ( std::min(b1.matchlen, b2.matchlen) < 50 && b1.gr.chr != b2.gr.chr ) 
+      confidence = "LOWICSUPPORT";
     else if ((b1.sub_n && dc.mapq1 < 1) || (b2.sub_n && dc.mapq2 < 1))
       confidence = "MULTIMATCH";
-    else if ( (secondary || b1.sub_n > 1) && (std::min(max_a_mapq, max_b_mapq) < 30 || std::max(dc.tcount, dc.ncount) < 10))  // || (std::min(b1.mapq, b2.mapq) < 60 && b1.sub_n > 1) 
+    else if ( ( (secondary || b1.sub_n > 1) && !b1.local) && (std::min(max_a_mapq, max_b_mapq) < 30 || std::max(dc.tcount, dc.ncount) < 10)) 
       confidence = "SECONDARY";
     else
       confidence = "PASS";
@@ -819,19 +873,26 @@ namespace SnowTools {
     t.alt = dc.tcount;
     n.alt = dc.ncount;
 
-    int min_span = 10e3;
     int disc_count = dc.ncount + dc.tcount;
-    if (std::min(dc.mapq1, dc.mapq2) < 20 || std::max(dc.mapq1, dc.mapq2) <= 30) // mapq here is READ mapq (37 std::max)
-      confidence = "LOWMAPQ";
-    else if (getSpan() >= min_span && std::min(dc.mapq1, dc.mapq2) >= 35 && disc_count >= 7 && n.cov >= 10 && n.cov <= 200 && t.cov >= 10 && t.cov <= 1000)
-      confidence = "PASS";
-    else if ( disc_count < 8 || (dc.ncount > 0 && disc_count < 15) )  // be stricter about germline disc only
-      confidence = "WEAKDISC";
-    else if ( getSpan() < min_span && disc_count < 12)
-      confidence = "LOWSPAN";
-    else 
-      confidence = "PASS";
+    int hq_disc_count = dc.ncount_hq+ dc.tcount_hq;
+    int disc_cutoff = 6;
+    int hq_disc_cutoff = 5; // reads with both pair-mates have high MAPQ
 
+    if (hq_disc_count < hq_disc_cutoff && getSpan() > 1e5 && (std::min(dc.mapq1, dc.mapq2) < 30 || std::max(dc.mapq1, dc.mapq2) <= 30)) // mapq here is READ mapq (37 std::max)
+      confidence = "LOWMAPQDISC";
+    else if (getSpan() <= 1e5 && (std::min(dc.mapq1, dc.mapq2) < 25))
+      confidence = "LOWMAPQDISC";
+    else if (!dc.m_id_competing.empty())
+      confidence = "COMPETEDISC";
+    else if (disc_count >= disc_cutoff || hq_disc_count >= hq_disc_cutoff) // && n.cov >= 10 && n.cov <= 200 && t.cov >= 10 && t.cov <= 1000)
+      confidence = "PASS";
+    else if ( disc_count < disc_cutoff) // || (dc.ncount > 0 && disc_count < 15) )  // be stricter about germline disc only
+      confidence = "WEAKDISC";
+    //else if ( getSpan() < min_span && disc_count < 12)
+    //  confidence = "LOWSPAN";
+    //else 
+    //  confidence = "PASS";
+    
     assert(confidence.length());
   }
 
@@ -927,17 +988,22 @@ namespace SnowTools {
     // do the scoring
     if (evidence == "ASSMB" || (evidence == "COMPL" && (dc.ncount + dc.tcount)==0))
       __score_assembly_only();
-    else if (evidence == "ASDIS" || (evidence == "COMPL" && (dc.ncount + dc.tcount)))
+    if (evidence == "ASDIS" || (evidence == "COMPL" && (dc.ncount + dc.tcount))) 
       __score_assembly_dscrd();
-    else if (evidence == "DSCRD")
+    if (evidence == "DSCRD")
       __score_dscrd();
-    else if (evidence == "INDEL") 
-      __score_indel(LOD_CUTOFF);
-    else {
-      std::cerr << "evidence " << evidence << std::endl;
-      std::cerr << "BreakPoint not classified. Exiting" << std::endl;
-      exit(EXIT_FAILURE);
+    if (evidence == "ASDIS" && confidence != "PASS") {
+      evidence = "DSCRD";
+      __score_dscrd();
     }
+
+    if (evidence == "INDEL") 
+      __score_indel(LOD_CUTOFF);
+    // else {
+    //   std::cerr << "evidence " << evidence << std::endl;
+    //   std::cerr << "BreakPoint not classified. Exiting" << std::endl;
+    //   exit(EXIT_FAILURE);
+    // }
 
     __score_somatic(NODBCUTOFF, DBCUTOFF);
 
@@ -1003,7 +1069,7 @@ namespace SnowTools {
       //boost::regex regr(".*?_[0-9]+_(.*)"); 
       //boost::cmatch pmatch;
       if (i.first.at(0) == 't') {
-	size_t posr = i.first.find("_", 5);
+	size_t posr = i.first.find("_", 5) + 1;
 	if (posr != std::string::npos)
 	  supporting_reads = supporting_reads + "," + i.first.substr(posr, i.first.length() - posr);
 	//if (boost::regex_match(i.first.c_str(), pmatch, regr))
@@ -1483,8 +1549,10 @@ namespace SnowTools {
     
     // get unique qnames
     std::unordered_set<std::string> qn;
-    for (auto& r : supporting_reads)
-      qn.insert(r.substr(5, r.length() - 5));
+    for (auto& r : supporting_reads) {
+      size_t posr = r.find("_", 5) + 1; // extract the qname from tXXX_XXX_QNAME
+      qn.insert(r.substr(posr, r.length() - posr));
+    }
     
     // alt count is max of cigar or unique qnames (includes split and discordant)
     alt = std::max((int)qn.size(), cigar);

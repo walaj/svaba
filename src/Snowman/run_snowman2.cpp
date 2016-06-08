@@ -32,6 +32,9 @@
 #define GET_MATES 1
 #define MICROBE 1
 
+// {1_A_B, {c_1_A_B_#, SEQ} }
+static std::unordered_map<std::string, std::unordered_map<std::string, std::string>> reused_contigs;
+
 static BamParams t_params;
 static BamParams n_params;
 
@@ -92,6 +95,8 @@ namespace opt {
     static bool writeASQG = false;
   }
 
+  static std::string reuse_contigs;
+
   static int sample_number = 0;
 
   static std::string args = "snowman ";
@@ -115,6 +120,7 @@ namespace opt {
   static int32_t readlen;
   static bool r2c = false;
   static bool zip = false;
+  static int max_mapq_possible;
   //  static std::string pon = "";
 
   static int gap_open_penalty = 6;
@@ -128,6 +134,7 @@ namespace opt {
   //static std::string rules = "global@!hardclip;!duplicate;!qcfail;phred[4,100];length[LLL,1000]%region@WG%!isize[0,800]%ic%clip[10,1000]%ins[1,1000];mapq[0,100]%del[1,1000];mapq[1,1000]%mapped;!mate_mapped;mapq[1,1000]%mate_mapped;!mapped";
   //static std::string rules = "global@!hardclip;!duplicate;!qcfail;phred[4,100]%region@WG%discordant[0,800]%ic%clip[10,1000]%ins[1,1000];mapq[0,100]%del[1,1000];mapq[1,1000]%mapped;!mate_mapped;mapq[1,1000]%mate_mapped;!mapped";
   static std::string rules = "{\"global\" : {\"duplicate\" : false, \"qcfail\" : false}, \"\" : { \"rules\" : [{\"isize\" : [800,0]},{\"rr\" : true},{\"ff\" : true}, {\"rf\" : true}, {\"ic\" : true}, {\"clip\" : [5, 1000], \"phred\" : [4,100]}, {\"ins\" : [1,1000]}, {\"del\" : [1,1000]}, {\"mapped\": true , \"mate_mapped\" : false}, {\"mate_mapped\" : true, \"mapped\" : false}]}}";
+  //static std::string rules = "{\"global\" : {\"duplicate\" : false, \"qcfail\" : false}, \"\" : { \"rules\" : [{\"isize\" : [800,0]},{\"rr\" : true},{\"ff\" : true}, {\"rf\" : true, \"isize\" : [LLHI,LLLO]}, {\"ic\" : true}, {\"clip\" : [5, 1000], \"phred\" : [4,100]}, {\"ins\" : [1,1000]}, {\"del\" : [1,1000]}, {\"mapped\": true , \"mate_mapped\" : false}, {\"mate_mapped\" : true, \"mapped\" : false}]}}";
   //static std::string rules = "global@!duplicate;!qcfail%region@WG%discordant[0,600]%ic%clip[5,1000];phred[4,100]%ins[1,1000]%del[1,1000]%mapped;!mate_mapped%mate_mapped;!mapped";
   static int num_to_sample = 2000000;
   static std::string motif_exclude;
@@ -200,7 +207,8 @@ enum {
   OPT_MISMATCH,
   OPT_ZDROP,
   OPT_BANDWIDTH,
-  OPT_RESEED_TRIGGER
+  OPT_RESEED_TRIGGER,
+  OPT_DEVEL_REUSE_CONTIGS
 };
 
 static const char* shortopts = "hzxt:n:p:v:r:G:r:e:g:k:c:a:m:B:D:Y:S:P:L:O:I";
@@ -235,6 +243,7 @@ static const struct option longopts[] = {
   { "no-assemble-normal",    no_argument, NULL, OPT_NO_ASSEMBLE_NORMAL },
   { "exome",                 no_argument, NULL, OPT_EXOME },
   { "lod",                   required_argument, NULL, OPT_LOD },
+  { "reuse",                   required_argument, NULL, OPT_DEVEL_REUSE_CONTIGS },
   { "lod-dbsnp",             required_argument, NULL, OPT_DLOD },
   { "lod-no-dbsnp",          required_argument, NULL, OPT_NDLOD },
   { "lod-germ",              required_argument, NULL, OPT_LODGERM },
@@ -311,6 +320,8 @@ static const char *RUN_USAGE_MESSAGE =
 "      --z-dropoff                      Set the BWA-MEM SW alignment Z-dropoff for contig to genome alignments. BWA-MEM -d [100]\n"
 "      --reseed-trigger                 Set the BWA-MEM reseed trigger for reseeding mems for contig to genome alignments. BWA-MEM -r [1.5]\n"
 "\n";
+
+void __reuse_contigs(const std::string& cfile);
 
 void runSnowman(int argc, char** argv) {
 
@@ -429,9 +440,11 @@ void runSnowman(int argc, char** argv) {
   if (opt::assemb::minOverlap < 0) {
     opt::assemb::minOverlap = 0.4 * t_params.readlen;
   }
+  opt::max_mapq_possible = t_params.max_mapq;
   ss << "...found read length of " << opt::readlen << ". Min Overlap is " << opt::assemb::minOverlap << std::endl;
   ss << "...isize distribution (tumor):  " << t_params.mean_isize << " (" << t_params.sd_isize << ") Median: " << t_params.median_isize << std::endl;
   ss << "...isize distribution (normal): " << n_params.mean_isize << " (" << n_params.sd_isize << ") Median: " << n_params.median_isize << std::endl;
+  ss << "...max read MAPQ detected (tumor): " << opt::max_mapq_possible << std::endl;
   if (opt::assemb::minOverlap < 30)
     opt::assemb::minOverlap = 30;
   if (!opt::normal_bam.empty()) {
@@ -442,7 +455,7 @@ void runSnowman(int argc, char** argv) {
       ss << "!!!!! Tumor and normal readlengths differ. Tumor: " << t_params.readlen << " Normal: " << n_params.readlen << std::endl;
   }
   SnowmanUtils::print(ss, log_file, opt::verbose);
-
+  
   // get the seed length for printing
   int seedLength, seedStride;
   SnowmanAssemblerEngine enginetest("test", opt::assemb::error_rate, opt::assemb::minOverlap, opt::readlen);
@@ -460,7 +473,8 @@ void runSnowman(int argc, char** argv) {
     std::cerr << "Chunk was <= 0: READING IN WHOLE GENOME AT ONCE" << std::endl;
 
   //int len_cutoff = 0.5 * opt::readlen;
-  //opt::rules = myreplace(opt::rules, "LLL", std::to_string(len_cutoff));
+  //opt::rules = myreplace(opt::rules, "LLLO", std::to_string((int)std::floor((double)opt::readlen * 0.8)));
+  //opt::rules = myreplace(opt::rules, "LLHI", std::to_string((int)std::floor((double)opt::readlen * 1.2)));
 
   // set the MiniRules to be applied to each region
   ss << opt::rules << std::endl;
@@ -538,6 +552,10 @@ void runSnowman(int argc, char** argv) {
 
   // start the timer
   clock_gettime(CLOCK_MONOTONIC, &start);
+
+  // reuse contigs
+  if (!opt::reuse_contigs.empty())
+    __reuse_contigs(opt::reuse_contigs);
 
   // send the jobs to the queue
   std::cerr << std::endl << "---- Starting detection pipeline --- on " << 
@@ -650,6 +668,7 @@ void parseRunOptions(int argc, char** argv) {
     switch (c) {
     case OPT_REFILTER : opt::refilter = true; break;
     case OPT_NOBLAT : opt::run_blat = true; break;
+    case OPT_DEVEL_REUSE_CONTIGS : arg >> opt::reuse_contigs; break;
       case 'p': arg >> opt::numThreads; break;
       case 'm': arg >> opt::assemb::minOverlap; break;
       case 'a': arg >> opt::analysis_id; break;
@@ -708,8 +727,8 @@ void parseRunOptions(int argc, char** argv) {
       case 'r': 
 	arg >> opt::rules; 
 	if (opt::rules == "all")
-	  opt::rules = "region@WG%all";
-	break;
+	  opt::rules = "";
+       	break;
       case OPT_DISCORDANT_ONLY: opt::disc_cluster_only = true; break;
       case OPT_WRITE_EXTRACTED_READS: opt::write_extracted_reads = true; break;
     case OPT_NUM_ASSEMBLY_ROUNDS: arg >> opt::num_assembly_rounds; break;
@@ -815,7 +834,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 	  if (s.getOverlap(ss)) 
 	    valid = false;
       
-      if (valid && (s.count > opt::mate_lookup_min * 2 || jjj == 0)) { // be more strict about higher rounds
+      if (valid && (s.count > opt::mate_lookup_min * 2 || (jjj == 0))) { // be more strict about higher rounds and inter-chr
 	somatic_mate_regions.add(s);
 	all_somatic_mate_regions.add(s);
       }
@@ -923,8 +942,38 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
   //  if (r.Qname() == "D0ENMACXX111207:1:2207:17771:106943")
   //    std::cerr << " FOUND HER " << std::endl;
 
-  SnowTools::DiscordantClusterMap dmap = SnowTools::DiscordantCluster::clusterReads(bav_this, region);
+  SnowTools::DiscordantClusterMap dmap = SnowTools::DiscordantCluster::clusterReads(bav_this, region, opt::max_mapq_possible);
   
+  // if we have discordant cluster on the edge, buffer region
+  /*  SnowTools::GenomicRegion left_edge(region.chr, region.pos1, region.pos1 + 500);
+  SnowTools::GenomicRegion right_edge(region.chr, region.pos2 - 500, region.pos2);
+  bool get_left = false, get_right = false;
+  for (auto& i : dmap) {
+    if (i.second.tcount_hq < 4)
+      continue;
+    get_left  = get_left  ||  left_edge.getOverlap(i.second.m_reg2); // && (i.second.m_reg2.chr == i.second.m_reg1.chr && i.second.m_reg2.pos1 - i.second.m_reg1.pos1 < 1000);
+    get_right = get_right || right_edge.getOverlap(i.second.m_reg1); // && (i.second.m_reg2.chr == i.second.m_reg1.chr && i.second.m_reg2.pos1 - i.second.m_reg1.pos1 < 1000);
+  }
+  std::cerr << " GET LEFT " << get_left << " GET RIGHT " << get_right << std::endl;
+  if (get_left || get_right) {
+  for (auto& b : opt::bam) {
+      int oreads = walkers[b.first].reads.size();
+      walkers[b.first].m_limit = 1000;
+      SnowTools::GenomicRegionVector grv = {SnowTools::GenomicRegion()};
+      walkers[b.first].setBamWalkerRegions(somatic_mate_regions.asGenomicRegionVector(), bindices[b.first]);
+      walkers[b.first].get_coverage = false;
+      walkers[b.first].readlen = (b.first == "n") ? n_params.readlen : t_params.readlen;
+      walkers[b.first].max_cov = opt::max_cov;
+      walkers[b.first].get_mate_regions = jjj != MAX_MATE_ROUNDS;
+      badd.concat(walkers[b.first].readBam(&log_file, dbsnp_filter));
+      if (b.first == "t") {
+	tcount += (walkers[b.first].reads.size() - oreads);
+      } else {
+	ncount += (walkers[b.first].reads.size() - oreads);
+      }
+    }
+    }*/
+
   // remove the hardclips
   BamReadVector bav_tmp;
   for (auto& i : bav_this)
@@ -932,10 +981,6 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
       bav_tmp.push_back(i);
   bav_this = bav_tmp;
 
-  //for (auto& i : bav_this)
-  //  std::cout << i << std::endl;
-
-  // 
   if (opt::verbose > 3)
     for (auto& i : dmap)
       std::cerr << i.first << " " << i.second << std::endl;
@@ -993,7 +1038,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 	}
 	
       // normal non-10X data
-      } else {
+      } else if (opt::reuse_contigs.empty()) {
 
 	SnowmanAssemblerEngine engine(name, opt::assemb::error_rate, opt::assemb::minOverlap, opt::readlen);
 	// do the assemblies
@@ -1010,6 +1055,14 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 
 	if (opt::verbose > 1)
 	  std::cerr << "Assembled " << engine.getContigs().size() << " contigs for " << name << std::endl; 
+      } else if (!opt::reuse_contigs.empty()) {
+	
+	std::string rstring = std::to_string(region.chr + 1) + "_" + std::to_string(region.pos1) + "_" + std::to_string(region.pos2);
+	for (auto& qq : reused_contigs[rstring]) {
+	  //std::cerr << " adding " << qq.first << " -- " << qq.second << " at region " << rstring << std::endl;
+	  all_contigs_this.push_back(Contig(qq.first, qq.second));
+	}
+	//std::cerr << " THIS REGION IS " << rstring << " with " << all_contigs_this.size() << " contigs " << std::endl;
       }
       
       std::vector<SnowTools::AlignedContig> this_alc;
@@ -1217,7 +1270,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
   for (auto& i : dmap) {
     // DiscordantCluster not associated with assembly BP and has 2+ read support
     if (!i.second.hasAssociatedAssemblyContig() && (i.second.tcount + i.second.ncount) > 1) {
-      SnowTools::BreakPoint tmpbp(i.second, main_bwa);
+      SnowTools::BreakPoint tmpbp(i.second, main_bwa, dmap);
       //assert(tmpbp.b1.gr < tmpbp.b2.gr);
       bp_glob.push_back(tmpbp);
     }
@@ -1251,8 +1304,10 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
   if (opt::verbose > 2)
     std::cerr << "...scoring breakpoints" << std::endl;
 
-  for (auto& i : bp_glob)
+  for (auto& i : bp_glob) {
     i.scoreBreakpoint(opt::lod, opt::lod_db, opt::lod_no_db, opt::lod_germ);
+    //std::cout << " before BP " << i.toFileString() << std::endl;
+  }
 
   // label somatic breakpoints that intersect directly with normal as NOT somatic
   if (opt::verbose > 2)
@@ -1260,6 +1315,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
   std::unordered_set<std::string> norm_hash;
   for (auto& i : bp_glob) // hash the normals
     if (!i.somatic_score && i.confidence == "PASS" && i.evidence == "INDEL") {
+      //std::cout << " adding BP hash " << i.toFileString() << std::endl; //debug
       norm_hash.insert(i.b1.hash());
       norm_hash.insert(i.b2.hash());
       norm_hash.insert(i.b1.hash(1));
@@ -1268,21 +1324,36 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
       //norm_hash.insert(i.b1.hash(-2));
     }
   for (auto& i : bp_glob)  // find somatic that intersect with norm. Set somatic = 0;
-    if (i.somatic_score && (norm_hash.count(i.b1.hash()) || norm_hash.count(i.b2.hash()))) {
+    if (i.somatic_score && i.evidence == "INDEL" && (norm_hash.count(i.b1.hash()) || norm_hash.count(i.b2.hash()))) {
       i.somatic_score = 0;
     }
+
+  //debug
+  //for (auto& i : bp_glob) {
+  //  std::cout << " mid BP " << i.toFileString() << std::endl;
+  //}
+
 
   // remove somatic calls if they have a germline normal SV in them or indels with 
   // 2+germline normal in same contig
   if (opt::verbose > 2)
     std::cerr << "...removing somatic calls that have germline SV" << std::endl;
   std::unordered_set<std::string> bp_hash;
-  for (auto& i : bp_glob) // hash the normals
-    if (!i.somatic_score && i.evidence != "INDEL")
+  for (auto& i : bp_glob) { // hash the normals
+    //std::cout << " BP " << i.toFileString() << std::endl; //debug
+    if (!i.somatic_score && i.evidence != "INDEL" && i.confidence == "PASS") {
       bp_hash.insert(i.cname);
+    }
+  }
   for (auto& i : bp_glob)  // find somatic that intersect with norm. Set somatic = 0;
-    if (i.somatic_score && i.num_align > 1 && bp_hash.count(i.cname))
+    if (i.somatic_score && i.num_align > 1 && bp_hash.count(i.cname)) {
       i.somatic_score = 0;
+    }
+
+  //debug
+  //for (auto& i : bp_glob) {
+  // std::cout << " final BP " << i.toFileString() << std::endl;
+  //}
 
   // add the ref and alt tags
   if (opt::verbose > 2)
@@ -1338,7 +1409,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 
   // send breakpoints to file
   for (auto& i : bp_glob)
-    if (i.hasMinimal() && i.confidence != "NOLOCAL") {
+    if ( true || ( i.hasMinimal() && i.confidence != "NOLOCAL") ) {
       os_allbps << i.toFileString(opt::no_reads) << std::endl;
       if (i.confidence == "PASS" && i.n.split == 0 && i.n.cigar == 0 && i.dc.ncount == 0 && opt::verbose > 1) {
 	std::cout << "SOM  " << i << std::endl;
@@ -1554,6 +1625,39 @@ SnowmanBamWalker __make_walkers(const std::string& p, const std::string& b, cons
     std::cerr << "...read in " << walk.reads.size() << " reads from " << p << std::endl;
   
   return walk;
+
+}
+
+void __reuse_contigs(const std::string& cfile) {
+
+  SnowTools::BamWalker w(cfile);
+  
+  SnowTools::BamRead r;
+  bool rule;
+  
+  size_t total_added = 0;
+
+  while(w.GetNextRead(r, rule)) {
+    std::string qn = r.Qname();
+    std::string seq = r.Sequence();
+
+    // parse the region from qname
+    size_t found = qn.find_last_of("_");
+    std::string region = qn.substr(2, found - 2);
+
+    if (!reused_contigs[region].count(qn)) {
+      if (r.ReverseFlag()) // put pack in orientation as from assembler
+	SnowTools::rcomplement(seq);
+      assert(!reused_contigs[region].count(qn));
+      reused_contigs[region][qn] = seq;
+      ++total_added;
+      if (total_added % 1000000 == 0)
+	std::cerr << "...added " << SnowTools::AddCommas(total_added) << " region with val " << region << std::endl;
+    }
+
+  }
+  
+  std::cerr << "...added " << SnowTools::AddCommas(total_added) << " contig" << std::endl;
 
 }
 
