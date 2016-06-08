@@ -1,0 +1,176 @@
+#snowman 67
+-- loosened the filters a bit, to be more sensitive to low AF	
+# snowman 68
+-- fixed bug with complex events, and with not doing discordant lookup for
+inter-chr events
+# snowman 69
+-- slighlty more permissive on complex breaks	
+# snowman 70
+-- no dedup calc for non rule pass (improved memory and speed performance)	
+# snowman 71
+-- changed to a global one-read-name-per-split-coverage rule. Previously
+only applied to SVs > 1000	
+# snowman 72
+-- fixed missing printed contig name in AlignedContig
+-- added local check for assembly-only. non-locals are ditched
+-- added dup-read check, which checks r2c alignments to get span of split
+read covs. Ditches the variant as DUPREADS if split span is same < read
+length
+-- moved fail-safe warning (10,000 read max per region) to log file
+# snowman 73
+-- fixed bug that make the dupreads fix from snowman72 not work	
+# snowman 74
+##-- more strict in dup reads. Now, required that split coverage spans
+##read_len + 13 bases
+-- exit_code for "help" switched to 0 (from 1)	
+-- bug that let PCR duplicate reads though (bad minirules
+expression). Fixed
+-- added check that both the first and second mate of a pair cannot
+contribtue to same break. If so, reject all reads with that qname	
+-- fixed bug that was causing reads to not be trimmed correctly in
+MiniReads
+-- added refiltering of complex events	
+
+## snowman 75
+-- greatly reduced the cutoff for calling reads somatic (DBCUTOFF 15 -> 7,
+NODBCUTOFF 8 -> 2.5
+
+	## snowman 76
+	-- fixed bug that allowed contigs with a high number (3+) of
+	secondary alignmetns to make it to the filtered VCFs
+	-- require 50 bases match min per alignmetn for contisg with < 0.2
+	AF
+	-- prevents indels from being called if part of something like
+	50M3D8M9I 
+	-- fixed bug that only counted repeats in one direction for indels
+	-- added ability to pass single chr string to -k (e.g. snowman run
+	-k 1)
+	-- added contig-wide repeat filter (for super long repeats) in BreakPoint::repeatFilter
+
+
+	## snowman 77
+	-- fixed bug that didn't filter out 50 bases match min from (76)
+	-- added filter for inter-chr assembly-only that need to have all
+	pieces 60+ for non-complex
+	-- added -- else if (num_align == 2 && std::min(b1.mapq, b2.mapq) <
+	50 && b1.gr.chr != b2.gr.chr) // interchr need good mapq for
+	assembly only
+	-- added blacklist check for assembly-only
+	-- set default NM to - for reduced breakend
+	-- added discorand read counts to ALT for DSCR
+	-- fixed bug that was throwing out indels at DBSNP sites (due to
+	bad AF frac calculation)
+	-- added blat option
+	-- added refilter option
+	-- fixed bug that forced all DSCRD to be intra-chromosomal
+	-- post-pend contig names with C to make them unique when grepping
+	-- fixed bug that under-estimated LOD for indels
+	-- added cname to discordants.txt.gz output
+	-- added info header tags to indel
+	-- allow for germline/somatic classification to be skipped for
+	single BAM files
+	-- turned off error printing for MT chr in DBSNP filter
+	-- fixed bug in discordants with extra "x" in read names and blank
+	for contigs (should be 'x')
+	-- fix error where ALT counts for DSCRD clusters not being
+	reported in bps
+	-- got rid of dup read names for read tracking in DSCRD / ASDIS case
+	-- added filter to get rid of germline events with low AF
+
+	## snowman 78
+	-- added BOOST to LD_PATH for FH task
+	-- allow local parts of complex breaks, and will check them
+	against discordant reads
+	-- fixed NaN bug on log-likelihood calc
+	-- removed bug where somatic SVs were being later set to germline
+	because they were at site of low-confidence germline indel. Made
+	it now for indels only, and requires PASS germline indel
+	-- got rid of bug where normal reads aligning fulling to one
+	contig alignment were counting as split when they aligned in a
+	homology region
+	-- more persmissive for ASDIS with secondary alignments. if strong
+	discordant cluster (with high MAPQ and 10+ reads) then keep
+	-- fixed toFileString bug in discordant cluster
+
+	## snowman 79
+	-- slightly stricter on assmebly only for short (4+ now)
+	-- slogihtly stricter on cliped reads for insertions (16bp or more
+	now required to be supported by only one side spanned by clip)
+
+	## snowman 80
+	-- fixed issue where high quality gemrline indels were being
+	rejected because of a sign error on the LR caclulation 
+	-- fixed issue where germline indels were being called somatic if
+	there were multiple alleles at one location. This was from r2c
+	mappings being thrown out too quickly if they had any indel vs the
+	contig. Now they are parsed and only removed if indel exactly
+	mirrors the variant (e.g. 40I on a contig with a 40D is not valid)
+	-- removed 5+ split read filtered required for inter-chr ASDIS
+	-- fixed bug where small non-FR pairs not being picked up (caused
+	false negative short DUPS)
+	-- relaxed other read rules (10->5 clip, no mapq filter)
+	-- fixed bug where discordant clusters being reported incorrectly
+	in file
+
+	## snowman 81
+	-- fixed error in how some indels are parsed
+
+	## snowman 82
+	-- turned off over-aggressive DB snp filter for events iwth AF <
+	0.2 nearby a DBsnp site
+
+	## snowman 84
+	-- added multi-round jumping for complex events
+	-- reinstated bootstrap assembly
+	-- added gap-open penalty option
+
+	## snowman 85
+	-- decreased strictness of the contig length cutoff (115% of read length)
+
+	## snomwan 86
+	-- turned off debug printing
+	-- added gap extension penalty option
+
+	## snowman 87
+	-- fixed issue where discordant clusters were not being reported
+	   if they weren't being looked up. E.g. normal clusters
+	   that are informative were not being recorded
+
+	## snowman 88
+	-- fixed assert statments releative to v87 that were causing failure
+
+	## snowman 89
+	-- moved to JSON rules
+	-- forgot a "use Samtools" statement in snow.sh
+
+	## snowman 90
+	-- more strict about do too many jumps to mate regions
+
+	## snowman 91
+	-- removed hard limit on read lookups in mate window that was
+	giving 0 coverage issues
+
+	## snowman 92
+	-- loosened filters on DSCRD, strengthed on ASDIS
+	-- fixed bug with over-counting split and disc from same qnameg
+
+	## snowman 93
+	-- added NM filter for assembly only
+	-- fixed bug with somatic svs being removed by random weird
+	germline events nearby
+	-- fixed issue where we weren't checking orientation of BPs and
+	DCs when looking for overlap
+	-- allow ASDISC with lots of disc reads but few split reads
+	-- synced ASDISC filter for MAPQ so that something that passes
+	DSCRD would also pass ASDISC. Previously, would fail something
+	with an assembly mapq of < 10, even if disc cluster was
+	high-confidence
+	-- fixed bug where germline indels that fell at same point as a
+	PASS somatic SV were being used to mark it as germline
+	(inappropriate cross talk between INDEL and SV)
+	-- switched to MEDIAN score in DiscordantCluster, instead of MEAN
+	-- don't count RF reads if insert is near size of read length
+	-- filter out discordant pairs in clusters that deviate
+	substantially from the other pairs. Fixes issue where small insert
+	RF pairs in normal were being group with larger insert RF pairs in
+	tumor, causing false negative somatic calls.

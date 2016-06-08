@@ -3,8 +3,9 @@
 #include <set>
 #include <cassert>
 #include <numeric>
+#include <unordered_set>
 
-#define DISC_PAD 200
+#define DISC_PAD 400
 #define MIN_PER_CLUST 2
 
 #define REGPOS1 500000000
@@ -12,15 +13,28 @@
 //#define DEBUG_CLUSTER 1
 
 namespace SnowTools {
-  
-  void DiscordantCluster::addRead(std::string name) {
-    std::unordered_map<std::string, bool>::iterator ff = qnames.find(name);
-    if (ff == qnames.end())
-      qnames.insert(std::pair<std::string, bool>(name, true));
-    return;
+
+  //http://stackoverflow.com/questions/2114797/compute-median-of-values-stored-in-vector-c
+  double CalcMHWScore(std::vector<int>& scores)
+  {
+    double median;
+    size_t size = scores.size();
+    
+    std::sort(scores.begin(), scores.end());
+    
+    if (size  % 2 == 0)
+      {
+	median = (scores[size / 2 - 1] + scores[size / 2]) / 2;
+      }
+    else 
+      {
+	median = scores[size / 2];
+      }
+    
+    return median;
   }
   
-  DiscordantClusterMap DiscordantCluster::clusterReads(const BamReadVector& bav, const GenomicRegion& interval) {
+  DiscordantClusterMap DiscordantCluster::clusterReads(const BamReadVector& bav, const GenomicRegion& interval, int max_mapq_possible) {
 
 #ifdef DEBUG_CLUSTER
     std::cerr << "CLUSTERING WITH " << bav.size() << " reads " << std::endl;
@@ -69,6 +83,10 @@ namespace SnowTools {
     
     // make the fwd and reverse READ clusters. dont consider mate yet
     __cluster_reads(bav_dd, fwd, rev);
+    //__cluster_reads(bav_dd, fwd, rev, FFORIENTATION);
+    //__cluster_reads(bav_dd, fwd, rev, RFORIENTATION);
+    //__cluster_reads(bav_dd, fwd, rev, RRORIENTATION);
+
 
 #ifdef DEBUG_CLUSTER
     for (auto& i : fwd) {
@@ -91,10 +109,10 @@ namespace SnowTools {
     
     // we have the reads in their clusters. Just convert to discordant reads clusters
     DiscordantClusterMap dd;
-    __convertToDiscordantCluster(dd, fwdfwd, bav_dd);
-    __convertToDiscordantCluster(dd, fwdrev, bav_dd);
-    __convertToDiscordantCluster(dd, revfwd, bav_dd);
-    __convertToDiscordantCluster(dd, revrev, bav_dd);
+    __convertToDiscordantCluster(dd, fwdfwd, bav_dd, max_mapq_possible);
+    __convertToDiscordantCluster(dd, fwdrev, bav_dd, max_mapq_possible);
+    __convertToDiscordantCluster(dd, revfwd, bav_dd, max_mapq_possible);
+    __convertToDiscordantCluster(dd, revrev, bav_dd, max_mapq_possible);
 
 #ifdef DEBUG_CLUSTER
     std::cerr << "----fwd cluster count: " << fwd.size() << std::endl;
@@ -104,6 +122,7 @@ namespace SnowTools {
     std::cerr << "----revfwd cluster count: " << revfwd.size() << std::endl;
     std::cerr << "----revrev cluster count: " << revrev.size() << std::endl;
 #endif    
+
     // remove clusters that dont overlap with the window
     DiscordantClusterMap dd_clean;
     for (auto& i : dd) {
@@ -139,7 +158,7 @@ namespace SnowTools {
   }
   
   // this reads is reads in the cluster. all_reads is big pile where all the clusters came from
-  DiscordantCluster::DiscordantCluster(const BamReadVector& this_reads, const BamReadVector& all_reads) {
+  DiscordantCluster::DiscordantCluster(const BamReadVector& this_reads, const BamReadVector& all_reads, int max_mapq_possible) {
     
     if (this_reads.size() == 0)
       return;
@@ -157,10 +176,45 @@ namespace SnowTools {
     assert(this_reads.back().MatePosition() - this_reads[0].MatePosition() < 10000);
     assert(this_reads.back().Position() - this_reads[0].Position() < 10000);
     
+    // get distribution of isizes. Reject outliers
+    std::vector<int> isizer;
+    for (auto& i : this_reads)
+      isizer.push_back(std::abs(i.InsertSize()));
+    double sd = 0, mm = 0, medr = 0;
+    std::sort(isizer.begin(), isizer.end());
+    if (isizer.size() >= 5 && isizer.back() - isizer[0] > 400) {
+
+      medr = CalcMHWScore(isizer);
+
+      // get the mean
+      double sum = std::accumulate(isizer.begin(), isizer.end(), 0.0);
+      mm = isizer.size() > 0 ? sum / isizer.size() : 0;
+
+      // get isize stdev
+      std::vector<double> diff(isizer.size());
+      std::transform(isizer.begin(), isizer.end(), diff.begin(), [mm](double x) { return x - mm; });
+      double sq_sum = std::inner_product(diff.begin(), diff.end(), diff.begin(), 0.0);
+      sd = std::sqrt(sq_sum / isizer.size());
+      //std::cerr << "STD DEV " << sd << std::endl;
+      
+    }
+    double min_isize = 0;
+    if (sd > 0 ? (medr / sd) < 4 : false) {
+      min_isize = medr - 2 * sd;
+      //std::cout << (*this ) << std::endl;
+      //std::cout << " MED " << medr << " SD " << sd << " MEAN " << mm << " CUTOFF " << min_isize << " medr/sd " << (medr/sd) << std::endl;;
+    }
+    min_isize = min_isize < 1000 ? min_isize : 0;
+    
     for (auto& i : this_reads) 
       {
 	// double check that we did the clustering correctly. All read orientations should be same
 	assert(rev == i.ReverseFlag() && mrev == i.MateReverseFlag()); 
+
+	if (std::abs(i.InsertSize()) < min_isize) {
+	  //std::cout << "...removing " << i << std::endl;
+	  continue;
+	}
 	
 	// add the read to the read map
 	std::string tmp = i.GetZTag("SR");
@@ -168,27 +222,27 @@ namespace SnowTools {
 	reads[tmp] = i;
 	
 	++counts[tmp.substr(0,4)];
-
-	// set the qname map
-	std::string qn = i.Qname();
-	qnames[qn] = true;
 	
 	// the ID is the lexographically lowest qname
+	std::string qn = i.Qname();
 	if (qn < m_id)
 	  m_id = qn;
-	if (tmp.at(0) == 't')
-	  ++tcount;
-	else
-	  ++ncount;
-      }
 
+	if (tmp.at(0) == 't') {
+	  ++tcount;
+	} else {
+	  ++ncount;
+	}
+
+	isizer.push_back(std::abs(i.InsertSize()));
+
+      }
+       
     // loop through the big stack of reads and find the mates
-    
     addMateReads(all_reads);
     assert(reads.size());
 
     // set the regions
-    //m_reg1 = SnowTools::GenomicRegion(-1,REGPOS1,-1); // read region
     m_reg1 = SnowTools::GenomicRegion(-1, -1, -1);
     m_reg1.pos1 = REGPOS1;
     m_reg2 = SnowTools::GenomicRegion(-1, -1, -1); // mate region
@@ -231,6 +285,25 @@ namespace SnowTools {
       }
     }
 
+    int HQMAPQ = max_mapq_possible == 60 ? 25 : std::floor(0.70 * (double)max_mapq_possible) ;
+
+    std::unordered_set<std::string> hqq;
+    // set which reads are HQ
+    for (auto& i : mates) {
+      if (i.second.MapQuality() >= HQMAPQ) {
+	hqq.insert(i.second.Qname());
+      }
+    }
+    for (auto& i : reads) {
+      if (i.second.MapQuality() >= HQMAPQ && hqq.count(i.second.Qname())) {
+	if(i.second.GetZTag("SR").at(0) == 't')
+	  ++tcount_hq;
+	else
+	  ++ncount_hq;
+      }
+    }
+    
+
     mapq1 = __getMeanMapq(false);
     mapq2 = __getMeanMapq(true);
     assert(mapq1 >= 0);
@@ -251,6 +324,11 @@ namespace SnowTools {
     if (!reads.size())
       return;
     
+    // log the qnames
+    std::unordered_set<std::string> qnames;
+    for (auto& i : reads) 
+      qnames.insert(i.second.Qname());
+
     // get region around one of the reads.
     // OK, so this is necessary because...
     // we are looping through and trying to fill mate reads by comparing
@@ -293,6 +371,16 @@ namespace SnowTools {
 
     if (tmapq.size() > 0)
       mean = std::accumulate(tmapq.begin(), tmapq.end(), 0.0) / tmapq.size();
+
+    //    std::cerr << "mate " << mate << " MEAN " << mean << std::endl;
+    // actually, get the median
+    //if (tmapq.size() > 0)
+    // mean = CalcMHWScore(tmapq); //std::accumulate(tmapq.begin(), tmapq.end(), 0.0) / tmapq.size();
+
+    //    std::cerr << "mate " << mate << " MEDIAN " << mean << std::endl;    
+
+    //std::cerr << "mate " << mate << " HQ " << tcount_hq << std::endl;    
+
     return mean;
   }
   
@@ -346,7 +434,8 @@ namespace SnowTools {
     std::stringstream out;
     out << m_reg1.chr+1 << sep << pos1 << sep << m_reg1.strand << sep 
 	<< m_reg2.chr+1 << sep << pos2 << sep << m_reg2.strand << sep 
-	<< tcount << sep << ncount << sep << mapq1 << sep 
+	<< tcount << sep << ncount << sep << tcount_hq << sep << ncount_hq
+	<< sep << mapq1 << sep 
 	<< mapq2 << sep << (m_contig.length() ? m_contig : "x") << sep << toRegionString()
 	<< sep << (reads_string.length() ? reads_string : "x");
 
@@ -440,10 +529,10 @@ namespace SnowTools {
 	for (auto& r : v) 
 	  {
 	    // forward clustering
-	    if (!r.MateReverseFlag()) 
+	    if (!r.MateReverseFlag())
 	      __add_read_to_cluster(fwd, this_fwd, r, true);
 	    // reverse clustering 
-	    else 
+	    else if (r.MateReverseFlag())
 	      __add_read_to_cluster(rev, this_rev, r, true);
 	    
 	  }
@@ -461,10 +550,16 @@ namespace SnowTools {
     // hold the current cluster
     BamReadVector this_fwd, this_rev;
 
-    std::set<std::string> tmp_set;
+    std::unordered_set<std::string> tmp_set;
 
     // cluster in the READ direction, separately for fwd and rev
     for (auto& i : brv) {
+
+      // only cluster FR reads together, RF reads together, FF together and RR together
+      // actually, unneccessary, since this is already taken care of
+      //if (i.PairOrientation() != orientation)
+      ///continue;
+
       std::string qq = i.Qname();
 
       // only cluster if not seen before (e.g. left-most is READ, right most is MATE)
@@ -489,11 +584,11 @@ namespace SnowTools {
 
   }
 
-  void DiscordantCluster::__convertToDiscordantCluster(DiscordantClusterMap &dd, const BamReadClusterVector& cvec, const BamReadVector& bav) {
+  void DiscordantCluster::__convertToDiscordantCluster(DiscordantClusterMap &dd, const BamReadClusterVector& cvec, const BamReadVector& bav, int max_mapq_possible) {
     
     for (auto& v : cvec) {
       if (v.size() > 1) {
-	DiscordantCluster d(v, bav); /// slow but works (erm, not really slow)
+	DiscordantCluster d(v, bav, max_mapq_possible); /// slow but works (erm, not really slow)
 	dd[d.m_id] = d;
       }
     }
