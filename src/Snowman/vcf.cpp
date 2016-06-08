@@ -264,7 +264,7 @@ VCFFile::VCFFile(std::string file, std::string id, bam_hdr_t * h, const VCFHeade
   //sv_header.addInfoField("TDISC","1","Integer","Number of discordant read pairs from the tumor BAM");
   //sv_header.addInfoField("NDISC","1","Integer","Number of discordant read pairs from the normal BAM");
   sv_header.addInfoField("MATEID","1","String","ID of mate breakends");
-  sv_header.addInfoField("SOMATIC","0","Flag","Variant is somatic");
+  //sv_header.addInfoField("SOMATIC","0","Flag","Variant is somatic");
   sv_header.addInfoField("SUBN","1","Integer","Number of secondary alignments associated with this contig fragment");
   //sv_header.addInfoField("TCOV","1","Integer","Max tumor coverage at break");
   //sv_header.addInfoField("NCOV","1","Integer","Max normal coverage at break");
@@ -307,7 +307,7 @@ VCFFile::VCFFile(std::string file, std::string id, bam_hdr_t * h, const VCFHeade
 
   indel_header.addInfoField("REPSEQ","1","String","Repeat sequence near the event");
   indel_header.addInfoField("GRAYLIST","0","Flag","Indel is low quality and cross a difficult region of genome");
-  indel_header.addInfoField("SOMATIC","0","Flag","Variant is somatic");
+  //indel_header.addInfoField("SOMATIC","0","Flag","Variant is somatic");
   indel_header.addInfoField("PON","1","Integer","Number of normal samples that have this indel present");
   indel_header.addInfoField("NM","1","Integer","Number of mismatches of this alignment fragment to reference");
   indel_header.addInfoField("READNAMES",".","String","IDs of ALT reads");
@@ -408,6 +408,9 @@ void VCFFile::deduplicate() {
     if (dups.count(i.first))
       continue;
     
+    // if both ends are close (within 10) then they match
+    pad = (i.second->bp->b1.gr.chr != i.second->bp->b2.gr.chr) || std::abs(i.second->bp->b1.gr.pos1 - i.second->bp->b2.gr.pos1) > 100 ? 10 : 1;
+
     ++count;
     SnowTools::GenomicIntervalVector giv1, giv2;
     grv1.m_tree[i.second->bp->b1.gr.chr].findContained(i.second->bp->b1.gr.pos1-pad, i.second->bp->b1.gr.pos1+pad, giv1);
@@ -754,7 +757,7 @@ std::unordered_map<std::string, std::string> VCFEntry::fillInfoFields() const {
     info_fields["SVTYPE"] = "BND";
   }
 
-  if (!bp->read_names.empty())
+  if (!bp->read_names.empty() && bp->read_names != "x")
     info_fields["READNAMES"] = bp->read_names;
 
   if (bp->repeat)
@@ -782,8 +785,8 @@ std::unordered_map<std::string, std::string> VCFEntry::fillInfoFields() const {
   else
     info_fields["MAPQ"] = std::to_string(bp->b2.mapq);
 
-  if (bp->somatic_score >= SOMATIC_LOD)
-    info_fields["SOMATIC"] = "";
+  //if (bp->somatic_score >= SOMATIC_LOD)
+  //  info_fields["SOMATIC"] = "";
   
   // put all the info fields for SVs
   if (bp->num_align != 1) {

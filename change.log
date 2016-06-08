@@ -174,3 +174,15 @@ NODBCUTOFF 8 -> 2.5
 	substantially from the other pairs. Fixes issue where small insert
 	RF pairs in normal were being group with larger insert RF pairs in
 	tumor, causing false negative somatic calls.
+	-- fixed issue with some wonky discordant read clusters where L
+	and R clusters overlapped (set them to invalid)
+	-- removed one round of assembly, second round is exact
+	-- removed SOMATIC info field from VCF
+	-- dont print READNAMES if equal to 'x'
+	-- minor bug where local breaks between two non-secondary mappings
+	were being called as secondary because of a non-reset bp.secondary
+	flag from a previous local breakpoint
+	-- added a << method for break-end for easier debugging
+	-- added 'reuse' method for faster debugging
+	-- dont count secondary reads when getting coverage
+	-- add a pad of 10 when deduplicating rearrangements in vcf.cpp

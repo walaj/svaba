@@ -109,7 +109,7 @@ namespace opt {
 
   static std::string ooc = "/xchip/gistic/Jeremiah/blat/11.ooc";
 
-  static int num_assembly_rounds = 3;
+  static int num_assembly_rounds = 2;
   static bool write_extracted_reads = false;
 
   static std::string pon;
@@ -1269,7 +1269,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
   // add in the discordant clusters as breakpoints
   for (auto& i : dmap) {
     // DiscordantCluster not associated with assembly BP and has 2+ read support
-    if (!i.second.hasAssociatedAssemblyContig() && (i.second.tcount + i.second.ncount) > 1) {
+    if (!i.second.hasAssociatedAssemblyContig() && (i.second.tcount + i.second.ncount) > 1 && i.second.valid()) {
       SnowTools::BreakPoint tmpbp(i.second, main_bwa, dmap);
       //assert(tmpbp.b1.gr < tmpbp.b2.gr);
       bp_glob.push_back(tmpbp);
@@ -1404,7 +1404,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 
   // send the discordant to file
   for (auto& i : dmap)
-    if (std::max(i.second.mapq1, i.second.mapq2) >= 5)
+    if (i.second.valid()) //std::max(i.second.mapq1, i.second.mapq2) >= 5)
       all_disc_stream << i.second.toFileString(!opt::no_reads) << std::endl;
 
   // send breakpoints to file

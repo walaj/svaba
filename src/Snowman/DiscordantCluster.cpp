@@ -5,7 +5,7 @@
 #include <numeric>
 #include <unordered_set>
 
-#define DISC_PAD 400
+#define DISC_PAD 300
 #define MIN_PER_CLUST 2
 
 #define REGPOS1 500000000
@@ -83,10 +83,6 @@ namespace SnowTools {
     
     // make the fwd and reverse READ clusters. dont consider mate yet
     __cluster_reads(bav_dd, fwd, rev);
-    //__cluster_reads(bav_dd, fwd, rev, FFORIENTATION);
-    //__cluster_reads(bav_dd, fwd, rev, RFORIENTATION);
-    //__cluster_reads(bav_dd, fwd, rev, RRORIENTATION);
-
 
 #ifdef DEBUG_CLUSTER
     for (auto& i : fwd) {
@@ -145,11 +141,9 @@ namespace SnowTools {
        d.second.read_score += (rr > 0) ? 1/rr : 1;
       }
       for (auto& r : d.second.mates) {
-       double rr = r.second.GetIntTag("DD");
-       // d.second.
-	 d.second.mate_score += (rr > 0) ? 1/rr : 1;
+	double rr = r.second.GetIntTag("DD");
+	d.second.mate_score += (rr > 0) ? 1/rr : 1;
       }
-      //std::cerr << d.second << " rscore " << d.second.read_score << " mate " << d.second.mate_score << std::endl;
     }
 
     
@@ -195,7 +189,6 @@ namespace SnowTools {
       std::transform(isizer.begin(), isizer.end(), diff.begin(), [mm](double x) { return x - mm; });
       double sq_sum = std::inner_product(diff.begin(), diff.end(), diff.begin(), 0.0);
       sd = std::sqrt(sq_sum / isizer.size());
-      //std::cerr << "STD DEV " << sd << std::endl;
       
     }
     double min_isize = 0;
@@ -258,7 +251,7 @@ namespace SnowTools {
 	  m_reg1.pos2 = endpos;
 	assert(m_reg1.width() < 5000);
       }
-
+    
     for (auto& i : mates) 
       {
 	m_reg2.strand = i.second.ReverseFlag() ? '-' : '+'; //r_strand(i.second) == '+'; //(!i.second->IsReverseStrand()) ? '+' : '-';
@@ -270,7 +263,7 @@ namespace SnowTools {
 	  m_reg2.pos2 = endpos;
 	assert(m_reg2.width() < 5000);
       }
-
+    
     // if no mates (we didn't look up), still make the mate region
     if (mates.size() == 0) {
       for (auto& i : reads) {
@@ -302,7 +295,6 @@ namespace SnowTools {
 	  ++ncount_hq;
       }
     }
-    
 
     mapq1 = __getMeanMapq(false);
     mapq2 = __getMeanMapq(true);
@@ -349,8 +341,6 @@ namespace SnowTools {
 	  }
 	}
     }
-
-    //std::cerr << " MATES SIZE " << mates.size() << " READS SIZE " << reads.size() << " QNAME SISE " << qnames.size() << std::endl;
   }
   
   double DiscordantCluster::__getMeanMapq(bool mate) const 
@@ -372,14 +362,9 @@ namespace SnowTools {
     if (tmapq.size() > 0)
       mean = std::accumulate(tmapq.begin(), tmapq.end(), 0.0) / tmapq.size();
 
-    //    std::cerr << "mate " << mate << " MEAN " << mean << std::endl;
     // actually, get the median
     //if (tmapq.size() > 0)
     // mean = CalcMHWScore(tmapq); //std::accumulate(tmapq.begin(), tmapq.end(), 0.0) / tmapq.size();
-
-    //    std::cerr << "mate " << mate << " MEDIAN " << mean << std::endl;    
-
-    //std::cerr << "mate " << mate << " HQ " << tcount_hq << std::endl;    
 
     return mean;
   }
@@ -405,6 +390,15 @@ namespace SnowTools {
     return out;
   }
   
+  bool DiscordantCluster::valid() const {
+
+    if (m_reg1.pos2 > m_reg2.pos1) // the clusters overlap, doesn't make sense
+      return false;
+
+    return true;
+
+  }
+
   
   // define how to print to file
   std::string DiscordantCluster::toFileString(bool with_read_names /* false */) const 
@@ -427,10 +421,10 @@ namespace SnowTools {
       else
 	reads_string.pop_back(); // delete last comma
       }
-
+    
     int pos1 = m_reg1.strand == '+' ? m_reg1.pos2 : m_reg1.pos1; // get the edge of the cluster
     int pos2 = m_reg2.strand == '+' ? m_reg2.pos2 : m_reg2.pos1;
-    
+
     std::stringstream out;
     out << m_reg1.chr+1 << sep << pos1 << sep << m_reg1.strand << sep 
 	<< m_reg2.chr+1 << sep << pos2 << sep << m_reg2.strand << sep 
