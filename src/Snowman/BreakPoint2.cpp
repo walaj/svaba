@@ -585,6 +585,9 @@ namespace SnowTools {
 
     for (auto& d : dmap)
       {
+	if (!d.second.valid())
+	  continue;
+
 	bool bp1reg1 = bp1.getOverlap(d.second.m_reg1) > 0;
 	bool bp2reg2 = bp2.getOverlap(d.second.m_reg2) > 0;
 
@@ -1370,6 +1373,11 @@ namespace SnowTools {
       allele[i.first].clip_cov = std::max(i.second->getCoverageAtPosition(b1.gr.chr, b1.gr.pos1), i.second->getCoverageAtPosition(b2.gr.chr, b2.gr.pos1));
   }
 
+  std::ostream& operator<<(std::ostream& out, const BreakEnd& b) {
+    out << b.gr << " - " << b.id << " mapq " << b.mapq << " subn " << b.sub_n << std::endl;
+    return out;
+  }
+  
   std::ostream& operator<<(std::ostream& out, const SampleInfo& a) {
     out << " split: " << a.split << " cigar " << a.cigar << " alt " << a.alt << " clip_cov " << a.clip_cov << " cov " << a.cov << " disc " << a.disc;
     return out;

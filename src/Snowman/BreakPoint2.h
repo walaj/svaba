@@ -62,6 +62,7 @@ namespace SnowTools {
    int sub_n = -1;
    bool local;
 
+   friend std::ostream& operator<<(std::ostream& out, const BreakEnd& b);
  };
 
  struct ReducedDiscordantCluster {

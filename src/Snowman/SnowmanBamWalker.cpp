@@ -133,7 +133,7 @@ SnowTools::GRC SnowmanBamWalker::readBam(std::ofstream * log, const SnowTools::D
       bool qcpass = !r.DuplicateFlag() && !r.QCFailFlag(); 
 
       // add to all reads pile for kmer correction
-      if (!r.DuplicateFlag() && !r.QCFailFlag()) {
+      if (!r.DuplicateFlag() && !r.QCFailFlag() && !r.SecondaryFlag()) {
 	cov.addRead(r); 
       }
       
