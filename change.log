@@ -185,4 +185,10 @@ NODBCUTOFF 8 -> 2.5
 	-- added a << method for break-end for easier debugging
 	-- added 'reuse' method for faster debugging
 	-- dont count secondary reads when getting coverage
+	-- retrieve small discordant FR pairs where insert size is >
+	1.96sd + mean(isize)
+	-- orientation filtering uses position now, rather than
+	first/second flag.
 	-- add a pad of 10 when deduplicating rearrangements in vcf.cpp
+	-- added splitcounter module
+	-- added NM and MAPQ filters to assembly and assembly_dscd

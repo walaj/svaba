@@ -1,4 +1,3 @@
-
 #ifndef SNOWMAN_RUN_H__
 #define SNOWMAN_RUN_H__
 

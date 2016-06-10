@@ -66,6 +66,7 @@
 #include "benchmark.h"
 #include "run_snowman.h"
 #include "assembly2vcf.h"
+#include "splitcounter.h"
 
 #define AUTHOR "Jeremiah Wala <jwala@broadinstitute.org>"
 
@@ -74,7 +75,7 @@ static const char *SNOWMAN_USAGE_MESSAGE =
 "--- Snowman - Structural Variant and Indel Detection ---\n"
 "--------------------------------------------------------\n"
 "Program: SnowmanSV \n"
-"FH Version: 80 \n"
+"FH Version: 94 \n"
 "Contact: Jeremiah Wala [ jwala@broadinstitute.org ]\n"
 "Usage: snowman <command> [options]\n\n"
 "Commands:\n"
@@ -84,6 +85,7 @@ static const char *SNOWMAN_USAGE_MESSAGE =
 "           vcf            Tools for handling VCF files from Snowman and from supported other callers\n"
 "           refilter       Refilter the Snowman breakpoints with additional/different criteria to created filtered VCF and breakpoints file.\n"
 "           pon            Generate a panel of normal from a list of germline VCFs or list of cigarmap.txt.gz files from <snowman run>. For use with <snowman run> or <snowman refilter>\n"
+"           splitcounter   Simple utility to count locations of split-alignment breakpoints (eg for PacBio)\n"
 "\nReport bugs to jwala@broadinstitute.org \n\n";
 
 int main(int argc, char** argv) {
@@ -110,6 +112,8 @@ int main(int argc, char** argv) {
     }
     else if (command == "assembly2vcf") {
       runAssembly2VCF(argc-1, argv+1);
+    } else if (command == "splitcounter") {
+      runSplitCounter(argc-1, argv+1);
     }
     else {
       std::cerr << SNOWMAN_USAGE_MESSAGE;

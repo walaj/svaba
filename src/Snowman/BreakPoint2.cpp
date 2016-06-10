@@ -704,6 +704,8 @@ namespace SnowTools {
       confidence = "LOWMAPQ";
     else if ( (b1.matchlen < 50 && b1.mapq < 60) || (b2.matchlen < 50 && b2.mapq < 60) )
       confidence = "LOWMAPQ";
+    else if ( std::min(b1.nm, b2.nm) >= 10)
+      confidence = "LOWMAPQ";
     else if (a.split <= 3 && span <= 1500 && span != -1) // small with little split
       confidence = "LOWSPLITSMALL";
     else if (num_align == 2 && b1.gr.chr != b2.gr.chr && std::min(b1.matchlen, b2.matchlen) < 60) // inter-chr, but no disc reads, weird alignment
@@ -856,6 +858,10 @@ namespace SnowTools {
 
     if ( (max_a_mapq < 30 && !b1.local) || (max_b_mapq < 30 && !b2.local) || (b1.sub_n > 7 && b1.mapq < 10 && !b1.local) || (b2.sub_n > 7 && b2.mapq < 10 && !b2.local) )
       confidence = "LOWMAPQ";
+    else if ( std::min(b1.nm, b2.nm) >= 10)
+      confidence = "LOWMAPQ";
+    else if ( std::min(b1.mapq, b2.mapq) < 10 && std::min(dc.mapq1, dc.mapq2) < 10 )
+      confidence = "LOWMAPQ";      
     else if ( total_count < 4 || (std::max(t.split, n.split) <= 5 && cov_span < (readlen + 5) && disc_count < 7) )
       confidence = "LOWSUPPORT";
     else if ( total_count < 15 && germ && span == -1) // be super strict about germline interchrom
