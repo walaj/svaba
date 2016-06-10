@@ -83,7 +83,7 @@ bool runAC(const ContigElement * c) {
 
   // cluster the reads
   // set region to empty, just won't double-check that cluster overlaps regino. No big deal
-  SnowTools::DiscordantClusterMap dmap = SnowTools::DiscordantCluster::clusterReads(bav_this, SnowTools::GenomicRegion(), 37);
+  SnowTools::DiscordantClusterMap dmap = SnowTools::DiscordantCluster::clusterReads(bav_this, SnowTools::GenomicRegion(), 37, 800);
 
   std::vector<SnowTools::AlignedContig> this_alc;
 

@@ -46,7 +46,8 @@ CONFIG_CLEAN_VPATH_FILES =
 am__installdirs = "$(DESTDIR)$(bindir)"
 PROGRAMS = $(bin_PROGRAMS)
 am_snowman_OBJECTS = snowman-run_snowman2.$(OBJEXT) \
-	snowman-BreakPoint2.$(OBJEXT) snowman-AlignedContig2.$(OBJEXT) \
+	snowman-splitcounter.$(OBJEXT) snowman-BreakPoint2.$(OBJEXT) \
+	snowman-AlignedContig2.$(OBJEXT) \
 	snowman-DiscordantCluster.$(OBJEXT) \
 	snowman-DBSnpFilter.$(OBJEXT) snowman-PONFilter.$(OBJEXT) \
 	snowman-SnowmanUtils.$(OBJEXT) snowman-snowman.$(OBJEXT) \
@@ -221,7 +222,7 @@ snowman_LDADD = \
 	$(top_builddir)/SnowTools/blat/lib/jkOwnLib.a $(top_builddir)/SnowTools/blat/lib/jkweb.a 
 
 snowman_LDFLAGS = -pthread -std=c++11
-snowman_SOURCES = run_snowman2.cpp BreakPoint2.cpp AlignedContig2.cpp DiscordantCluster.cpp DBSnpFilter.cpp PONFilter.cpp \
+snowman_SOURCES = run_snowman2.cpp splitcounter.cpp BreakPoint2.cpp AlignedContig2.cpp DiscordantCluster.cpp DBSnpFilter.cpp PONFilter.cpp \
 		SnowmanUtils.cpp snowman.cpp workqueue.h SnowmanAssemblerEngine.cpp vcf.cpp SnowmanRead.cpp \
 		SnowmanOverlapAlgorithm.cpp SnowmanASQG.cpp \
 		SnowmanAssemble.h SnowmanAssemble.cpp genpon.cpp \
@@ -338,6 +339,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-refilter.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-run_snowman2.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-snowman.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-splitcounter.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-vcf.Po@am__quote@
 
 .cpp.o:
@@ -367,6 +369,20 @@ snowman-run_snowman2.obj: run_snowman2.cpp
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='run_snowman2.cpp' object='snowman-run_snowman2.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-run_snowman2.obj `if test -f 'run_snowman2.cpp'; then $(CYGPATH_W) 'run_snowman2.cpp'; else $(CYGPATH_W) '$(srcdir)/run_snowman2.cpp'; fi`
+
+snowman-splitcounter.o: splitcounter.cpp
+@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-splitcounter.o -MD -MP -MF $(DEPDIR)/snowman-splitcounter.Tpo -c -o snowman-splitcounter.o `test -f 'splitcounter.cpp' || echo '$(srcdir)/'`splitcounter.cpp
+@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/snowman-splitcounter.Tpo $(DEPDIR)/snowman-splitcounter.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='splitcounter.cpp' object='snowman-splitcounter.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-splitcounter.o `test -f 'splitcounter.cpp' || echo '$(srcdir)/'`splitcounter.cpp
+
+snowman-splitcounter.obj: splitcounter.cpp
+@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-splitcounter.obj -MD -MP -MF $(DEPDIR)/snowman-splitcounter.Tpo -c -o snowman-splitcounter.obj `if test -f 'splitcounter.cpp'; then $(CYGPATH_W) 'splitcounter.cpp'; else $(CYGPATH_W) '$(srcdir)/splitcounter.cpp'; fi`
+@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/snowman-splitcounter.Tpo $(DEPDIR)/snowman-splitcounter.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='splitcounter.cpp' object='snowman-splitcounter.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-splitcounter.obj `if test -f 'splitcounter.cpp'; then $(CYGPATH_W) 'splitcounter.cpp'; else $(CYGPATH_W) '$(srcdir)/splitcounter.cpp'; fi`
 
 snowman-BreakPoint2.o: BreakPoint2.cpp
 @am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-BreakPoint2.o -MD -MP -MF $(DEPDIR)/snowman-BreakPoint2.Tpo -c -o snowman-BreakPoint2.o `test -f 'BreakPoint2.cpp' || echo '$(srcdir)/'`BreakPoint2.cpp

@@ -34,7 +34,7 @@ namespace SnowTools {
     return median;
   }
   
-  DiscordantClusterMap DiscordantCluster::clusterReads(const BamReadVector& bav, const GenomicRegion& interval, int max_mapq_possible) {
+  DiscordantClusterMap DiscordantCluster::clusterReads(const BamReadVector& bav, const GenomicRegion& interval, int max_mapq_possible, int min_isize_for_disc) {
 
 #ifdef DEBUG_CLUSTER
     std::cerr << "CLUSTERING WITH " << bav.size() << " reads " << std::endl;
@@ -56,7 +56,7 @@ namespace SnowTools {
 
       // is the read even discordant?
       bool non_fr = (r.ReverseFlag() == r.MateReverseFlag()) || (r.ReverseFlag() && r.Position() < r.MatePosition()) || (!r.ReverseFlag() && r.Position() > r.MatePosition());
-      bool disc_r = (abs(r.InsertSize()) >= 800) || (r.MateChrID() != r.ChrID()) || non_fr;
+      bool disc_r = (abs(r.InsertSize()) >= min_isize_for_disc) || (r.MateChrID() != r.ChrID()) || non_fr;
 
       if (/*tmp_map[r.Qname()] >= 2 && */disc_r)
 	bav_dd.push_back(r);
@@ -82,7 +82,10 @@ namespace SnowTools {
     rev_info = {-1,-1};
     
     // make the fwd and reverse READ clusters. dont consider mate yet
-    __cluster_reads(bav_dd, fwd, rev);
+    __cluster_reads(bav_dd, fwd, rev, FRORIENTATION);
+    __cluster_reads(bav_dd, fwd, rev, FFORIENTATION);
+    __cluster_reads(bav_dd, fwd, rev, RFORIENTATION);
+    __cluster_reads(bav_dd, fwd, rev, RRORIENTATION);
 
 #ifdef DEBUG_CLUSTER
     for (auto& i : fwd) {
@@ -117,6 +120,13 @@ namespace SnowTools {
     std::cerr << "----fwdrev cluster count: " << fwdrev.size() << std::endl;
     std::cerr << "----revfwd cluster count: " << revfwd.size() << std::endl;
     std::cerr << "----revrev cluster count: " << revrev.size() << std::endl;
+
+    for (auto& ii : fwdrev) {
+      std::cerr << " ____________ CLUSTEER ______________" << std::endl;
+      for (auto& jj : ii)
+	std::cerr << "FWDREV _____ " << jj << std::endl;
+    }
+      
 #endif    
 
     // remove clusters that dont overlap with the window
@@ -130,7 +140,7 @@ namespace SnowTools {
 #ifdef DEBUG_CLUSTER
     for (auto& i : dd) 
       std::cerr << "Before Clean: " << i.second << std::endl;
-    for (auto& i : dd_clean) 
+    for (auto& i : dd_clean)  
       std::cerr << "Clean: " << i.second << std::endl;
 #endif
 
@@ -538,7 +548,7 @@ namespace SnowTools {
       } // finish main cluster loop
   }
   
-  void DiscordantCluster::__cluster_reads(const BamReadVector& brv, BamReadClusterVector& fwd, BamReadClusterVector& rev) 
+  void DiscordantCluster::__cluster_reads(const BamReadVector& brv, BamReadClusterVector& fwd, BamReadClusterVector& rev, int orientation) 
   {
 
     // hold the current cluster
@@ -551,8 +561,8 @@ namespace SnowTools {
 
       // only cluster FR reads together, RF reads together, FF together and RR together
       // actually, unneccessary, since this is already taken care of
-      //if (i.PairOrientation() != orientation)
-      ///continue;
+      if (i.PairOrientation() != orientation)
+	continue;
 
       std::string qq = i.Qname();
 

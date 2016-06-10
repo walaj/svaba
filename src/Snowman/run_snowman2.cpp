@@ -56,6 +56,8 @@ struct bidx_delete {
 typedef std::map<std::string, std::shared_ptr<hts_idx_t>> BamIndexMap;
 typedef std::map<std::string, std::string> BamMap;
 
+static int min_isize_for_disc = 0;
+
 static BamIndexMap bindices;
 static faidx_t * findex;
 static faidx_t * findex_viral;
@@ -123,6 +125,8 @@ namespace opt {
   static int max_mapq_possible;
   //  static std::string pon = "";
 
+  static double sd_disc_cutoff = 1.96;
+
   static int gap_open_penalty = 6;
   static int gap_extension_penalty = 1;
   static int mismatch_penalty = 4;
@@ -133,7 +137,7 @@ namespace opt {
   // parameters for filtering reads
   //static std::string rules = "global@!hardclip;!duplicate;!qcfail;phred[4,100];length[LLL,1000]%region@WG%!isize[0,800]%ic%clip[10,1000]%ins[1,1000];mapq[0,100]%del[1,1000];mapq[1,1000]%mapped;!mate_mapped;mapq[1,1000]%mate_mapped;!mapped";
   //static std::string rules = "global@!hardclip;!duplicate;!qcfail;phred[4,100]%region@WG%discordant[0,800]%ic%clip[10,1000]%ins[1,1000];mapq[0,100]%del[1,1000];mapq[1,1000]%mapped;!mate_mapped;mapq[1,1000]%mate_mapped;!mapped";
-  static std::string rules = "{\"global\" : {\"duplicate\" : false, \"qcfail\" : false}, \"\" : { \"rules\" : [{\"isize\" : [800,0]},{\"rr\" : true},{\"ff\" : true}, {\"rf\" : true}, {\"ic\" : true}, {\"clip\" : [5, 1000], \"phred\" : [4,100]}, {\"ins\" : [1,1000]}, {\"del\" : [1,1000]}, {\"mapped\": true , \"mate_mapped\" : false}, {\"mate_mapped\" : true, \"mapped\" : false}]}}";
+  static std::string rules = "{\"global\" : {\"duplicate\" : false, \"qcfail\" : false}, \"\" : { \"rules\" : [{\"isize\" : [LLHI,0]},{\"rr\" : true},{\"ff\" : true}, {\"rf\" : true}, {\"ic\" : true}, {\"clip\" : [5, 1000], \"phred\" : [4,100]}, {\"ins\" : [1,1000]}, {\"del\" : [1,1000]}, {\"mapped\": true , \"mate_mapped\" : false}, {\"mate_mapped\" : true, \"mapped\" : false}]}}";
   //static std::string rules = "{\"global\" : {\"duplicate\" : false, \"qcfail\" : false}, \"\" : { \"rules\" : [{\"isize\" : [800,0]},{\"rr\" : true},{\"ff\" : true}, {\"rf\" : true, \"isize\" : [LLHI,LLLO]}, {\"ic\" : true}, {\"clip\" : [5, 1000], \"phred\" : [4,100]}, {\"ins\" : [1,1000]}, {\"del\" : [1,1000]}, {\"mapped\": true , \"mate_mapped\" : false}, {\"mate_mapped\" : true, \"mapped\" : false}]}}";
   //static std::string rules = "global@!duplicate;!qcfail%region@WG%discordant[0,600]%ic%clip[5,1000];phred[4,100]%ins[1,1000]%del[1,1000]%mapped;!mate_mapped%mate_mapped;!mapped";
   static int num_to_sample = 2000000;
@@ -211,7 +215,7 @@ enum {
   OPT_DEVEL_REUSE_CONTIGS
 };
 
-static const char* shortopts = "hzxt:n:p:v:r:G:r:e:g:k:c:a:m:B:D:Y:S:P:L:O:I";
+static const char* shortopts = "hzxt:n:p:v:r:G:r:e:g:k:c:a:m:B:D:Y:S:P:L:O:Is:";
 static const struct option longopts[] = {
   { "help",                    no_argument, NULL, 'h' },
   { "tumor-bam",               required_argument, NULL, 't' },
@@ -228,6 +232,7 @@ static const struct option longopts[] = {
   { "min-overlap",             required_argument, NULL, 'm' },
   { "dbsnp-vcf",               required_argument, NULL, 'D' },
   { "motif-filter",            required_argument, NULL, 'S' },
+  { "disc-sd-cutoff",            required_argument, NULL, 's' },
   { "mate-lookup-min",         required_argument, NULL, 'L' },
   { "blat-ooc",                required_argument, NULL, 'O' },
   { "g-zip",                 no_argument, NULL, 'z' },
@@ -294,6 +299,7 @@ static const char *RUN_USAGE_MESSAGE =
 "  -V, --microbial-genome               Path to indexed reference genome of microbial sequences to be used by BWA-MEM to filter reads.\n"
 "  -z, --g-zip                          Gzip and tabix the output VCF files. Default: off\n"
 "  -L, --min-lookup-min                 Minimum number of somatic reads required to attempt mate-region lookup [3]\n"
+"  -s, --disc-sd-cutoff                 Number of standard deviations of calculated insert-size distribution to consider discordant. [1.96]\n"
 "      --no-interchrom-lookup           Don't do mate lookup for inter-chromosomal translocations. This increased run time at cost of power for translocations.\n"
 "      --kmer-correct                   Perform k-mer based error correction on the reads. Useful for noisy data, need to balance with error rate (w/kmer can have lower error rate). [off]\n"
 "      --r2c-bam                        Output a BAM of reads that aligned to a contig, and fasta of kmer corrected sequences\n"
@@ -353,6 +359,7 @@ void runSnowman(int argc, char** argv) {
     "    Num assembly rounds: " << opt::num_assembly_rounds << std::endl << 
     "    Num reads to sample: " << opt::num_to_sample << std::endl << 
     "    Remove clipped reads with adapters? " << (opt::adapter_trim ? "TRUE" : "FALSE") << std::endl << 
+    "    Discordant cluster std-dev cutoff:  " << opt::sd_disc_cutoff << std::endl << 
     "    Minimum number of reads for mate lookup " << opt::mate_lookup_min << std::endl <<
     "    LOD cutoff (artifact vs real) :  " << opt::lod << std::endl << 
     "    LOD cutoff (somatic vs germline, at DBSNP):  " << opt::lod_db << std::endl << 
@@ -473,6 +480,8 @@ void runSnowman(int argc, char** argv) {
     std::cerr << "Chunk was <= 0: READING IN WHOLE GENOME AT ONCE" << std::endl;
 
   //int len_cutoff = 0.5 * opt::readlen;
+  min_isize_for_disc = std::floor(t_params.mean_isize + t_params.sd_isize * opt::sd_disc_cutoff);
+  opt::rules = myreplace(opt::rules, "LLHI", std::to_string(min_isize_for_disc));
   //opt::rules = myreplace(opt::rules, "LLLO", std::to_string((int)std::floor((double)opt::readlen * 0.8)));
   //opt::rules = myreplace(opt::rules, "LLHI", std::to_string((int)std::floor((double)opt::readlen * 1.2)));
 
@@ -724,6 +733,7 @@ void parseRunOptions(int argc, char** argv) {
 	//case 'M': arg >> opt::microbegenome; break;
       case 'D': arg >> opt::dbsnp; break;
     case 'S': arg >> opt::motif_exclude; break;
+    case 's': arg >> opt::sd_disc_cutoff; break;
       case 'r': 
 	arg >> opt::rules; 
 	if (opt::rules == "all")
@@ -942,7 +952,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
   //  if (r.Qname() == "D0ENMACXX111207:1:2207:17771:106943")
   //    std::cerr << " FOUND HER " << std::endl;
 
-  SnowTools::DiscordantClusterMap dmap = SnowTools::DiscordantCluster::clusterReads(bav_this, region, opt::max_mapq_possible);
+  SnowTools::DiscordantClusterMap dmap = SnowTools::DiscordantCluster::clusterReads(bav_this, region, opt::max_mapq_possible, min_isize_for_disc);
   
   // if we have discordant cluster on the edge, buffer region
   /*  SnowTools::GenomicRegion left_edge(region.chr, region.pos1, region.pos1 + 500);
