@@ -587,7 +587,9 @@ void runSnowman(int argc, char** argv) {
     opt::args += std::string(argv[i]) + " ";
 
   // start the timer
+#ifndef __APPLE__
   clock_gettime(CLOCK_MONOTONIC, &start);
+#endif
 
   // reuse contigs
   if (!opt::reuse_contigs.empty())

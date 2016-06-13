@@ -87,11 +87,7 @@ class Contig {
  
  private: 
    std::string m_name;
-   //std::string m_seq;
    DNAEncodedString m_seq;
-   //vector<BamTools::BamAlignment> m_bamalignments;
-   int m_contig_read_count = 0; // count of reads that actually built contig
-
 };
 
 typedef std::vector<Contig> ContigVector;
