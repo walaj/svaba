@@ -14,7 +14,7 @@
 //#include "boost/archive/text_iarchive.hpp"
 
 #include "SnowTools/MiniRules2.h"
-#include "SnowTools/BLATWrapper.h"
+//#include "SnowTools/BLATWrapper.h"
 
 #include "vcf.h"
 #include "PONFilter.h"
@@ -69,7 +69,7 @@ static int min_dscrd_size_for_variant = 0; // set a min size for what we can cal
 static SnowTools::BamWalker bwalker, r2c_writer, er_writer, b_microbe_writer, b_allwriter, blat_allwriter;
 static SnowTools::BWAWrapper * microbe_bwa = nullptr;
 static SnowTools::BWAWrapper * main_bwa = nullptr;
-static SnowTools::BLATWrapper * main_blat = nullptr;
+//static SnowTools::BLATWrapper * main_blat = nullptr;
 static SnowTools::MiniRulesCollection * mr;
 static SnowTools::GRC blacklist, indel_blacklist_mask;
 static SnowTools::DBSnpFilter * dbsnp_filter;
@@ -542,13 +542,13 @@ void runSnowman(int argc, char** argv) {
   if (opt::run_blat) {
     ss << "...loading the human reference sequence for BLAT" << std::endl;
     SnowmanUtils::print(ss, log_file, opt::verbose > 0);
-    main_blat = new SnowTools::BLATWrapper();
+    //main_blat = new SnowTools::BLATWrapper();
 
     // add a header made from the index, so BLAT can convert between reference names and ID #s
-    bam_hdr_t * bwa_header = main_bwa->HeaderFromIndex(); // creates new one in memory, need to destroy bwa_header
+    //bam_hdr_t * bwa_header = main_bwa->HeaderFromIndex(); // creates new one in memory, need to destroy bwa_header
 
-    main_blat->addHeader(bwa_header);
-    main_blat->loadIndex(opt::refgenome, opt::ooc);
+    //main_blat->addHeader(bwa_header);
+    //main_blat->loadIndex(opt::refgenome, opt::ooc);
 
     // serialize it
     //std::ofstream brf("blatref.dat");
@@ -556,8 +556,8 @@ void runSnowman(int argc, char** argv) {
     //oa << (*main_blat);
 
     // open the BLAT writer
-    blat_allwriter.SetWriteHeader(bwa_header); // passes off to smart pointer, which will destory it
-    blat_allwriter.OpenWriteBam(opt::analysis_id + ".blat.bam"); // open and write header
+    //blat_allwriter.SetWriteHeader(bwa_header); // passes off to smart pointer, which will destory it
+    //blat_allwriter.OpenWriteBam(opt::analysis_id + ".blat.bam"); // open and write header
   }
 
   // open the mutex
@@ -1157,7 +1157,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 	  }
 
 	// align with BLAT
-	if (main_blat) {
+	/*	if (main_blat) {
 	  std::set<std::string> sset;
 	  for (auto& r : ct_alignments) {
 	    std::string q = r.Qname();
@@ -1177,7 +1177,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 	      std::cerr << " FAILED TO PARSE CHR FOR BLAT " << std::endl;
 	    }
 	  }
-
+	*/
 	// remove human alignments that are not as good as microbe
 	// that is, remove human alignments that intersect with microbe. 
 	// We can do this because we already removed microbial alignments taht 
