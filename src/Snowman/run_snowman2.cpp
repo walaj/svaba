@@ -35,8 +35,7 @@
 // {1_A_B, {c_1_A_B_#, SEQ} }
 static std::unordered_map<std::string, std::unordered_map<std::string, std::string>> reused_contigs;
 
-static BamParams t_params;
-static BamParams n_params;
+static std::unordered_map<std::string, BamParamsMap> params_map; // key is bam id (t000), value is map with read group as key
 
 static SnowTools::GRC bad_mate_regions;
 
@@ -63,6 +62,9 @@ static faidx_t * findex;
 static faidx_t * findex_viral;
 typedef std::unordered_map<std::string, size_t> SeqHash;
 static SeqHash over_represented_sequences;
+
+static int min_dscrd_size_for_variant = 0; // set a min size for what we can call with discordant reads only. 
+// something like max(mean + 3*sd) for all read groups
 
 static SnowTools::BamWalker bwalker, r2c_writer, er_writer, b_microbe_writer, b_allwriter, blat_allwriter;
 static SnowTools::BWAWrapper * microbe_bwa = nullptr;
@@ -125,7 +127,7 @@ namespace opt {
   static int max_mapq_possible;
   //  static std::string pon = "";
 
-  static double sd_disc_cutoff = 1.96;
+  static double sd_disc_cutoff = 2.5;
 
   static int gap_open_penalty = 6;
   static int gap_extension_penalty = 1;
@@ -137,7 +139,8 @@ namespace opt {
   // parameters for filtering reads
   //static std::string rules = "global@!hardclip;!duplicate;!qcfail;phred[4,100];length[LLL,1000]%region@WG%!isize[0,800]%ic%clip[10,1000]%ins[1,1000];mapq[0,100]%del[1,1000];mapq[1,1000]%mapped;!mate_mapped;mapq[1,1000]%mate_mapped;!mapped";
   //static std::string rules = "global@!hardclip;!duplicate;!qcfail;phred[4,100]%region@WG%discordant[0,800]%ic%clip[10,1000]%ins[1,1000];mapq[0,100]%del[1,1000];mapq[1,1000]%mapped;!mate_mapped;mapq[1,1000]%mate_mapped;!mapped";
-  static std::string rules = "{\"global\" : {\"duplicate\" : false, \"qcfail\" : false}, \"\" : { \"rules\" : [{\"isize\" : [LLHI,0]},{\"rr\" : true},{\"ff\" : true}, {\"rf\" : true}, {\"ic\" : true}, {\"clip\" : [5, 1000], \"phred\" : [4,100]}, {\"ins\" : [1,1000]}, {\"del\" : [1,1000]}, {\"mapped\": true , \"mate_mapped\" : false}, {\"mate_mapped\" : true, \"mapped\" : false}]}}";
+  //static std::string rules = "{\"global\" : {\"duplicate\" : false, \"qcfail\" : false}, \"\" : { \"rules\" : [{\"isize\" : [LLHI,0]},{\"rr\" : true},{\"ff\" : true}, {\"rf\" : true}, {\"ic\" : true}, {\"clip\" : [5, 1000], \"phred\" : [4,100]}, {\"ins\" : [1,1000]}, {\"del\" : [1,1000]}, {\"mapped\": true , \"mate_mapped\" : false}, {\"mate_mapped\" : true, \"mapped\" : false}]}}";
+  static std::string rules = "{\"global\" : {\"duplicate\" : false, \"qcfail\" : false}, \"\" : { \"rules\" : [FRRULES,{\"rr\" : true},{\"ff\" : true}, {\"rf\" : true}, {\"ic\" : true}, {\"clip\" : 5, \"phred\" : 4}, {\"ins\" : true}, {\"del\" : true}, {\"mapped\": true , \"mate_mapped\" : false}, {\"mate_mapped\" : true, \"mapped\" : false}]}}";
   //static std::string rules = "{\"global\" : {\"duplicate\" : false, \"qcfail\" : false}, \"\" : { \"rules\" : [{\"isize\" : [800,0]},{\"rr\" : true},{\"ff\" : true}, {\"rf\" : true, \"isize\" : [LLHI,LLLO]}, {\"ic\" : true}, {\"clip\" : [5, 1000], \"phred\" : [4,100]}, {\"ins\" : [1,1000]}, {\"del\" : [1,1000]}, {\"mapped\": true , \"mate_mapped\" : false}, {\"mate_mapped\" : true, \"mapped\" : false}]}}";
   //static std::string rules = "global@!duplicate;!qcfail%region@WG%discordant[0,600]%ic%clip[5,1000];phred[4,100]%ins[1,1000]%del[1,1000]%mapped;!mate_mapped%mate_mapped;!mapped";
   static int num_to_sample = 2000000;
@@ -439,28 +442,41 @@ void runSnowman(int argc, char** argv) {
   for (auto& b : opt::bam)
     prefixes.insert(b.first);
 
-  // learn some parameters
-  LearnBamParams tparm(opt::tumor_bam);
-  tparm.learnParams(t_params, opt::num_to_sample);
-  ss << opt::tumor_bam << std::endl << t_params << std::endl;
-  opt::readlen = t_params.readlen;
-  if (opt::assemb::minOverlap < 0) {
-    opt::assemb::minOverlap = 0.4 * t_params.readlen;
+  // learn the bam
+  min_dscrd_size_for_variant = 0; // set a min size for what we can call with discordant reads only. 
+  for (auto& b : opt::bam) {
+    LearnBamParams parm(b.second);
+    params_map[b.first] = BamParamsMap();
+    parm.learnParams(params_map[b.first], opt::num_to_sample);
+    for (auto& i : params_map[b.first]) {
+      opt::readlen = std::max(opt::readlen, i.second.readlen);
+      opt::max_mapq_possible = std::max(opt::max_mapq_possible, i.second.max_mapq);
+      min_dscrd_size_for_variant = std::max(min_dscrd_size_for_variant, (int)std::floor(i.second.mean_isize + i.second.sd_isize * opt::sd_disc_cutoff * 1.5)); // if SD for grabbing reads is 2, min detection is SD = 3
+    }
+
+    ss << "BAM PARAMS FOR: " << b.first << "--" << b.second << std::endl;
+    for (auto& i : params_map[b.first])
+      ss << i.second << std::endl;
   }
-  opt::max_mapq_possible = t_params.max_mapq;
+
+  // check if differing read lengths or max mapq
+  for (auto& a : params_map) {
+    for (auto& i : a.second) {
+      if (i.second.readlen != opt::readlen)
+	std::cerr << "!!!! WARNING. Multiple readlengths mixed: " << i.first << "--" << i.second.readlen << std::endl;
+      if (i.second.max_mapq != opt::max_mapq_possible)
+	std::cerr << "!!!! WARNING. Multiple max mapq mixed: " << i.first << "--" << i.second.max_mapq << std::endl;
+    }
+  }
+
+  ss << "...min discordant-only variant size " << min_dscrd_size_for_variant << std::endl;
+
+  // set the min overlap
+  if (opt::assemb::minOverlap < 0) 
+    opt::assemb::minOverlap = (0.5 * opt::readlen) < 30 ? 30 : 0.5 * opt::readlen;
+
   ss << "...found read length of " << opt::readlen << ". Min Overlap is " << opt::assemb::minOverlap << std::endl;
-  ss << "...isize distribution (tumor):  " << t_params.mean_isize << " (" << t_params.sd_isize << ") Median: " << t_params.median_isize << std::endl;
-  ss << "...isize distribution (normal): " << n_params.mean_isize << " (" << n_params.sd_isize << ") Median: " << n_params.median_isize << std::endl;
-  ss << "...max read MAPQ detected (tumor): " << opt::max_mapq_possible << std::endl;
-  if (opt::assemb::minOverlap < 30)
-    opt::assemb::minOverlap = 30;
-  if (!opt::normal_bam.empty()) {
-    LearnBamParams nparm(opt::normal_bam);
-    nparm.learnParams(n_params, opt::num_to_sample);
-    ss << opt::normal_bam << std::endl << n_params << std::endl;
-    if (t_params.readlen != n_params.readlen)
-      ss << "!!!!! Tumor and normal readlengths differ. Tumor: " << t_params.readlen << " Normal: " << n_params.readlen << std::endl;
-  }
+  ss << "...max read MAPQ detected: " << opt::max_mapq_possible << std::endl;
   SnowmanUtils::print(ss, log_file, opt::verbose);
   
   // get the seed length for printing
@@ -479,11 +495,22 @@ void runSnowman(int argc, char** argv) {
   else
     std::cerr << "Chunk was <= 0: READING IN WHOLE GENOME AT ONCE" << std::endl;
 
-  //int len_cutoff = 0.5 * opt::readlen;
-  min_isize_for_disc = std::floor(t_params.mean_isize + t_params.sd_isize * opt::sd_disc_cutoff);
-  opt::rules = myreplace(opt::rules, "LLHI", std::to_string(min_isize_for_disc));
-  //opt::rules = myreplace(opt::rules, "LLLO", std::to_string((int)std::floor((double)opt::readlen * 0.8)));
-  //opt::rules = myreplace(opt::rules, "LLHI", std::to_string((int)std::floor((double)opt::readlen * 1.2)));
+  // loop through and construct the readgroup rules
+  std::stringstream ss_rules;
+  std::unordered_set<std::string> rg_seen;
+  for (auto& a : params_map) {
+    for (auto& i : a.second) {
+      if (!rg_seen.count(i.second.read_group)) {
+	ss_rules << "{\"isize\" : [ " << std::floor(i.second.mean_isize + i.second.sd_isize * opt::sd_disc_cutoff) << ",0], \"RG\" : \"" << i.second.read_group << "\"},";
+	rg_seen.insert(i.second.read_group);
+      }
+    } 
+  }
+  
+  std::string string_rules = ss_rules.str();
+  if (!string_rules.empty()) // cut last comma
+    string_rules = string_rules.substr(0, string_rules.length() - 1);
+  opt::rules = myreplace(opt::rules, "FRRULES", string_rules);
 
   // set the MiniRules to be applied to each region
   ss << opt::rules << std::endl;
@@ -867,7 +894,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 	  walkers[b.first].m_limit = 1000;
 	  walkers[b.first].setBamWalkerRegions(somatic_mate_regions.asGenomicRegionVector(), bindices[b.first]);
 	  walkers[b.first].get_coverage = false;
-	  walkers[b.first].readlen = (b.first == "n") ? n_params.readlen : t_params.readlen;
+	  walkers[b.first].readlen = opt::readlen; //(b.first == "n") ? params_map[b.first].back().second.readlen; //n_params.readlen : t_params.readlen;
 	  walkers[b.first].max_cov = opt::max_cov;
 	  walkers[b.first].get_mate_regions = jjj != MAX_MATE_ROUNDS;
 	  badd.concat(walkers[b.first].readBam(&log_file, dbsnp_filter));
@@ -1085,7 +1112,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 #ifndef NO_LOAD_INDEX
       for (auto& i : all_contigs_this) {
 
-	if ((int)i.getSeq().length() < (t_params.readlen * 1.15))
+	if ((int)i.getSeq().length() < (opt::readlen * 1.15))
 	  continue;
 	
 	BamReadVector ct_alignments;
@@ -1315,7 +1342,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
     std::cerr << "...scoring breakpoints" << std::endl;
 
   for (auto& i : bp_glob) {
-    i.scoreBreakpoint(opt::lod, opt::lod_db, opt::lod_no_db, opt::lod_germ);
+    i.scoreBreakpoint(opt::lod, opt::lod_db, opt::lod_no_db, opt::lod_germ, min_dscrd_size_for_variant);
     //std::cout << " before BP " << i.toFileString() << std::endl;
   }
 
@@ -1614,8 +1641,9 @@ void alignReadsToContigs(SnowTools::BWAWrapper& bw, const SnowTools::USeqVector&
 SnowmanBamWalker __make_walkers(const std::string& p, const std::string& b, const SnowTools::GenomicRegion& region, 
 				int& tcount, int& ncount) {
   
-  int readlen = p.at(0) == 't' ? t_params.readlen : n_params.readlen;
-  SnowmanBamWalker walk(b, main_bwa, readlen, p, blacklist);
+  //int readlen = p.at(0) == 't' ? t_params.readlen : n_params.readlen;
+  SnowmanBamWalker walk(b, main_bwa, opt::readlen, p, blacklist);
+  //SnowmanBamWalker walk(b, main_bwa, readlen, p, blacklist);
   walk.adapter_trim = opt::adapter_trim;
   walk.max_cov = opt::max_cov;
 

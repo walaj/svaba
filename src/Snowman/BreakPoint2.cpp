@@ -877,7 +877,7 @@ namespace SnowTools {
 
   }
 
-  void BreakPoint::__score_dscrd() {
+  void BreakPoint::__score_dscrd(int min_dscrd_size) {
 
     t.alt = dc.tcount;
     n.alt = dc.ncount;
@@ -886,8 +886,10 @@ namespace SnowTools {
     int hq_disc_count = dc.ncount_hq+ dc.tcount_hq;
     int disc_cutoff = 6;
     int hq_disc_cutoff = 5; // reads with both pair-mates have high MAPQ
-
-    if (hq_disc_count < hq_disc_cutoff && getSpan() > 1e5 && (std::min(dc.mapq1, dc.mapq2) < 30 || std::max(dc.mapq1, dc.mapq2) <= 30)) // mapq here is READ mapq (37 std::max)
+    
+    if (getSpan() >0 && getSpan() < min_dscrd_size)
+      confidence = "LOWSPANDSCRD";
+    else if (hq_disc_count < hq_disc_cutoff && getSpan() > 1e5 && (std::min(dc.mapq1, dc.mapq2) < 30 || std::max(dc.mapq1, dc.mapq2) <= 30)) // mapq here is READ mapq (37 std::max)
       confidence = "LOWMAPQDISC";
     else if (getSpan() <= 1e5 && (std::min(dc.mapq1, dc.mapq2) < 25))
       confidence = "LOWMAPQDISC";
@@ -952,7 +954,7 @@ namespace SnowTools {
     
   }
 
-  void BreakPoint::scoreBreakpoint(double LOD_CUTOFF, double DBCUTOFF, double NODBCUTOFF, double LRCUTOFF) {
+  void BreakPoint::scoreBreakpoint(double LOD_CUTOFF, double DBCUTOFF, double NODBCUTOFF, double LRCUTOFF, int min_dscrd_size) {
     
     // set the evidence (INDEL, DSCRD, etc)
     __set_evidence();
@@ -1000,10 +1002,10 @@ namespace SnowTools {
     if (evidence == "ASDIS" || (evidence == "COMPL" && (dc.ncount + dc.tcount))) 
       __score_assembly_dscrd();
     if (evidence == "DSCRD")
-      __score_dscrd();
+      __score_dscrd(min_dscrd_size);
     if (evidence == "ASDIS" && confidence != "PASS") {
       evidence = "DSCRD";
-      __score_dscrd();
+      __score_dscrd(min_dscrd_size);
     }
 
     if (evidence == "INDEL") 

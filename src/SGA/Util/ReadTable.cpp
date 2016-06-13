@@ -162,9 +162,7 @@ size_t ReadTable::countSumLengths() const
 {
   size_t sum = 0;
   for(size_t i = 0; i < m_table.size(); ++i)
-    {
-      sum += m_table[i].seq.length();
-    }
+    sum += m_table[i].seq.length();
   return sum;
 }
 

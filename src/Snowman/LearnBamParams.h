@@ -3,26 +3,44 @@
 
 #include <string>
 #include <ostream>
+#include <unordered_map>
+#include <vector>
 
 struct BamParams {
   
-  BamParams() : readlen(0), frac_clip(0), frac_disc(0), frac_bad(0), max_mapq(0) {}
+  BamParams() {}
+
   BamParams(int r, double fc, double fd, double fb, double m) : readlen(r), frac_clip(fc), frac_disc(fd), frac_bad(fb), max_mapq(m) {}
+
+  BamParams(const std::string& rg) : read_group(rg) {}
+
+  void collectStats();
 
   friend std::ostream& operator<<(std::ostream& out, const BamParams& p);
   
-  int readlen;
-  double frac_clip;
-  double frac_disc;
-  double frac_bad;
-  int max_mapq;
-  double mean_cov;
+  int visited = 0;
+  int num_clip = 0;
+  int num_disc = 0;
+  int num_bad = 0;
+
+  std::vector<int> isize_vec;
+
+  int readlen = 0;
+  double frac_clip = 0;
+  double frac_disc = 0;
+  double frac_bad = 0;
+  int max_mapq = 0;
+  double mean_cov = 0;
 
   double mean_isize = 0;
   double median_isize = 0;
   double sd_isize = 0; 
+
+  std::string read_group;
   
 };
+
+typedef std::unordered_map<std::string, BamParams> BamParamsMap;
 
 class LearnBamParams {
 
@@ -31,9 +49,13 @@ class LearnBamParams {
   
   void learnParams(BamParams& p, int max_count);
 
+  void learnParams(BamParamsMap& p, int max_count);
+
  private:
   std::string bam;
 
 };
+
+
 
 #endif
