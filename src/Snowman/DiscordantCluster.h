@@ -18,7 +18,7 @@ namespace SnowTools
   class DiscordantCluster 
   {
 
-    friend class BreakPoint;
+    friend struct BreakPoint;
     
   public:
 

@@ -109,7 +109,7 @@ namespace SnowTools {
    */
   class AlignedContig {
     
-    friend class AlignmentFragment;
+    friend struct AlignmentFragment;
     
   public:  
     

@@ -31,7 +31,7 @@ bool __good_contig(const SnowTools::BamReadVector& brv, const SnowTools::Genomic
   */
   
   // all hard clip?
-  int hc = 0;
+  size_t hc = 0;
   for (auto& i : brv)
     if (i.NumHardClip())
       ++hc;
@@ -204,7 +204,9 @@ void AssemblyBamWalker::walkDiscovar()
   SnowTools::GenomicRegionVector regions;
 
   // start the timer
+#ifndef __APPLE__
   clock_gettime(CLOCK_MONOTONIC, &start);
+#endif
 
   // open the mutex
   if (pthread_mutex_init(&snow_lock, NULL) != 0) {

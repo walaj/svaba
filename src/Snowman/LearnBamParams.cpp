@@ -1,5 +1,6 @@
 #include "LearnBamParams.h"
 
+#include <numeric>
 #include "SnowTools/BamWalker.h"
 
 std::ostream& operator<<(std::ostream& out, const BamParams& p) {

@@ -9,7 +9,7 @@
 
 #include "PonWalker.h"
 
-static pthread_mutex_t lock;
+static pthread_mutex_t gp_lock;
 
 using namespace std;
 
@@ -261,7 +261,7 @@ void runGeneratePON(int argc, char** argv) {
   SnowTools::MiniRulesCollection * mr = new SnowTools::MiniRulesCollection(rl);
   
   // open the mutex
-  if (pthread_mutex_init(&lock, NULL) != 0) {
+  if (pthread_mutex_init(&gp_lock, NULL) != 0) {
       printf("\n mutex init failed\n");
       return;
   }
@@ -289,7 +289,7 @@ void runGeneratePON(int argc, char** argv) {
       std::cerr << "Cannot read bam " << b << std::endl;\
       std::cerr << "!!!!!!!!!!!!!!!!!!!!!!!!" << std::endl;      
     }
-    PONWorkItem * item = new PONWorkItem(b, &outr, &lock, id++, mr, &file_regions, &out_bw) ;
+    PONWorkItem * item = new PONWorkItem(b, &outr, &gp_lock, id++, mr, &file_regions, &out_bw) ;
     queue.add(item);
   }
 
