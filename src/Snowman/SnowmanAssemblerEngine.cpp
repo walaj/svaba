@@ -29,10 +29,13 @@ void SnowmanAssemblerEngine::fillReadTable(const std::vector<std::string>& r) {
 
   int count = 0;
   for (auto& i : r) {
+
+    if (i.length() < m_min_overlap)
+      continue;
     
     SeqItem si;
     
-    assert(i.length());
+    assert(i.length() && i.length() >= m_min_overlap);
     si.id = "read_" + std::to_string(++count); 
     si.seq = i;
     
@@ -65,7 +68,7 @@ void SnowmanAssemblerEngine::fillReadTable(SnowTools::BamReadVector& r)
     assert(sr.length());
     assert(seq.length());
 
-    if (hasRepeat(seq))
+    if (hasRepeat(seq) || seq.length() < m_min_overlap)
       continue;
 
     si.id = sr;
@@ -128,7 +131,12 @@ bool SnowmanAssemblerEngine::performAssembly(int num_assembly_rounds)
 #endif    
     
     // do the second round (on assembled contigs)
-    ReadTable pRTc0(m_contigs);
+    ContigVector tmpc;
+    for (auto& j : m_contigs)
+      if (j.getLength() > m_readlen)
+	  tmpc.push_back(j);
+    
+    ReadTable pRTc0(tmpc);
     m_contigs.clear();
     doAssembly(&pRTc0, m_contigs, yy);      
     
@@ -151,8 +159,11 @@ void SnowmanAssemblerEngine::doAssembly(ReadTable *pRT, ContigVector &contigs, i
   int min_overlap = m_min_overlap;
   int cutoff = 0;
 
-  if (pass > 0) 
-    errorRate = 0;
+  if (pass > 0) {
+    errorRate = 0.015f; // up to one bp mismatch
+    m_error_rate = errorRate;
+    min_overlap = 70;
+  }
       
   bool exact = errorRate < 0.001f;
 
@@ -182,7 +193,7 @@ void SnowmanAssemblerEngine::doAssembly(ReadTable *pRT, ContigVector &contigs, i
   int seedStride = 0;
   if (!exact)
     calculateSeedParameters(m_readlen, min_overlap, seedLength, seedStride);
-  
+
   SnowmanOverlapAlgorithm* pOverlapper = new SnowmanOverlapAlgorithm(pBWT_nd, pRBWT_nd, 
 								     errorRate, seedLength,
 								     seedStride, bIrreducibleOnly);
@@ -210,9 +221,8 @@ void SnowmanAssemblerEngine::doAssembly(ReadTable *pRT, ContigVector &contigs, i
     read.id = si.id;
     read.seq = si.seq;
     OverlapBlockList obl;
-    
+
     OverlapResult rr = pOverlapper->overlapRead(read, min_overlap, &obl);
-    
     pOverlapper->writeOverlapBlocks(hits_stream, workid, rr.isSubstring, &obl);
 
     SnowmanASQG::VertexRecord record(read.id, read.seq.toString());
@@ -233,6 +243,7 @@ void SnowmanAssemblerEngine::doAssembly(ReadTable *pRT, ContigVector &contigs, i
     bool isSubstring; 
     OverlapVector ov;
     OverlapCommon::parseHitsString(line, pQueryRIT, pQueryRIT, pSAf_nd, pSAr_nd, bIsSelfCompare, readIdx, totalEntries, ov, isSubstring);
+
     for(OverlapVector::iterator iter = ov.begin(); iter != ov.end(); ++iter)
     {
        SnowmanASQG::EdgeRecord edgeRecord(*iter);
@@ -240,7 +251,6 @@ void SnowmanAssemblerEngine::doAssembly(ReadTable *pRT, ContigVector &contigs, i
     }
 
   }
-  
   
   // Get the number of strings in the BWT, this is used to pre-allocated the read table
   delete pOverlapper;

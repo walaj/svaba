@@ -277,7 +277,7 @@ namespace SnowTools {
    
    /*! Score a breakpoint with a QUAL score, and as somatic or germline
     */
-   void scoreBreakpoint(double LOD_CUTOFF, double DBCUTOFF, double NODBCUTOFF, double LRCUTOFF);
+   void scoreBreakpoint(double LOD_CUTOFF, double DBCUTOFF, double NODBCUTOFF, double LRCUTOFF, int min_dscrd_size);
    
    /*! Compute the allelic fraction (tumor and normal) for this BreakPoint.
     *
@@ -372,7 +372,7 @@ namespace SnowTools {
 
    friend std::ostream& operator<<(std::ostream& out, const BreakPoint& bp);
    
-   void __score_dscrd();
+   void __score_dscrd(int min_dscrd_size);
    void __score_assembly_only();
    void __score_assembly_dscrd();
    void __score_indel(double LOD_CUTOFF);

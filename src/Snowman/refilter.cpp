@@ -233,7 +233,7 @@ void runRefilterBreakpoints(int argc, char** argv) {
 	}
 
 	// score them
-	bp->scoreBreakpoint(opt::lod, opt::lod_db, opt::lod_no_db, opt::lod_germ);
+	bp->scoreBreakpoint(opt::lod, opt::lod_db, opt::lod_no_db, opt::lod_germ, 0);
 	os_allbps_r << bp->toFileString(/*opt::no_reads*/false) << std::endl;
 	delete bp;
       }

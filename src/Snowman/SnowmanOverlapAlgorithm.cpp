@@ -56,7 +56,7 @@ OverlapResult SnowmanOverlapAlgorithm::overlapReadInexact(const SeqRecord& read,
 
 
 #ifdef DEBUGOVERLAP
-    std::cout << "WORKING OverlapBlockList Length SUFFIX: " << obWorkingList.size() << std::endl;
+    std::cout << "WORKING OverlapBlockList Length SUFFIX: " << obWorkingList.size() << " VALID " << valid << std::endl;
 #endif       
 
     if(valid)
@@ -377,6 +377,9 @@ bool SnowmanOverlapAlgorithm::findOverlapBlocksInexact(const std::string& w, con
     assert(actual_seed_stride != 0);
 
     createSearchSeeds(w, pBWT, pRevBWT, actual_seed_length, actual_seed_stride, pCurrVector);
+#ifdef DEBUGOVERLAP
+    std::cout << "SeedVectorLen: " << pCurrVector->size() << std::endl;
+#endif
     extendSeedsExactRight(w, pBWT, pRevBWT, ED_RIGHT, pCurrVector, pNextVector);
     pCurrVector->clear();
     pCurrVector->swap(*pNextVector);
@@ -413,6 +416,8 @@ bool SnowmanOverlapAlgorithm::findOverlapBlocksInexact(const std::string& w, con
                     BWTIntervalPair probe = align.ranges;
                     BWTAlgorithms::updateBothL(probe, '$', pBWT);
                     
+
+
                     // The probe interval contains the range of proper prefixes
                     if(probe.interval[1].isValid())
                     {

@@ -32,7 +32,6 @@ void OverlapCommon::parseHitsString(const std::string& hitString,
     size_t numBlocks;
     convertor >> readIdx >> isSubstring >> numBlocks;
 
-    //std::cout << "<Read> idx: " << readIdx << " count: " << numBlocks << "\n";
     for(size_t i = 0; i < numBlocks; ++i)
     {
         // Read the block
@@ -52,6 +51,7 @@ void OverlapCommon::parseHitsString(const std::string& hitString,
             // The index of the second read is given as the position in the SuffixArray index
             const ReadInfo& targetInfo = pTargetRIT->getReadInfo(pCurrSAI->get(saIdx).getID());
 
+	    //std::cout << " HERE RER " << queryInfo.id << " " << targetInfo.id << " " << queryInfo.length << " " << targetInfo.length << "\n";
             // Skip self alignments and non-canonical (where the query read has a lexo. higher name)
             if(queryInfo.id != targetInfo.id)
             {    

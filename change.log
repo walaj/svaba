@@ -191,4 +191,6 @@ NODBCUTOFF 8 -> 2.5
 	first/second flag.
 	-- add a pad of 10 when deduplicating rearrangements in vcf.cpp
 	-- added splitcounter module
-	-- added NM and MAPQ filters to assembly and assembly_dscd
+	-- added NM and MAPQ filters to assembly and assembly_dscrd
+	-- read-group specific filtering rules and parameter learning, and discordant size cutoff
+
