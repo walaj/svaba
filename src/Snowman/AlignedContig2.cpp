@@ -672,8 +672,8 @@ namespace SnowTools {
       //std::cerr << " hash " << st << " nmap.size() " << nmap.size() << " tmap.size() " << tmap.size() << std::endl;
 
       // check if this breakpoint from assembly is in the cigarmap
-      CigarMap::const_iterator ffn = nmap.find(st);
-      CigarMap::const_iterator fft = tmap.find(st);
+      //CigarMap::const_iterator ffn = nmap.find(st);
+      //CigarMap::const_iterator fft = tmap.find(st);
 
       // if it is, add it
       //if (ffn != nmap.end())
@@ -685,7 +685,7 @@ namespace SnowTools {
 	return;
 
       // do extra check on near neighbors for normal
-      std::unordered_map<uint32_t, size_t>::const_iterator it = n_cigpos->find(i.b1.gr.chr * 1e9 + i.b1.gr.pos1);
+      //std::unordered_map<uint32_t, size_t>::const_iterator it = n_cigpos->find(i.b1.gr.chr * 1e9 + i.b1.gr.pos1);
       //int nn = 0;
       //if (it != n_cigpos->end())
       //nn = it->second;

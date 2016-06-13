@@ -151,7 +151,9 @@ int overlapSize(const SnowTools::BamRead& query, const SnowTools::BamReadVector&
 	       (int)num_t_reads, (int)num_n_reads, 
 	       (int)contig_counter);
       ss << std::string(buffer) << st << " | ";
+#ifndef __APPLE__
       ss << SnowTools::displayRuntime(start);
+#endif
       ss << std::endl;
     } else if (num_t_reads + num_n_reads > 0) {
       char buffer[180];
@@ -160,7 +162,9 @@ int overlapSize(const SnowTools::BamRead& query, const SnowTools::BamReadVector&
 	       (int)contig_counter);
       
       ss << std::string(buffer) << st << " | ";
+#ifndef __APPLE__
       ss << SnowTools::displayRuntime(start);
+#endif
       ss << std::endl;
       
     }

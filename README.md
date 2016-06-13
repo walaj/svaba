@@ -7,7 +7,7 @@ Snowman - Structural Variation Detection by Rolling Local Assembly
 
 Installation
 ------------
-We recommend compiling with GCC-4.8 or greater. We have successfully compiled on RHEL6, CentOS and MacOSX with Clang (Apple LLVM version 7.0.2 (clang-700.1.81))
+We recommend compiling with GCC-4.8 or greater. We have successfully compiled on RHEL6, CentOS with GCC-4.8, 4.9 and 5.1, and MacOSX with Clang (Apple LLVM version 7.0.2 (clang-700.1.81))
 
 ```
 ### if on Broad Institute servers, add GCC-4.9

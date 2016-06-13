@@ -149,7 +149,9 @@ bool runAC(const ContigElement * c) {
   // print message
   if (cov > 100 || num_to_run % 1000 == 0) {
     std::stringstream ss;
+#ifndef __APPLE__
     ss << SnowTools::displayRuntime(start);
+#endif
     std::cerr << "..read " << SnowTools::AddCommas(bav_this.size()) << " reads from " << 
       trimmed_regions.size() << " region starting at " << trimmed_regions.at(0) << " Queue-left " << 
       SnowTools::AddCommas(num_to_run) << " " << ss.str() << std::endl;
