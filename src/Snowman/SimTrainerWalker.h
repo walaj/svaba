@@ -1,5 +1,5 @@
 #ifndef SNOWMAN_SIMTRAINER_WALKER_H__
-#define SNOWMAN_SIMTRAINER_WALKER__
+#define SNOWMAN_SIMTRAINER_WALKER_H__
 
 #include "SnowTools/BamWalker.h"
 #include "SnowTools/BamStats.h"

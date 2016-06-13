@@ -618,7 +618,9 @@ void runSnowman(int argc, char** argv) {
   // make the VCF file
   makeVCFs();
 
+#ifndef __APPLE__
   std::cerr << SnowTools::displayRuntime(start) << std::endl;
+#endif
 }
 
 void makeVCFs() {
