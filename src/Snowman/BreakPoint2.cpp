@@ -887,7 +887,7 @@ namespace SnowTools {
     int disc_cutoff = 6;
     int hq_disc_cutoff = 5; // reads with both pair-mates have high MAPQ
     
-    if (getSpan() >0 && getSpan() < min_dscrd_size)
+    if (getSpan() >0 &&  (getSpan() < min_dscrd_size && b1.gr.strand == '+' && b2.gr.strand == '-')) // restrict span for del (FR) type 
       confidence = "LOWSPANDSCRD";
     else if (hq_disc_count < hq_disc_cutoff && getSpan() > 1e5 && (std::min(dc.mapq1, dc.mapq2) < 30 || std::max(dc.mapq1, dc.mapq2) <= 30)) // mapq here is READ mapq (37 std::max)
       confidence = "LOWMAPQDISC";
