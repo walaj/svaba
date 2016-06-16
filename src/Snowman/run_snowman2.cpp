@@ -127,7 +127,7 @@ namespace opt {
   static int max_mapq_possible;
   //  static std::string pon = "";
 
-  static double sd_disc_cutoff = 2.5;
+  static double sd_disc_cutoff = 3;
 
   static int gap_open_penalty = 6;
   static int gap_extension_penalty = 1;
@@ -408,7 +408,7 @@ void runSnowman(int argc, char** argv) {
   if (opt::r2c) // open the r2c writer
     SnowmanUtils::__openWriterBam(bwalker, opt::analysis_id + ".r2c.bam", r2c_writer);
   if (opt::write_extracted_reads) // open the extracted reads writer
-    SnowmanUtils::__openWriterBam(bwalker, opt::analysis_id + ".tumor.extracted.reads.bam", er_writer);    
+    SnowmanUtils::__openWriterBam(bwalker, opt::analysis_id + ".extracted.reads.bam", er_writer);    
 
   // open the blacklists
   SnowmanUtils::__open_bed(opt::blacklist, blacklist, bwalker.header());
@@ -979,10 +979,6 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
   if (opt::verbose > 1)
     std::cerr << "...doing the discordant read clustering" << std::endl;
 
-  //for (auto& r : bav_this)
-  //  if (r.Qname() == "D0ENMACXX111207:1:2207:17771:106943")
-  //    std::cerr << " FOUND HER " << std::endl;
-
   SnowTools::DiscordantClusterMap dmap = SnowTools::DiscordantCluster::clusterReads(bav_this, region, opt::max_mapq_possible, min_isize_for_disc);
   
   // if we have discordant cluster on the edge, buffer region
@@ -1473,8 +1469,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
   
   // write extracted reads
   if (opt::write_extracted_reads) {
-    std::cerr << walkers[opt::tumor_bam].reads.size() << std::endl;
-    for (auto& r : walkers[opt::tumor_bam].reads) 
+    for (auto& r : bav_this) //walkers[opt::tumor_bam].reads) 
       if (!excluded_bad_reads.count(r.GetZTag("SR")))
 	er_writer.writeAlignment(r);
   }
