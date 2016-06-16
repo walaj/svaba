@@ -50,10 +50,25 @@ OverlapResult SnowmanOverlapAlgorithm::overlapReadInexact(const SeqRecord& read,
     valid = findOverlapBlocksInexact(seq, m_pBWT, m_pRevBWT, sufPreAF, 
                                  minOverlap, &obWorkingList, pOBOut, result);
 
+#ifdef DEBUGOR
+    size_t block_size = pOBOut->size();
+    if (block_size != pOBOut->size()) {
+      align1 = true;
+      std::cout << "1";//<< std::endl;
+      block_size = pOBOut->size();
+    }
+#endif
+
     if(valid)
        valid = findOverlapBlocksInexact(complement(seq), m_pRevBWT, m_pBWT, prePreAF, 
                                        minOverlap, &obWorkingList, pOBOut, result);
 
+#ifdef DEBUGOR
+    if (block_size != pOBOut->size()) {
+      std::cout << "2";// << std::endl;
+      block_size = pOBOut->size();
+     }
+#endif
 
 #ifdef DEBUGOVERLAP
     std::cout << "WORKING OverlapBlockList Length SUFFIX: " << obWorkingList.size() << " VALID " << valid << std::endl;
@@ -81,8 +96,23 @@ OverlapResult SnowmanOverlapAlgorithm::overlapReadInexact(const SeqRecord& read,
     if(valid)
         valid = findOverlapBlocksInexact(reverseComplement(seq), m_pBWT, m_pRevBWT, sufSufAF, minOverlap, &obWorkingList, pOBOut, result);
     
+#ifdef DEBUGOR
+     if (block_size != pOBOut->size()) {
+       std::cout << "3";// << std::endl;
+       block_size = pOBOut->size();
+     }
+#endif
+
     if(valid)
         valid = findOverlapBlocksInexact(reverse(seq), m_pRevBWT, m_pBWT, preSufAF, minOverlap, &obWorkingList, pOBOut, result);
+
+#ifdef DEBUGOR
+     if (block_size != pOBOut->size()) {
+       std::cout << "4";// << std::endl;
+       block_size = pOBOut->size();
+     }
+     std::cout<<std::endl;
+#endif 
 
 #ifdef DEBUGOVERLAP
     std::cout << "WORKING OverlapBlockList Length PREFIX: " << obWorkingList.size() << std::endl;

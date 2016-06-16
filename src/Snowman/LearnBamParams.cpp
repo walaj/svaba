@@ -5,7 +5,7 @@
 
 std::ostream& operator<<(std::ostream& out, const BamParams& p) {
  
-  out << "@@@ READ GROUP " << p.read_group << " ISIZE " << p.mean_isize << "(" << p.sd_isize << ") MEAN COV " << p.mean_cov << " READLEN " << p.readlen << " MAX MAPQ " << p.max_mapq;
+  out << "@@@ READ GROUP " << p.read_group << " ISIZE " << p.mean_isize << "(" << p.sd_isize << ") [0.025%,97.5%] [" << p.lp << "," << p.hp << "], MEAN COV " << p.mean_cov << " READLEN " << p.readlen << " MAX MAPQ " << p.max_mapq;
   // out << "@@@ Estimated fraction of reads that are discordant: " << p.frac_disc << std::endl;
   // out << "@@@ Estimated fraction of reads that are clipped:    " << p.frac_clip << std::endl;
   // out << "@@@ Estimated fraction of low quality alignments:    " << p.frac_bad << std::endl;
@@ -119,8 +119,8 @@ void BamParams::collectStats() {
   std::sort(isize_vec.begin(), isize_vec.end());
 
   // get the 5% and 95% tiles
-  int lp = isize_vec[std::floor(isize_vec.size() * 0.2)];
-  int hp = isize_vec[std::floor(isize_vec.size() * 0.8)];
+  lp = isize_vec[std::floor(isize_vec.size() * 0.025)];
+  hp = isize_vec[std::floor(isize_vec.size() * 0.975)];
 
   // trim to only those in the 5-95% range
   std::vector<int> tmp;

@@ -25,6 +25,9 @@ struct BamParams {
 
   std::vector<int> isize_vec;
 
+  int lp = 0; // 0.025%
+  int hp = 0; // 97.5%
+
   int readlen = 0;
   double frac_clip = 0;
   double frac_disc = 0;
