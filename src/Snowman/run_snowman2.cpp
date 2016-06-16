@@ -1480,7 +1480,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
       r2c_writer.writeAlignment(r);
       
       //write the corrected
-      //std::string new_seq  = r.GetZTag("KC");
+      ///std::string new_seq  = r.GetZTag("KC");
       //if (!new_seq.length()) {
       //new_seq = r.QualitySequence();
       //}
