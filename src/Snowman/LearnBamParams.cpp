@@ -149,7 +149,7 @@ void BamParams::collectStats() {
 
 }
 
-void LearnBamParams::learnParams(BamParams& p, int max_count) {
+/*void LearnBamParams::learnParams(BamParams& p, int max_count) {
 
   SnowTools::GenomicRegionVector grv = {SnowTools::GenomicRegion(0, 1000000,2000000), SnowTools::GenomicRegion(1,1000000,2000000)};
   SnowTools::BamWalker bwalker;
@@ -228,3 +228,4 @@ void LearnBamParams::learnParams(BamParams& p, int max_count) {
   p.max_mapq = mapq;
 
 }
+*/
