@@ -51,16 +51,11 @@ namespace SnowTools {
 	++tmp_map[tt];
     }
 
+    // only add the discordant reads
     BamReadVector bav_dd;
-    for (auto& r : bav) {
-
-      // is the read even discordant?
-      bool non_fr = (r.ReverseFlag() == r.MateReverseFlag()) || (r.ReverseFlag() && r.Position() < r.MatePosition()) || (!r.ReverseFlag() && r.Position() > r.MatePosition());
-      bool disc_r = (abs(r.InsertSize()) >= min_isize_for_disc) || (r.MateChrID() != r.ChrID()) || non_fr;
-
-      if (/*tmp_map[r.Qname()] >= 2 && */disc_r)
+    for (auto& r : bav) 
+      if ( ( r.PairOrientation() != FRORIENTATION || r.FullInsertSize() >= min_isize_for_disc) && r.PairMappedFlag())
 	bav_dd.push_back(r);
-    }
     
     if (!bav_dd.size())
       return DiscordantClusterMap();
@@ -69,8 +64,8 @@ namespace SnowTools {
     std::sort(bav_dd.begin(), bav_dd.end(), BamReadSort::ByReadPosition());
 
 #ifdef DEBUG_CLUSTER    
-    for (auto& i : bav_dd)
-      std::cerr << i << std::endl;
+    //for (auto& i : bav_dd)
+    //  std::cerr << i << std::endl;
 #endif
 
     // clear the tmp map. Now we want to use it to store if we already clustered read
@@ -101,7 +96,7 @@ namespace SnowTools {
 #endif
 
     // within the forward read clusters, cluster mates on fwd and rev
-    __cluster_mate_reads(fwd, fwdfwd, fwdrev); 
+    __cluster_mate_reads(fwd, fwdfwd, fwdrev);
     
     // within the reverse read clusters, cluster mates on fwd and rev
     __cluster_mate_reads(rev, revfwd, revrev); 
@@ -183,7 +178,7 @@ namespace SnowTools {
     // get distribution of isizes. Reject outliers
     std::vector<int> isizer;
     for (auto& i : this_reads)
-      isizer.push_back(std::abs(i.InsertSize()));
+      isizer.push_back(std::abs(i.FullInsertSize()));
     double sd = 0, mm = 0, medr = 0;
     std::sort(isizer.begin(), isizer.end());
     if (isizer.size() >= 5 && isizer.back() - isizer[0] > 400) {
@@ -214,10 +209,8 @@ namespace SnowTools {
 	// double check that we did the clustering correctly. All read orientations should be same
 	assert(rev == i.ReverseFlag() && mrev == i.MateReverseFlag()); 
 
-	if (std::abs(i.InsertSize()) < min_isize) {
-	  //std::cout << "...removing " << i << std::endl;
+	if (i.FullInsertSize() < min_isize && i.PairOrientation() == FRORIENTATION) 
 	  continue;
-	}
 	
 	// add the read to the read map
 	std::string tmp = i.GetZTag("SR");
@@ -237,7 +230,7 @@ namespace SnowTools {
 	  ++ncount;
 	}
 
-	isizer.push_back(std::abs(i.InsertSize()));
+	isizer.push_back(i.FullInsertSize());
 
       }
        
@@ -396,13 +389,22 @@ namespace SnowTools {
   {
     out << dc.toRegionString() << " Tcount: " << dc.tcount << 
       " Ncount: "  << dc.ncount << " Mean MAPQ: " 
-	<< dc.mapq1 << " Mean Mate MAPQ: " << dc.mapq2;
+	<< dc.mapq1 << " Mean Mate MAPQ: " << dc.mapq2 << " Valid: " << (dc.valid() ? "TRUE" : "FALSE");
     return out;
   }
   
   bool DiscordantCluster::valid() const {
 
-    if (m_reg1.pos2 > m_reg2.pos1) // the clusters overlap, doesn't make sense
+    // it's OK if the clusters are inter-chromosomal
+    if (m_reg1.chr != m_reg2.chr)
+      return true;
+
+    // if its RF orientation (<----->) then bc bps are on outside, regions can overlaps
+    if (m_reg1.strand == '-' && m_reg2.strand == '+')
+      return true;
+
+    // the clusters overlap, doesn't make sense for del and inversion type
+    if (m_reg1.pos2 > m_reg2.pos1) 
       return false;
 
     return true;
@@ -536,7 +538,7 @@ namespace SnowTools {
 	    if (!r.MateReverseFlag())
 	      __add_read_to_cluster(fwd, this_fwd, r, true);
 	    // reverse clustering 
-	    else if (r.MateReverseFlag())
+	    else if (r.MateReverseFlag()) 
 	      __add_read_to_cluster(rev, this_rev, r, true);
 	    
 	  }
@@ -560,7 +562,6 @@ namespace SnowTools {
     for (auto& i : brv) {
 
       // only cluster FR reads together, RF reads together, FF together and RR together
-      // actually, unneccessary, since this is already taken care of
       if (i.PairOrientation() != orientation)
 	continue;
 

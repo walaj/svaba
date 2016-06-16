@@ -479,10 +479,18 @@ void SnowmanBamWalker::filterMicrobial(SnowTools::BWAWrapper * b) {
 
 bool SnowmanBamWalker::hasAdapter(const BamRead& r) const {
 
-  // keep it if it has indel
-  if (r.MaxDeletionBases() || r.MaxInsertionBases() || !r.InsertSize() || !r.NumClip())
+  // keep it if it has indel or unmapped read
+  if (r.MaxDeletionBases() || r.MaxInsertionBases() || !r.InsertSize()) // || !r.NumClip())
     return false;
   
+  // toss if isize is basically read length (completely overlaping)
+  if (std::abs(r.FullInsertSize() - r.Length()) < 5)
+    return true;
+
+  // now only consider reads where clip can be explained by isize
+  if (!r.NumClip())
+    return false;
+
   // toss it then if isize explans clip
   int exp_ins_size = r.Length() - r.NumClip(); // expected isize if has adapter
   if ((exp_ins_size - 6) < std::abs(r.InsertSize()) && (exp_ins_size + 6) > std::abs(r.InsertSize()))

@@ -140,7 +140,8 @@ namespace opt {
   //static std::string rules = "global@!hardclip;!duplicate;!qcfail;phred[4,100];length[LLL,1000]%region@WG%!isize[0,800]%ic%clip[10,1000]%ins[1,1000];mapq[0,100]%del[1,1000];mapq[1,1000]%mapped;!mate_mapped;mapq[1,1000]%mate_mapped;!mapped";
   //static std::string rules = "global@!hardclip;!duplicate;!qcfail;phred[4,100]%region@WG%discordant[0,800]%ic%clip[10,1000]%ins[1,1000];mapq[0,100]%del[1,1000];mapq[1,1000]%mapped;!mate_mapped;mapq[1,1000]%mate_mapped;!mapped";
   //static std::string rules = "{\"global\" : {\"duplicate\" : false, \"qcfail\" : false}, \"\" : { \"rules\" : [{\"isize\" : [LLHI,0]},{\"rr\" : true},{\"ff\" : true}, {\"rf\" : true}, {\"ic\" : true}, {\"clip\" : [5, 1000], \"phred\" : [4,100]}, {\"ins\" : [1,1000]}, {\"del\" : [1,1000]}, {\"mapped\": true , \"mate_mapped\" : false}, {\"mate_mapped\" : true, \"mapped\" : false}]}}";
-  static std::string rules = "{\"global\" : {\"duplicate\" : false, \"qcfail\" : false}, \"\" : { \"rules\" : [FRRULES,{\"rr\" : true},{\"ff\" : true}, {\"rf\" : true}, {\"ic\" : true}, {\"clip\" : 5, \"phred\" : 4}, {\"ins\" : true}, {\"del\" : true}, {\"mapped\": true , \"mate_mapped\" : false}, {\"mate_mapped\" : true, \"mapped\" : false}]}}";
+  //static std::string rules = "{\"global\" : {\"duplicate\" : false, \"qcfail\" : false}, \"\" : { \"rules\" : [FRRULES,{\"rr\" : true},{\"ff\" : true}, {\"rf\" : true}, {\"ic\" : true}, {\"clip\" : 5, \"phred\" : 4}, {\"ins\" : true}, {\"del\" : true}, {\"mapped\": true , \"mate_mapped\" : false}, {\"mate_mapped\" : true, \"mapped\" : false}]}}";
+  static std::string rules = "{\"\" : { \"rules\" : [{\"rf\" : true}]}}";
   //static std::string rules = "{\"global\" : {\"duplicate\" : false, \"qcfail\" : false}, \"\" : { \"rules\" : [{\"isize\" : [800,0]},{\"rr\" : true},{\"ff\" : true}, {\"rf\" : true, \"isize\" : [LLHI,LLLO]}, {\"ic\" : true}, {\"clip\" : [5, 1000], \"phred\" : [4,100]}, {\"ins\" : [1,1000]}, {\"del\" : [1,1000]}, {\"mapped\": true , \"mate_mapped\" : false}, {\"mate_mapped\" : true, \"mapped\" : false}]}}";
   //static std::string rules = "global@!duplicate;!qcfail%region@WG%discordant[0,600]%ic%clip[5,1000];phred[4,100]%ins[1,1000]%del[1,1000]%mapped;!mate_mapped%mate_mapped;!mapped";
   static int num_to_sample = 2000000;
@@ -507,10 +508,12 @@ void runSnowman(int argc, char** argv) {
     } 
   }
   
-  std::string string_rules = ss_rules.str();
-  if (!string_rules.empty()) // cut last comma
-    string_rules = string_rules.substr(0, string_rules.length() - 1);
-  opt::rules = myreplace(opt::rules, "FRRULES", string_rules);
+  if (opt::rules.find("FRRULES") != std::string::npos) {
+    std::string string_rules = ss_rules.str();
+    if (!string_rules.empty()) // cut last comma
+      string_rules = string_rules.substr(0, string_rules.length() - 1);
+    opt::rules = myreplace(opt::rules, "FRRULES", string_rules);
+  }
 
   // set the MiniRules to be applied to each region
   ss << opt::rules << std::endl;
@@ -980,7 +983,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
     std::cerr << "...doing the discordant read clustering" << std::endl;
 
   SnowTools::DiscordantClusterMap dmap = SnowTools::DiscordantCluster::clusterReads(bav_this, region, opt::max_mapq_possible, min_isize_for_disc);
-  
+
   // if we have discordant cluster on the edge, buffer region
   /*  SnowTools::GenomicRegion left_edge(region.chr, region.pos1, region.pos1 + 500);
   SnowTools::GenomicRegion right_edge(region.chr, region.pos2 - 500, region.pos2);

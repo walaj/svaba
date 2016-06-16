@@ -193,4 +193,8 @@ NODBCUTOFF 8 -> 2.5
 	-- added splitcounter module
 	-- added NM and MAPQ filters to assembly and assembly_dscrd
 	-- read-group specific filtering rules and parameter learning, and discordant size cutoff
-
+	-- filtering out read-pairs that entirely overlap each other
+	-- InsertSize calculations now use "FullInsertSize" for less
+	ambiguity
+	-- fixed bug that was tossing TD type discordant read pairs
+	-- fixed bug that was tossing some inter-chromosomal read pairs

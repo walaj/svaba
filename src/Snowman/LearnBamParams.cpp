@@ -93,7 +93,7 @@ void LearnBamParams::learnParams(BamParamsMap& p, int max_count) {
 
     // collect all of the insert sizes
     if (r.InsertSize() > 0 && r.ProperOrientation())
-      ff->second.isize_vec.push_back(r.InsertSize());
+      ff->second.isize_vec.push_back(r.FullInsertSize());
 
     ff->second.visited++;
 
@@ -187,7 +187,7 @@ void LearnBamParams::learnParams(BamParams& p, int max_count) {
       chr1 = r.ChrID();
     }
     
-    if (abs(r.InsertSize() > 1000))
+    if (r.FullInsertSize() > 1000)
       ++frac_disc;
     if (r.NumClip() >= 5)
       ++frac_clip;
@@ -195,9 +195,8 @@ void LearnBamParams::learnParams(BamParams& p, int max_count) {
       ++frac_bad;
     }
 	
-    if (r.InsertSize() > 0 && r.ProperOrientation() && r.InsertSize() < 10000)
-      //&& r.ProperPair()) 
-      isizer.push_back(r.InsertSize());
+    if (r.InsertSize() > 0 && r.ProperOrientation() && r.FullInsertSize() < 10000)
+      isizer.push_back(r.FullInsertSize());
 
     if (count % 500000 == 0)
       std::cerr << "...learning from read " << r.Brief(bwalker.header()) << " at count " << SnowTools::AddCommas(count) << " of " << SnowTools::AddCommas(max_count) << std::endl;
