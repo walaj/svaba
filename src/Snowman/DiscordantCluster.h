@@ -68,7 +68,9 @@ namespace SnowTools
     /** Is this a valid cluster? */
     bool valid() const;
 
-    static std::unordered_map<std::string, DiscordantCluster> clusterReads(const BamReadVector& bav, const GenomicRegion& interval, int max_mapq_possible, int min_isize_for_disc);
+    static void __remove_singletons(BamReadClusterVector& b);
+
+    static std::unordered_map<std::string, DiscordantCluster> clusterReads(const BamReadVector& bav, const GenomicRegion& interval, int max_mapq_possible, const std::unordered_map<std::string, int> * min_isize_for_disc);
 
     static bool __add_read_to_cluster(BamReadClusterVector &cvec, BamReadVector &clust, const BamRead &a, bool mate);
 

@@ -55,8 +55,6 @@ struct bidx_delete {
 typedef std::map<std::string, std::shared_ptr<hts_idx_t>> BamIndexMap;
 typedef std::map<std::string, std::string> BamMap;
 
-static int min_isize_for_disc = 0;
-
 static BamIndexMap bindices;
 static faidx_t * findex;
 static faidx_t * findex_viral;
@@ -65,6 +63,8 @@ static SeqHash over_represented_sequences;
 
 static int min_dscrd_size_for_variant = 0; // set a min size for what we can call with discordant reads only. 
 // something like max(mean + 3*sd) for all read groups
+
+std::unordered_map<std::string, int> min_isize_for_disc;
 
 static SnowTools::BamWalker bwalker, r2c_writer, er_writer, b_microbe_writer, b_allwriter, blat_allwriter;
 static SnowTools::BWAWrapper * microbe_bwa = nullptr;
@@ -499,15 +499,18 @@ void runSnowman(int argc, char** argv) {
   // loop through and construct the readgroup rules
   std::stringstream ss_rules;
   std::unordered_set<std::string> rg_seen;
+
   for (auto& a : params_map) {
     for (auto& i : a.second) {
       if (!rg_seen.count(i.second.read_group)) {
-	ss_rules << "{\"isize\" : [ " << std::floor(i.second.mean_isize + i.second.sd_isize * opt::sd_disc_cutoff) << ",0], \"RG\" : \"" << i.second.read_group << "\"},";
+	int mi = std::floor(i.second.mean_isize + i.second.sd_isize * opt::sd_disc_cutoff);
+	ss_rules << "{\"isize\" : [ " << mi << ",0], \"RG\" : \"" << i.second.read_group << "\"},";
 	rg_seen.insert(i.second.read_group);
+	min_isize_for_disc.insert(std::pair<std::string, int>(i.second.read_group, mi));
       }
     } 
   }
-  
+
   if (opt::rules.find("FRRULES") != std::string::npos) {
     std::string string_rules = ss_rules.str();
     if (!string_rules.empty()) // cut last comma
@@ -982,7 +985,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
   if (opt::verbose > 1)
     std::cerr << "...doing the discordant read clustering" << std::endl;
 
-  SnowTools::DiscordantClusterMap dmap = SnowTools::DiscordantCluster::clusterReads(bav_this, region, opt::max_mapq_possible, min_isize_for_disc);
+  SnowTools::DiscordantClusterMap dmap = SnowTools::DiscordantCluster::clusterReads(bav_this, region, opt::max_mapq_possible, &min_isize_for_disc);
 
   // if we have discordant cluster on the edge, buffer region
   /*  SnowTools::GenomicRegion left_edge(region.chr, region.pos1, region.pos1 + 500);

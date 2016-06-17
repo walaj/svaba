@@ -5,7 +5,7 @@
 #include <numeric>
 #include <unordered_set>
 
-#define DISC_PAD 300
+#define DISC_PAD 150
 #define MIN_PER_CLUST 2
 
 #define REGPOS1 500000000
@@ -34,10 +34,10 @@ namespace SnowTools {
     return median;
   }
   
-  DiscordantClusterMap DiscordantCluster::clusterReads(const BamReadVector& bav, const GenomicRegion& interval, int max_mapq_possible, int min_isize_for_disc) {
+  DiscordantClusterMap DiscordantCluster::clusterReads(const BamReadVector& bav, const GenomicRegion& interval, int max_mapq_possible, const std::unordered_map<std::string, int> * min_isize_for_disc) {
 
 #ifdef DEBUG_CLUSTER
-    std::cerr << "CLUSTERING WITH " << bav.size() << " reads " << std::endl;
+    std::cerr << "CLUSTERING WITH " << bav.size() << " reads " << " and min isize for disc " << min_isize_for_disc << std::endl;
 #endif
 
     // remove any reads that are not present twice or have sufficient isize
@@ -51,11 +51,21 @@ namespace SnowTools {
 	++tmp_map[tt];
     }
 
-    // only add the discordant reads
+    // only add the discordant reads, respecting diff size cutoffs for diff RG
     BamReadVector bav_dd;
-    for (auto& r : bav) 
-      if ( ( r.PairOrientation() != FRORIENTATION || r.FullInsertSize() >= min_isize_for_disc) && r.PairMappedFlag())
+    for (auto& r : bav) {
+      int cutoff = 800;
+      if (min_isize_for_disc) {
+
+	std::unordered_map<std::string, int>::const_iterator ff = min_isize_for_disc->find(r.ParseReadGroup());
+	if (ff != min_isize_for_disc->end())
+	  cutoff = ff->second;
+      }
+
+      if ( ( r.PairOrientation() != FRORIENTATION || r.FullInsertSize() >= cutoff) && r.PairMappedFlag())
 	bav_dd.push_back(r);
+    }
+
     
     if (!bav_dd.size())
       return DiscordantClusterMap();
@@ -82,6 +92,10 @@ namespace SnowTools {
     __cluster_reads(bav_dd, fwd, rev, RFORIENTATION);
     __cluster_reads(bav_dd, fwd, rev, RRORIENTATION);
 
+    // remove singletons
+    __remove_singletons(fwd);
+    __remove_singletons(rev);
+
 #ifdef DEBUG_CLUSTER
     for (auto& i : fwd) {
       std::cerr << "fwd cluster " << std::endl;
@@ -100,6 +114,12 @@ namespace SnowTools {
     
     // within the reverse read clusters, cluster mates on fwd and rev
     __cluster_mate_reads(rev, revfwd, revrev); 
+
+    // remove singletons
+    __remove_singletons(fwdfwd);
+    __remove_singletons(revfwd);
+    __remove_singletons(fwdrev);
+    __remove_singletons(revrev);
     
     // we have the reads in their clusters. Just convert to discordant reads clusters
     DiscordantClusterMap dd;
@@ -117,7 +137,12 @@ namespace SnowTools {
     std::cerr << "----revrev cluster count: " << revrev.size() << std::endl;
 
     for (auto& ii : fwdrev) {
-      std::cerr << " ____________ CLUSTEER ______________" << std::endl;
+      std::cerr << " ____________ CLUSTER ______________" << std::endl;
+      for (auto& jj : ii)
+	std::cerr << "FWDREV _____ " << jj << std::endl;
+    }
+    for (auto& ii : revfwd) {
+      std::cerr << " ____________ CLUSTER ______________" << std::endl;
       for (auto& jj : ii)
 	std::cerr << "FWDREV _____ " << jj << std::endl;
     }
@@ -193,12 +218,13 @@ namespace SnowTools {
       std::vector<double> diff(isizer.size());
       std::transform(isizer.begin(), isizer.end(), diff.begin(), [mm](double x) { return x - mm; });
       double sq_sum = std::inner_product(diff.begin(), diff.end(), diff.begin(), 0.0);
-      sd = std::sqrt(sq_sum / isizer.size());
-      
+      sd = std::sqrt(sq_sum / isizer.size());      
     }
+
     double min_isize = 0;
-    if (sd > 0 ? (medr / sd) < 4 : false) {
+    if (sd > 0) { // ? (medr / sd) < 4 : false) {
       min_isize = medr - 2 * sd;
+
       //std::cout << (*this ) << std::endl;
       //std::cout << " MED " << medr << " SD " << sd << " MEAN " << mm << " CUTOFF " << min_isize << " medr/sd " << (medr/sd) << std::endl;;
     }
@@ -422,16 +448,30 @@ namespace SnowTools {
     std::string reads_string;
     if (with_read_names) 
       {
-      for (auto& i : reads) 
-	{
-	  std::string tmp = i.second.GetZTag("SR");
-	  reads_string += tmp + ",";
-	}
-      
-      if (reads_string.empty())
-	reads_string = "x";
-      else
-	reads_string.pop_back(); // delete last comma
+	
+	std::unordered_set<std::string> qnset;
+	for (auto& i : reads) 
+	  {
+	    if (qnset.count(i.second.Qname()))
+	      continue;
+	    std::string tmp = i.second.GetZTag("SR");
+	    qnset.insert(i.second.Qname());
+	    reads_string += tmp + ",";
+	  }
+	for (auto& i : mates) 
+	  {
+	    if (qnset.count(i.second.Qname()))
+	      continue;
+	    std::string tmp = i.second.GetZTag("SR");
+	    qnset.insert(i.second.Qname());
+	    reads_string += tmp + ",";
+	  }
+
+	
+	if (reads_string.empty())
+	  reads_string = "x";
+	else
+	  reads_string.pop_back(); // delete last comma
       }
     
     int pos1 = m_reg1.strand == '+' ? m_reg1.pos2 : m_reg1.pos1; // get the edge of the cluster
@@ -611,6 +651,16 @@ namespace SnowTools {
 
   bool DiscordantCluster::isEmpty() const {
     return m_reg1.isEmpty() || m_reg2.isEmpty() || m_reg1.chr == -1 || m_reg2.chr == -1;
+  }
+
+  void DiscordantCluster::__remove_singletons(BamReadClusterVector& b)  {
+
+    BamReadClusterVector tmp;
+    for (auto& f : b)
+      if (f.size() > 1)
+	tmp.push_back(f);
+    
+    b = tmp;
   }
   
 }
