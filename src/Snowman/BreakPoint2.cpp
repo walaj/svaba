@@ -143,6 +143,7 @@ namespace SnowTools {
     cname = dc.toRegionString();
 
     // check if another cluster overlaps, but different strands
+    if (getSpan() > 800 || getSpan() == -1) // only check for large events.
     for (auto& d : dmap) {
 
       // don't overlap if on different chr, or same event
@@ -152,8 +153,8 @@ namespace SnowTools {
       // isolate and pad
       SnowTools::GenomicRegion gr1 = d.second.m_reg1;
       SnowTools::GenomicRegion gr2 = d.second.m_reg2;
-      gr1.pad(300);
-      gr2.pad(300);
+      gr1.pad(100);
+      gr2.pad(100);
       
       if (dc.m_reg1.getOverlap(gr1) && dc.m_reg2.getOverlap(gr2))
 	if (dc.m_reg1.strand != d.second.m_reg1.strand || dc.m_reg2.strand != d.second.m_reg2.strand) {
@@ -850,17 +851,18 @@ namespace SnowTools {
 
     int total_count = t_reads + n_reads; //n.split + t.split + dc.ncount + dc.tcount;
     int disc_count = dc.tcount + dc.ncount;
+    int hq = dc.tcount_hq + dc.ncount_hq;
 
     //double min_disc_mapq = std::min(dc.mapq1, dc.mapq2);
 
     // check the mapq in different ways
     //bool low_max_mapq = max_a_mapq <= 10 || max_b_mapq <= 10 || std::max(max_a_mapq, max_b_mapq) <= 30;
 
-    if ( (max_a_mapq < 30 && !b1.local) || (max_b_mapq < 30 && !b2.local) || (b1.sub_n > 7 && b1.mapq < 10 && !b1.local) || (b2.sub_n > 7 && b2.mapq < 10 && !b2.local) )
+    if ( (max_a_mapq < 30 && !b1.local && hq < 3) || (max_b_mapq < 30 && !b2.local && hq < 3) || (b1.sub_n > 7 && b1.mapq < 10 && !b1.local && hq < 3) || (b2.sub_n > 7 && b2.mapq < 10 && !b2.local && hq < 3) )
       confidence = "LOWMAPQ";
     else if ( std::min(b1.nm, b2.nm) >= 10)
       confidence = "LOWMAPQ";
-    else if ( std::min(b1.mapq, b2.mapq) < 10 && std::min(dc.mapq1, dc.mapq2) < 10 )
+    else if ( std::min(b1.mapq, b2.mapq) < 10 && std::min(dc.mapq1, dc.mapq2) < 10 && hq < 3)
       confidence = "LOWMAPQ";      
     else if ( total_count < 4 || (std::max(t.split, n.split) <= 5 && cov_span < (readlen + 5) && disc_count < 7) )
       confidence = "LOWSUPPORT";
@@ -868,13 +870,16 @@ namespace SnowTools {
       confidence = "LOWSUPPORT";
     else if ( std::min(b1.matchlen, b2.matchlen) < 50 && b1.gr.chr != b2.gr.chr ) 
       confidence = "LOWICSUPPORT";
-    else if ((b1.sub_n && dc.mapq1 < 1) || (b2.sub_n && dc.mapq2 < 1))
-      confidence = "MULTIMATCH";
-    else if ( ( (secondary || b1.sub_n > 1) && !b1.local) && (std::min(max_a_mapq, max_b_mapq) < 30 || std::max(dc.tcount, dc.ncount) < 10)) 
-      confidence = "SECONDARY";
+    else if (dc.tcount_hq + dc.ncount_hq < 3) { // multimathces are bad if we don't have good disc support too
+      if ( ((b1.sub_n && dc.mapq1 < 1) || (b2.sub_n && dc.mapq2 < 1))  )
+	confidence = "MULTIMATCH";
+      else if ( ( (secondary || b1.sub_n > 1) && !b1.local) && ( std::min(max_a_mapq, max_b_mapq) < 30 || std::max(dc.tcount, dc.ncount) < 10)) 
+	confidence = "SECONDARY";
+      else 
+	confidence = "PASS";
+    }
     else
       confidence = "PASS";
-
   }
 
   void BreakPoint::__score_dscrd(int min_dscrd_size) {
@@ -885,13 +890,13 @@ namespace SnowTools {
     int disc_count = dc.ncount + dc.tcount;
     int hq_disc_count = dc.ncount_hq+ dc.tcount_hq;
     int disc_cutoff = 6;
-    int hq_disc_cutoff = 5; // reads with both pair-mates have high MAPQ
+    int hq_disc_cutoff = disc_count >= 10 ? 3 : 5; // reads with both pair-mates have high MAPQ
     
     if (getSpan() >0 &&  (getSpan() < min_dscrd_size && b1.gr.strand == '+' && b2.gr.strand == '-')) // restrict span for del (FR) type 
       confidence = "LOWSPANDSCRD";
     else if (hq_disc_count < hq_disc_cutoff && getSpan() > 1e5 && (std::min(dc.mapq1, dc.mapq2) < 30 || std::max(dc.mapq1, dc.mapq2) <= 30)) // mapq here is READ mapq (37 std::max)
       confidence = "LOWMAPQDISC";
-    else if (getSpan() <= 1e5 && (std::min(dc.mapq1, dc.mapq2) < 25))
+    else if (getSpan() <= 1e4 && (std::min(dc.mapq1, dc.mapq2) < 25))
       confidence = "LOWMAPQDISC";
     else if (!dc.m_id_competing.empty())
       confidence = "COMPETEDISC";
