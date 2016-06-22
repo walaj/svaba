@@ -14,7 +14,7 @@
 #include "SnowTools/gzstream.h"
 #include "SnowTools/GenomicRegionCollection.h"
 
-#define VCF_SECONDARY_CAP 10
+#define VCF_SECONDARY_CAP 200
 #define SOMATIC_LOD 1
 
 

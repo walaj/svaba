@@ -1,4 +1,4 @@
- #include "run_snowman.h"
+#include "run_snowman.h"
 
 #include <getopt.h>
 #include <iostream>
@@ -24,7 +24,7 @@
 
 #define MIN_CONTIG_MATCH 35
 #define MATE_LOOKUP_MIN 3
-#define SECONDARY_CAP 25
+#define SECONDARY_CAP 200
 
 #define LITTLECHUNK 25000 
 #define WINDOW_PAD 500
@@ -127,7 +127,7 @@ namespace opt {
   static int max_mapq_possible;
   //  static std::string pon = "";
 
-  static double sd_disc_cutoff = 3;
+  static double sd_disc_cutoff = 4;
 
   static int gap_open_penalty = 6;
   static int gap_extension_penalty = 1;
@@ -363,7 +363,8 @@ void runSnowman(int argc, char** argv) {
     "    Num assembly rounds: " << opt::num_assembly_rounds << std::endl << 
     "    Num reads to sample: " << opt::num_to_sample << std::endl << 
     "    Remove clipped reads with adapters? " << (opt::adapter_trim ? "TRUE" : "FALSE") << std::endl << 
-    "    Discordant cluster std-dev cutoff:  " << opt::sd_disc_cutoff << std::endl << 
+    "    Discordant read extract SD cutoff:  " << opt::sd_disc_cutoff << std::endl << 
+    "    Discordant cluster std-dev cutoff:  " << (opt::sd_disc_cutoff * 1.5) << std::endl << 
     "    Minimum number of reads for mate lookup " << opt::mate_lookup_min << std::endl <<
     "    LOD cutoff (artifact vs real) :  " << opt::lod << std::endl << 
     "    LOD cutoff (somatic vs germline, at DBSNP):  " << opt::lod_db << std::endl << 
@@ -452,7 +453,7 @@ void runSnowman(int argc, char** argv) {
     for (auto& i : params_map[b.first]) {
       opt::readlen = std::max(opt::readlen, i.second.readlen);
       opt::max_mapq_possible = std::max(opt::max_mapq_possible, i.second.max_mapq);
-      min_dscrd_size_for_variant = std::max(min_dscrd_size_for_variant, (int)std::floor(i.second.mean_isize + i.second.sd_isize * opt::sd_disc_cutoff * 1.5)); // if SD for grabbing reads is 2, min detection is SD = 3
+      min_dscrd_size_for_variant = std::max(min_dscrd_size_for_variant, (int)std::floor(i.second.mean_isize + i.second.sd_isize * opt::sd_disc_cutoff * 1.5)); 
     }
 
     ss << "BAM PARAMS FOR: " << b.first << "--" << b.second << std::endl;
@@ -987,6 +988,16 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 
   SnowTools::DiscordantClusterMap dmap = SnowTools::DiscordantCluster::clusterReads(bav_this, region, opt::max_mapq_possible, &min_isize_for_disc);
 
+  // remove FR clusters that are below min_dscrd_size_for_variant
+  SnowTools::DiscordantClusterMap dmap_tmp;
+  for (auto& d : dmap) {
+    if ((d.second.tcount + d.second.ncount) < 3 && d.second.m_reg1.strand == '+' && d.second.m_reg2.strand == '-' && (d.second.m_reg2.pos1 - d.second.m_reg1.pos2) < min_dscrd_size_for_variant && d.second.m_reg1.chr == d.second.m_reg2.chr)
+      continue;
+    else
+      dmap_tmp.insert(std::pair<std::string, SnowTools::DiscordantCluster>(d.first, d.second));
+  }
+  dmap = dmap_tmp;
+
   // if we have discordant cluster on the edge, buffer region
   /*  SnowTools::GenomicRegion left_edge(region.chr, region.pos1, region.pos1 + 500);
   SnowTools::GenomicRegion right_edge(region.chr, region.pos2 - 500, region.pos2);
@@ -1372,9 +1383,10 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
     }
 
   //debug
-  //for (auto& i : bp_glob) {
-  //  std::cout << " mid BP " << i.toFileString() << std::endl;
-  //}
+  // for (auto& i : bp_glob) {
+  //   if (i.getSpan() == 6976264)
+  //     std::cout << " mid BP " << i.toFileString() << std::endl;
+  // }
 
 
   // remove somatic calls if they have a germline normal SV in them or indels with 
@@ -1394,10 +1406,11 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
     }
 
   //debug
-  //for (auto& i : bp_glob) {
-  // std::cout << " final BP " << i.toFileString() << std::endl;
-  //}
-
+  // for (auto& i : bp_glob) {
+  //   if (i.getSpan() == 6976264)
+  //     std::cout << " final BP 22  " << i.toFileString() << std::endl;
+  // }
+  
   // add the ref and alt tags
   if (opt::verbose > 2)
     std::cerr << "...setting ref and alt" << std::endl;
@@ -1452,7 +1465,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 
   // send breakpoints to file
   for (auto& i : bp_glob)
-    if ( true || ( i.hasMinimal() && i.confidence != "NOLOCAL") ) {
+    if ( i.hasMinimal() && i.confidence != "NOLOCAL" ) {
       os_allbps << i.toFileString(opt::no_reads) << std::endl;
       if (i.confidence == "PASS" && i.n.split == 0 && i.n.cigar == 0 && i.dc.ncount == 0 && opt::verbose > 1) {
 	std::cout << "SOM  " << i << std::endl;
@@ -1476,7 +1489,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
   // write extracted reads
   if (opt::write_extracted_reads) {
     for (auto& r : bav_this) //walkers[opt::tumor_bam].reads) 
-      if (!excluded_bad_reads.count(r.GetZTag("SR")))
+      //if (!excluded_bad_reads.count(r.GetZTag("SR")))
 	er_writer.writeAlignment(r);
   }
   
