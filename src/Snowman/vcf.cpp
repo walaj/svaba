@@ -218,6 +218,7 @@ VCFFile::VCFFile(std::string file, std::string id, bam_hdr_t * h, const VCFHeade
   sv_header.addFilterField("LOWSPAN","Discordant read cluster (no split read support), and less than 10kb span and < 12 reads");
   //sv_header.addFilterField("FOLDBACK","Rearrangement is inversion type with span < 80. Very likely fold-back Illumina error");
   sv_header.addFilterField("LOWMAPQ","Assembly contig has non 60/60 mapq and no discordant support");
+  sv_header.addFilterField("LOWQINVERSION","Assembly-only inversion of span < 300 and < 6 split reads. Common artifact in Illumina data");
   sv_header.addFilterField("LOWMAPQDISC","Both clusters of reads failed to achieve mean mapq of > 30 for DSCRD");
   sv_header.addFilterField("LOWSPLITSMALL","Fewer than 4 split reads for small events ( < 1500 bp)");
   sv_header.addFilterField("LOWICSUPPORT","Less than 60bp of contig match on one end of an inter-chromosomal break");
