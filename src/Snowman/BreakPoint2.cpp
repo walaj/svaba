@@ -574,6 +574,7 @@ namespace SnowTools {
     assert(chr_name.length());
     assert(chr_name != "23");
     nm = std::max(b.GetIntTag("NM") - (int)b.MaxInsertionBases() - (int)b.MaxDeletionBases(), 0);
+    as_frac = (double)b.GetIntTag("AS") / (double) b.NumMatchBases();
   }
 
   void BreakPoint::__combine_with_discordant_cluster(DiscordantClusterMap& dmap)
@@ -701,8 +702,8 @@ namespace SnowTools {
       confidence = "LOWMAPQ";
     else if ( std::min(b1.mapq, b2.mapq) <= 30 && a.split <= 8 ) 
       confidence = "LOWMAPQ";
-    else if (std::max(b1.nm, b2.nm) >= 10)
-      confidence = "LOWMAPQ";
+    else if (std::max(b1.nm, b2.nm) >= 10 || std::min(b1.as_frac, b2.as_frac) < 0.8) 
+      confidence = "LOWAS";
     else if ( (b1.matchlen < 50 && b1.mapq < 60) || (b2.matchlen < 50 && b2.mapq < 60) )
       confidence = "LOWMAPQ";
     else if ( std::min(b1.nm, b2.nm) >= 10)

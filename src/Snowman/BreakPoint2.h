@@ -60,6 +60,7 @@ namespace SnowTools {
    std::unordered_map<std::string, double> af;
 
    int sub_n = -1;
+   double as_frac= 0;
    bool local;
 
    friend std::ostream& operator<<(std::ostream& out, const BreakEnd& b);

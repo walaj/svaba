@@ -981,7 +981,10 @@ namespace SnowTools {
     b.matchlen = m_align.NumMatchBases();
     b.local = local;
     b.nm = m_align.GetIntTag("NM");
-	
+
+    b.as_frac = (double)m_align.GetIntTag("AS") / (double) m_align.NumMatchBases();
+
+
     // if alignment is too short, zero the mapq
     // TODO get rid of this by integrating matchlen later
     if (b.matchlen < 30)
