@@ -246,8 +246,8 @@ SnowTools::GRC SnowmanBamWalker::readBam(std::ofstream * log, const SnowTools::D
 #endif
 
   // realign discordants
-  //if (main_bwa)
-  //  realignDiscordants(reads);
+  if (main_bwa)
+    realignDiscordants(reads);
 
   // calculate the mate region
   if (get_mate_regions && m_region.size() /* don't get mate regions if reading whole bam */) {
@@ -520,20 +520,88 @@ void SnowmanBamWalker::realignDiscordants(SnowTools::BamReadVector& reads) {
 
   for (auto& r : reads) {
 
-    if (std::abs(r.InsertSize()) >= 1000) {
+    int fi = r.FullInsertSize();
+
+    // if read is big disc or interchromosomal, double check its mapq
+    if (fi >= 1000 || r.Interchromosomal()) { //r.PairOrientation() != FRORIENTATION) {
+
+      // don't process unmapped reads
+      if (!r.MappedFlag())
+	continue;
+
       SnowTools::BamReadVector als;
-      main_bwa->alignSingleSequence(r.Sequence(), r.Qname(), als, false, 0.95, secondary_cap);
-      if (als.size() < 10) {
-	brv.push_back(r);
-	r.AddIntTag("DD", als.size());
+      main_bwa->alignSingleSequence(r.Sequence(), r.Qname(), als, false, 0.90, secondary_cap);
+
+      // no alignments, so label as bad
+      if (als.size() == 0) {
+	r.AddIntTag("DD", -3);
+	continue;
       }
 
-    } else {
-      brv.push_back(r);
+    //debug
+    // if (r.Qname() == "FCC02JKACXX:4:1103:21098:77640")
+    //   std::cout << " PROCESSING 3 FOUND READ ON " << r.ChrID() << std::endl;
+
+      // discordant alignments
+      SnowTools::GenomicRegion gr  = r.asGenomicRegion();
+      SnowTools::GenomicRegion grm = r.asGenomicRegionMate();
+      grm.pad(1000);
+
+      if (als.size() >= 1) {
+	bool has_orig = false;
+	bool maps_near_mate = false;
+	for (auto& i : als) {
+	  
+	  //debug
+	  // if (i.Qname() == "FCC02JKACXX:4:1103:21098:77640")
+	  //   std::cout << " ALS " << als.size() << " OV " << gr.getOverlap(i.asGenomicRegion()) << std::endl;
+
+	  if (gr.getOverlap(i.asGenomicRegion())) {
+	    has_orig = true;
+
+	    // if (i.Qname() == "FCC02JKACXX:4:1103:21098:77640")
+	    //   std::cout << "CHR " << r.ChrID() << " map " << r.MapQuality() << " I map " << i.MapQuality() << std::endl; 
+
+	    r.SetMapQuality(std::min(i.MapQuality(), r.MapQuality()));
+
+	    // if (i.Qname() == "FCC02JKACXX:4:1103:21098:77640")
+	    //   std::cout << "AFTER CHR " << r.ChrID() << " map " << r.MapQuality() << 
+	    // 	" I map " << i.MapQuality() << std::endl; 
+
+
+	  }
+ 
+	  // if mate is mapped, and read maps to near mate region, it's not 
+          // discordant
+	  if (r.MateMappedFlag() && (fi >= 10000 || r.Interchromosomal()))
+	    if (grm.getOverlap(i.asGenomicRegion()))
+	      maps_near_mate = true;
+	}
+
+	// add tags
+	if (!has_orig) 
+	  r.AddIntTag("DD", -1);
+	else if (maps_near_mate) 
+	  r.AddIntTag("DD", -2);
+	else
+	  r.AddIntTag("DD", als.size());
+	  
+      }
+
+      //debug
+      // std::cerr << r << std::endl;
+      // for (auto& i : als)
+      // 	std::cerr << "......." << i << std::endl;
+      
     }
+    
   }
-  
-  //std::cerr << "...removed " << (reads.size()-brv.size()) << " of " << reads.size() << std::endl;
+
+  // remove discordant reads without re-creatable mappings, 
+  // or with better mappings at mate region
+  for (auto& r : reads)
+    if (r.GetIntTag("DD") >= 0)
+      brv.push_back(r);
   reads = brv;
-  
+
 }

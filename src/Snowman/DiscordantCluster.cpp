@@ -312,12 +312,12 @@ namespace SnowTools {
     std::unordered_set<std::string> hqq;
     // set which reads are HQ
     for (auto& i : mates) {
-      if (i.second.MapQuality() >= HQMAPQ) {
+      if (i.second.MapQuality() >= HQMAPQ && i.second.GetIntTag("NM") < 3) {
 	hqq.insert(i.second.Qname());
       }
     }
     for (auto& i : reads) {
-      if (i.second.MapQuality() >= HQMAPQ && hqq.count(i.second.Qname())) {
+      if (i.second.MapQuality() >= HQMAPQ && hqq.count(i.second.Qname()) && i.second.GetIntTag("NM") < 3) {
 	if(i.second.GetZTag("SR").at(0) == 't')
 	  ++tcount_hq;
 	else
