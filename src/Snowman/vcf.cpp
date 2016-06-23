@@ -222,6 +222,7 @@ VCFFile::VCFFile(std::string file, std::string id, bam_hdr_t * h, const VCFHeade
   sv_header.addFilterField("LOWMAPQDISC","Both clusters of reads failed to achieve mean mapq of > 30 for DSCRD");
   sv_header.addFilterField("LOWSPLITSMALL","Fewer than 4 split reads for small events ( < 1500 bp)");
   sv_header.addFilterField("LOWICSUPPORT","Less than 60bp of contig match on one end of an inter-chromosomal break");
+  sv_header.addFilterField("LOWAS","Alignment score of one end is less than 80% of contig length, or number of mismatch bases (NM) on one end is >= 10");
   sv_header.addFilterField("WEAKSUPPORTHIREP","Fewer then 7 split reads for variant with >= 10 bases of repeat sequence (need to be more strict)");
   sv_header.addFilterField("WEAKDISC","Fewer than 7 supporting discordant reads and no assembly support");
   sv_header.addFilterField("TOOSHORT","Contig alignment for part of this rearrangement has <= 25bp match to reference");

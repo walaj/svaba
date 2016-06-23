@@ -71,7 +71,7 @@ static SnowTools::BWAWrapper * microbe_bwa = nullptr;
 static SnowTools::BWAWrapper * main_bwa = nullptr;
 //static SnowTools::BLATWrapper * main_blat = nullptr;
 static SnowTools::MiniRulesCollection * mr;
-static SnowTools::GRC blacklist, indel_blacklist_mask;
+static SnowTools::GRC blacklist, indel_blacklist_mask, germline_svs;
 static SnowTools::DBSnpFilter * dbsnp_filter;
 
 // output files
@@ -165,6 +165,7 @@ namespace opt {
 
   static std::string regionFile;
   static std::string blacklist; // = "/xchip/gistic/Jeremiah/Projects/HengLiMask/um75-hs37d5.bed.gz";
+  static std::string germline_sv_file;
 
   static std::string dbsnp; // = "/xchip/gistic/Jeremiah/SnowmanFilters/dbsnp_138.b37_indel.vcf";
 
@@ -219,7 +220,7 @@ enum {
   OPT_DEVEL_REUSE_CONTIGS
 };
 
-static const char* shortopts = "hzxt:n:p:v:r:G:r:e:g:k:c:a:m:B:D:Y:S:P:L:O:Is:";
+static const char* shortopts = "hzxt:n:p:v:r:G:r:e:g:k:c:a:m:B:D:Y:S:P:L:O:Is:V:";
 static const struct option longopts[] = {
   { "help",                    no_argument, NULL, 'h' },
   { "tumor-bam",               required_argument, NULL, 't' },
@@ -239,6 +240,7 @@ static const struct option longopts[] = {
   { "disc-sd-cutoff",            required_argument, NULL, 's' },
   { "mate-lookup-min",         required_argument, NULL, 'L' },
   { "blat-ooc",                required_argument, NULL, 'O' },
+  { "germline-sv-database",                required_argument, NULL, 'V' },
   { "g-zip",                 no_argument, NULL, 'z' },
   { "no-interchrom-lookup",                 no_argument, NULL, 'I' },
   { "read-tracking",         no_argument, NULL, OPT_READ_TRACK },
@@ -300,7 +302,8 @@ static const char *RUN_USAGE_MESSAGE =
   //"  -M, --indel-mask                     BED-file with graylisted regions for stricter indel calling.\n"
 "  -D, --dbsnp-vcf                      DBsnp database (VCF) to compare indels against\n"
 "  -B, --blacklist                      BED-file with blacklisted regions to not extract any reads from.\n"
-"  -V, --microbial-genome               Path to indexed reference genome of microbial sequences to be used by BWA-MEM to filter reads.\n"
+"  -Y, --microbial-genome               Path to indexed reference genome of microbial sequences to be used by BWA-MEM to filter reads.\n"
+"  -V, --germline-sv-database           BED file containing sites of known germline SVs. Used as additional filter for somatic SV detection\n"
 "  -z, --g-zip                          Gzip and tabix the output VCF files. Default: off\n"
 "  -L, --min-lookup-min                 Minimum number of somatic reads required to attempt mate-region lookup [3]\n"
 "  -s, --disc-sd-cutoff                 Number of standard deviations of calculated insert-size distribution to consider discordant. [1.96]\n"
@@ -416,6 +419,17 @@ void runSnowman(int argc, char** argv) {
   SnowmanUtils::__open_bed(opt::blacklist, blacklist, bwalker.header());
   SnowmanUtils::__open_bed(opt::indel_mask, indel_blacklist_mask, bwalker.header());
 
+  if (blacklist.size())
+    ss << "...loaded " << blacklist.size() << " blacklist regions from " << opt::blacklist << std::endl;
+  if (indel_blacklist_mask.size())
+    ss << "...loaded " << indel_blacklist_mask.size() << " indel mask regions from " << opt::indel_mask << std::endl;
+
+  // open the germline sv database
+  SnowmanUtils::__open_bed(opt::germline_sv_file, germline_svs, bwalker.header());
+
+  if (germline_svs.size())
+    ss << "...loaded " << germline_svs.size() << " germline SVs from " << opt::germline_sv_file << std::endl;
+
   // open the DBSnpFilter
   if (opt::dbsnp.length()) {
     std::cerr << "...loading the DBsnp database" << std::endl;
@@ -487,7 +501,6 @@ void runSnowman(int argc, char** argv) {
   enginetest.calculateSeedParameters(opt::readlen, opt::assemb::minOverlap, seedLength, seedStride);
   ss << "...calculated seed size for error rate of " << opt::assemb::error_rate << " and read length " << opt::readlen << " is " << seedLength << std::endl;
   std::cerr << "..seed size w/error rate " << opt::assemb::error_rate << " and read length " << opt::readlen << " is " << seedLength << std::endl;
-
 
   // parse the region file, count number of jobs
   int num_jobs = SnowmanUtils::countJobs(opt::regionFile, file_regions, regions_torun,
@@ -720,6 +733,7 @@ void parseRunOptions(int argc, char** argv) {
       case 'm': arg >> opt::assemb::minOverlap; break;
       case 'a': arg >> opt::analysis_id; break;
       case 'B': arg >> opt::blacklist; break;
+    case 'V': arg >> opt::germline_sv_file; break;
       case 'L': arg >> opt::mate_lookup_min; break;
       case 'M': arg >> opt::indel_mask; break;
     case 'I': opt::interchrom_lookup = false; break;
@@ -1382,15 +1396,8 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
     }
   for (auto& i : bp_glob)  // find somatic that intersect with norm. Set somatic = 0;
     if (i.somatic_score && i.evidence == "INDEL" && (norm_hash.count(i.b1.hash()) || norm_hash.count(i.b2.hash()))) {
-      i.somatic_score = 0;
+      i.somatic_score = -3;
     }
-
-  //debug
-  // for (auto& i : bp_glob) {
-  //   if (i.getSpan() == 6976264)
-  //     std::cout << " mid BP " << i.toFileString() << std::endl;
-  // }
-
 
   // remove somatic calls if they have a germline normal SV in them or indels with 
   // 2+germline normal in same contig
@@ -1405,8 +1412,24 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
   }
   for (auto& i : bp_glob)  // find somatic that intersect with norm. Set somatic = 0;
     if (i.somatic_score && i.num_align > 1 && bp_hash.count(i.cname)) {
-      i.somatic_score = 0;
+      i.somatic_score = -2;
     }
+
+  // remove somatic SVs that overlap with germline svs
+  if (germline_svs.size()) {
+    for (auto& i : bp_glob) {
+      if (i.somatic_score && i.b1.gr.chr == i.b2.gr.chr) {
+	SnowTools::GenomicRegion gr1 = i.b1.gr;
+	SnowTools::GenomicRegion gr2 = i.b2.gr;
+	gr1.pad(5);
+	gr2.pad(5);
+	if (germline_svs.overlapSameBin(gr1, gr2)) {
+	  i.somatic_score = -1;
+	}
+      }
+    }
+      
+  }
 
   //debug
   // for (auto& i : bp_glob) {
