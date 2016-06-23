@@ -723,6 +723,8 @@ namespace SnowTools {
       confidence = "SECONDARY";
     else if (repeat_seq.length() >= 10 && std::max(t.split, n.split) < 7)
       confidence = "WEAKSUPPORTHIREP";
+    else if (num_split < 6 && getSpan() < 300 && b1.gr.strand==b2.gr.strand) 
+      confidence = "LOWQINVERSION";
     else
       confidence = "PASS";
 
