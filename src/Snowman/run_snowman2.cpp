@@ -991,7 +991,10 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
   // remove FR clusters that are below min_dscrd_size_for_variant
   SnowTools::DiscordantClusterMap dmap_tmp;
   for (auto& d : dmap) {
-    if ((d.second.tcount + d.second.ncount) < 3 && d.second.m_reg1.strand == '+' && d.second.m_reg2.strand == '-' && (d.second.m_reg2.pos1 - d.second.m_reg1.pos2) < min_dscrd_size_for_variant && d.second.m_reg1.chr == d.second.m_reg2.chr)
+    if (//(d.second.tcount + d.second.ncount) < 3 && 
+	d.second.m_reg1.strand == '+' && d.second.m_reg2.strand == '-' && 
+	(d.second.m_reg2.pos1 - d.second.m_reg1.pos2) < min_dscrd_size_for_variant && 
+	d.second.m_reg1.chr == d.second.m_reg2.chr)
       continue;
     else
       dmap_tmp.insert(std::pair<std::string, SnowTools::DiscordantCluster>(d.first, d.second));
