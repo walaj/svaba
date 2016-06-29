@@ -1505,8 +1505,10 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
     std::cerr << "...writing contigs" << std::endl;
 
   if (!opt::disc_cluster_only) { 
-    for (auto& i : all_contigs)
+    for (auto& i : all_contigs) {
+      i.RemoveTag("MC");
       b_allwriter.writeAlignment(i);
+    }
     for (auto& i : blat_alignments)
       blat_allwriter.writeAlignment(i);
 
