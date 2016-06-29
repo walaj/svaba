@@ -692,7 +692,7 @@ namespace SnowTools {
       confidence = "DUPREADS"; // the same sequences keep covering the split
     else if (homology.length() >= 20 && (span > 1500 || span == -1) && std::max(b1.mapq, b2.mapq) < 60)
       confidence = "NODISC";
-    else if (seq.length() < 101 + 30)
+    else if (seq.length() < readlen + 30)
       confidence = "TOOSHORT";
     else if (blacklist)
       confidence = "BLACKLIST";
@@ -704,6 +704,8 @@ namespace SnowTools {
       confidence = "LOWMAPQ";
     else if (std::max(b1.nm, b2.nm) >= 10 || std::min(b1.as_frac, b2.as_frac) < 0.8) 
       confidence = "LOWAS";
+    else if ( (std::max(b1.nm, b2.nm) >= 3 || std::min(b1.as_frac, b2.as_frac) < 0.85) && getSpan() < 0 )
+      confidence = "LOWAS";      
     else if ( (b1.matchlen < 50 && b1.mapq < 60) || (b2.matchlen < 50 && b2.mapq < 60) )
       confidence = "LOWMAPQ";
     else if ( std::min(b1.nm, b2.nm) >= 10)
@@ -716,7 +718,7 @@ namespace SnowTools {
       confidence = "LOWICSUPPORT";
     else if (num_align == 2 && std::min(b1.mapq, b2.mapq) < 50 && b1.gr.chr != b2.gr.chr) // interchr need good mapq for assembly only
       confidence = "LOWMAPQ";
-    else if (std::min(b1.matchlen, b2.matchlen) < 50 && af < 0.2) // not enough evidence
+    else if (std::min(b1.matchlen, b2.matchlen) < 40) // not enough evidence
       confidence = "LOWMATCHLEN";      
     else if ((b1.sub_n && b1.mapq < 50) || (b2.sub_n && b2.mapq < 50)) // || std::max(b1.sub_n,b2.sub_n) >= 2)
       confidence = "MULTIMATCH";
