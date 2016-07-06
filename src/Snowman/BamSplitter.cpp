@@ -2,6 +2,8 @@
 
 #include "htslib/khash.h"
 
+#define PRINT_MOD 200000
+
 void BamSplitter::splitBam() {
 
   assert(m_writers.size() == m_frac.size());
@@ -26,8 +28,8 @@ void BamSplitter::splitBam() {
 
       // print a message
       ++countr;
-      if (countr % 1000000 == 0) 
-	std::cerr << "...splitting BAM at position " << r.Brief() << std::endl; 
+      if (countr % PRINT_MOD == 0) 
+	std::cerr << "...splitting BAM at position " << r.Brief() << " with sample rate " << csum[0] << " on " << m_writers.size() << " writers " << std::endl; 
 
       // put in one BAM or another
       uint32_t k = __ac_Wang_hash(__ac_X31_hash_string(r.Qname().c_str()) ^ m_seed);
@@ -73,14 +75,14 @@ void BamSplitter::fractionateBam(const std::string& outbam, SnowTools::Fractions
       
       // print a message
       ++countr;
-      if (countr % 1000000 == 0) 
-	std::cerr << "...fractionating BAM at position " << r.Brief() << std::endl; 
+      if (countr % PRINT_MOD == 0) 
+	std::cerr << "...fractionating BAM at position " << r.Brief();
       
       SnowTools::GenomicRegion gr(r.ChrID(), r.Position(), r.Position(), '*');
       std::vector<int32_t> qid, sid;
       SnowTools::GRC grc(gr);
-      grc.createTreeMap();
-      f.m_frc.findOverlaps(grc, qid, sid, true);
+      grc.findOverlaps(f.m_frc, sid, qid, true);
+      //f.m_frc.findOverlaps(grc, qid, sid, true);
 
       /*
       std::cerr << gr << " qid.size() " << qid.size() << " sid.size() " << sid.size() << std::endl;
@@ -90,21 +92,49 @@ void BamSplitter::fractionateBam(const std::string& outbam, SnowTools::Fractions
 	std::cerr << "       S: " << i << std::endl;
       */
 
-      if (!qid.size())
+      if (!qid.size()) {
+	if (countr % PRINT_MOD == 0)
+	  std::cerr << " -- Not in fraction region. Skipping read " << std::endl; 
 	continue;
+      }
       
       double sample_rate = f.m_frc.at(qid[0]).frac;
       
+      if (countr % PRINT_MOD == 0) 
+	std::cerr << " -- found frac region " << f.m_frc.at(qid[0]).toPrettyString() << " w/rate " << sample_rate << std::endl;
+
       // put in one BAM or another
       uint32_t k = __ac_Wang_hash(__ac_X31_hash_string(r.Qname().c_str()) ^ m_seed);
       double hash_val = (double)(k&0xffffff) / 0x1000000;
       
-      //std::cerr << "sample rate " << sample_rate << " hash " << hash_val << std::endl;
+      // keep sampling the read (if sample_rate < 1, just does this once)
+      size_t num_sampled = 0; // how many times has read been sampled
+      std::string qn;
+      while(sample_rate > 0) {
+	
+	// decide whether to keep
+	if (hash_val <= sample_rate) {
+	  //r.RemoveAllTags();
+	  
+	  // if super-sampling, give unique qname
+	  if (num_sampled) {
+	    if (qn.empty())
+	      qn = r.Qname();
+	    r.SetQname("S" + std::to_string(num_sampled) + "_" + qn);
+	  }
 
-      // decide whether to keep
-      if (hash_val <= sample_rate) {
-	//r.RemoveAllTags();
-	w.writeAlignment(r);
+	  // add tag and remove another, if first time seen read
+	  if (!num_sampled) {
+	    r.RemoveTag("OQ"); // just for compactedness	  
+	    r.AddZTag("RT", std::to_string(sample_rate));
+	  }
+
+	  w.writeAlignment(r);
+	  ++num_sampled;
+	}
+	
+	sample_rate = sample_rate - 1;
+	
       }
     }
 }
