@@ -54,7 +54,7 @@ void SnowmanAssemblerEngine::fillReadTable(SnowTools::BamReadVector& r)
   for (auto& i : r) {
 
     SeqItem si;
-    std::string sr, seq = "";
+    std::string sr, seq; 
 
     // get the sequence
     sr = i.GetZTag("SR");
@@ -72,6 +72,11 @@ void SnowmanAssemblerEngine::fillReadTable(SnowTools::BamReadVector& r)
       continue;
 
     si.id = sr;
+
+    // put onto the foward strand if not
+    if (!i.MappedFlag() && !i.MateReverseFlag())
+      SnowTools::rcomplement(seq);
+
     si.seq = seq;
     m_pRT.addRead(si);
 
@@ -110,7 +115,6 @@ bool SnowmanAssemblerEngine::performAssembly(int num_assembly_rounds)
 #ifdef DEBUG_ENGINE
   std::cout << "Doing assembly on: " << m_id << " with " << m_pRT.getCount() << " reads" << std::endl; 
 #endif
-  
 
   ContigVector contigs0;
 
@@ -216,12 +220,12 @@ void SnowmanAssemblerEngine::doAssembly(ReadTable *pRT, ContigVector &contigs, i
 
   size_t ocount = 0;
   while (pRT_nd->getRead(si) && (++ocount < MAX_OVERLAPS_PER_ASSEMBLY)) {
-
+    
     SeqRecord read;
     read.id = si.id;
     read.seq = si.seq;
     OverlapBlockList obl;
-
+    
     OverlapResult rr = pOverlapper->overlapRead(read, min_overlap, &obl);
     pOverlapper->writeOverlapBlocks(hits_stream, workid, rr.isSubstring, &obl);
 

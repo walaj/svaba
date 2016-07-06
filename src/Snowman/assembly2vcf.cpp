@@ -10,8 +10,7 @@
 #include "SnowmanBamWalker.h"
 #include "SnowmanUtils.h"
 
-//#include "boost/filesystem/path.hpp" 
-
+#define MIN_ISIZE_FOR_DISC 700 
 
 faidx_t * findex;
 
@@ -27,8 +26,8 @@ static const char* shortopts = "hi:m:q:p:v:k:z:x:a:r:t:n:G:";
 static const struct option longopts[] = {
   { "help",                    no_argument, NULL, 'h' },
   { "assembly-bam",            required_argument, NULL, 'i' },
-  { "tumor-reads-bam",            required_argument, NULL, 't' },
-  { "normal-reads-bam",            required_argument, NULL, 'n' },
+  { "tumor-reads-bam",         required_argument, NULL, 't' },
+  { "normal-reads-bam",        required_argument, NULL, 'n' },
   { "indel-mask",              required_argument, NULL, 'm' },
   { "panel-of-normals",        required_argument, NULL, 'q' },
   { "id-string",               required_argument, NULL, 'a' },
@@ -77,7 +76,7 @@ namespace opt {
   static std::string normal_reads_bam;
   static std::string analysis_id = "assembly2vcf_noid";
   static size_t verbose = 1;
-  static std::string rules = "global@nbases[0,0];!hardclip;!duplicate;!qcfail;phred[4,100];%region@WG%discordant[0,1000]%clip[5,1000]%ins[1,1000]%del[0,1000]";
+  static std::string rules = "{\"global\" : {\"duplicate\" : false, \"qcfail\" : false}, \"\" : { \"rules\" : [{\"isize\" : [MINS,0]},{\"rr\" : true},{\"ff\" : true}, {\"rf\" : true}, {\"ic\" : true}, {\"clip\" : 5, \"phred\" : 4}, {\"ins\" : true}, {\"del\" : true}, {\"mapped\": true , \"mate_mapped\" : false}, {\"mate_mapped\" : true, \"mapped\" : false}]}}"; 
   static std::string indel_mask = "";
   static std::string pon = "";
   static bool no_reads = false;
@@ -98,6 +97,9 @@ void runAssembly2VCF(int argc, char** argv)
 
   // load the reference
   findex = fai_load(opt::refgenome.c_str());  // load the reference
+
+  // set the min isize for FR discordants
+  opt::rules.replace(opt::rules.find("MINS"), 4, std::to_string(MIN_ISIZE_FOR_DISC));
 
   SnowTools::MiniRulesCollection * mr = new SnowTools::MiniRulesCollection(opt::rules);
 
@@ -125,12 +127,15 @@ void runAssembly2VCF(int argc, char** argv)
     awalk.tindex = std::shared_ptr<hts_idx_t>(hts_idx_load(opt::tumor_reads_bam.c_str(), HTS_FMT_BAI), bidx_delete());
   if (SnowTools::read_access_test(opt::normal_reads_bam))
     awalk.nindex = std::shared_ptr<hts_idx_t>(hts_idx_load(opt::normal_reads_bam.c_str(), HTS_FMT_BAI), bidx_delete());
+  else
+    opt::normal_reads_bam = std::string();
 
   std::cerr << awalk << std::endl;
 
   awalk.tbam = opt::tumor_reads_bam;
   awalk.nbam = opt::normal_reads_bam;
   awalk.numThreads = opt::numThreads;
+  awalk.refGenome = opt::refgenome;
   awalk.walkDiscovar();
 
   // make the VCFs
@@ -173,8 +178,6 @@ void runAssembly2VCF(int argc, char** argv)
   snowvcf.include_nonpass = false;
   snowvcf.writeIndels(basename, zip, false);
   snowvcf.writeSVs(basename, zip, false);
-  
-
 
 }
 

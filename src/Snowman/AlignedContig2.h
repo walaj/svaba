@@ -116,6 +116,8 @@ namespace SnowTools {
     AlignedContig() {}
     
     AlignedContig(const BamReadVector& bav, const std::set<std::string>& pref);
+
+    SnowTools::GenomicRegionVector getAsGenomicRegionVector() const;
     
     /*! Constructor which parses an alignment record from BWA (a potentially multi-line SAM record)
      * @param const reference to a string representing a SAM alignment (contains newlines if multi-part alignment)

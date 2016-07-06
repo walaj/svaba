@@ -55,8 +55,10 @@ namespace SnowTools {
    int cpos = -1;
    int nm = -1;
    int matchlen = -1;
+   int simple = 0;
 
-   std::unordered_map<std::string, int> split;
+   std::unordered_map<std::string, int> split;  // for high-confidence reads
+   std::unordered_map<std::string, int> splitI; // for informative reads
    std::unordered_map<std::string, double> af;
 
    int sub_n = -1;
@@ -155,15 +157,16 @@ namespace SnowTools {
 
    int split = 0;
    int cigar = 0;
-   int alt =0;
+   int alt = 0;
    int clip_cov = 0;
    int cov = 0;
    int disc = 0;
    
    // genotype info
    double GQ = 0;
-   double PL = 0;
+   std::string PL;
    std::string genotype;
+   std::vector<double> genotype_likelihoods = {0,0,0};
 
    double af = 0;
    double error_rate = 1e-4;
@@ -181,6 +184,8 @@ namespace SnowTools {
    double __log_likelihood(int ref, int alt, double f, double e);
 
    void modelSelection(double err);
+
+   double __genotype_likelihoods(int g, double er, int alt, int cov);
 
    std::string toFileString() const;
 
@@ -310,7 +315,7 @@ namespace SnowTools {
     * @return string with breakpoint info
     */
    std::string getHashString() const;
-   
+
    bool hasMinimal() const;
    
    bool sameBreak(BreakPoint &bp) const;

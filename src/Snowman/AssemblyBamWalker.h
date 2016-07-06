@@ -38,6 +38,8 @@ class AssemblyBamWalker: public SnowTools::BamWalker
 
     std::string id = "assembly_noid";
 
+    std::string refGenome;
+
 };
 
 struct ContigElement {

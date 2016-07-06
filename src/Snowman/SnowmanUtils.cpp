@@ -178,12 +178,19 @@ int overlapSize(const SnowTools::BamRead& query, const SnowTools::BamReadVector&
     
     // open the region file if it exists
     bool rgfile = SnowTools::read_access_test(regionFile);
-    if (rgfile)
-      file_regions.regionFileToGRV(regionFile, 0);
+    if (rgfile) {
+      try {
+	file_regions.regionFileToGRV(regionFile, 0);
+      } catch (const std::exception &exc) {
+	std::cerr << "Found chromosome in region file " << regionFile << " not in reference genome. Skipping." << std::endl;
+	std::cerr << "     Caught error: " << exc.what() << std::endl;
+      }
+    }
     
     // parse as a samtools string eg 1:1,000,000-2,000,000
-    else if (regionFile.find(":") != std::string::npos && regionFile.find("-") != std::string::npos)
+    else if (regionFile.find(":") != std::string::npos && regionFile.find("-") != std::string::npos) {
       file_regions.add(SnowTools::GenomicRegion(regionFile, h));
+    }
     
     // it's a single chromosome
     else if (!regionFile.empty()) {

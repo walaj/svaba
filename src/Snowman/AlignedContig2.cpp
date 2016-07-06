@@ -118,6 +118,13 @@ namespace SnowTools {
     
   }
   
+  SnowTools::GenomicRegionVector AlignedContig::getAsGenomicRegionVector() const {
+    SnowTools::GenomicRegionVector g;
+    for (auto& i : m_frag_v)
+      g.push_back(i.m_align.asGenomicRegion());
+    return g;
+  }
+
   void AlignedContig::printContigFasta(std::ofstream& os) const {
     os << ">" << getContigName() << std::endl;
     os << getSequence() << std::endl;
@@ -981,6 +988,7 @@ namespace SnowTools {
     b.matchlen = m_align.NumMatchBases();
     b.local = local;
     b.nm = m_align.GetIntTag("NM");
+    b.simple = m_align.GetIntTag("SZ");
 
     b.as_frac = (double)m_align.GetIntTag("AS") / (double) m_align.NumMatchBases();
 
