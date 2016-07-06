@@ -118,7 +118,7 @@
  "  -R, --num-rearrangements             Number of rearrangements to simulate\n"
  "  -X, --num-indels                     Number of indels to simulate\n"
  "  Split Bam (--split-bam)  Options:\n"
- "  -f. --fractions                      Fractions to split the bam into\n"
+ "  -f, --fractions                      Fractions to split the bam into\n"
  "\n";
 
 
@@ -400,6 +400,7 @@ void splitBam() {
   if (regions.size()) 
     bs.setBamWalkerRegions(regions.asGenomicRegionVector());
 
+  std::cerr << "...set " << regions.size() << " walker regions " << std::endl;
 
   if (fractions_bed.size()) {
     bs.fractionateBam(opt::string_id + ".fractioned.bam", fractions_bed);
