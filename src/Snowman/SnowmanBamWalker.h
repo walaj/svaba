@@ -77,10 +77,14 @@ class SnowmanBamWalker: public SnowTools::BamWalker {
   bool get_coverage = true;
   bool get_mate_regions = true;
  
+  // bad qnames, as found from discordant realignment
+  std::unordered_set<std::string> bad_qnames;
   
   //ReadVec reads;
   BamReadVector reads;
   
+  BamReadVector all_reads;
+
   std::unordered_map<uint32_t, size_t> cig_pos;
 
   STCoverage cov, weird_cov, bad_cov, clip_cov;

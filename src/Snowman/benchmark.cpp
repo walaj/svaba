@@ -494,7 +494,7 @@ void assemblyTest() {
 	      // kmer filter the reads
 	      KmerFilter kmer;
 	      if (k == 1)
-		kmer.correctReads(reads_to_local);
+		kmer.correctReads(reads_to_local, reads_to_local);
 	      
 	      //std::cerr << " Attempted align of " << reads.size() << " to local_seq. Got hits on " << reads_to_local.size() << std::endl;
 	  

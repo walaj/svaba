@@ -2,11 +2,11 @@
 
 #include "ReadTable.h"
 
-int KmerFilter::correctReads(BamReadVector& vec) {
+int KmerFilter::correctReads(BamReadVector& vec, BamReadVector& ref_reads) {
 
   // first you have to make the index if not there
   if (!pBWT)
-    __makeIndex(vec);
+    __makeIndex(ref_reads);
   if (!pBWT)
     return 0;
 
@@ -26,8 +26,8 @@ int KmerFilter::correctReads(BamReadVector& vec) {
 
   for (auto& r : vec) {
 
-    /// only correct valid reads
-    //if (r.GetIntTag("VR") == -1)
+    // only correct valid reads
+    //if (!r.GetIntTag("VR"))
     //  continue;
 
     // non-clipped mapped reads with no mismatches are OK (nothing to correct)

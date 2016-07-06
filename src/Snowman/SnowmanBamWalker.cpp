@@ -3,13 +3,16 @@
 //#define DEBUG_SNOWMAN_BAMWALKER 1
 #define MIN_MAPQ_FOR_MATE_LOOKUP 0
 
-//#define QNAME "D0ENMACXX111207:3:2105:3186:55517"
+#define ALL_READS_FAIL_SAFE 100000
+//#define QNAME "C343BACXX131027:1:2305:8461:62432"
 
 // how much to search aroudn mate region for read alignent
 #define DISC_REALIGN_MATE_PAD 2000
 
-// dont read in more reads than this at once
-#define FAIL_SAFE 8000
+// trim this many bases from front and back of read when determining coverage
+// this should be synced with the split-read buffer in BreakPoint2 for more accurate 
+// representation of covearge of INFORMATIVE reads (eg ones that could be split)
+#define INFORMATIVE_COVERAGE_BUFFER 4
 
 static const std::string ILLUMINA_PE_PRIMER_2p0 = "CAAGCAGAAGACGGCAT";
 static const std::string FWD_ADAPTER_A = "AGATCGGAAGAGC";
@@ -137,7 +140,7 @@ SnowTools::GRC SnowmanBamWalker::readBam(std::ofstream * log, const SnowTools::D
 
       // add to all reads pile for kmer correction
       if (!r.DuplicateFlag() && !r.QCFailFlag() && !r.SecondaryFlag()) {
-	cov.addRead(r); 
+	cov.addRead(r, INFORMATIVE_COVERAGE_BUFFER, false); 
       }
       
       // check if it passed blacklist
@@ -151,13 +154,13 @@ SnowTools::GRC SnowmanBamWalker::readBam(std::ofstream * log, const SnowTools::D
 
       // add to weird coverage
       if (rule_pass)
-	weird_cov.addRead(r);
+	weird_cov.addRead(r, 0, false);
       
       if (prefix == "n" && !r.DuplicateFlag() && !r.QCFailFlag())  {
 	if (r.CigarSize() >= 6 || r.MapQuality() <= 5 || (r.QualitySequence().length() < 0.6 * readlen))
-	  bad_cov.addRead(r, true);
+	  bad_cov.addRead(r, 0, true);
 	if (r.NumClip()) {
-	  clip_cov.addRead(r,true);
+	  clip_cov.addRead(r, 0, true);
 	}
       }
 
@@ -179,17 +182,12 @@ SnowTools::GRC SnowmanBamWalker::readBam(std::ofstream * log, const SnowTools::D
 	std::cerr << " qual " << r.Qualities() << " trimmed seq " << r.QualitySequence() << std::endl;
 #endif
 
-      //if (!rule_pass)
-      //r.AddIntTag("VR", -1); 
+      // add all the reads for kmer correction
+      if (all_reads.size() < ALL_READS_FAIL_SAFE && qcpass && !r.NumHardClip())
+	all_reads.push_back(r);
+
       if (rule_pass && !is_dup/* && (!dbsnp_fail || !(r.MaxInsertionBases() || r.MaxDeletionBases()))*/)
 	{
-	  // optional tag processing
-	  //r.RemoveAllTags(); // cut down on memory
-	  //r_remove_tag(r, "R2");
-	  //r_remove_tag(r, "Q2");
-	  //r_remove_tag(r, "OQ");
-	  //r_add_Z_tag(r, "RL", rule_pass);
-
 	  ++countr;
 	  if (countr % 10000 == 0 && m_region.size() == 0)
 	    std::cerr << "...read in " << SnowTools::AddCommas<size_t>(countr) << " weird reads for whole genome read-in. At pos " << r.Brief() << std::endl;
@@ -198,10 +196,9 @@ SnowTools::GRC SnowmanBamWalker::readBam(std::ofstream * log, const SnowTools::D
 	  std::string srn =  prefix + "_" + std::to_string(r.AlignmentFlag()) + "_" + r.Qname();
 	  assert(srn.length());
 	  r.AddZTag("SR", srn);
-	  //r.AddIntTag("VR", 1);
 	  
 	  // get the weird coverage
-	  weird_cov.addRead(r);
+	  weird_cov.addRead(r, 0, false);
 	  
 #ifdef QNAME
 	  if (r.Qname() == QNAME) 
@@ -249,8 +246,27 @@ SnowTools::GRC SnowmanBamWalker::readBam(std::ofstream * log, const SnowTools::D
 #endif
 
   // realign discordants
-  if (main_bwa)
+  if (main_bwa) {
     realignDiscordants(reads);
+
+    // filter out the bad qnames
+    SnowTools::BamReadVector tmp_vec;
+    for (auto& j : reads) {
+      if (j.NumClip() < 5 && !j.MaxInsertionBases() && !j.MaxDeletionBases() && bad_qnames.count(j.Qname())) {
+#ifdef QNAME
+	if (j.Qname() == QNAME)
+	  std::cerr << " LOST TO QNAME FILTER AFTER REALIGN DISCORDANTS " << std::endl; 
+#endif
+	;
+      } else {
+	tmp_vec.push_back(j);
+      }
+    }
+    reads = tmp_vec;
+    
+
+  }
+
 
   // calculate the mate region
   if (get_mate_regions && m_region.size() /* don't get mate regions if reading whole bam */) {
@@ -260,23 +276,13 @@ SnowTools::GRC SnowmanBamWalker::readBam(std::ofstream * log, const SnowTools::D
 #ifdef QNAME
   for (auto& j : reads)
       if (j.Qname() == QNAME) 
-	std::cerr << " read KEPT " << j << std::endl;
+	std::cerr << " read KEPT FINAL " << j << std::endl;
 #endif
 
  
   return bad_regions;
  
 }
-
-void SnowmanBamWalker::KmerCorrect() {
-
-  // do the kmer filtering
-  KmerFilter kmer;
-  /*int kcor = */kmer.correctReads(/*all_reads*/reads);
-  //std::cerr << "     kmer corrected " << SnowTools::AddCommas<int>(kcor) << " reads of " << SnowTools::AddCommas<size_t>(reads.size()) << std::endl; 
-
-}
-
 
 void SnowmanBamWalker::subSampleToWeirdCoverage(double max_coverage) {
   
@@ -558,11 +564,15 @@ void SnowmanBamWalker::realignDiscordants(SnowTools::BamReadVector& reads) {
 
 	  }
 
-	  // if mate is mapped, and read maps to near mate region, it's not 
+	  // if mate is mapped, and read maps to near mate region withut clips, it's not 
           // discordant
 	  if (r.MateMappedFlag() && (fi >= 10000 || r.Interchromosomal())) {
-	    if (grm.getOverlap(i.asGenomicRegion())) {
+	    if (grm.getOverlap(i.asGenomicRegion()) && r.NumClip() < 20) {
 	      maps_near_mate = true;
+#ifdef QNAME	      
+	      if (r.Qname() == QNAME)
+		std::cerr << " FOUND MATCH NEAR MATE. MATCH ALIGNMENT IS " << i << std::endl;
+#endif
 	    }
 	  }
 	}
@@ -585,6 +595,12 @@ void SnowmanBamWalker::realignDiscordants(SnowTools::BamReadVector& reads) {
   for (auto& r : reads) {
     if (r.GetIntTag("DD") >= 0)
       brv.push_back(r);
+    else
+      bad_qnames.insert(r.Qname());
+#ifdef QNAME    
+    if (r.Qname() == QNAME) 
+      std::cerr << " AFTER DISC REALIGN " << r << std::endl;
+#endif
   }
   reads = brv;
 

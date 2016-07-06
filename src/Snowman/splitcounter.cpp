@@ -73,20 +73,21 @@ void runSplitCounter(int argc, char** argv) {
     
     assert(cig.size() > 1);
 
-    if (countr % 100000 == 0)
-      std::cerr << "...at split read " << SnowTools::AddCommas(countr) << " at position " << r.Brief(walk.header()) << std::endl;
+    //if (countr % 100000 == 0)
+    //  std::cerr << "...at split read " << SnowTools::AddCommas(countr) << " at position " << r.Brief(walk.header()) << std::endl;
 
-    if (cig[0].Type() == 'H' || cig[0].Type() == 'S')  // split on left
-      std::cout << "L\t" << r.ChrName(walk.header()) << "\t" << r.Position() << "\t" << (r.ReverseFlag() ? "-" : "+") << "\t" << r.Qname() << "\t" << r.MapQuality() << "\t" << (r.SecondaryFlag() ? "SEC" : "PRI") << "\t" << (bks.findOverlapping(r.asGenomicRegion()) ? "IN_BK" : "NO_BK") << "\t0" << std::endl;
+    // if (cig[0].Type() == 'H' || cig[0].Type() == 'S')  // split on left
+	 // std::cout << "L\t" << r.ChrName(walk.header()) << "\t" << r.Position() << "\t" << (r.ReverseFlag() ? "-" : "+") << "\t" << r.Qname() << "\t" << r.MapQuality() << "\t" << (r.SecondaryFlag() ? "SEC" : "PRI") << "\t" << (bks.findOverlapping(r.asGenomicRegion()) ? "IN_BK" : "NO_BK") << "\t0" << std::endl;
 
-    if (cig.back().Type() == 'H' || cig.back().Type() == 'S')  // split on left
-      std::cout << "R\t" << r.ChrName(walk.header()) << "\t" << r.PositionEnd() << "\t" << (r.ReverseFlag() ? "-" : "+") << "\t" << r.Qname() << "\t" << r.MapQuality() << "\t" << (r.SecondaryFlag() ? "SEC" : "PRI") << "\t" << (bks.findOverlapping(r.asGenomicRegion()) ? "IN_BK" : "NO_BK") << "\t0" << std::endl;
+    //if (cig.back().Type() == 'H' || cig.back().Type() == 'S')  // split on left
+    //  std::cout << "R\t" << r.ChrName(walk.header()) << "\t" << r.PositionEnd() << "\t" << (r.ReverseFlag() ? "-" : "+") << "\t" << r.Qname() << "\t" << r.MapQuality() << "\t" << (r.SecondaryFlag() ? "SEC" : "PRI") << "\t" << (bks.findOverlapping(r.asGenomicRegion()) ? "IN_BK" : "NO_BK") << "\t0" << std::endl;
 
     // look for indels
     int pos = r.Position();
     for (auto& c : cig) {
-      if (c.Type() == 'D' && c.Length() >= 30) 
-	std::cout << "I\t" << r.ChrName(walk.header()) << "\t" << r.Position() << "\t" << "+" << "\t" << r.Qname() << "\t" << r.MapQuality() << "\t" << (r.SecondaryFlag() ? "SEC" : "PRI") << "\t" << (bks.findOverlapping(r.asGenomicRegion()) ? "IN_BK" : "NO_BK") << "\t" << c.Length() << std::endl;
+      //if (c.Type() == 'D' && c.Length() >= 30) 
+      if (c.Type() == 'D' || c.Type() == 'I')
+	std::cout << c.Type() << "\t" << r.ChrName(walk.header()) << "\t" << pos << "\t" << "+" << "\t" << r.Qname() << "\t" << r.MapQuality() << "\t" << (r.SecondaryFlag() ? "SEC" : "PRI") << "\t" << (bks.findOverlapping(r.asGenomicRegion()) ? "IN_BK" : "NO_BK") << "\t" << c.Length() << std::endl;
       if (c.ConsumesReference())
 	pos += c.Length();
     }

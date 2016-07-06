@@ -198,3 +198,26 @@ NODBCUTOFF 8 -> 2.5
 	ambiguity
 	-- fixed bug that was tossing TD type discordant read pairs
 	-- fixed bug that was tossing some inter-chromosomal read pairs
+
+	## snowman 95
+	-- added repeat masker simple-sequence filter
+	-- added discordant read realignment to reference
+
+	## snowman 97
+	-- added genotyping
+	-- added read-to-reference mapping to compete with read-to-contig
+	-- turned on kmer filtering
+	-- added all reads indexing for kmer correciton (learn from all,
+	correct only weird)
+	-- loosened strictness on split-read boundaries on contig, because
+	of the new read-to-reference decoy
+	-- some bug fixes to deal with contigs with 'x' in the name
+	(changed SmartTag delimiter)
+	-- region BED file uses header from reference, not header from BAM
+
+	## snowman 98
+	-- fixed issue where split&discordant reads were getting removed
+	from the discordant realignment. Instead, we only want to remove
+	discordant reads that realign to mate region WITHOUT clips
+	-- added hard limit on all_reads in SnowmanBamWalker, and only
+	keep non-hardclipped reads and qcpass reads

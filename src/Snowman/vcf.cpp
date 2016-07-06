@@ -226,9 +226,10 @@ VCFFile::VCFFile(std::string file, std::string id, bam_hdr_t * h, const VCFHeade
   sv_header.addFilterField("WEAKSUPPORTHIREP","Fewer then 7 split reads for variant with >= 10 bases of repeat sequence (need to be more strict)");
   sv_header.addFilterField("WEAKDISC","Fewer than 7 supporting discordant reads and no assembly support");
   sv_header.addFilterField("TOOSHORT","Contig alignment for part of this rearrangement has <= 25bp match to reference");
-  sv_header.addFilterField("PASS", "Strong assembly support, strong discordant support, or combined support. Strong MAPQ"); //3+ split reads, 0 normal split reads, 60/60 contig MAPQ OR 3+ discordant reads or 60/60 MAPQ with 4+ split reads");
-  sv_header.addFilterField("MULTIMATCH", "Low MAPQ and this contig fragment maps well to multiple locations"); //3+ split reads, 0 normal split reads, 60/60 contig MAPQ OR 3+ discordant reads or 60/60 MAPQ with 4+ split reads");
-  sv_header.addFilterField("LOWSPANDSCRD", "Discordant-only cluster is too small given isize distribution to call confidently"); //3+ split reads, 0 normal split reads, 60/60 contig MAPQ OR 3+ discordant reads or 60/60 MAPQ with 4+ split reads");
+  sv_header.addFilterField("PASS", "Strong assembly support, strong discordant support, or combined support. Strong MAPQ"); 
+  sv_header.addFilterField("MULTIMATCH", "Low MAPQ and this contig fragment maps well to multiple locations");
+  sv_header.addFilterField("LOWSPANDSCRD", "Discordant-only cluster is too small given isize distribution to call confidently"); 
+  sv_header.addFilterField("SIMPLESEQUENCE", "Major portion of one contig mapping falls in a simple sequence, as given by -R flag. Assembly-only filter"); 
   //sv_header.addSampleField(sample_id_norm);
   //sv_header.addSampleField(sample_id_tum);
   //sv_header.colnames = sv_header.colnames + "\t" + sample_id_norm + "\t" + sample_id_tum;

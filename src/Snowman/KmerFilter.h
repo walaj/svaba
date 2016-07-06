@@ -22,7 +22,7 @@ class KmerFilter {
 
     ~KmerFilter() { delete pBWT; delete pSAf; }
 
-  int correctReads(BamReadVector& vec);
+    int correctReads(BamReadVector& vec, BamReadVector& ref_reads);
   
  private: 
 

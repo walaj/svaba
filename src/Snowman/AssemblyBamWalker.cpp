@@ -7,6 +7,7 @@
 #include <fstream>
 
 //#define QNAME "5427150"
+#define MIN_ISIZE_FOR_DISC 700
 
 //static std::vector<ContigElement*> contig_elems;
 static int num_to_run;
@@ -22,6 +23,8 @@ static std::set<std::string> prefixes;
 static struct timespec start;
 
 static SnowTools::MiniRulesCollection * mr;
+
+static SnowTools::RefGenome * ref_genome;
 
 bool __good_contig(const SnowTools::BamReadVector& brv, const SnowTools::GenomicRegionVector& regions, int max_len, int max_mapq) {
   // NO INDELS
@@ -45,9 +48,6 @@ bool __good_contig(const SnowTools::BamReadVector& brv, const SnowTools::Genomic
 //	   const std::string& t, const std::string& n, const SnowTools::GenomicRegionVector& regions) {
 bool runAC(const ContigElement * c) {
   
-  SnowmanBamWalker twalk(tt);
-  SnowmanBamWalker nwalk(nn);
-  
   SnowTools::GenomicRegionVector trimmed_regions;
   for (auto& r : c->regions)
     if (r.chr < 24)
@@ -56,25 +56,26 @@ bool runAC(const ContigElement * c) {
   if (!trimmed_regions.size())
     return true;
 
-  twalk.prefix = "t000";
-  nwalk.prefix = "n000";
-  twalk.max_cov = 200;
-  nwalk.max_cov = 200;
-  twalk.get_mate_regions = false;
-  nwalk.get_mate_regions = false;
-  twalk.setBamWalkerRegions(trimmed_regions, ttindex);
-  nwalk.setBamWalkerRegions(trimmed_regions, nnindex);
-
-  twalk.SetMiniRulesCollection(*mr);
-  nwalk.SetMiniRulesCollection(*mr);
-
-  twalk.readBam();
-  nwalk.readBam();
-
-  //if (c->brv[0].Qname() == "9689804")
-  //  for (auto& i : nwalk.reads)
-  //    std::cerr << i << std::endl;
-
+  SnowmanBamWalker twalk, nwalk;
+  
+  if (!tt.empty()) {
+    twalk = SnowmanBamWalker(tt);
+    twalk.prefix = "t000";
+    twalk.max_cov = 200;
+    twalk.get_mate_regions = false;
+    twalk.setBamWalkerRegions(trimmed_regions, ttindex);
+    twalk.SetMiniRulesCollection(*mr);
+    twalk.readBam();
+  }
+  if (!nn.empty()) {
+    nwalk = SnowmanBamWalker(nn);
+    nwalk.prefix = "n000";
+    nwalk.max_cov = 200;
+    nwalk.get_mate_regions = false;
+    nwalk.setBamWalkerRegions(trimmed_regions, nnindex);
+    nwalk.SetMiniRulesCollection(*mr);
+    nwalk.readBam();
+  }
   SnowTools::BamReadVector bav_this;
   for (auto& q : twalk.reads)
     bav_this.push_back(q);
@@ -110,14 +111,13 @@ bool runAC(const ContigElement * c) {
     prefixes.insert("n000");
   }
 
-
   this_alc.push_back(SnowTools::AlignedContig(c->brv, prefixes));
   SnowTools::AlignedContig * ac = &this_alc.back();
   for (auto& kk : ac->m_frag_v)
     kk.m_max_indel = 20;
 
   // align the reads
-  alignReadsToContigs(bw, usv, bav_this, this_alc);
+  alignReadsToContigs(bw, usv, bav_this, this_alc, ref_genome);
   ac->assignSupportCoverage(); // dummies
   ac->splitCoverage(); 
   
@@ -181,7 +181,11 @@ bool runAC(const ContigElement * c) {
 void AssemblyBamWalker::walkDiscovar()
 {
 
-  std::string rules = "global@!hardclip;!duplicate;!qcfail;phred[4,100];length[25,1000]%region@WG%!isize[0,1200];mapq[0,1000]%clip[5,1000]%ins[1,1000];mapq[0,100]%del[1,1000];mapq[1,1000]%mapped;!mate_mapped;mapq[1,1000]%mate_mapped;!mapped";
+  //std::string rules = "global@!hardclip;!duplicate;!qcfail;phred[4,100];length[25,1000]%region@WG%!isize[0,1200];mapq[0,1000]%clip[5,1000]%ins[1,1000];mapq[0,100]%del[1,1000];mapq[1,1000]%mapped;!mate_mapped;mapq[1,1000]%mate_mapped;!mapped";
+  std::string rules = "{\"global\" : {\"duplicate\" : false, \"qcfail\" : false}, \"\" : { \"rules\" : [{\"isize\" : [MINS,0]},{\"rr\" : true},{\"ff\" : true}, {\"rf\" : true}, {\"ic\" : true}, {\"clip\" : 5, \"phred\" : 4}, {\"ins\" : true}, {\"del\" : true}, {\"mapped\": true , \"mate_mapped\" : false}, {\"mate_mapped\" : true, \"mapped\" : false}]}}";
+
+  rules.replace(rules.find("MINS"), 4, std::to_string(MIN_ISIZE_FOR_DISC));
+
   mr = new SnowTools::MiniRulesCollection(rules);
 
   f = findex;
@@ -230,6 +234,9 @@ void AssemblyBamWalker::walkDiscovar()
   std::string curr_name;
 
   std::vector<AssemblyWalkerWorkItem*> tmp_queue;
+
+  // open ref genome for extracting sequences
+  ref_genome = new SnowTools::RefGenome(refGenome);
   
   int max_mapq = 0, max_len = 0;
   while(GetNextRead(r, rule)) {
@@ -249,7 +256,6 @@ void AssemblyBamWalker::walkDiscovar()
     }
     else 
       continue;
-
 
     // add to existing
     if (curr_name == r.Qname()) {
@@ -272,7 +278,7 @@ void AssemblyBamWalker::walkDiscovar()
 	}
 #endif
 
-      if (__good_contig(brv, regions, max_len, max_mapq)) { 
+      if (true || __good_contig(brv, regions, max_len, max_mapq)) { 
 
 	++acc_count;
 	//AssemblyWalkerWorkItem * item = new AssemblyWalkerWorkItem(brv, findex, tindex, nindex, regions, tbam, nbam);

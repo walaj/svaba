@@ -11,6 +11,7 @@
 
 #include "SnowTools/BamWalker.h"
 #include "SnowTools/BWAWrapper.h"
+#include "SnowTools/RefGenome.h"
 
 #include "SnowmanUtils.h"
 #include "AlignedContig2.h"
@@ -31,7 +32,7 @@ int countJobs(SnowTools::GRC &file_regions, SnowTools::GRC &run_regions);
 void sendThreads(SnowTools::GRC& regions_torun);
 bool runBigChunk(const SnowTools::GenomicRegion& region); 
 SnowTools::GRC makeAssemblyRegions(const SnowTools::GenomicRegion& region);
-void alignReadsToContigs(SnowTools::BWAWrapper& bw, const SnowTools::USeqVector& usv, BamReadVector& bav_this, std::vector<SnowTools::AlignedContig>& this_alc);
+void alignReadsToContigs(SnowTools::BWAWrapper& bw, const SnowTools::USeqVector& usv, BamReadVector& bav_this, std::vector<SnowTools::AlignedContig>& this_alc, SnowTools::RefGenome * rg);
 SnowmanBamWalker __make_walkers(const std::string& p, const std::string& b, const SnowTools::GenomicRegion& region, int& tcount, int& ncount);
 MateRegionVector __collect_normal_mate_regions(std::map<std::string, SnowmanBamWalker>& walkers);
 MateRegionVector __collect_somatic_mate_regions(std::map<std::string, SnowmanBamWalker>& walkers, MateRegionVector& bl);

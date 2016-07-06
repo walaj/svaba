@@ -61,7 +61,7 @@ OverlapResult SnowmanOverlapAlgorithm::overlapReadInexact(const SeqRecord& read,
 
     if(valid)
        valid = findOverlapBlocksInexact(complement(seq), m_pRevBWT, m_pBWT, prePreAF, 
-                                       minOverlap, &obWorkingList, pOBOut, result);
+                                      minOverlap, &obWorkingList, pOBOut, result);
 
 #ifdef DEBUGOR
     if (block_size != pOBOut->size()) {

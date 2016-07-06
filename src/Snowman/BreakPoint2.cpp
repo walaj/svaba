@@ -8,10 +8,13 @@
 
 #include "SnowmanUtils.h"
 
-#define T_SPLIT_BUFF 15
-#define N_SPLIT_BUFF 8
+//#define T_SPLIT_BUFF 15
+//#define N_SPLIT_BUFF 8
+#define T_SPLIT_BUFF 5
+#define N_SPLIT_BUFF 5
 // if the insertion is this big or larger, don't require splits to span both sides
 #define INSERT_SIZE_TOO_BIG_SPAN_READS 16
+
 //#define LOD_CUTOFF 8
 //#define DBCUTOFF 15
 //#define NODBCUTOFF 2.5
@@ -36,6 +39,8 @@ static std::unordered_map<int, double> ERROR_RATES = {{0,scale_factor * 1e-4}, {
 						      {scale_factor * 8,2e-3}, {9,scale_factor * 3e-3}, {10, scale_factor * 1e-2}, {11, scale_factor * 2e-2}, {12, scale_factor * 3e-5}};
 
 namespace SnowTools {
+
+  double __myround(double x) { return std:: floor(x * 10) / 10; }
 
   // make the file string
   std::string BreakPoint::toFileString(bool noreads) {
@@ -309,6 +314,8 @@ namespace SnowTools {
       bool read_should_be_skipped = false;
       if (num_align == 1) {
 	std::vector<std::string> cigvec = j.GetSmartStringTag("SC"); // read against contig CIGAR
+	if (cigvec.size() != cnvec.size())//debug
+	  std::cerr << cigvec.size() << " _ " << cnvec.size() << std::endl;
 	assert(cigvec.size() == cnvec.size());
 	size_t kk = 0;
 	for (; kk < cnvec.size(); kk++)  // find the right contig r2c cigar (since can have one read to many contig)
@@ -344,7 +351,7 @@ namespace SnowTools {
 	  }
       }
       
-      if (read_should_be_skipped)
+      if (read_should_be_skipped) 
 	continue;
       
       // get read ID
@@ -381,10 +388,16 @@ namespace SnowTools {
       int leftend  = pos;
       bool issplit1 = (leftend <= leftbreak1) && (rightend >= rightbreak1);
       bool issplit2 = (leftend <= leftbreak2) && (rightend >= rightbreak2);
+      //bool issplit1I = (leftend <= leftbreak1I) && (rightend >= rightbreak1I);
+      //bool issplit2I = (leftend <= leftbreak2I) && (rightend >= rightbreak2I);
+
       bool both_split = issplit1 && issplit2;
       bool one_split = issplit1 || issplit2;
+      //bool both_splitI = issplit1I && issplit2I;
+      //bool one_splitI = issplit1I || issplit2I;
       // be more permissive for NORMAL, so keep out FPs
-      bool valid = (both_split && (tumor_read || homlen > 0)) || (one_split && !tumor_read && homlen == 0) || (one_split && insertion.length() >= INSERT_SIZE_TOO_BIG_SPAN_READS);
+      bool valid  = (both_split  && (tumor_read || homlen > 0)) || (one_split && !tumor_read && homlen == 0) || (one_split && insertion.length() >= INSERT_SIZE_TOO_BIG_SPAN_READS);
+      //bool validI = (both_splitI && homlen > 0) || (one_splitI && homlen == 0) || (one_splitI && insertion.length() >= INSERT_SIZE_TOO_BIG_SPAN_READS);
       // requiring both break ends to be split for homlen > 0 is for situation beow
       // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>A..........................
       // ............................B>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
@@ -398,7 +411,7 @@ namespace SnowTools {
       // a read is split if it is spans both break ends for tumor, one break end for normal (to
       // be more sensitive to germline) and if it spans both ends for deletion (should be next to 
       // each other), or one end for insertions larger than 10, or this is a complex breakpoint
-      
+
       if (valid) { 
 	
 	std::string qn = j.Qname();
@@ -419,7 +432,8 @@ namespace SnowTools {
 	    qname_and_num[qn] = j.FirstFlag();
 	  
 	  // this is a valid read
-	  valid_reads.insert(sr);
+	  if (valid)
+	    valid_reads.insert(sr);
 	  
 	  // how much of the contig do these span
 	  // for a given read QNAME, get the coverage that 
@@ -431,10 +445,16 @@ namespace SnowTools {
       }
 
       // update the counters for each break end
-      if (issplit1)
+      if (issplit1 && valid)
 	++b1.split[sample_id];
-      if (issplit2)
+      if (issplit2 && valid)
 	++b2.split[sample_id];	
+
+      //if (issplit1I && validI)
+      //	++b1.splitI[sample_id];
+      //if (issplit2I && validI)
+      //	++b2.splitI[sample_id];	
+
       
     } // end read loop
 
@@ -728,6 +748,8 @@ namespace SnowTools {
       confidence = "WEAKSUPPORTHIREP";
     else if (num_split < 6 && getSpan() < 300 && b1.gr.strand==b2.gr.strand) 
       confidence = "LOWQINVERSION";
+    else if ( (b1.matchlen - b1.simple < 15 || b2.matchlen - b2.simple < 15) )
+      confidence = "SIMPLESEQUENCE";
     else
       confidence = "PASS";
 
@@ -1151,6 +1173,10 @@ namespace SnowTools {
 	std::cerr << "couldn't find reference on BP2 for ref " << b2.chr_name << " in either viral or human" << std::endl;
       }
 
+      // couldn't find something, so bail
+      if (!ref1 || !ref2)
+	return;
+
       // by convention, set ref to 1 and alt to 2. Gets sorted in VCF creation
       ref = std::string(ref1);
       alt = std::string(ref2);
@@ -1347,6 +1373,8 @@ namespace SnowTools {
 
   void SampleInfo::modelSelection(double er) {
 
+    alt = std::max(alt, cigar);
+
     if (alt >= cov) {
       cov = alt;
     }
@@ -1374,21 +1402,45 @@ namespace SnowTools {
     //  " cov-al " << (cov-alt) << " alt " << alt << " er " << er << " test 100 " << 
     //  __log_likelihood(100, 100, 0, 0) << " " << __log_likelihood(100, 100, 0.5, 0) << std::endl;
 
-    // genotype NOT SUPPORTED CURRENTLY
-    if (af < 0.2) 
+    // genotype calculation as provided in 
+    // http://bioinformatics.oxfordjournals.org/content/early/2011/09/08/bioinformatics.btr509.full.pdf+html
+    genotype_likelihoods[0] = __genotype_likelihoods(2, er, alt, cov); // ref/ref
+    genotype_likelihoods[1] = __genotype_likelihoods(1, er, alt, cov);
+    genotype_likelihoods[2] = __genotype_likelihoods(0, er, alt, cov);
+
+    double max_likelihood = *std::max_element(genotype_likelihoods.begin(), genotype_likelihoods.end());
+    if (max_likelihood == genotype_likelihoods[0])
+      genotype = "0/0";
+    else if (max_likelihood == genotype_likelihoods[1])
       genotype = "0/1";
-    else if (af < 0.8)
-      genotype = "0/1";
-    else
-      genotype = "0/1";
+    else 
+      genotype = "1/1";
+
+    // scale to max
+    genotype_likelihoods[0] = max_likelihood - genotype_likelihoods[0];
+    genotype_likelihoods[1] = max_likelihood - genotype_likelihoods[1];
+    genotype_likelihoods[2] = max_likelihood - genotype_likelihoods[2];
+
+    // get the genotype quality
+    GQ = 99;
+    for (auto& g : genotype_likelihoods)
+      if (g != 0)
+	GQ = std::min(GQ, __myround(g));
+
+    // set the PL string
+    std::stringstream sss;
+    sss << std::setprecision(4) << __myround(genotype_likelihoods[0]) << "," << __myround(genotype_likelihoods[1]) << "," << __myround(genotype_likelihoods[2]);
+    PL = sss.str();
 
   }
 
   void BreakPoint::addCovs(const std::unordered_map<std::string, STCoverage*>& covs, const std::unordered_map<std::string, STCoverage*>& clip_covs) {
+
+    // setting to min coverage because we want to accurately genotype indels
     for (auto& i : covs) 
-      allele[i.first].cov = std::max(i.second->getCoverageAtPosition(b1.gr.chr, b1.gr.pos1), i.second->getCoverageAtPosition(b2.gr.chr, b2.gr.pos1));
+      allele[i.first].cov = std::min(i.second->getCoverageAtPosition(b1.gr.chr, b1.gr.pos1), i.second->getCoverageAtPosition(b2.gr.chr, b2.gr.pos1));
     for (auto& i : clip_covs)
-      allele[i.first].clip_cov = std::max(i.second->getCoverageAtPosition(b1.gr.chr, b1.gr.pos1), i.second->getCoverageAtPosition(b2.gr.chr, b2.gr.pos1));
+      allele[i.first].clip_cov = std::min(i.second->getCoverageAtPosition(b1.gr.chr, b1.gr.pos1), i.second->getCoverageAtPosition(b2.gr.chr, b2.gr.pos1));
   }
 
   std::ostream& operator<<(std::ostream& out, const BreakEnd& b) {
@@ -1446,12 +1498,14 @@ namespace SnowTools {
   std::string SampleInfo::toFileString() const {
 
     std::stringstream ss;
-    
+
     if (indel)
-      ss << std::setprecision(4) << genotype << ":" << std::max(alt, cigar) << ":" << cov << ":" << GQ << ":" << PL << ":" << split << ":" << cigar 
+      ss << std::setprecision(4) << genotype << ":" << 
+	std::max(alt, cigar) << ":" << cov << ":" << GQ << ":" << PL << ":" << split << ":" << cigar 
 	 << ":" << LO_n << ":" << LO << ":" << SLO;
     else
-      ss << std::setprecision(4) << genotype << ":" << alt << ":" << cov << ":" << GQ << ":" << PL << ":" << split
+      ss << std::setprecision(4) << genotype << ":" << 
+	alt << ":" << cov << ":" << GQ << ":" << PL << ":" << split
 	 << ":" << disc << ":" << LO_n << ":" << LO << ":" << SLO;
           
     return ss.str();
@@ -1483,9 +1537,9 @@ namespace SnowTools {
 	  disc = std::stoi(val);
 	break;
       case 2: alt = std::stoi(val); break;
-      case 3: cov = std::stoi(val); break;
+      case 3: cov = std::stoi(val); break;      
       case 4: GQ = std::stod(val);  break;
-      case 5: PL = std::stod(val);  break;
+      case 5: PL = val;  break;
       case 1: genotype = val; break;
       }
     }
@@ -1583,6 +1637,13 @@ namespace SnowTools {
     // alt count is max of cigar or unique qnames (includes split and discordant)
     alt = std::max((int)qn.size(), cigar);
 
+  }
+
+  // g is the number of reference alleles (e.g. g = 2 is homozygous reference)
+  // assumes biallelic model
+  double SampleInfo::__genotype_likelihoods(int g, double er, int alt, int cov) {
+    double val =  - cov * log10(2) + (cov - alt) * log10( (2 - g) * er + g  * (1 - er) ) + alt * log10( (2 - g) * (1 - er) + g * er);
+    return val;
   }
 
 }
