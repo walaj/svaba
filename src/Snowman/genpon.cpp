@@ -256,9 +256,6 @@ void runGeneratePON(int argc, char** argv) {
   
   std::ofstream outr;
   outr.open("dum", std::ios::binary | std::ios::out);
-
-  std::string rl = "global@!hardclip;!supplementary;phred[4,100];%region@WG%discordant[0,800];mapq[1,1000]";
-  SnowTools::MiniRulesCollection * mr = new SnowTools::MiniRulesCollection(rl);
   
   // open the mutex
   if (pthread_mutex_init(&gp_lock, NULL) != 0) {
@@ -280,6 +277,11 @@ void runGeneratePON(int argc, char** argv) {
   bam_hdr_t * r2c_hdr = bam_hdr_dup(bwalker.header());
   out_bw.SetWriteHeader(r2c_hdr);
   out_bw.OpenWriteBam(popt::output_file);
+
+  //global@!hardclip;!supplementary;phred[4,100];%region@WG%discordant[0,800];mapq[1,1000]";
+  std::string rl = "{\"global\" : {\"rules\" : [{\"!flag\" : 3840, \"phred\" : 4}]}, \"\" : {\"rules\" : [{\"ff\" : true}, {\"ic\" : true}, {\"isize\" : [800,0]}, {\"\rr\" : true}, {\"rf\" : true}]}}"; 
+  SnowTools::MiniRulesCollection * mr = new SnowTools::MiniRulesCollection(rl, out_bw.header());
+
   
   // send the jobs
   size_t id = 0;

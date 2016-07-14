@@ -111,8 +111,21 @@ namespace SnowTools {
     num_align = 0;
     dc = tdc;
     
-    std::string chr_name1 = bwa->ChrIDToName(dc.m_reg1.chr); //bwa->ChrIDToName(tdc.reads.begin()->second.ChrID());
-    std::string chr_name2 = bwa->ChrIDToName(dc.m_reg2.chr); //bwa->ChrIDToName(tdc.reads.begin()->second.ChrID());
+    std::string chr_name1, chr_name2;
+
+    try {
+       // if this throw error, it means that there are more chr in 
+       // reads than in reference
+       chr_name1 = bwa->ChrIDToName(dc.m_reg1.chr); //bwa->ChrIDToName(tdc.reads.begin()->second.ChrID());
+       chr_name2 = bwa->ChrIDToName(dc.m_reg2.chr); //bwa->ChrIDToName(tdc.reads.begin()->second.ChrID());
+    } catch (...) {
+      std::cerr << "Warning: Found mismatch between reference genome and BAM genome." << std::endl;
+      chr_name1 = "Unknown";
+      chr_name2 = "Unknown";
+    }
+
+    assert(chr_name1.length());
+    assert(chr_name2.length());
 
     int pos1 = (dc.m_reg1.strand == '+') ? dc.m_reg1.pos2 : dc.m_reg1.pos1;
     int pos2 = (dc.m_reg2.strand == '+') ? dc.m_reg2.pos2 : dc.m_reg2.pos1;
@@ -693,7 +706,7 @@ namespace SnowTools {
       for (auto& i : reads)
 	readlen = std::max(i.Length(), readlen);
 
-    double af = t.cov > 0 ? (double)t.alt / (double)t.cov : 0;
+    //double af = t.cov > 0 ? (double)t.alt / (double)t.cov : 0;
     
     int span = getSpan();
     //int this_mapq1 = b1.local ? 60 : b1.mapq;
@@ -1565,7 +1578,6 @@ namespace SnowTools {
     int cpos = b1.cpos + 1;
     if (!fwd)
       cpos = seq.length() - b1.cpos;
-    
 
     int i = cpos; //b1.cpos + 1;
     int stop = std::min((int)seq.length() - 1, cpos + REP_BUFF); //fwd ? std::min((int)seq.length() - 1, b1.cpos + REP_BUFF) : std::max(0, b1.cpos - REP_BUFF);

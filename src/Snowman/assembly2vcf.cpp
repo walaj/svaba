@@ -101,22 +101,25 @@ void runAssembly2VCF(int argc, char** argv)
   // set the min isize for FR discordants
   opt::rules.replace(opt::rules.find("MINS"), 4, std::to_string(MIN_ISIZE_FOR_DISC));
 
-  SnowTools::MiniRulesCollection * mr = new SnowTools::MiniRulesCollection(opt::rules);
-
   SnowmanBamWalker twalk, nwalk;
+  SnowTools::MiniRulesCollection * mr;
   if (SnowTools::read_access_test(opt::tumor_reads_bam)) {
     twalk = SnowmanBamWalker(opt::tumor_reads_bam);
     twalk.prefix= "t000";  
     twalk.max_cov = 500;
+    mr = new SnowTools::MiniRulesCollection(opt::rules, twalk.header());
     twalk.SetMiniRulesCollection(*mr);
   } 
   if (SnowTools::read_access_test(opt::normal_reads_bam)) {
     nwalk = SnowmanBamWalker(opt::normal_reads_bam);
     nwalk.prefix= "n000";
     nwalk.max_cov = 500;
+    mr = new SnowTools::MiniRulesCollection(opt::rules, twalk.header());
     nwalk.SetMiniRulesCollection(*mr);    
   }
     
+
+
   // read in the assembly bam file
   AssemblyBamWalker awalk(opt::assembly_bam);
   awalk.twalk = twalk;

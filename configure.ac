@@ -23,7 +23,7 @@ AC_SEARCH_LIBS([clock_gettime], [rt], [AC_DEFINE([HAVE_CLOCK_GETTIME], [1], [clo
 AC_ARG_WITH(boost, AS_HELP_STRING([--with-boost=PATH],
 	[specify directory containing the boost library)]))
 if test "$with_boost" -a -d "$with_boost"; then
-    boost_include="-I$with_boost"
+    boost_include="-I$with_boost -DHAVE_BOOST"
     AC_CHECK_FILE("$with_boost/stage/lib", STAGE_PATH=1, STAGE_PATH=0)
     if test ${STAGE_PATH} = 1; then
         boost_lib="$with_boost/stage/lib"  
@@ -45,7 +45,7 @@ AC_SUBST(AM_CXXFLAGS, "-g -Wall -Wextra $fail_on_warning -Wno-unknown-pragmas -s
 AC_SUBST(CXXFLAGS, "-O3")
 AC_SUBST(CFLAGS, "-O3")
 AC_SUBST(CPPFLAGS, "$CPPFLAGS $boost_include")
-AC_SUBST(LDFLAGS, "$LDFLAGS $boost_lib_flag")
+AC_SUBST(LDFLAGS, "$LDFLAGS")
 
 # We always need to specify to link in bamtools
 AC_SUBST(LIBS, "$LIBS") # libboost_regex.a libboost_filesystem.a libboost_system.a")

@@ -211,6 +211,39 @@ bool KmerFilter::attemptKmerCorrection(size_t i, size_t k_idx, size_t minCount, 
   return false;
 }
 
+void KmerFilter::makeIndex(const std::vector<char*>& v) {
+
+  ReadTable pRT;
+  pRT.setZero();
+  
+  int dd = 0;
+  // make the reads tables
+  for (auto& i : v) {
+    
+    SeqItem si;
+    std::string seq(i);
+
+    // if the read is good, add it to the table so we can use for kmer index
+    if (seq.length() >= 40 && seq.find("N") == std::string::npos) {
+      si.id = std::to_string(dd);
+      si.seq = seq;
+      pRT.addRead(si);
+      ++dd;
+    }
+
+  }
+
+  if (pRT.getCount() == 0)
+    return;
+  
+  // make suffix array
+  pSAf = new SuffixArray(&pRT, 1, false);
+  // make BWT
+  pBWT= new RLBWT(pSAf, &pRT);
+
+
+}
+
 //
 void KmerFilter::__makeIndex(BamReadVector& vec) {
 

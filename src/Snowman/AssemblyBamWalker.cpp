@@ -186,7 +186,7 @@ void AssemblyBamWalker::walkDiscovar()
 
   rules.replace(rules.find("MINS"), 4, std::to_string(MIN_ISIZE_FOR_DISC));
 
-  mr = new SnowTools::MiniRulesCollection(rules);
+  mr = new SnowTools::MiniRulesCollection(rules, header());
 
   f = findex;
   tt = tbam;

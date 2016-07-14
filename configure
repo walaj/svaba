@@ -5066,7 +5066,7 @@ if test "${with_boost+set}" = set; then
 fi
 
 if test "$with_boost" -a -d "$with_boost"; then
-    boost_include="-I$with_boost"
+    boost_include="-I$with_boost -DHAVE_BOOST"
     as_ac_File=`$as_echo "ac_cv_file_"$with_boost/stage/lib"" | $as_tr_sh`
 { $as_echo "$as_me:$LINENO: checking for \"$with_boost/stage/lib\"" >&5
 $as_echo_n "checking for \"$with_boost/stage/lib\"... " >&6; }
@@ -5122,7 +5122,7 @@ CFLAGS="-O3"
 
 CPPFLAGS="$CPPFLAGS $boost_include"
 
-LDFLAGS="$LDFLAGS $boost_lib_flag"
+LDFLAGS="$LDFLAGS"
 
 
 # We always need to specify to link in bamtools

@@ -61,14 +61,14 @@ StringGraph* assemble(std::stringstream& asqg_stream, int minOverlap, int maxEdg
     {
       pGraph->visit(validationVisit);
     }
-  
+
   // Remove dead-end branches from the graph
   if(numTrimRounds > 0)
     {
       int numTrims = numTrimRounds;
       while(numTrims-- > 0)
 	pGraph->visit(trimVisit);
-      pGraph->visit(statsVisit);
+      //pGraph->visit(statsVisit);
     }
   
   // Resolve small repeats

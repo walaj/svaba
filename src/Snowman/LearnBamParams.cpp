@@ -71,10 +71,16 @@ void LearnBamParams::learnParams(BamParamsMap& p, int max_count) {
     if (chr == r.ChrID())
       pos2 = r.Position();
     
-    // try to get the read group tag from qname first
-    std::string qn = r.Qname();
-    size_t posr = qn.find(":", 0);
-    std::string RG = (posr != std::string::npos) ? qn.substr(0, posr) : r.GetZTag("RG");
+    std::string RG = r.GetZTag("RG");
+    // hack for simulated data
+    if (RG.find("tumor") != std::string::npos) {
+      std::string qn = r.Qname();
+      size_t posr = qn.find(":", 0);
+      RG = (posr != std::string::npos) ? qn.substr(0, posr) : RG;
+    } else {
+      // best practice without "tumor" hack
+      RG = r.ParseReadGroup();
+    }
     
     BamParamsMap::iterator ff = p.find(RG);
 

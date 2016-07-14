@@ -82,8 +82,10 @@ class SnowmanBamWalker: public SnowTools::BamWalker {
   
   //ReadVec reads;
   BamReadVector reads;
-  
+
   BamReadVector all_reads;
+
+  std::vector<char*> all_seqs;
 
   std::unordered_map<uint32_t, size_t> cig_pos;
 
@@ -91,10 +93,6 @@ class SnowmanBamWalker: public SnowTools::BamWalker {
   
   CigarMap cigmap;
 
-
-
-
-  
   //SnowTools::GenomicRegion coverage_region;
   
   size_t max_weird_cov = 100;
@@ -103,13 +101,15 @@ class SnowmanBamWalker: public SnowTools::BamWalker {
   
   SnowTools::ReadCount rc;
   
-
+  SnowTools::GRC * simple_seq;
   
   size_t max_cov = 100;
   
   bool do_kmer_filtering = true;
   
   bool adapter_trim = true;
+
+  double kmer_subsample = 0.5;
 
   size_t m_limit = 0;
   //std::stringstream cigr;
