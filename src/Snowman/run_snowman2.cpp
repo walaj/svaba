@@ -181,6 +181,8 @@ namespace opt {
   static std::string normal_bam;
   static std::string tumor_bam;
 
+  static double kmer_subsample;
+
   static size_t mate_lookup_min = 3;
 
   static double lod = 8;
@@ -218,7 +220,8 @@ enum {
   OPT_ZDROP,
   OPT_BANDWIDTH,
   OPT_RESEED_TRIGGER,
-  OPT_DEVEL_REUSE_CONTIGS
+  OPT_DEVEL_REUSE_CONTIGS,
+  OPT_KMER_SUBSAMPLE
 };
 
 static const char* shortopts = "hzxt:n:p:v:r:G:r:e:g:k:c:a:m:B:D:Y:S:P:L:O:Is:V:R:";
@@ -247,6 +250,7 @@ static const struct option longopts[] = {
   { "no-interchrom-lookup",    no_argument, NULL, 'I' },
   { "read-tracking",           no_argument, NULL, OPT_READ_TRACK },
   { "gap-open-penalty",        required_argument, NULL, OPT_GAP_OPEN },
+  { "kmer-subsample",          required_argument, NULL, OPT_KMER_SUBSAMPLE },
   { "gap-extension-penalty",   required_argument, NULL, OPT_GAP_EXTENSION },
   { "mismatch-penalty",        required_argument, NULL, OPT_MISMATCH },
   { "z-dropoff",               required_argument, NULL, OPT_ZDROP },
@@ -311,7 +315,6 @@ static const char *RUN_USAGE_MESSAGE =
 "  -L, --min-lookup-min                 Minimum number of somatic reads required to attempt mate-region lookup [3]\n"
 "  -s, --disc-sd-cutoff                 Number of standard deviations of calculated insert-size distribution to consider discordant. [1.96]\n"
 "      --no-interchrom-lookup           Don't do mate lookup for inter-chromosomal translocations. This increased run time at cost of power for translocations.\n"
-"      --no-kmer-correct                Turn off perform k-mer based error correction on the reads. Need to balance with error rate (w/kmer can have lower error rate). [off]\n"
 "      --r2c-bam                        Output a BAM of reads that aligned to a contig, and fasta of kmer corrected sequences\n"
 "      --discordant-only                Only run the discordant read clustering module, skip assembly. Default: off\n"
 "      --read-tracking                  Track supporting reads. Increases file sizes.\n"
@@ -328,6 +331,8 @@ static const char *RUN_USAGE_MESSAGE =
 "      --write-asqg                     Output an ASQG graph file for each assembly window.\n"
 "  -e, --error-rate                     Fractional difference two reads can have to overlap. See SGA param. 0 is fast, but requires exact matches and error correcting. [0.02]\n"
 "  -c, --chunk-size                     Size of a local assembly window (in bp). [25000]\n"
+"      --no-kmer-correct                Turn off perform k-mer based error correction on the reads. Need to balance with error rate (w/kmer can have lower error rate). [off]\n"
+"      --kmer-subsample                 Learn from only a fraction of the reads during kmer-correction. Reduces memory and increases speed, especially for high-coverage samples [0.5]\n"
 "  Alignment params\n"
 "      --gap-open-penalty               Set the BWA-MEM gap open penalty for contig to genome alignments. BWA-MEM -O [6]\n"
 "      --gap-extension-penalty          Set the BWA-MEM gap extension penalty for contig to genome alignments. BWA-MEM -E [1]\n"
@@ -366,6 +371,7 @@ void runSnowman(int argc, char** argv) {
     "    Indel PON file:      " << opt::pon << std::endl << 
     "    Max cov to assemble: " << opt::max_cov << std::endl << 
     "    ErrorRate: " << (opt::assemb::error_rate < 0.001f ? "EXACT (0)" : std::to_string(opt::assemb::error_rate)) << std::endl << 
+    "    Kmer-based error correction: " << (opt::kmer_filter ? ("ON -- subsample rate: " + std::to_string(opt::kmer_subsample)) : "OFF") << std::endl << 
     "    Num assembly rounds: " << opt::num_assembly_rounds << std::endl << 
     "    Num reads to sample: " << opt::num_to_sample << std::endl << 
     "    Remove clipped reads with adapters? " << (opt::adapter_trim ? "TRUE" : "FALSE") << std::endl << 
@@ -482,6 +488,7 @@ void runSnowman(int argc, char** argv) {
     ss << "BAM PARAMS FOR: " << b.first << "--" << b.second << std::endl;
     for (auto& i : params_map[b.first])
       ss << i.second << std::endl;
+    ss << " min_dscrd_size_for_variant " << min_dscrd_size_for_variant << std::endl;
   }
 
   // check if differing read lengths or max mapq
@@ -543,7 +550,7 @@ void runSnowman(int argc, char** argv) {
     for (auto& i : a.second) {
       if (!rg_seen.count(i.second.read_group)) {
 	int mi = std::floor(i.second.mean_isize + i.second.sd_isize * opt::sd_disc_cutoff);
-	ss_rules << "{\"isize\" : [ " << mi << ",0], \"RG\" : \"" << i.second.read_group << "\"},";
+	ss_rules << "{\"isize\" : [ " << mi << ",0], \"rg\" : \"" << i.second.read_group << "\"},";
 	rg_seen.insert(i.second.read_group);
 	min_isize_for_disc.insert(std::pair<std::string, int>(i.second.read_group, mi));
       }
@@ -559,7 +566,7 @@ void runSnowman(int argc, char** argv) {
 
   // set the MiniRules to be applied to each region
   ss << opt::rules << std::endl;
-  mr = new SnowTools::MiniRulesCollection(opt::rules);
+  mr = new SnowTools::MiniRulesCollection(opt::rules, header_from_reference);
   ss << *mr << std::endl;
   log_file << ss.str();
   if (opt::verbose > 1)
@@ -745,6 +752,7 @@ void parseRunOptions(int argc, char** argv) {
     switch (c) {
     case OPT_REFILTER : opt::refilter = true; break;
     case OPT_NOBLAT : opt::run_blat = true; break;
+    case OPT_KMER_SUBSAMPLE : arg >> opt::kmer_subsample; break;
     case OPT_DEVEL_REUSE_CONTIGS : arg >> opt::reuse_contigs; break;
       case 'p': arg >> opt::numThreads; break;
       case 'm': arg >> opt::assemb::minOverlap; break;
@@ -867,7 +875,6 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
     walkers[b.first] = __make_walkers(b.first, b.second, region, tcount, ncount);
 
   num_t_reads = tcount; num_n_reads = ncount;
-  //assert(num_n_reads == 0); //debug
   st.stop("r");
 
   // collect all of the cigar maps
@@ -969,6 +976,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
   SnowTools::GRC excluded_bad_regions = SnowTools::GRC();
   std::unordered_set<std::string> excluded_bad_reads;
   
+  std::vector<char*> all_seqs;
   BamReadVector bav_this, bav_all;
   for (auto& b : walkers) {
     for (auto& r : b.second.reads) {
@@ -982,8 +990,11 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 	bav_this.push_back(r);
       }
     }
-    for (auto& r : b.second.all_reads)
-      bav_all.push_back(r);
+    //for (auto& r : b.second.all_reads)
+    //  bav_all.push_back(r);
+    for (auto& r : b.second.all_seqs)
+      all_seqs.push_back(r);
+
   }
   
   // do the kmer filtering
@@ -992,8 +1003,12 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
     KmerFilter kmer;
     int kmer_corrected = 0;
 
-    if (!opt::no_assemble_normal && opt::kmer_filter)
+    if (!opt::no_assemble_normal && opt::kmer_filter) {
+      kmer.makeIndex(all_seqs);
+      for (size_t i = 0; i < all_seqs.size(); ++i) // free the sequenes
+	free(all_seqs[i]);
       kmer_corrected = kmer.correctReads(bav_this, bav_all);
+    }
     else {
       for (auto& r : bav_this)
 	if (r.GetZTag("SR").at(0) == 't')
@@ -1025,13 +1040,15 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 
   SnowTools::DiscordantClusterMap dmap = SnowTools::DiscordantCluster::clusterReads(bav_this, region, opt::max_mapq_possible, &min_isize_for_disc);
 
-  // remove FR clusters that are below min_dscrd_size_for_variant
+  // tag FR clusters that are below min_dscrd_size_for_variant AND low support
   SnowTools::DiscordantClusterMap dmap_tmp;
   for (auto& d : dmap) {
-    if (//(d.second.tcount + d.second.ncount) < 3 && 
-	d.second.m_reg1.strand == '+' && d.second.m_reg2.strand == '-' && 
-	(d.second.m_reg2.pos1 - d.second.m_reg1.pos2) < min_dscrd_size_for_variant && 
-	d.second.m_reg1.chr == d.second.m_reg2.chr)
+    bool below_size = 	d.second.m_reg1.strand == '+' && d.second.m_reg2.strand == '-' && 
+      (d.second.m_reg2.pos1 - d.second.m_reg1.pos2) < min_dscrd_size_for_variant && 
+      d.second.m_reg1.chr == d.second.m_reg2.chr;
+
+    // low support and low size, completely ditch it
+    if (below_size && (d.second.tcount + d.second.ncount) < 4)
       continue;
     else
       dmap_tmp.insert(std::pair<std::string, SnowTools::DiscordantCluster>(d.first, d.second));
@@ -1357,6 +1374,9 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
   // repeat sequence filter
   for (auto& i : bp_glob)
     i.repeatFilter();
+
+  if (opt::verbose > 1 && pon_filter)
+    std::cerr << "...PON filteering" << std::endl;
   
   // do the PON filter
   if (pon_filter) {
@@ -1372,15 +1392,25 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
     }
   }
 
+  if (opt::verbose > 1)
+    std::cerr << "...blacklist filtering" << std::endl;
+
   // filter against blacklist
   for (auto& i : bp_glob) {
     i.checkBlacklist(blacklist);
   }
 
+  if (opt::verbose > 1)
+    std::cerr << "...sending DSCRD to breakpoints" << std::endl;
+
   // add in the discordant clusters as breakpoints
   for (auto& i : dmap) {
+    // dont send DSCRD if FR and below size
+    bool below_size = 	i.second.m_reg1.strand == '+' && i.second.m_reg2.strand == '-' && 
+      (i.second.m_reg2.pos1 - i.second.m_reg1.pos2) < min_dscrd_size_for_variant && 
+      i.second.m_reg1.chr == i.second.m_reg2.chr;
     // DiscordantCluster not associated with assembly BP and has 2+ read support
-    if (!i.second.hasAssociatedAssemblyContig() && (i.second.tcount + i.second.ncount) > 1 && i.second.valid()) {
+    if (!i.second.hasAssociatedAssemblyContig() && (i.second.tcount + i.second.ncount) > 1 && i.second.valid() && !below_size) {
       SnowTools::BreakPoint tmpbp(i.second, main_bwa, dmap);
       //assert(tmpbp.b1.gr < tmpbp.b2.gr);
       bp_glob.push_back(tmpbp);
@@ -1426,7 +1456,6 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
   std::unordered_set<std::string> norm_hash;
   for (auto& i : bp_glob) // hash the normals
     if (!i.somatic_score && i.confidence == "PASS" && i.evidence == "INDEL") {
-      //std::cout << " adding BP hash " << i.toFileString() << std::endl; //debug
       norm_hash.insert(i.b1.hash());
       norm_hash.insert(i.b2.hash());
       norm_hash.insert(i.b1.hash(1));
@@ -1445,7 +1474,6 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
     std::cerr << "...removing somatic calls that have germline SV" << std::endl;
   std::unordered_set<std::string> bp_hash;
   for (auto& i : bp_glob) { // hash the normals
-    //std::cout << " BP " << i.toFileString() << std::endl; //debug
     if (!i.somatic_score && i.evidence != "INDEL" && i.confidence == "PASS") {
       bp_hash.insert(i.cname);
     }
@@ -1471,12 +1499,6 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
       
   }
 
-  //debug
-  // for (auto& i : bp_glob) {
-  //   if (i.getSpan() == 6976264)
-  //     std::cout << " final BP 22  " << i.toFileString() << std::endl;
-  // }
-  
   // add the ref and alt tags
   if (opt::verbose > 2)
     std::cerr << "...setting ref and alt" << std::endl;
@@ -1719,7 +1741,6 @@ void alignReadsToContigs(SnowTools::BWAWrapper& bw, const SnowTools::USeqVector&
       bool length_pass = (r.PositionEnd() - r.Position()) >= ((double)seqr.length() * 0.75);
 
       if (length_pass && !cc.count(usv[r.ChrID()].name)) {
-
 	bpass.push_back(r);
 	cc.insert(usv[r.ChrID()].name);
       }
@@ -1771,6 +1792,9 @@ SnowmanBamWalker __make_walkers(const std::string& p, const std::string& b, cons
   
   //int readlen = p.at(0) == 't' ? t_params.readlen : n_params.readlen;
   SnowmanBamWalker walk(b, main_bwa, opt::readlen, p, blacklist);
+  walk.do_kmer_filtering = opt::kmer_filter;
+  walk.simple_seq = &simple_seq;
+  walk.kmer_subsample = opt::kmer_subsample;
   //SnowmanBamWalker walk(b, main_bwa, readlen, p, blacklist);
   walk.adapter_trim = opt::adapter_trim;
   walk.max_cov = opt::max_cov;

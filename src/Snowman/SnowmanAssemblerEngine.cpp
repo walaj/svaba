@@ -270,6 +270,8 @@ void SnowmanAssemblerEngine::doAssembly(ReadTable *pRT, ContigVector &contigs, i
   //#endif
   
   // PERFORM THE ASSMEBLY
+  trimLengthThreshold = 100; 
+  numTrimRounds = 1; 
   StringGraph * oGraph = assemble(asqg_stream, min_overlap, maxEdges, bExact, 
 	   trimLengthThreshold, bPerformTR, bValidate, numTrimRounds, 
 	   resolveSmallRepeatLen, numBubbleRounds, gap_divergence, 

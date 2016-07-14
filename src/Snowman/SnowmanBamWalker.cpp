@@ -3,8 +3,8 @@
 //#define DEBUG_SNOWMAN_BAMWALKER 1
 #define MIN_MAPQ_FOR_MATE_LOOKUP 0
 
-#define ALL_READS_FAIL_SAFE 100000
-//#define QNAME "C343BACXX131027:1:2305:8461:62432"
+#define ALL_READS_FAIL_SAFE 50000
+//#define QNAME "FCD058BACXX:6:1101:8471:28542"
 
 // how much to search aroudn mate region for read alignent
 #define DISC_REALIGN_MATE_PAD 2000
@@ -147,8 +147,26 @@ SnowTools::GRC SnowmanBamWalker::readBam(std::ofstream * log, const SnowTools::D
       bool blacklisted = false;
       if (blacklist.size() && blacklist.findOverlapping(r.asGenomicRegion()))
 	blacklisted = true;
-      rule_pass = rule_pass && !blacklisted;
 
+      // check if in simple-seq
+      if (!blacklisted && simple_seq->size()) {
+
+	// check simple sequence overlaps
+	SnowTools::GRC ovl = simple_seq->findOverlaps(r.asGenomicRegion(), true);
+	
+	int msize = 0;
+	for (auto& j: ovl) {
+	  int nsize = j.width() - r.MaxDeletionBases() - 1;
+	  if (nsize > msize && nsize > 0)
+	    msize = nsize;
+	}
+
+	if (msize > 30)
+	  blacklisted = true;
+      }
+
+      rule_pass = rule_pass && !blacklisted;
+      
       // check if has adapter
       rule_pass = rule_pass && !hasAdapter(r);
 
@@ -183,14 +201,27 @@ SnowTools::GRC SnowmanBamWalker::readBam(std::ofstream * log, const SnowTools::D
 #endif
 
       // add all the reads for kmer correction
-      if (all_reads.size() < ALL_READS_FAIL_SAFE && qcpass && !r.NumHardClip())
-	all_reads.push_back(r);
-
+      if (do_kmer_filtering && all_seqs.size() < ALL_READS_FAIL_SAFE && qcpass && !r.NumHardClip() && !blacklisted) {
+	uint32_t k = __ac_Wang_hash(__ac_X31_hash_string(r.Qname().c_str()) ^ m_seed);
+	if ((double)(k&0xffffff) / 0x1000000 <= kmer_subsample) {
+	  std::string qq = r.QualitySequence();
+	  char * tmp_loc = (char*) malloc(qq.length() + 1); // + 1 for /0 terminator
+	  all_seqs.push_back(strcpy(tmp_loc, qq.c_str()));
+	}
+      }
+      
       if (rule_pass && !is_dup/* && (!dbsnp_fail || !(r.MaxInsertionBases() || r.MaxDeletionBases()))*/)
 	{
 	  ++countr;
 	  if (countr % 10000 == 0 && m_region.size() == 0)
 	    std::cerr << "...read in " << SnowTools::AddCommas<size_t>(countr) << " weird reads for whole genome read-in. At pos " << r.Brief() << std::endl;
+
+	  // for memory conservation
+	  r.RemoveTag("BQ");
+	  r.RemoveTag("OQ");
+	  r.RemoveTag("XT");
+	  r.RemoveTag("XA");
+	  r.RemoveTag("SA");
 
 	  // add the ID tag
 	  std::string srn =  prefix + "_" + std::to_string(r.AlignmentFlag()) + "_" + r.Qname();
@@ -202,13 +233,15 @@ SnowTools::GRC SnowmanBamWalker::readBam(std::ofstream * log, const SnowTools::D
 	  
 #ifdef QNAME
 	  if (r.Qname() == QNAME) 
-	std::cerr << " read added " << r << std::endl;
+	    std::cerr << " read added " << r << std::endl;
 #endif
-      reads.push_back(r); // adding later because of kmer correction
+	  
 
+	  reads.push_back(r); // adding later because of kmer correction
+	  
 	}
   } // end the read loop
-
+  
 #ifdef QNAME
   for (auto& j : reads)
       if (j.Qname() == QNAME) 

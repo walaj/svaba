@@ -18,9 +18,9 @@ namespace SnowTools {
 
     DBSnpSite(const std::string& tchr, const std::string& pos, const std::string& rs, const std::string& ref, const std::string& alt);
 
-    std::string m_rs;
-    std::string m_ref;
-    std::string m_alt;
+    //std::string m_rs;
+    //std::string m_ref;
+    //std::string m_alt;
 
     friend std::ostream& operator<<(std::ostream& out, const DBSnpSite& d);
     

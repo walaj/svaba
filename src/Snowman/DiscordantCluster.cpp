@@ -40,8 +40,13 @@ namespace SnowTools {
     std::cerr << "CLUSTERING WITH " << bav.size() << " reads " << " and min isize for disc " << min_isize_for_disc << std::endl;
 #endif
 
+#ifdef DEBUG_CLUSTER    
+    for (auto& i : bav)
+      std::cerr << " PRE DEDUPED CLUSTER " << i << std::endl;
+#endif
+
     // remove any reads that are not present twice or have sufficient isize
-    std::unordered_map<std::string, int> tmp_map;
+    /*std::unordered_map<std::string, int> tmp_map;
     for (auto& i : bav) {
 
       std::string tt = i.Qname();
@@ -49,7 +54,7 @@ namespace SnowTools {
 	tmp_map[tt] = 1;
       else
 	++tmp_map[tt];
-    }
+	}*/
 
     // only add the discordant reads, respecting diff size cutoffs for diff RG
     BamReadVector bav_dd;
@@ -57,12 +62,24 @@ namespace SnowTools {
       int cutoff = 800;
       if (min_isize_for_disc) {
 
-	std::unordered_map<std::string, int>::const_iterator ff = min_isize_for_disc->find(r.ParseReadGroup());
+	std::string RG = r.GetZTag("RG");
+	// hack for simulated data
+	if (RG.find("tumor") != std::string::npos) {
+	  std::string qn = r.Qname();
+	  size_t posr = qn.find(":", 0);
+	  RG = (posr != std::string::npos) ? qn.substr(0, posr) : RG;
+	} else {
+	  // best practice without "tumor" hack
+	  RG = r.ParseReadGroup();
+	}
+
+	std::unordered_map<std::string, int>::const_iterator ff = min_isize_for_disc->find(RG);
 	if (ff != min_isize_for_disc->end())
 	  cutoff = ff->second;
       }
 
-      if ( ( r.PairOrientation() != FRORIENTATION || r.FullInsertSize() >= cutoff) && r.PairMappedFlag())
+      // accept as discordant if not FR, has large enough isize, is inter-chromosomal, and has both mates mapping
+      if ( ( r.PairOrientation() != FRORIENTATION || r.FullInsertSize() >= cutoff || r.Interchromosomal()) && r.PairMappedFlag())
 	bav_dd.push_back(r);
     }
 
@@ -74,12 +91,12 @@ namespace SnowTools {
     std::sort(bav_dd.begin(), bav_dd.end(), BamReadSort::ByReadPosition());
 
 #ifdef DEBUG_CLUSTER    
-    //for (auto& i : bav_dd)
-    //  std::cerr << i << std::endl;
+    for (auto& i : bav_dd)
+      std::cerr << " DEDUPED CLUSTER " << i << std::endl;
 #endif
 
     // clear the tmp map. Now we want to use it to store if we already clustered read
-    tmp_map.clear();
+    //tmp_map.clear();
     
     BamReadClusterVector fwd, rev, fwdfwd, revrev, fwdrev, revfwd;
     std::pair<int, int> fwd_info, rev_info; // refid, pos

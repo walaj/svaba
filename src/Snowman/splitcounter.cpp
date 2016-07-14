@@ -56,9 +56,9 @@ void runSplitCounter(int argc, char** argv) {
   SnowTools::BamRead r;
   bool rule;
 									
-  std::string rules_string = "{\"\" : {\"rules\" : [{\"clip\" : [20,1000000]}]}}";
+  std::string rules_string = "{\"\" : {\"rules\" : [{\"clip\" : 20}]}}";
   //std::cerr << "Rules: " << rules_string << std::endl;
-  SnowTools::MiniRulesCollection mr(rules_string);
+  SnowTools::MiniRulesCollection mr(rules_string, walk.header());
   walk.SetMiniRulesCollection(mr);
 
   size_t countr = 0;

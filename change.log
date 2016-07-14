@@ -221,3 +221,28 @@ NODBCUTOFF 8 -> 2.5
 	discordant reads that realign to mate region WITHOUT clips
 	-- added hard limit on all_reads in SnowmanBamWalker, and only
 	keep non-hardclipped reads and qcpass reads
+
+	## snowman 99-101
+	[firehose issues]
+	
+	## snowman 102
+	-- don't take reads that intersect 30+ bases with simple repeats
+
+	## snowman 103 
+	-- hold normal reads for kmer correction as char* to save memory
+	-- subsample normal reads for kmer correction for memory / time
+	-- made robust to cases where there is discrepancy between aligned
+	genome from reads and reference (fixed issue with seg faults in
+	old bams)
+	-- fixed bug that was tossing FR interchromosomal reads during
+	discordant clustering step
+
+	## snowman 104
+	-- fixed bug that was parsing read-groups incorrectly. Now prefers
+	parsing from RG tag, unless not present OR contains "tumor" (a
+	hack to deal with simulated data)
+	-- don't remove discordant clusters that fall below FR min isize,
+	just keep them 
+
+	## snowman 105
+	-- added one trim round with trim length of 100. Insensitive parameter

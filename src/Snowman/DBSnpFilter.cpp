@@ -13,7 +13,7 @@ namespace SnowTools {
       //std::cerr << "DBSnpSite: Error trying to convert " << tchr << ":" << pos << " to number" << std::endl;
     }
 
-    m_rs = rs;
+    //m_rs = rs;
     //m_ref = ref;
     //m_alt = alt;
 
@@ -95,7 +95,8 @@ namespace SnowTools {
   }
 
   std::ostream& operator<<(std::ostream& out, const DBSnpSite& d) {
-    out << d.chr << ":" << d.pos1 << "-" << d.pos2 << "\t" << d.m_rs << " REF " << d.m_ref << " ALT " << d.m_alt;
+    //out << d.chr << ":" << d.pos1 << "-" << d.pos2 << "\t" << d.m_rs << " REF " << d.m_ref << " ALT " << d.m_alt;
+    out << d.chr << ":" << d.pos1 << "-" << d.pos2;;
     return out;
   }
 
@@ -112,11 +113,12 @@ namespace SnowTools {
     GRC out = subject.findOverlaps(m_sites, sub, que, true); // true = ignore_strand
     
     if (que.size()) {
-      bp.rs = m_sites[sub[0]].m_rs;
-      for (auto& j : que) {
-	bp.rs += m_sites[j].m_rs + "_";
-      }
-      bp.rs.pop_back(); // just drop the last comma
+      //bp.rs = m_sites[sub[0]].m_rs;
+      bp.rs = "D"; 
+      //for (auto& j : que) {
+      //bp.rs += m_sites[j].m_rs + "_";
+      //}
+      //bp.rs.pop_back(); // just drop the last comma
       return true;
     }
     return false;

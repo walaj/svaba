@@ -329,6 +329,9 @@ VCFFile::VCFFile(std::string file, std::string id, bam_hdr_t * h, const VCFHeade
     if (line.find("mapq") != std::string::npos)
       continue;
 
+    if (line.find("Unknown") != std::string::npos)
+      continue;
+
     // parse the breakpoint from the file
     SnowTools::ReducedBreakPoint * bp = new SnowTools::ReducedBreakPoint(line, h);
 

@@ -23,6 +23,8 @@ class KmerFilter {
     ~KmerFilter() { delete pBWT; delete pSAf; }
 
     int correctReads(BamReadVector& vec, BamReadVector& ref_reads);
+
+    void makeIndex(const std::vector<char*>& v);
   
  private: 
 
