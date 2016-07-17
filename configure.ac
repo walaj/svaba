@@ -23,7 +23,7 @@ AC_SEARCH_LIBS([clock_gettime], [rt], [AC_DEFINE([HAVE_CLOCK_GETTIME], [1], [clo
 AC_ARG_WITH(boost, AS_HELP_STRING([--with-boost=PATH],
 	[specify directory containing the boost library)]))
 if test "$with_boost" -a -d "$with_boost"; then
-    boost_include="-I$with_boost -DHAVE_BOOST"
+    boost_include="-I$with_boost"
     AC_CHECK_FILE("$with_boost/stage/lib", STAGE_PATH=1, STAGE_PATH=0)
     if test ${STAGE_PATH} = 1; then
         boost_lib="$with_boost/stage/lib"  
@@ -58,7 +58,7 @@ AC_CHECK_HEADERS([ \
 ])
 
 # Make sure the boost headers can be found
-AC_CHECK_HEADERS([boost/regex.hpp],,[AC_MSG_ERROR([The Boost library must be installed for Snowman. Specify its path with the --with-boost=PATH option])])
+AC_CHECK_HEADERS([boost/regex.hpp],[AC_SUBST(CPPFLAGS, "$CPPFLAGS -DHAVE_BOOST")],[AC_MSG_ERROR([The Boost library must be installed for Snowman. Specify its path with the --with-boost=PATH option])])
 
 AC_CONFIG_FILES([Makefile
                 SnowTools/htslib/Makefile

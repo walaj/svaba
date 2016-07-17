@@ -725,7 +725,7 @@ namespace SnowTools {
       confidence = "DUPREADS"; // the same sequences keep covering the split
     else if (homology.length() >= 20 && (span > 1500 || span == -1) && std::max(b1.mapq, b2.mapq) < 60)
       confidence = "NODISC";
-    else if (seq.length() < readlen + 30)
+    else if ((int)seq.length() < readlen + 30)
       confidence = "TOOSHORT";
     else if (blacklist)
       confidence = "BLACKLIST";
