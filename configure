@@ -5066,7 +5066,7 @@ if test "${with_boost+set}" = set; then
 fi
 
 if test "$with_boost" -a -d "$with_boost"; then
-    boost_include="-I$with_boost -DHAVE_BOOST"
+    boost_include="-I$with_boost"
     as_ac_File=`$as_echo "ac_cv_file_"$with_boost/stage/lib"" | $as_tr_sh`
 { $as_echo "$as_me:$LINENO: checking for \"$with_boost/stage/lib\"" >&5
 $as_echo_n "checking for \"$with_boost/stage/lib\"... " >&6; }
@@ -5440,6 +5440,7 @@ as_val=`eval 'as_val=${'$as_ac_Header'}
   cat >>confdefs.h <<_ACEOF
 #define `$as_echo "HAVE_$ac_header" | $as_tr_cpp` 1
 _ACEOF
+ CPPFLAGS="$CPPFLAGS -DHAVE_BOOST"
 
 else
   { { $as_echo "$as_me:$LINENO: error: The Boost library must be installed for Snowman. Specify its path with the --with-boost=PATH option" >&5
