@@ -1218,7 +1218,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 	// fermi kit assembly
 	if (opt::fermi) {
 	  int n_seqs, n_utgs; 
-	  bseqF1_t *seqs = 0;
+	  fseq1_t *seqs = 0;
 	  fml_utg_t *utgs; 
 	  fml_opt_t opt;
 	  fml_opt_init(&opt);
@@ -1236,10 +1236,10 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 	  int m = 0, n = 0;
 	  uint64_t size = 0;
 	  for (auto& r : bav_this) {
-	    bseqF1_t *s;
+	    fseq1_t *s;
 	    if (n >= m) {
 	      m = m? m<<1 : 256;
-	      seqs = (bseqF1_t*)realloc(seqs, m * sizeof(bseqF1_t));
+	      seqs = (fseq1_t*)realloc(seqs, m * sizeof(fseq1_t));
 	    }
 	    s = &seqs[n];
 	    s->seq = strdup(r.Sequence().c_str());
