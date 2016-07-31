@@ -25,14 +25,27 @@
 #define MIN_SOMATIC_RATIO 15
 
 // define repeats
-/*static std::vector<std::string> repr = {"AAAAAAAAAA", "TTTTTTTTTT", "CCCCCCCCCC", "GGGGGGGGGG",
+static std::vector<std::string> repr = {"AAAAAAAA", "TTTTTTTT", "CCCCCCCC", "GGGGGGGG",
 				 "TATATATATATATA", "ATATATATATATAT", 
 				 "GCGCGCGCGCGCGC", "CGCGCGCGCGCGCG", 
 				 "TGTGTGTGTGTGTG", "GTGTGTGTGTGTGT", 
 				 "TCTCTCTCTCTCTC", "CTCTCTCTCTCTCT", 
 				 "CACACACACACACA", "ACACACACACACAC", 
 				 "GAGAGAGAGAGAGA", "AGAGAGAGAGAGAG"};
-*/
+
+// define large repeats
+static std::vector<std::string> hirepr = {"AAAAAAAAAAAAAAA", "TTTTTTTTTTTTTTT", "CCCCCCCCCCCCCCCC", "GGGGGGGGGGGGGGG"};
+
+// check a sequence for a large homo/dinuc repeat
+bool __check_homopolymer(const std::string& s) {
+
+  for (auto& i : repr)
+    if (s.find(i) != std::string::npos)
+      return true;
+
+  return false;
+
+}
 
 double scale_factor = 5.0;
 static std::unordered_map<int, double> ERROR_RATES = {{0,scale_factor * 1e-4}, {1, scale_factor * 1e-4}, {2, scale_factor * 1e-4}, {3, scale_factor * 1e-4}, {4, scale_factor * 1e-4}, {5, scale_factor * 2e-4}, {6, scale_factor * 5e-4}, {7, scale_factor * 1e-3},
@@ -331,6 +344,7 @@ namespace SnowTools {
 	  std::cerr << cigvec.size() << " _ " << cnvec.size() << std::endl;
 	assert(cigvec.size() == cnvec.size());
 	size_t kk = 0;
+	
 	for (; kk < cnvec.size(); kk++)  // find the right contig r2c cigar (since can have one read to many contig)
 	  if (cnvec[kk] == cname)  { // found the right cigar string
 
@@ -338,6 +352,12 @@ namespace SnowTools {
 	    std::vector<int> del_breaks;
 	    std::vector<int> ins_breaks;
 	    int pos = 0;
+
+	    // if this is a nasty repeat, don't trust non-perfect alignmentx on r2c alignment
+	    if ( (repeat_seq.length() > 6 || __check_homopolymer(j.Sequence())) && tcig.size() > 1) 
+	      read_should_be_skipped = true;
+	    
+	    // loop through r2c cigar and see positions
 	    for(auto& i : tcig) {
 
 	      if (i.Type() == 'D') 
@@ -716,6 +736,12 @@ namespace SnowTools {
 
     int cov_span = split_cov_bounds.second - split_cov_bounds.first ;
 
+    // check for high repeats
+    bool hi_rep = false;
+    for (auto& rr : hirepr)
+      if (seq.find(rr) != std::string::npos)
+	hi_rep = true;
+
     if (!b1.local && !b2.local) // added this back in snowman71. 
       // issue is that if a read is secondary aligned, it could be 
       // aligned to way off region. Saw cases where this happend in tumor
@@ -751,18 +777,19 @@ namespace SnowTools {
       confidence = "LOWICSUPPORT";
     else if (num_align == 2 && std::min(b1.mapq, b2.mapq) < 50 && b1.gr.chr != b2.gr.chr) // interchr need good mapq for assembly only
       confidence = "LOWMAPQ";
-    else if (std::min(b1.matchlen, b2.matchlen) < 40) // not enough evidence
+    else if (std::min(b1.matchlen, b2.matchlen) < 40 || (complex_local && std::min(b1.matchlen, b2.matchlen) < 100)) // not enough evidence
       confidence = "LOWMATCHLEN";      
     else if ((b1.sub_n && b1.mapq < 50) || (b2.sub_n && b2.mapq < 50)) // || std::max(b1.sub_n,b2.sub_n) >= 2)
       confidence = "MULTIMATCH";
     else if (secondary && std::min(b1.mapq, b2.mapq) < 30)
       confidence = "SECONDARY";
-    else if (repeat_seq.length() >= 10 && std::max(t.split, n.split) < 7)
+    else if ((repeat_seq.length() >= 10 && std::max(t.split, n.split) < 7) || hi_rep)
       confidence = "WEAKSUPPORTHIREP";
     else if (num_split < 6 && getSpan() < 300 && b1.gr.strand==b2.gr.strand) 
       confidence = "LOWQINVERSION";
     else if ( (b1.matchlen - b1.simple < 15 || b2.matchlen - b2.simple < 15) )
       confidence = "SIMPLESEQUENCE";
+	      
     else
       confidence = "PASS";
 
@@ -910,6 +937,8 @@ namespace SnowTools {
       confidence = "LOWSUPPORT";
     else if ( std::min(b1.matchlen, b2.matchlen) < 50 && b1.gr.chr != b2.gr.chr ) 
       confidence = "LOWICSUPPORT";
+    //else if (secondary && getSpan() < 1000) // local alignments are more likely to be false for alignemnts with secondary mappings
+    //  confidence = "SECONDARY";	
     else if (dc.tcount_hq + dc.ncount_hq < 3) { // multimathces are bad if we don't have good disc support too
       if ( ((b1.sub_n && dc.mapq1 < 1) || (b2.sub_n && dc.mapq2 < 1))  )
 	confidence = "MULTIMATCH";
@@ -967,6 +996,8 @@ namespace SnowTools {
     double af_n = n.cov > 0 ? (double)n.alt / (double)n.cov : 0;
     double af = std::max(af_t, af_n);
 
+    //std::cerr << " LEFT MATCH " << left_match << " RIGHT MATCH " << right_match << " CNAME " << cname << std::endl;
+
     //bool blacklist_and_low_count = blacklist && (t.split + n.split) < 5 && (t.cigar + n.cigar) < 5;
     //bool blacklist_and_low_AF = (max_af < 0.2 && max_count < 8) && blacklist;
 
@@ -986,6 +1017,8 @@ namespace SnowTools {
       confidence = "LOWLOD";
     else if (af < 0.05) // if really low AF, get rid of 
       confidence = "VLOWAF";
+    else if (std::min(left_match, right_match) < 20) 
+      confidence = "SHORTALIGNMENT"; // no conf in indel if match on either side is too small
     //else if ( (max_af < 0.1 && (n.split+n.cigar) > 0)) // || (max_af < 0.30 && n.split == 0 && t.split < 3)) // more strict for germline bc purity is not issue
     //  confidence = "LOWAF";
     //else if (max_af < 0.1)
@@ -1417,9 +1450,12 @@ namespace SnowTools {
 
     // genotype calculation as provided in 
     // http://bioinformatics.oxfordjournals.org/content/early/2011/09/08/bioinformatics.btr509.full.pdf+html
-    genotype_likelihoods[0] = __genotype_likelihoods(2, er, alt, cov); // ref/ref
-    genotype_likelihoods[1] = __genotype_likelihoods(1, er, alt, cov);
-    genotype_likelihoods[2] = __genotype_likelihoods(0, er, alt, cov);
+    int scaled_cov = std::floor((double)cov * 0.90);
+    int this_alt = std::min(alt, scaled_cov);
+
+    genotype_likelihoods[0] = __genotype_likelihoods(2, er, this_alt, scaled_cov); // ref/ref
+    genotype_likelihoods[1] = __genotype_likelihoods(1, er, this_alt, scaled_cov);
+    genotype_likelihoods[2] = __genotype_likelihoods(0, er, this_alt, scaled_cov);
 
     double max_likelihood = *std::max_element(genotype_likelihoods.begin(), genotype_likelihoods.end());
     if (max_likelihood == genotype_likelihoods[0])

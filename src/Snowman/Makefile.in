@@ -76,6 +76,7 @@ snowman_DEPENDENCIES = $(top_builddir)/src/SGA/SGA/libsga.a \
 	$(top_builddir)/src/SGA/Bigraph/libbigraph.a \
 	$(top_builddir)/src/SGA/Util/libutil.a \
 	$(top_builddir)/src/SGA/SQG/libsqg.a \
+	$(top_builddir)/SnowTools/fermi-lite/libfml.a \
 	$(top_builddir)/SnowTools/multifast-v1.4.2/ahocorasick/build/libahocorasick.a
 snowman_LINK = $(CXXLD) $(AM_CXXFLAGS) $(CXXFLAGS) $(snowman_LDFLAGS) \
 	$(LDFLAGS) -o $@
@@ -158,7 +159,6 @@ am__quote = @am__quote@
 am__tar = @am__tar@
 am__untar = @am__untar@
 bindir = @bindir@
-boost_lib = @boost_lib@
 build_alias = @build_alias@
 builddir = @builddir@
 datadir = @datadir@
@@ -201,7 +201,10 @@ snowman_CPPFLAGS = \
 	-I$(top_srcdir)/SnowTools/src \
 	-I$(top_srcdir)/SnowTools \
 	-I$(top_srcdir)/SnowTools/htslib \
-	-I$(top_srcdir)/SnowTools/multifast-v1.4.2 
+	-I$(top_srcdir)/SnowTools/multifast-v1.4.2 \
+	-I$(top_srcdir)/SnowTools/fermi-lite \
+	-I$(top_srcdir)/SnowTools/blat/inc \
+	-I$(top_srcdir)/SnowTools/blat/jkOwnLib -Wno-write-strings
 
 snowman_LDADD = \
 	$(top_builddir)/src/SGA/SGA/libsga.a \
@@ -214,6 +217,7 @@ snowman_LDADD = \
 	$(top_builddir)/src/SGA/Bigraph/libbigraph.a \
 	$(top_builddir)/src/SGA/Util/libutil.a \
 	$(top_builddir)/src/SGA/SQG/libsqg.a \
+	$(top_builddir)/SnowTools/fermi-lite/libfml.a \
 	$(top_builddir)/SnowTools/multifast-v1.4.2/ahocorasick/build/libahocorasick.a 
 
 snowman_LDFLAGS = -pthread -std=c++11

@@ -86,6 +86,7 @@ static const char *SNOWMAN_USAGE_MESSAGE =
 "           refilter       Refilter the Snowman breakpoints with additional/different criteria to created filtered VCF and breakpoints file.\n"
 "           pon            Generate a panel of normal from a list of germline VCFs or list of cigarmap.txt.gz files from <snowman run>. For use with <snowman run> or <snowman refilter>\n"
 "           splitcounter   Simple utility to count locations of split-alignment breakpoints (eg for PacBio)\n"
+"           splitfasta     Simple utility to split a fasta into smaller subsequences, splitting seq in the middle\n"
 "\nReport bugs to jwala@broadinstitute.org \n\n";
 
 int main(int argc, char** argv) {
@@ -109,6 +110,8 @@ int main(int argc, char** argv) {
     //  runVCF(argc-1, argv+1);
     } else if (command == "refilter") {
       runRefilterBreakpoints(argc-1, argv+1);
+    } else if (command == "splitfasta") {
+      runSplitFasta(argc-1, argv+1);
     }
     else if (command == "assembly2vcf") {
       runAssembly2VCF(argc-1, argv+1);

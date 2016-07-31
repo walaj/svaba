@@ -208,6 +208,11 @@ namespace SnowTools {
 
    // the evidence per break-end
    BreakEnd b1, b2;
+
+   // number of matched bases to left and right 
+   // dont want indel matches where there is not confidence alignment
+   // because indel is too close to end
+   int left_match = 0, right_match = 0;
    
    SampleInfo t, n, a;
 
@@ -232,6 +237,7 @@ namespace SnowTools {
    int num_align = 0;
 
    bool complex = false;
+   bool complex_local = false; // a local piece (e.g. AB) of a complex break (ABCD)
    
    bool isindel = false;
    bool blacklist = false;
