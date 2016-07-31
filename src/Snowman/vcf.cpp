@@ -236,6 +236,7 @@ VCFFile::VCFFile(std::string file, std::string id, bam_hdr_t * h, const VCFHeade
 
   // add the filters that apply to indels
   indel_header.addFilterField("LOWMAPQ","Assembly contig has less than MAPQ 10");
+  indel_header.addFilterField("SHORTALIGNMENT","Matched (M) contig frag to left or right of indel < 20 bp");
   indel_header.addFilterField("LOWLOD","LOD score is less than the cutoff");
   //indel_header.addFilterField("WEAKASSEMBLY","4 or fewer split reads");
   //indel_header.addFilterField("WEAKCIGARMATCH","For indels <= 5 bp, require 8+ split reads or 4+ and 3+ cigar matches");

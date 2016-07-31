@@ -443,6 +443,10 @@ namespace SnowTools {
     m_global_bp.b1 = m_frag_v[bstart].makeBreakEnd(true);
     m_global_bp.b2 = m_frag_v[bend].makeBreakEnd(false);
     m_global_bp.complex=true;
+    for (auto& i : m_local_breaks) {
+      i.complex = true;
+      i.complex_local = true; // this is a sub-piece
+    }
 
     // set the strands
     //m_global_bp.gr1.strand = m_frag_v[bstart].align.IsReverseStrand() ? '-' : '+';
@@ -774,11 +778,24 @@ namespace SnowTools {
       // set the contig breakpoint
       if (i.Type() == 'M' || i.Type() == 'I' || i.Type() == 'S') 
 	curr += i.Length();
+
+      // update the left match side
+      if (i.Type() == 'M' && count < idx)
+	bp.left_match += i.Length();
+
+      // update the right match side
+      if (i.Type() == 'M' && count > idx)
+	bp.right_match += i.Length();
+
+      // if deletion, set the indel
       if (i.Type() == 'D' && bp.b1.cpos == -1 && count == idx) {
 	
 	bp.b1.cpos = curr-1;
 	bp.b2.cpos = curr;
+	
       } 
+      
+      // if insertion, set the indel
       if (i.Type() == 'I' && bp.b1.cpos == -1 && count == idx) {
 	bp.b1.cpos = curr - i.Length() - 1; // -1 because cpos is last MATCH
 	bp.b2.cpos = curr/* - 1*/; 
@@ -786,7 +803,7 @@ namespace SnowTools {
       }
       
       // set the genome breakpoint
-      if (bp.b1.cpos > 0) {
+      if (bp.b1.cpos > 0 && count == idx) {
 	if (i.Type() == 'D') {
 	  if (!m_align.ReverseFlag()) {
 	    bp.b1.gr.pos1 =  m_align.Position() + gcurrlen; // dont count this one//bp.b1.cpos + align.Position; //gcurrlen + align.Position;
@@ -806,7 +823,7 @@ namespace SnowTools {
 	    bp.b1.gr.pos1 = bp.b2.gr.pos1 - 1;	
 	  }
 	}
-	break; // already got it, so quit cigar loop
+	//break; // already got it, so quit cigar loop
       }
       
       // update the position on the genome
@@ -833,22 +850,6 @@ namespace SnowTools {
     bp.b1.gr.strand = '+';
     bp.b2.gr.strand = '-';
 
-    // find if it has repeat seq near break
-    int rstart = std::max(0, bp.b1.cpos - 7);
-    int rlen = std::min(rstart + 7,(int)bp.seq.length() - rstart);
-    std::string rr;
-    try {
-      rr = bp.seq.substr(rstart, rlen);
-    } catch (...) { 
-      std::cerr << "Caught substring error for string: " << bp.seq << " start " << rstart << " len " << rlen << std::endl;
-    }
-    /*for (auto& i : repr) {
-      if (rr.find(i) != std::string::npos) {
-	bp.repeat_seq = i;
-	break;
-      }
-    }
-    */
     assert(bp.valid());
     return true;
   }
@@ -975,6 +976,21 @@ namespace SnowTools {
     m_global_bp.tcov_support = std::min(p1.first, p2.first);
     m_global_bp.ncov_support = std::min(p1.second, p2.second);
     */
+  }
+
+  void AlignedContig::assessRepeats() {
+
+    for (auto& a : m_frag_v)
+      for (auto& i : a.m_indel_breaks)
+	i.repeatFilter();
+    
+    for (auto& b : m_local_breaks)
+      b.repeatFilter();
+    for (auto& b : m_local_breaks_secondaries)
+      b.repeatFilter();
+    for (auto& b : m_global_bp_secondaries)
+      b.repeatFilter();
+
   }
 
   BreakEnd AlignmentFragment::makeBreakEnd(bool left) {

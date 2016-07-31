@@ -10,20 +10,12 @@ Installation
 We recommend compiling with GCC-4.8 or greater. We have successfully compiled on RHEL6, CentOS with GCC-4.8, 4.9 and 5.1, and MacOSX with Clang (Apple LLVM version 7.0.2 (clang-700.1.81))
 
 ```
-### if on Broad Institute servers, add GCC-4.9
-reuse -q GCC-4.9
-
-############## DOWNLOAD BOOST (if not installed) ###############
-wget https://sourceforge.net/projects/boost/files/boost/1.61.0/boost_1_61_0.tar.gz
-tar -xvzf boost_1_61_0.tar.gz
-## we only user header-only libraries, so no compiling of Boost is needed
-
-############### DOWNLOAD VARIANT BAM ############### 
+############### DOWNLOAD SNOWMAN ############### 
 git clone --recursive https://github.com/broadinstitute/SnowmanSVgit
 cd SnowmanSV
 
 ############### COMPILE AND INSTALL ###############
-./configure --with-boost=<path_to_boost>  ## e.g. ~/boost_1_61_0
+./configure
 make
 
 ############### QUICK START ############### 
@@ -32,6 +24,7 @@ SnowmanSV/src/Snowman/snowman -t tumor.bam -n normal.bam -k 22 -G ref.fa -a test
 
 ## get help
 snowman --help
+snowman run --help
 ```
 
 Description

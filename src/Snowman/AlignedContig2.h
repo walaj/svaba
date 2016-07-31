@@ -145,6 +145,8 @@ namespace SnowTools {
     */
     void addAlignment(const BamRead &align);
     
+    void assessRepeats();
+
     //! Loop through fragments and check if they overlap with window (and set local flag). Return TRUE if local found
     bool checkLocal(const GenomicRegion& window);
     

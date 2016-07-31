@@ -7,6 +7,9 @@
 #include <map>
 #include <vector>
 
+// fermi assembler
+#include "SnowTools/fermi-lite/fml.h"
+
 #include "bwa/bwa.h"
 #include "SnowTools/MiniRules2.h"
 
@@ -26,6 +29,8 @@
 #define MICROBE_MATCH_MIN 50
 #define GET_MATES 1
 #define MICROBE 1
+#define LARGE_INTRA_LOOKUP_LIMIT 1000000
+#define SECONDARY_FRAC 0.95
 
 // {1_A_B, {c_1_A_B_#, SEQ} }
 static std::unordered_map<std::string, std::unordered_map<std::string, std::string>> reused_contigs;
@@ -94,9 +99,11 @@ namespace opt {
 
   namespace assemb {
     static int minOverlap = -1;
-    static float error_rate = 0.01; 
+    static float error_rate = 0; 
     static bool writeASQG = false;
   }
+
+  static bool fermi = false;
 
   static std::string reuse_contigs;
 
@@ -108,7 +115,7 @@ namespace opt {
 
   static bool run_blat = false;
 
-  static bool kmer_filter = true;
+  static std::string kmer_correction = "s";
 
   static std::string ooc; //"/xchip/gistic/Jeremiah/blat/11.ooc";
 
@@ -130,12 +137,15 @@ namespace opt {
 
   static double sd_disc_cutoff = 4;
 
-  static int gap_open_penalty = 6;
+  static int gap_open_penalty = 32; //16; //6;
   static int gap_extension_penalty = 1;
-  static int mismatch_penalty = 4;
+  static int mismatch_penalty = 18; //9; //4;
+  static int sequence_match_score = 2;
   static int zdrop = 100;
-  static int bandwidth = 100;
+  static int bandwidth = 1000;//100
   static float reseed_trigger = 1.5;
+  static int clip3_pen = 5;
+  static int clip5_pen = 5;
 
   // parameters for filtering reads
   //static std::string rules = "global@!hardclip;!duplicate;!qcfail;phred[4,100];length[LLL,1000]%region@WG%!isize[0,800]%ic%clip[10,1000]%ins[1,1000];mapq[0,100]%del[1,1000];mapq[1,1000]%mapped;!mate_mapped;mapq[1,1000]%mate_mapped;!mapped";
@@ -181,7 +191,7 @@ namespace opt {
   static std::string normal_bam;
   static std::string tumor_bam;
 
-  static double kmer_subsample;
+  static double kmer_subsample = 0.5;
 
   static size_t mate_lookup_min = 3;
 
@@ -202,6 +212,7 @@ enum {
   OPT_LODGERM,
   OPT_DISC_CLUSTER_ONLY,
   OPT_READ_TRACK,
+  OPT_KMER_SUBSAMPLE,
   OPT_NO_ASSEMBLE_NORMAL,
   OPT_MAX_COV,
   OPT_DISCORDANT_ONLY,
@@ -213,20 +224,23 @@ enum {
   OPT_NUM_TO_SAMPLE,
   OPT_EXOME,
   OPT_NOBLAT,
-  OPT_KMER,
   OPT_GAP_OPEN,
+  OPT_MATCH_SCORE,
   OPT_GAP_EXTENSION,
   OPT_MISMATCH,
   OPT_ZDROP,
   OPT_BANDWIDTH,
   OPT_RESEED_TRIGGER,
   OPT_DEVEL_REUSE_CONTIGS,
-  OPT_KMER_SUBSAMPLE
+  OPT_FERMI,
+  OPT_CLIP5,
+  OPT_CLIP3
 };
 
-static const char* shortopts = "hzxt:n:p:v:r:G:r:e:g:k:c:a:m:B:D:Y:S:P:L:O:Is:V:R:";
+static const char* shortopts = "hzxt:n:p:v:r:G:r:e:g:k:c:a:m:B:D:Y:S:P:L:O:Is:V:R:K:";
 static const struct option longopts[] = {
   { "help",                    no_argument, NULL, 'h' },
+  { "fermi",                   no_argument, NULL, OPT_FERMI },
   { "tumor-bam",               required_argument, NULL, 't' },
   //  { "indel-mask",          required_argument, NULL, 'M' },
   { "panel-of-normals",        required_argument, NULL, 'P' },
@@ -251,10 +265,13 @@ static const struct option longopts[] = {
   { "read-tracking",           no_argument, NULL, OPT_READ_TRACK },
   { "gap-open-penalty",        required_argument, NULL, OPT_GAP_OPEN },
   { "kmer-subsample",          required_argument, NULL, OPT_KMER_SUBSAMPLE },
+  { "bwa-match-score",         required_argument, NULL, OPT_MATCH_SCORE },
   { "gap-extension-penalty",   required_argument, NULL, OPT_GAP_EXTENSION },
   { "mismatch-penalty",        required_argument, NULL, OPT_MISMATCH },
   { "z-dropoff",               required_argument, NULL, OPT_ZDROP },
   { "reseed-trigger",          required_argument, NULL, OPT_RESEED_TRIGGER },
+  { "penalty-clip-3",          required_argument, NULL, OPT_CLIP3 },
+  { "penalty-clip-5",          required_argument, NULL, OPT_CLIP5 },
   { "bandwidth",               required_argument, NULL, OPT_BANDWIDTH },
   { "write-extracted-reads", no_argument, NULL, OPT_WRITE_EXTRACTED_READS },
   { "no-assemble-normal",    no_argument, NULL, OPT_NO_ASSEMBLE_NORMAL },
@@ -269,7 +286,7 @@ static const struct option longopts[] = {
   { "refilter",              no_argument, NULL, OPT_REFILTER },
   { "r2c-bam",               no_argument, NULL, 'x' },
   { "write-asqg",            no_argument, NULL, OPT_ASQG   },
-  { "no-kmer-correct",          no_argument, NULL, OPT_KMER},
+  { "kmer-correct-type",     required_argument, NULL, 'K'},
   { "error-rate",            required_argument, NULL, 'e'},
   { "verbose",               required_argument, NULL, 'v' },
   { "blacklist",             required_argument, NULL, 'B' },
@@ -328,23 +345,28 @@ static const char *RUN_USAGE_MESSAGE =
 "      --motif-filter                   Add a motif file to exclude reads that contain this motif (e.g. illumina adapters).\n"
 "      --with-blat                      Run BLAT on assembled contigs that have clips/indels to reference. Single-thread only. In-development. Outputs *.blat.bam\n"
 "  Assembly params\n"
+"      --fermi                          Local assemblies using fermi-kit by Heng Li. Void all other assembly options.\n"
 "      --write-asqg                     Output an ASQG graph file for each assembly window.\n"
 "  -e, --error-rate                     Fractional difference two reads can have to overlap. See SGA param. 0 is fast, but requires exact matches and error correcting. [0.02]\n"
 "  -c, --chunk-size                     Size of a local assembly window (in bp). [25000]\n"
-"      --no-kmer-correct                Turn off perform k-mer based error correction on the reads. Need to balance with error rate (w/kmer can have lower error rate). [off]\n"
+"      --kmer-correct-type              (s) SGA k-mer correction (default), (f) Fermi-kit correction, (0) no correction. For SGA assembly, need to balance with error rate (w/kmer can have lower error rate). [off]\n"
 "      --kmer-subsample                 Learn from only a fraction of the reads during kmer-correction. Reduces memory and increases speed, especially for high-coverage samples [0.5]\n"
 "  Alignment params\n"
+"      --bwa-match-score                Set the BWA-MEM match score. BWA-MEM -A [1]\n"
 "      --gap-open-penalty               Set the BWA-MEM gap open penalty for contig to genome alignments. BWA-MEM -O [6]\n"
 "      --gap-extension-penalty          Set the BWA-MEM gap extension penalty for contig to genome alignments. BWA-MEM -E [1]\n"
 "      --mismatch-penalty               Set the BWA-MEM mismatch penalty for contig to genome alignments. BWA-MEM -b [4]\n"
 "      --bandwidth                      Set the BWA-MEM SW alignment bandwidth for contig to genome alignments. BWA-MEM -w [100]\n"
 "      --z-dropoff                      Set the BWA-MEM SW alignment Z-dropoff for contig to genome alignments. BWA-MEM -d [100]\n"
 "      --reseed-trigger                 Set the BWA-MEM reseed trigger for reseeding mems for contig to genome alignments. BWA-MEM -r [1.5]\n"
+"      --penalty-clip-3\n"
+"      --penalty-clip-5\n"
 "\n";
 
 void __reuse_contigs(const std::string& cfile);
 
 void runSnowman(int argc, char** argv) {
+
 
   parseRunOptions(argc, argv);
 
@@ -369,10 +391,17 @@ void runSnowman(int argc, char** argv) {
     "    DBSNP Database file: " << opt::dbsnp << std::endl << 
     "    BLAT OOC file:       " << opt::ooc << std::endl << 
     "    Indel PON file:      " << opt::pon << std::endl << 
-    "    Max cov to assemble: " << opt::max_cov << std::endl << 
-    "    ErrorRate: " << (opt::assemb::error_rate < 0.001f ? "EXACT (0)" : std::to_string(opt::assemb::error_rate)) << std::endl << 
-    "    Kmer-based error correction: " << (opt::kmer_filter ? ("ON -- subsample rate: " + std::to_string(opt::kmer_subsample)) : "OFF") << std::endl << 
-    "    Num assembly rounds: " << opt::num_assembly_rounds << std::endl << 
+    "    Max cov to assemble: " << opt::max_cov << std::endl <<
+    "    Kmer-based error correction: " << (opt::kmer_correction == "s" ? ("SGA -- subsample rate: " + std::to_string(opt::kmer_subsample)) : (opt::kmer_correction == "f" ? "Fermi-kit" : "OFF")) << std::endl;
+  if (opt::fermi) {
+    ss << "    ASSEMBLING WITH FERMI KIT (NOT SGA)" << std::endl;
+      }
+  else {
+    ss << 
+      "    ErrorRate: " << (opt::assemb::error_rate < 0.001f ? "EXACT (0)" : std::to_string(opt::assemb::error_rate)) << std::endl << 
+      "    Num assembly rounds: " << opt::num_assembly_rounds << std::endl;
+  }
+  ss << 
     "    Num reads to sample: " << opt::num_to_sample << std::endl << 
     "    Remove clipped reads with adapters? " << (opt::adapter_trim ? "TRUE" : "FALSE") << std::endl << 
     "    Discordant read extract SD cutoff:  " << opt::sd_disc_cutoff << std::endl << 
@@ -387,7 +416,10 @@ void runSnowman(int argc, char** argv) {
     "    Mismatch penalty: " << opt::mismatch_penalty << std::endl <<
     "    Aligment bandwidth: " << opt::bandwidth << std::endl <<
     "    Z-dropoff: " << opt::zdrop << std::endl <<
-    "    Reseed trigger: " << opt::reseed_trigger << std::endl;
+    "    Clip 3 penalty: " << opt::clip3_pen << std::endl <<
+    "    Clip 5 penalty: " << opt::clip5_pen << std::endl <<
+    "    Reseed trigger: " << opt::reseed_trigger << std::endl <<
+    "    Sequence match score: " << opt::sequence_match_score << std::endl;
 
   if (!opt::run_blat)
     ss << "    Running with BWA-MEM only (no BLAT)" << std::endl;
@@ -505,7 +537,7 @@ void runSnowman(int argc, char** argv) {
 
   // set the min overlap
   if (opt::assemb::minOverlap < 0) 
-    opt::assemb::minOverlap = (0.5 * opt::readlen) < 30 ? 30 : 0.5 * opt::readlen;
+    opt::assemb::minOverlap = (0.6 * opt::readlen) < 30 ? 30 : 0.5 * opt::readlen;
 
   ss << "...found read length of " << opt::readlen << ". Min Overlap is " << opt::assemb::minOverlap << std::endl;
   ss << "...max read MAPQ detected: " << opt::max_mapq_possible << std::endl;
@@ -522,14 +554,25 @@ void runSnowman(int argc, char** argv) {
   ss << "...loading the human reference sequence for BWA" << std::endl;
   SnowmanUtils::print(ss, log_file, opt::verbose > 0);
   main_bwa = new SnowTools::BWAWrapper();
+  main_bwa->setAScore(opt::sequence_match_score);
   main_bwa->setGapOpen(opt::gap_open_penalty);
   main_bwa->setGapExtension(opt::gap_extension_penalty);
   main_bwa->setMismatchPenalty(opt::mismatch_penalty);
   main_bwa->setZDropoff(opt::zdrop);
   main_bwa->setBandwidth(opt::bandwidth);
   main_bwa->setReseedTrigger(opt::reseed_trigger);
+  main_bwa->set3primeClippingPenalty(opt::clip3_pen);
+  main_bwa->set5primeClippingPenalty(opt::clip5_pen);
 
   findex = SnowmanUtils::__open_index_and_writer(opt::refgenome, main_bwa, opt::analysis_id + ".contigs.bam", b_allwriter, findex);  
+
+  /*BamReadVector dddd;
+  main_bwa->alignSingleSequence("TGTAATCCCAGCACTGTGGGAGGCCGAGGCGGGCGGATCGCCTGAGGTCAGGAGTTTGAGACCAGCCTGGCCAATATGGTGAACCCCGTCTCCACTAAAAATACAAAAATTAGCCGGGCATGGTGGCACACGCCTGTAATCCCAGCACTTTGGGAGGCTGAGGCGGGCAGATCACAAGGTCAGGAGATCGAGACCATCCTGGCTAACACGGTGAAACCCTGTCTCTACTAAAAAATACAAAAAAAAAAAATTAGCCGGG",
+				"test",dddd, false, 0.90, 20);
+  for(auto& a : dddd)
+    std::cerr << a << std::endl;
+  exit(0);
+  */
 
   // get a header that is from reference genome
   header_from_reference = main_bwa->HeaderFromIndex();
@@ -769,11 +812,15 @@ void parseRunOptions(int argc, char** argv) {
       case 'z': opt::zip = false; break;
       case 'h': help = true; break;
     case OPT_GAP_OPEN : arg >> opt::gap_open_penalty; break;
+    case OPT_MATCH_SCORE : arg >> opt::sequence_match_score; break;
     case OPT_MISMATCH : arg >> opt::mismatch_penalty; break;
+    case OPT_FERMI : opt::fermi = true; break;
     case OPT_GAP_EXTENSION : arg >> opt::gap_extension_penalty; break;
     case OPT_ZDROP : arg >> opt::zdrop; break;
     case OPT_BANDWIDTH : arg >> opt::bandwidth; break;
     case OPT_RESEED_TRIGGER : arg >> opt::reseed_trigger; break;
+    case OPT_CLIP3 : arg >> opt::clip3_pen; break;
+    case OPT_CLIP5 : arg >> opt::clip5_pen; break;
       case 'x': opt::r2c = true; break;
       case 'c': 
 	tmp = "";
@@ -820,7 +867,7 @@ void parseRunOptions(int argc, char** argv) {
       case OPT_DISCORDANT_ONLY: opt::disc_cluster_only = true; break;
       case OPT_WRITE_EXTRACTED_READS: opt::write_extracted_reads = true; break;
     case OPT_NUM_ASSEMBLY_ROUNDS: arg >> opt::num_assembly_rounds; break;
-    case OPT_KMER: opt::kmer_filter = false; break;
+    case 'K': arg >> opt::kmer_correction; break;
     case OPT_GEMCODE_AWARE: arg >> opt::gemcode; break;
       default: die= true; 
     }
@@ -836,12 +883,12 @@ void parseRunOptions(int argc, char** argv) {
 
   // check that we input something
   if (opt::bam.size() == 0 && !die && !opt::refilter) {
-    std::cerr << "Must add a bam file " << std::endl;
+    std::cerr << "Must add a bam file with -t flag" << std::endl;
     exit(EXIT_FAILURE);
   }
 
   if (opt::numThreads <= 0) {
-    std::cerr << "run: invalid number of threads: " << opt::numThreads << std::endl;
+    std::cerr << "Invalid number of threads from -p flag: " << opt::numThreads << std::endl;
     die = true;
   }
 
@@ -913,7 +960,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 	  valid = false;
 
       // check if we are allowed to lookup interchromosomal
-      if (!opt::interchrom_lookup && s.chr != region.chr)
+      if (!opt::interchrom_lookup && (s.chr != region.chr || std::abs(s.pos1 - region.pos1) < LARGE_INTRA_LOOKUP_LIMIT))
 	valid = false;
 
       // new region overlaps with one already seen
@@ -930,7 +977,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
     
     
     for (auto& i : somatic_mate_regions)
-      log_file << "   somatic mate region " << i << " somatic count " << i.count << " origin " << i.partner << " on round " << (jjj+1) << std::endl;
+      log_file << "   mate region " << i << " -t BAM read count " << i.count << " origin " << i.partner << " on round " << (jjj+1) << std::endl;
     if (opt::verbose > 3)
       std::cerr << "...grabbing mate reads from " << somatic_mate_regions.size() << " regions spanning " << SnowTools::AddCommas(somatic_mate_regions.width()) << std::endl;
 
@@ -1003,7 +1050,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
     KmerFilter kmer;
     int kmer_corrected = 0;
 
-    if (!opt::no_assemble_normal && opt::kmer_filter) {
+    if (!opt::no_assemble_normal && opt::kmer_correction == "s") {
       kmer.makeIndex(all_seqs);
       for (size_t i = 0; i < all_seqs.size(); ++i) // free the sequenes
 	free(all_seqs[i]);
@@ -1015,7 +1062,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 	  bav_this_tum.push_back(r);
 	else
 	  bav_this_norm.push_back(r);
-      if (opt::kmer_filter) {
+      if (opt::kmer_correction == "s") {
 	kmer_corrected  = kmer.correctReads(bav_this_tum, bav_all);
 	kmer_corrected += kmer.correctReads(bav_this_norm, bav_all);
       }
@@ -1023,7 +1070,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
       bav_this.insert(bav_this.end(), bav_this_norm.begin(), bav_this_norm.end());
     }
     st.stop("k");
-    if (opt::verbose > 2 && opt::kmer_filter)
+    if (opt::verbose > 2 && opt::kmer_correction == "s")
       std::cerr << "...kmer corrected " << kmer_corrected << " reads of " << bav_this.size() << std::endl;
 
     // write them to fasta
@@ -1098,6 +1145,23 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 
   GRC grv_small = makeAssemblyRegions(region);
 
+  // get the local region
+  /*
+  ref_genome->queryRegion(region.ChrName(header_from_reference), region.pos1-10000, region.pos2+10000);
+  SnowTools::USeqVector local_usv = {{"local", ref_genome->queryRegion(region.ChrName(header_from_reference), region.pos1, region.pos2)}};
+  SnowTools::BWAWrapper local_bwa;
+  local_bwa.constructIndex(local_usv);
+  local_bwa.setAScore(opt::sequence_match_score);
+  local_bwa.setGapOpen(opt::gap_open_penalty);
+  local_bwa.setGapExtension(opt::gap_extension_penalty);
+  local_bwa.setMismatchPenalty(opt::mismatch_penalty);
+  local_bwa.setZDropoff(opt::zdrop);
+  local_bwa.setBandwidth(opt::bandwidth);
+  local_bwa.setReseedTrigger(opt::reseed_trigger);
+  local_bwa.set3primeClippingPenalty(opt::clip3_pen);
+  local_bwa.set5primeClippingPenalty(opt::clip5_pen);
+  */
+
   if (opt::verbose > 1)
     std::cerr << "running the assemblies for region " << region <<  std::endl;
 
@@ -1151,21 +1215,70 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
       // normal non-10X data
       } else if (opt::reuse_contigs.empty()) {
 
-	SnowmanAssemblerEngine engine(name, opt::assemb::error_rate, opt::assemb::minOverlap, opt::readlen);
-	// do the assemblies
-	if (opt::assemb::writeASQG)
-	  engine.setToWriteASQG();
-	if (!opt::no_assemble_normal)
-	  engine.fillReadTable(bav_this);
-	else
-	  engine.fillReadTable(bav_this_tum);	
+	// fermi kit assembly
+	if (opt::fermi) {
+	  int n_seqs, n_utgs; 
+	  bseqF1_t *seqs = 0;
+	  fml_utg_t *utgs; 
+	  fml_opt_t opt;
+	  fml_opt_init(&opt);
+	  
+	  opt.n_threads = 0;
 
-	engine.performAssembly(opt::num_assembly_rounds);
+	  // kmer
+	  if (opt::kmer_correction != "f")
+	    opt.ec_k = -1;
+	  
+	  // set overlap
+	  opt.min_asm_ovlp = opt::assemb::minOverlap;
+	    
 
-	all_contigs_this = engine.getContigs();
+	  int m = 0, n = 0;
+	  uint64_t size = 0;
+	  for (auto& r : bav_this) {
+	    bseqF1_t *s;
+	    if (n >= m) {
+	      m = m? m<<1 : 256;
+	      seqs = (bseqF1_t*)realloc(seqs, m * sizeof(bseqF1_t));
+	    }
+	    s = &seqs[n];
+	    s->seq = strdup(r.Sequence().c_str());
+	    s->qual = strdup(r.Qualities().c_str());
+	    s->l_seq = r.Sequence().length();
+	    size += seqs[n++].l_seq;
+	  }
+	  
+	  n_seqs = n;
+	  std::cerr << " NSEQS " << n_seqs << " BAV SIZE " << bav_this.size() <<std::endl;
+	  utgs = fml_assemble(&opt, n_seqs, seqs, &n_utgs); // assemble. Freeing is done inside here
+	  std::cerr << " ASSEMBLED " << n_utgs << " ON REGION " << region << std::endl;
+	  
+	  for (int i = 0; i < n_utgs; ++i) {
+	    all_contigs_this.push_back(Contig(name + "_" + std::to_string(i), std::string(utgs[i].seq)));
+	  }
 
-	if (opt::verbose > 1)
-	  std::cerr << "Assembled " << engine.getContigs().size() << " contigs for " << name << std::endl; 
+	  fml_utg_destroy(n_utgs, utgs);      // deallocate unitigs
+	}
+
+	// SGA assembly
+	else {
+	  SnowmanAssemblerEngine engine(name, opt::assemb::error_rate, opt::assemb::minOverlap, opt::readlen);
+	  // do the assemblies
+	  if (opt::assemb::writeASQG)
+	    engine.setToWriteASQG();
+	  if (!opt::no_assemble_normal)
+	    engine.fillReadTable(bav_this);
+	  else
+	    engine.fillReadTable(bav_this_tum);	
+	  
+	  engine.performAssembly(opt::num_assembly_rounds);
+	  
+	  all_contigs_this = engine.getContigs();
+
+	  if (opt::verbose > 1)
+	    std::cerr << "Assembled " << engine.getContigs().size() << " contigs for " << name << std::endl; 
+	}
+	
       } else if (!opt::reuse_contigs.empty()) {
 	
 	std::string rstring = std::to_string(region.chr + 1) + "_" + std::to_string(region.pos1) + "_" + std::to_string(region.pos2);
@@ -1188,10 +1301,21 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 
 	if ((int)i.getSeq().length() < (opt::readlen * 1.15))
 	  continue;
-	
+
+	bool hardclip = false;	
+	// align to the local region
+	/*
+	BamReadVector local_ct_alignments;
+
+	local_bwa.alignSingleSequence(i.getSeq(), i.getID(), local_ct_alignments, hardclip, SECONDARY_FRAC, SECONDARY_CAP);
+	if (i.getID().find("83C") != std::string::npos)
+	  std::cerr << " aligned with " << local_ct_alignments.size() << std::endl;
+	for (auto& aa : local_ct_alignments)
+	  std::cout << aa << std::endl;
+	*/
+
 	BamReadVector ct_alignments;
-	bool hardclip = false;
-	main_bwa->alignSingleSequence(i.getSeq(), i.getID(), ct_alignments, hardclip, 0.90, SECONDARY_CAP);	
+	main_bwa->alignSingleSequence(i.getSeq(), i.getID(), ct_alignments, hardclip, SECONDARY_FRAC, SECONDARY_CAP);	
 
 	if (opt::verbose > 3)
 	  for (auto& i : ct_alignments)
@@ -1206,7 +1330,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 	  // do the microbial alignment
 	  BamReadVector microbial_alignments;
 	  bool hardclip = false;
-	  microbe_bwa->alignSingleSequence(i.getSeq(), i.getID(), microbial_alignments, hardclip, 0.90, SECONDARY_CAP);
+	  microbe_bwa->alignSingleSequence(i.getSeq(), i.getID(), microbial_alignments, hardclip, SECONDARY_FRAC, SECONDARY_CAP);
 
 	  // if the microbe alignment is large enough and doesn't overlap human...
 	  for (auto& j : microbial_alignments) {
@@ -1330,6 +1454,12 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 
       // Get contig coverage, discordant matching to contigs, etc
       for (auto& a : this_alc) {
+	
+	// repeat sequence filter
+	a.assessRepeats();
+	
+
+
 	a.assignSupportCoverage();
 	a.splitCoverage();	
 	// now that we have all the break support, check that the complex breaks are OK
@@ -1368,13 +1498,9 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
     //}
   }
 
-  if (opt::verbose > 1)
-    std::cerr << "...repeat sequence filtering" << std::endl;
+  //  if (opt::verbose > 1)
+  //std::cerr << "...repeat sequence filtering" << std::endl;
   
-  // repeat sequence filter
-  for (auto& i : bp_glob)
-    i.repeatFilter();
-
   if (opt::verbose > 1 && pon_filter)
     std::cerr << "...PON filteering" << std::endl;
   
@@ -1689,10 +1815,10 @@ void alignReadsToContigs(SnowTools::BWAWrapper& bw, const SnowTools::USeqVector&
   bw_ref.constructIndex(usv_ref);
   
   // set up custom alignment parameters, mean
-  //bw_ref.setGapOpen(100); // default 6
-  //bw.setGapOpen(100); // default 6
-  //bw_ref.setMismatchPenalty(20); // default 2
-  //bw.setMismatchPenalty(20); // default 4
+  bw_ref.setGapOpen(16); // default 6
+  bw.setGapOpen(16); // default 6
+  bw_ref.setMismatchPenalty(9); // default 2
+  bw.setMismatchPenalty(9); // default 4
 
   for (auto i : bav_this) {
     
@@ -1792,7 +1918,7 @@ SnowmanBamWalker __make_walkers(const std::string& p, const std::string& b, cons
   
   //int readlen = p.at(0) == 't' ? t_params.readlen : n_params.readlen;
   SnowmanBamWalker walk(b, main_bwa, opt::readlen, p, blacklist);
-  walk.do_kmer_filtering = opt::kmer_filter;
+  walk.do_kmer_filtering = opt::kmer_correction == "s";
   walk.simple_seq = &simple_seq;
   walk.kmer_subsample = opt::kmer_subsample;
   //SnowmanBamWalker walk(b, main_bwa, readlen, p, blacklist);

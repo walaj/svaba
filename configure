@@ -642,7 +642,6 @@ am__EXEEXT_TRUE
 LTLIBOBJS
 LIBOBJS
 AM_CXXFLAGS
-boost_lib
 EGREP
 GREP
 CXXCPP
@@ -737,7 +736,6 @@ ac_user_opts='
 enable_option_checking
 enable_maintainer_mode
 enable_dependency_tracking
-with_boost
 enable_development
 '
       ac_precious_vars='build_alias
@@ -1384,11 +1382,6 @@ Optional Features:
   --enable-dependency-tracking   do not reject slow dependency extractors
   --enable-development    Turn on development options, like failing
                           compilation on warnings
-
-Optional Packages:
-  --with-PACKAGE[=ARG]    use PACKAGE [ARG=yes]
-  --without-PACKAGE       do not use PACKAGE (same as --with-PACKAGE=no)
-  --with-boost=PATH       specify directory containing the boost library)
 
 Some influential environment variables:
   CXX         C++ compiler command
@@ -5059,50 +5052,19 @@ _ACEOF
 fi
 
 
-
-# Check whether --with-boost was given.
-if test "${with_boost+set}" = set; then
-  withval=$with_boost;
-fi
-
-if test "$with_boost" -a -d "$with_boost"; then
-    boost_include="-I$with_boost"
-    as_ac_File=`$as_echo "ac_cv_file_"$with_boost/stage/lib"" | $as_tr_sh`
-{ $as_echo "$as_me:$LINENO: checking for \"$with_boost/stage/lib\"" >&5
-$as_echo_n "checking for \"$with_boost/stage/lib\"... " >&6; }
-if { as_var=$as_ac_File; eval "test \"\${$as_var+set}\" = set"; }; then
-  $as_echo_n "(cached) " >&6
-else
-  test "$cross_compiling" = yes &&
-  { { $as_echo "$as_me:$LINENO: error: cannot check for file existence when cross compiling" >&5
-$as_echo "$as_me: error: cannot check for file existence when cross compiling" >&2;}
-   { (exit 1); exit 1; }; }
-if test -r ""$with_boost/stage/lib""; then
-  eval "$as_ac_File=yes"
-else
-  eval "$as_ac_File=no"
-fi
-fi
-ac_res=`eval 'as_val=${'$as_ac_File'}
-		 $as_echo "$as_val"'`
-	       { $as_echo "$as_me:$LINENO: result: $ac_res" >&5
-$as_echo "$ac_res" >&6; }
-as_val=`eval 'as_val=${'$as_ac_File'}
-		 $as_echo "$as_val"'`
-   if test "x$as_val" = x""yes; then
-  STAGE_PATH=1
-else
-  STAGE_PATH=0
-fi
-
-    if test ${STAGE_PATH} = 1; then
-        boost_lib="$with_boost/stage/lib"
-    else
-        boost_lib="$with_boost/lib"
-    fi
-    boost_lib_flag="-L/$boost_lib"
-
-fi
+##AC_ARG_WITH(boost, AS_HELP_STRING([--with-boost=PATH],
+##	[specify directory containing the boost library)]))
+##if test "$with_boost" -a -d "$with_boost"; then
+##    boost_include="-I$with_boost"
+##    AC_CHECK_FILE("$with_boost/stage/lib", STAGE_PATH=1, STAGE_PATH=0)
+##    if test ${STAGE_PATH} = 1; then
+##        boost_lib="$with_boost/stage/lib"
+##    else
+##        boost_lib="$with_boost/lib"
+##    fi
+##    boost_lib_flag="-L/$boost_lib"
+##    AC_SUBST(boost_lib)
+##fi
 
 # Check whether --enable-development was given.
 if test "${enable_development+set}" = set; then
@@ -5114,20 +5076,15 @@ if test "$enable_development"; then
 fi
 
 # Set compiler flags.
-AM_CXXFLAGS="-g -Wall -Wextra $fail_on_warning -Wno-unknown-pragmas -std=c++11 -D_GLIBCXX_USE_CXX11_ABI=0"
+AM_CXXFLAGS="-Wall -Wextra $fail_on_warning -Wno-unknown-pragmas -std=c++11 -D_GLIBCXX_USE_CXX11_ABI=0"
 
-CXXFLAGS="-O3"
+##AC_SUBST(CXXFLAGS, "-O3")
+##AC_SUBST(CFLAGS, "-O3")
+##AC_SUBST(CPPFLAGS, "$CPPFLAGS $boost_include")
+##AC_SUBST(LDFLAGS, "$LDFLAGS")
 
-CFLAGS="-O3"
-
-CPPFLAGS="$CPPFLAGS $boost_include"
-
-LDFLAGS="$LDFLAGS"
-
-
-# We always need to specify to link in bamtools
-LIBS="$LIBS"
- # libboost_regex.a libboost_filesystem.a libboost_system.a")
+# We always need to specify to link to certain libraries
+##AC_SUBST(LIBS, "$LIBS") # libboost_regex.a libboost_filesystem.a libboost_system.a")
 
 # Check for hash table headers
 
@@ -5294,162 +5251,7 @@ done
 
 
 # Make sure the boost headers can be found
-
-for ac_header in boost/regex.hpp
-do
-as_ac_Header=`$as_echo "ac_cv_header_$ac_header" | $as_tr_sh`
-if { as_var=$as_ac_Header; eval "test \"\${$as_var+set}\" = set"; }; then
-  { $as_echo "$as_me:$LINENO: checking for $ac_header" >&5
-$as_echo_n "checking for $ac_header... " >&6; }
-if { as_var=$as_ac_Header; eval "test \"\${$as_var+set}\" = set"; }; then
-  $as_echo_n "(cached) " >&6
-fi
-ac_res=`eval 'as_val=${'$as_ac_Header'}
-		 $as_echo "$as_val"'`
-	       { $as_echo "$as_me:$LINENO: result: $ac_res" >&5
-$as_echo "$ac_res" >&6; }
-else
-  # Is the header compilable?
-{ $as_echo "$as_me:$LINENO: checking $ac_header usability" >&5
-$as_echo_n "checking $ac_header usability... " >&6; }
-cat >conftest.$ac_ext <<_ACEOF
-/* confdefs.h.  */
-_ACEOF
-cat confdefs.h >>conftest.$ac_ext
-cat >>conftest.$ac_ext <<_ACEOF
-/* end confdefs.h.  */
-$ac_includes_default
-#include <$ac_header>
-_ACEOF
-rm -f conftest.$ac_objext
-if { (ac_try="$ac_compile"
-case "(($ac_try" in
-  *\"* | *\`* | *\\*) ac_try_echo=\$ac_try;;
-  *) ac_try_echo=$ac_try;;
-esac
-eval ac_try_echo="\"\$as_me:$LINENO: $ac_try_echo\""
-$as_echo "$ac_try_echo") >&5
-  (eval "$ac_compile") 2>conftest.er1
-  ac_status=$?
-  grep -v '^ *+' conftest.er1 >conftest.err
-  rm -f conftest.er1
-  cat conftest.err >&5
-  $as_echo "$as_me:$LINENO: \$? = $ac_status" >&5
-  (exit $ac_status); } && {
-	 test -z "$ac_cxx_werror_flag" ||
-	 test ! -s conftest.err
-       } && test -s conftest.$ac_objext; then
-  ac_header_compiler=yes
-else
-  $as_echo "$as_me: failed program was:" >&5
-sed 's/^/| /' conftest.$ac_ext >&5
-
-	ac_header_compiler=no
-fi
-
-rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
-{ $as_echo "$as_me:$LINENO: result: $ac_header_compiler" >&5
-$as_echo "$ac_header_compiler" >&6; }
-
-# Is the header present?
-{ $as_echo "$as_me:$LINENO: checking $ac_header presence" >&5
-$as_echo_n "checking $ac_header presence... " >&6; }
-cat >conftest.$ac_ext <<_ACEOF
-/* confdefs.h.  */
-_ACEOF
-cat confdefs.h >>conftest.$ac_ext
-cat >>conftest.$ac_ext <<_ACEOF
-/* end confdefs.h.  */
-#include <$ac_header>
-_ACEOF
-if { (ac_try="$ac_cpp conftest.$ac_ext"
-case "(($ac_try" in
-  *\"* | *\`* | *\\*) ac_try_echo=\$ac_try;;
-  *) ac_try_echo=$ac_try;;
-esac
-eval ac_try_echo="\"\$as_me:$LINENO: $ac_try_echo\""
-$as_echo "$ac_try_echo") >&5
-  (eval "$ac_cpp conftest.$ac_ext") 2>conftest.er1
-  ac_status=$?
-  grep -v '^ *+' conftest.er1 >conftest.err
-  rm -f conftest.er1
-  cat conftest.err >&5
-  $as_echo "$as_me:$LINENO: \$? = $ac_status" >&5
-  (exit $ac_status); } >/dev/null && {
-	 test -z "$ac_cxx_preproc_warn_flag$ac_cxx_werror_flag" ||
-	 test ! -s conftest.err
-       }; then
-  ac_header_preproc=yes
-else
-  $as_echo "$as_me: failed program was:" >&5
-sed 's/^/| /' conftest.$ac_ext >&5
-
-  ac_header_preproc=no
-fi
-
-rm -f conftest.err conftest.$ac_ext
-{ $as_echo "$as_me:$LINENO: result: $ac_header_preproc" >&5
-$as_echo "$ac_header_preproc" >&6; }
-
-# So?  What about this header?
-case $ac_header_compiler:$ac_header_preproc:$ac_cxx_preproc_warn_flag in
-  yes:no: )
-    { $as_echo "$as_me:$LINENO: WARNING: $ac_header: accepted by the compiler, rejected by the preprocessor!" >&5
-$as_echo "$as_me: WARNING: $ac_header: accepted by the compiler, rejected by the preprocessor!" >&2;}
-    { $as_echo "$as_me:$LINENO: WARNING: $ac_header: proceeding with the compiler's result" >&5
-$as_echo "$as_me: WARNING: $ac_header: proceeding with the compiler's result" >&2;}
-    ac_header_preproc=yes
-    ;;
-  no:yes:* )
-    { $as_echo "$as_me:$LINENO: WARNING: $ac_header: present but cannot be compiled" >&5
-$as_echo "$as_me: WARNING: $ac_header: present but cannot be compiled" >&2;}
-    { $as_echo "$as_me:$LINENO: WARNING: $ac_header:     check for missing prerequisite headers?" >&5
-$as_echo "$as_me: WARNING: $ac_header:     check for missing prerequisite headers?" >&2;}
-    { $as_echo "$as_me:$LINENO: WARNING: $ac_header: see the Autoconf documentation" >&5
-$as_echo "$as_me: WARNING: $ac_header: see the Autoconf documentation" >&2;}
-    { $as_echo "$as_me:$LINENO: WARNING: $ac_header:     section \"Present But Cannot Be Compiled\"" >&5
-$as_echo "$as_me: WARNING: $ac_header:     section \"Present But Cannot Be Compiled\"" >&2;}
-    { $as_echo "$as_me:$LINENO: WARNING: $ac_header: proceeding with the preprocessor's result" >&5
-$as_echo "$as_me: WARNING: $ac_header: proceeding with the preprocessor's result" >&2;}
-    { $as_echo "$as_me:$LINENO: WARNING: $ac_header: in the future, the compiler will take precedence" >&5
-$as_echo "$as_me: WARNING: $ac_header: in the future, the compiler will take precedence" >&2;}
-    ( cat <<\_ASBOX
-## --------------------------------------- ##
-## Report this to jwala@broadinstitute.org ##
-## --------------------------------------- ##
-_ASBOX
-     ) | sed "s/^/$as_me: WARNING:     /" >&2
-    ;;
-esac
-{ $as_echo "$as_me:$LINENO: checking for $ac_header" >&5
-$as_echo_n "checking for $ac_header... " >&6; }
-if { as_var=$as_ac_Header; eval "test \"\${$as_var+set}\" = set"; }; then
-  $as_echo_n "(cached) " >&6
-else
-  eval "$as_ac_Header=\$ac_header_preproc"
-fi
-ac_res=`eval 'as_val=${'$as_ac_Header'}
-		 $as_echo "$as_val"'`
-	       { $as_echo "$as_me:$LINENO: result: $ac_res" >&5
-$as_echo "$ac_res" >&6; }
-
-fi
-as_val=`eval 'as_val=${'$as_ac_Header'}
-		 $as_echo "$as_val"'`
-   if test "x$as_val" = x""yes; then
-  cat >>confdefs.h <<_ACEOF
-#define `$as_echo "HAVE_$ac_header" | $as_tr_cpp` 1
-_ACEOF
- CPPFLAGS="$CPPFLAGS -DHAVE_BOOST"
-
-else
-  { { $as_echo "$as_me:$LINENO: error: The Boost library must be installed for Snowman. Specify its path with the --with-boost=PATH option" >&5
-$as_echo "$as_me: error: The Boost library must be installed for Snowman. Specify its path with the --with-boost=PATH option" >&2;}
-   { (exit 1); exit 1; }; }
-fi
-
-done
-
+##AC_CHECK_HEADERS([boost/regex.hpp],[AC_SUBST(CPPFLAGS, "$CPPFLAGS -DHAVE_BOOST")],[AC_MSG_ERROR([The Boost library must be installed for Snowman. Specify its path with the --with-boost=PATH option])])
 
 ac_config_files="$ac_config_files Makefile SnowTools/htslib/Makefile SnowTools/src/Makefile src/SGA/Util/Makefile src/SGA/SQG/Makefile src/SGA/Bigraph/Makefile src/SGA/Algorithm/Makefile src/SGA/StringGraph/Makefile src/SGA/SuffixTools/Makefile src/SGA/SGA/Makefile src/Snowman/Makefile"
 

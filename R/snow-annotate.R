@@ -1,794 +1,8 @@
 #!/usr/bin/env Rscript
 
 ## set the right library paths
-.libPaths = c("/xchip/gistic/Jeremiah/R", "/broad/software/free/Linux/redhat_6_x86_64/pkgs/r_3.1.1-bioconductor-3.0/lib64/R/library")
+.libPaths(c("/xchip/gistic/Jeremiah/R", "/broad/software/free/Linux/redhat_6_x86_64/pkgs/r_3.1.1-bioconductor-3.0/lib64/R/library"))
 
-file.dir <-
-function(paths)
-  {
-    return(gsub('(^|(.*\\/))?([^\\/]*)$', '\\2', paths))
-  }
-
-ra_breaks <-
-function(rafile, keep.features = T, seqlengths = hg_seqlengths(), chr.convert = T, snowman = FALSE,  breakpointer = FALSE, seqlevels = NULL,
-    get.loose = FALSE ## if TRUE will return a list with fields $junctions and $loose.ends
-  )
-  {
-      if (is.character(rafile))
-          {
-              if (grepl('(vcf$)|(vcf.gz$)', rafile))
-                  {
-                      library(VariantAnnotation)
-                      vcf = readVcf(rafile, Seqinfo(seqnames = names(seqlengths), seqlengths = seqlengths))
-                      if (!('SVTYPE' %in% names(info(vcf)))) {
-                        warning('Vcf not in proper format.  Is this a rearrangement vcf?')
-                          return(GRangesList());
-                        }
-                      
-                      vgr = rowData(vcf) ## parse BND format
-
-                      ## no events
-                      if (length(vgr) == 0)
-                        return (GRangesList())
-
-                      ## fix mateids if not included
-                      if (!"MATEID"%in%colnames(mcols(vgr))) {
-                        nm <- vgr$MATEID <- names(vgr)
-                        ix <- grepl("1$",nm)
-                        vgr$MATEID[ix] = gsub("(.*?)(1)$", "\\12", nm[ix])
-                        vgr$MATEID[!ix] = gsub("(.*?)(2)$", "\\11", nm[!ix])
-                        vgr$SVTYPE="BND"
-                      }
-                      
-                      if (!any(c("MATEID", "SVTYPE") %in% colnames(mcols(vgr))))
-                        stop("MATEID or SVTYPE not included. Required")
-                      vgr$mateid = info(vcf)$MATEID
-                      vgr$svtype = info(vcf)$SVTYPE
-
-                      if (!is.null(info(vcf)$SCTG))
-                          vgr$SCTG = info(vcf)$SCTG
-                      
-                      if (sum(vgr$svtype == 'BND')==0)
-                          stop('Vcf not in proper format.  Will only process rearrangements in BND format')
-
-                      if (!all(vgr$svtype == 'BND'))
-                          warning(sprintf('%s rows of vcf do not have svtype BND, ignoring these'), sum(vgr$svtype != 'BND'))
-
-                      bix = which(vgr$svtype == "BND")
-                      vgr = vgr[bix]
-                      vgr$first = !grepl('^(\\]|\\[)', vgr$ALT) ## ? is this row the "first breakend" in the ALT string (i.e. does the ALT string not begin with a bracket)
-                      vgr$right = grepl('\\[', vgr$ALT) ## ? are the (sharp ends) of the brackets facing right or left
-                      vgr$coord = as.character(paste(seqnames(vgr), ':', start(vgr), sep = ''))
-                      vgr$mcoord = as.character(gsub('.*(\\[|\\])(.*\\:.*)(\\[|\\]).*', '\\2', vgr$ALT))
-                      vgr$mcoord = gsub('chr', '', vgr$mcoord)
-
-                      if (all(is.na(vgr$mateid)))
-                          if (!is.null(names(vgr)) & !any(duplicated(names(vgr))))
-                              {
-                                  warning('MATEID tag missing, guessing BND partner by parsing names of vgr')
-                                  vgr$mateid = paste(gsub('::\\d$', '', names(vgr)), (sapply(strsplit(names(vgr), '\\:\\:'), function(x) as.numeric(x[length(x)])))%%2 + 1, sep = '::')
-                              }
-                          else if (!is.null(vgr$SCTG))
-                              {
-                                  warning('MATEID tag missing, guessing BND partner from coordinates and SCTG')
-                                  require(igraph)
-                                  ucoord = unique(c(vgr$coord, vgr$mcoord))
-                                  vgr$mateid = paste(vgr$SCTG, vgr$mcoord, sep = '_')
-
-                                  if (any(duplicated(vgr$mateid)))
-                                      {
-                                          warning('DOUBLE WARNING! inferred mateids not unique, check VCF')
-                                          bix = bix[!duplicated(vgr$mateid)]
-                                          vgr = vgr[!duplicated(vgr$mateid)]
-                                      }
-                              }
-                          else
-                              stop('MATEID tag missing')
-
-                      vgr$mix = as.numeric(match(vgr$mateid, names(vgr)))
-
-                      pix = which(!is.na(vgr$mix))
-
-                      vgr.pair = vgr[pix]
-
-                      if (length(vgr.pair)==0)
-                          stop('No mates found despite nonzero number of BND rows in VCF')
-                      vgr.pair$mix = match(vgr.pair$mix, pix)
-                      vix = which(1:length(vgr.pair)<vgr.pair$mix )
-                      vgr.pair1 = vgr.pair[vix]
-                      vgr.pair2 = vgr.pair[vgr.pair1$mix]
-
-                      ## now need to reorient pairs so that the breakend strands are pointing away from the breakpoint
-                      
-                      ## if "first" and "right" then we set this entry "-" and the second entry "+"
-                      tmpix = vgr.pair1$first & vgr.pair1$right
-                      if (any(tmpix))
-                          {
-                              strand(vgr.pair1)[tmpix] = '-'
-                              strand(vgr.pair2)[tmpix] = '+'
-                          }
-
-                      ## if "first" and "left" then "-", "-"
-                      tmpix = vgr.pair1$first & !vgr.pair1$right
-                      if (any(tmpix))
-                          {
-                              strand(vgr.pair1)[tmpix] = '-'
-                              strand(vgr.pair2)[tmpix] = '-'
-                          }
-
-                      ## if "second" and "left" then "+", "-"
-                      tmpix = !vgr.pair1$first & !vgr.pair1$right
-                      if (any(tmpix))
-                          {
-                              strand(vgr.pair1)[tmpix] = '+'
-                              strand(vgr.pair2)[tmpix] = '-'
-                          }
-
-                      ## if "second" and "right" then "+", "+"
-                      tmpix = !vgr.pair1$first & vgr.pair1$right
-                      if (any(tmpix))
-                          {
-                              strand(vgr.pair1)[tmpix] = '+'
-                              strand(vgr.pair2)[tmpix] = '+'
-                          }
-
-                      pos1 = as.logical(strand(vgr.pair1)=='+') ## positive strand junctions shift left by one (ie so that they refer to the base preceding the break for these junctions
-                      if (any(pos1))
-                          {
-                              start(vgr.pair1)[pos1] = start(vgr.pair1)[pos1]-1
-                              end(vgr.pair1)[pos1] = end(vgr.pair1)[pos1]-1
-                          }
-
-                      pos2 = as.logical(strand(vgr.pair2)=='+') ## positive strand junctions shift left by one (ie so that they refer to the base preceding the break for these junctions
-                      if (any(pos2))
-                          {
-                              start(vgr.pair2)[pos2] = start(vgr.pair2)[pos2]-1
-                              end(vgr.pair2)[pos2] = end(vgr.pair2)[pos2]-1
-                          }
-                      ra = grl.pivot(GRangesList(vgr.pair1[, c()], vgr.pair2[, c()]))
-
-                      this.inf = info(vcf)[bix[pix[vix]], ]
-
-                      if (is.null(this.inf$POS))
-                          this.inf = cbind(data.frame(POS = ''), this.inf)
-                      if (is.null(this.inf$CHROM))
-                          this.inf = cbind(data.frame(CHROM = ''), this.inf)
-
-                      if (is.null(this.inf$MATL))
-                          this.inf = cbind(data.frame(MALT = ''), this.inf)
-                      
-                      this.inf$CHROM = seqnames(vgr.pair1)
-                      this.inf$POS = start(vgr.pair1)
-                      this.inf$MATECHROM = seqnames(vgr.pair2)
-                      this.inf$MATEPOS = start(vgr.pair2)
-                      this.inf$MALT = vgr.pair2$ALT
-
-                      values(ra) = cbind(fixed(vcf)[bix[pix[vix]],], this.inf)
-                      
-                      if (is.null(values(ra)$TIER))
-                          values(ra)$tier = ifelse(values(ra)$FILTER == "PASS", 2, 3) ## baseline tiering of PASS vs non PASS variants
-                      else
-                          values(ra)$tier = values(ra)$TIER
-
-                      if (!get.loose)
-                          return(ra)
-                      else
-                          {
-                              npix = is.na(vgr$mix)
-                              vgr.loose = vgr[npix, c()] ## these are possible "loose ends" that we will add to the segmentation
-                              values(vgr.loose) = cbind(fixed(vcf)[bix[npix], ], info(vcf)[bix[npix], ])
-
-                              return(list(junctions = ra, loose.ends = vgr.loose))
-                          }
-                  }
-              else
-                  rafile = read.delim(rafile)
-          }
-            
-     if (is.data.table(rafile))
-         rafile = as.data.frame(rafile)
-
-    if (nrow(rafile)==0)
-        {
-            out = GRangesList()
-            values(out) = rafile
-            return(out)
-        }
-  
-    if (snowman) ## flip breaks so that they are pointing away from junction
-      {
-        rafile$str1 = ifelse(rafile$strand1 == '+', '-', '+')
-        rafile$str2 = ifelse(rafile$strand2 == '+', '-', '+')
-      }
-      
-    if (!is.null(seqlevels)) ## convert seqlevels from notation in tab delim file to actual
-      {
-        rafile$chr1 = seqlevels[rafile$chr1]
-        rafile$chr2 = seqlevels[rafile$chr2]        
-      }
-
-     
-    if (is.null(rafile$str1))
-      rafile$str1 = rafile$strand1
-
-    if (is.null(rafile$str2))
-      rafile$str2 = rafile$strand2
-     if (!is.null(rafile$pos1) & !is.null(rafile$pos2))
-         {
-             if (breakpointer)
-                 {
-                     rafile$pos1 = rafile$T_BPpos1
-                     rafile$pos2 = rafile$T_BPpos2
-                 }
-             
-             if (!is.numeric(rafile$pos1))
-                 rafile$pos1 = as.numeric(rafile$pos1)
-
-             if (!is.numeric(rafile$pos2))
-                 rafile$pos2 = as.numeric(rafile$pos2)
-
-             ## clean the parenthesis from the string
-
-             rafile$str1 <- gsub('[()]', '', rafile$str1)
-             rafile$str2 <- gsub('[()]', '', rafile$str2)
-
-             if (is.character(rafile$str1) | is.factor(rafile$str1))
-                 rafile$str1 = gsub('0', '-', gsub('1', '+', rafile$str1))
-             
-             if (is.character(rafile$str2) | is.factor(rafile$str2))
-                 rafile$str2 = gsub('0', '-', gsub('1', '+', rafile$str2))
-             
-             if (is.numeric(rafile$str1))
-                 rafile$str1 = ifelse(rafile$str1>0, '+', '-')
-
-             if (is.numeric(rafile$str2))
-                 rafile$str2 = ifelse(rafile$str2>0, '+', '-')
-             
-             rafile$rowid = 1:nrow(rafile)
-
-             bad.ix = is.na(rafile$chr1) | is.na(rafile$chr2) | is.na(rafile$pos1) | is.na(rafile$pos2) | is.na(rafile$str1) | is.na(rafile$str2) | rafile$str1 == '*'| rafile$str2 == '*' | rafile$pos1<0 | rafile$pos2<0
-             
-             rafile = rafile[which(!bad.ix), ]
-             
-             if (nrow(rafile)==0)
-                 return(GRanges())
-             
-             seg = rbind(data.frame(chr = rafile$chr1, pos1 = rafile$pos1, pos2 = rafile$pos1, strand = rafile$str1, ra.index = rafile$rowid, ra.which = 1, stringsAsFactors = F),
-                 data.frame(chr = rafile$chr2, pos1 = rafile$pos2, pos2 = rafile$pos2, strand = rafile$str2, ra.index = rafile$rowid, ra.which = 2, stringsAsFactors = F))
-
-             if (chr.convert)
-                 seg$chr = gsub('25', 'M', gsub('24', 'Y', gsub('23', 'X', seg$chr)))
-             
-             out = seg2gr(seg, seqlengths = seqlengths)[, c('ra.index', 'ra.which')];
-             out = split(out, out$ra.index)
-         }
-     else if (!is.null(rafile$start1) & !is.null(rafile$start2) & !is.null(rafile$end1) & !is.null(rafile$end2))
-         {
-             ra1 = gr.flip(GRanges(rafile$chr1, IRanges(rafile$start1, rafile$end1), strand = rafile$str1))
-             ra2 = gr.flip(GRanges(rafile$chr2, IRanges(rafile$start2, rafile$end2), strand = rafile$str2))
-             out = grl.pivot(GRangesList(ra1, ra2))             
-         }
-     
-     
-     if (keep.features)
-         values(out) = rafile[, ]
-
-     return(out)
- }
-
-grl.pivot <-
-  function(x)
-  {
-    if (length(x) == 0)
-      return(GRangesList(GRanges(seqlengths = seqlengths(x)), GRanges(seqlengths = seqlengths(x))))
-    return(split(unlist(x), rep(1:length(x[[1]]), length(x))))
-  }
-
-
-read_hg <-
-function(hg19 = T, fft = F)
-  {
-    if (fft)
-      return(readRDS(REFGENE.FILE.HG19.FFT))
-    else
-      {
-        require(BSgenome)
-        if (hg19)
-          library(BSgenome.Hsapiens.UCSC.hg19)
-        else
-          library(BSgenome.Hsapiens.UCSC.hg18)
-      }
-    return(Hsapiens)
-  }
-
-hg_seqlengths <-
-function(hg19 = T, chr = F, include.junk = F)
-  {
-    require(BSgenome)
-    hg = read_hg(hg19)
-
-    sl = seqlengths(hg)
-
-    if (!include.junk)
-      sl = sl[c(paste('chr', 1:22, sep = ''), 'chrX', 'chrY', 'chrM')]
-    
-    if (!chr)
-      names(sl) = gsub('chr', '', names(sl))
-
-    return(sl)          
-  }
-
-grl.unlist <-
-function(grl)
-  {
-    if (length(grl) == 0) ## JEREMIAH
-      return(GRanges())
-#      return(grl) 
-    names(grl) = NULL
-
-    as.df = as.data.frame(grl)
-    
-    el = as.df$element
-    if (is.null(el))
-        el = as.df$group
-       
-    out = unlist(grl)
-    out$grl.ix = el
-    tmp = rle(el)
-    out$grl.iix = unlist(sapply(tmp$lengths, function(x) 1:x))
-    values(out) = cbind(values(grl)[out$grl.ix, , drop = FALSE], values(out))
-    return(out)
-  }
-
-grdt <-
-function(x)
- {
-      require(data.table)
-
-      ## new approach just directly instantiating data table
-      cmd = 'data.table(';
-      if (is(x, 'GRanges'))
-          {
-              was.gr = TRUE
-              f = c('seqnames', 'start', 'end', 'strand', 'width')
-              f2 = c('as.character(seqnames', 'c(start', 'c(end', 'as.character(strand', 'as.numeric(width')
-              cmd = paste(cmd, paste(f, '=', f2, '(x))', sep = '', collapse = ','), sep = '')
-              value.f = names(values(x))              
-          }
-      else          
-          {
-              was.gr = FALSE
-              value.f = names(x)
-          }
-      
-      if (length(value.f)>0)
-          {
-              if (was.gr)
-                  cmd = paste(cmd, ',', sep = '')
-              class.f = sapply(value.f, function(f) eval(parse(text=sprintf("class(x$'%s')", f))))
-
-              .StringSetListAsList = function(x) ### why do I need to do this, bioconductor peeps??
-                  {
-                      tmp1 = as.character(unlist(x))
-                      tmp2 = rep(1:length(x), elementLengths(x))
-                      return(split(tmp1, tmp2))                          
-                  }
-
-              ## take care of annoying S4 / DataFrame / data.frame (wish-they-were-non-)issues
-              as.statement = ifelse(grepl('Integer', class.f), 'as.integer',
-                  ifelse(grepl('Character', class.f), 'as.character',
-                         ifelse(grepl('StringSetList', class.f), '.StringSetListAsList',
-                                ifelse(grepl('StringSet$', class.f), 'as.character',
-                                       ifelse(grepl('List', class.f), 'as.list',
-                                              ifelse(grepl('List', class.f), 'as.list', 'c'))))))
-              cmd = paste(cmd, paste(value.f, '=', as.statement, "(x$'", value.f, "')", sep = '', collapse = ','), sep = '')
-          }
-
-      cmd = paste(cmd, ')', sep = '')
-      return(eval(parse(text =cmd)))
-  }
-
-gr.findoverlaps <-
-function(query, subject, ignore.strand = T, first = F,
-    qcol = NULL, ## any query meta data columns to add to result
-    scol = NULL, ## any subject meta data columns to add to resultx
-    max.chunk = 1e13,
-    foverlaps = ifelse(is.na(as.logical(Sys.getenv('GRFO_FOVERLAPS'))), TRUE, as.logical(Sys.getenv('GRFO_FOVERLAPS'))) & exists('foverlaps'),
-    pintersect = NA,
-    verbose = F,
-    type = 'any', 
-    by = NULL, 
-    mc.cores = 1,
-    return.type = 'same',
-    ...)
-  {
-
-     if (type != 'any')
-         {
-             foverlaps = FALSE
-             pintersect = FALSE
-         }
-      
-  if (nchar(foverlaps)==0)
-      foverlaps = TRUE
-
-  if (is.na(foverlaps))
-      foverlaps = TRUE
-  
-  isdt <- any(class(query) == 'data.table' )
-  if (return.type == 'same')
-    return.type <- ifelse(isdt, 'data.table', 'GRanges')
-  
-  if (!((inherits(subject, 'GRanges') | inherits(subject, 'data.table')) & (inherits(query, 'GRanges') | inherits(query, 'data.table'))))
-      stop('both subject and query have to be GRanges or data.table')
-  
-  if (is.na(pintersect))
-    if (isdt)
-      pintersect <- length(unique(query$seqnames)) > 50 & length(unique(subject$seqnames)) > 50
-    else
-      pintersect <- seqlevels(query) > 50 && seqlevels(subject) > 50
-  if (is.na(pintersect))
-    pintersect <- FALSE
-
-  
-  if (!is.null(qcol))
-      if (!all(qcol %in% names(values(query))))
-          stop('Some qcol are not present in meta data of query')
-
-  if (!is.null(scol))
-      if (!all(scol %in% names(values(subject))))
-          stop('Some scol are not present in meta data of subject')
-          
-  if (!is.null(by))
-    if (!(by %in% names(values(query)) & by %in% names(values(subject))))
-      stop('"by" field must be meta data column of both query and subject')
-    
-    if ((as.numeric(length(query)) * as.numeric(length(subject))) > max.chunk)
-      {
-        if (verbose) 
-          cat('Overflow .. computing overlaps in chunks.  Adjust max.chunk parameter to gr.findoverlaps to avoid chunked computation\n')
-        chunk.size = floor(sqrt(max.chunk));
-        ix1 = c(seq(1, length(query), chunk.size), length(query)+1)
-        ix2 = c(seq(1, length(subject), chunk.size), length(subject)+1)
-        ij = cbind(rep(1:(length(ix1)-1), length(ix2)-1), rep(1:(length(ix2)-1), each = length(ix1)-1))
-        if (verbose)
-          print(paste('Number of chunks:', nrow(ij)))
-
-        out = do.call('c', mclapply(1:nrow(ij),
-            function(x)
-                        {
-                          if (verbose)
-                            cat(sprintf('chunk i = %s-%s (%s), j = %s-%s (%s)\n', ix1[ij[x,1]], ix1[ij[x,1]+1]-1, length(query),
-                                        ix2[ij[x,2]], (ix2[ij[x,2]+1]-1), length(subject)))
-                          i.chunk = ix1[ij[x,1]]:(ix1[ij[x,1]+1]-1)
-                          j.chunk = ix2[ij[x,2]]:(ix2[ij[x,2]+1]-1)
-                          out = gr.findoverlaps(query[i.chunk], subject[j.chunk],  ignore.strand = ignore.strand, first = first, pintersect=pintersect, by = by, qcol = qcol, verbose = verbose, foverlaps = foverlaps, scol = scol, type = type, ...)
-                          out$query.id = i.chunk[out$query.id]
-                          out$subject.id = j.chunk[out$subject.id]
-                          return(out)
-                        }, mc.cores=mc.cores))
-
-        convert = FALSE
-        if ((return.type == 'same' & is(query, 'data.table')) | return.type == 'data.table')
-            out = grdt(out)
-        return(out)            
-      }
-
-  if (foverlaps)
-      {
-          if (verbose)
-              print('overlaps by data.table::foverlaps')
-          if (ignore.strand)
-              by = c(by, 'seqnames',  'start', 'end')
-          else
-              by = c(by, 'seqnames', 'strand', 'start', 'end')
-
-          if (!is.data.table(query))
-              {
-                  names(query) = NULL
-                  querydt = grdt(query[, setdiff(by, c('seqnames', 'start', 'end', 'strand'))])
-              }
-          else
-              {
-                  if (!all(by %in% names(query)))
-                      stop(paste('the following columns are missing from query:',
-                                 paste(by, collapse = ',')))
-                      
-                  querydt = query[, by, with = FALSE]
-              }
-          
-          if (!is.data.table(subject))
-              {
-                  names(subject) = NULL
-                  subjectdt = grdt(subject[, setdiff(by, c('seqnames', 'start', 'end', 'strand'))])
-              }
-          else
-              {
-                  if (!all(by %in% names(subject)))
-                      stop(paste('the following columns are missing from subejct:',
-                                 paste(by, collapse = ',')))
-                  subjectdt = subject[, by, with = FALSE]
-              }
-          
-          
-          ix1 = querydt$query.id = 1:nrow(querydt)
-          ix2 = subjectdt$subject.id = 1:nrow(subjectdt)
-
-          querydt = querydt[start<=end, ]
-          subjectdt = subjectdt[start<=end, ]
-          
-          querydt = querydt[, c('query.id', by), with = F]
-          subjectdt = subjectdt[, c('subject.id', by), with = F]
-          setkeyv(querydt, by)
-          setkeyv(subjectdt, by)
-
-         
-          h.df = foverlaps(querydt, subjectdt, by.x = by, by.y = by, mult = 'all', type = 'any', verbose = verbose)
-          h.df = h.df[!is.na(subject.id) & !is.na(query.id), ]
-          h.df[, start := pmax(start, i.start)]
-          h.df[, end := pmin(end, i.end)]
-
-          if (verbose)
-              cat(sprintf('Generated %s overlaps\n', nrow(h.df)))          
-      }
-  else
-      {
-
-          if (isdt) {
-              sn1 <- query$seqnames
-              sn2 <- subject$seqnames
-          } else {
-              sn1 = as.character(seqnames(query))
-              sn2 = as.character(seqnames(subject))
-          }
-          if (is.null(by))
-              {
-                  ix1 = which(sn1 %in% sn2)
-                  ix2 = which(sn2 %in% sn1)
-              }
-          else
-              {
-                  by1 = values(query)[, by]
-                  by2 = values(subject)[, by]
-                  ix1 = which(sn1 %in% sn2 & by1 %in% by2)
-                  ix2 = which(sn2 %in% sn1 & by2 %in% by1)
-                  by1 = by1[ix1]
-                  by2 = by2[ix2]
-              }
-          
-          query.ix = query[ix1]
-          subject.ix = subject[ix2]
-          sn1 = sn1[ix1]
-          sn2 = sn2[ix2]
-          
-          
-          if (pintersect)
-              {
-                  if (verbose)
-                      print('overlaps by pintersect')
-                  require(data.table)
-                  if (length(sn1)>0 & length(sn2)>0)
-                      {
-
-                          if (is.null(by))
-                              {
-                                  dt1 <- data.table(i=seq_along(sn1), sn=sn1, key="sn")
-                                  dt2 <- data.table(j=seq_along(sn2), sn=sn2, key="sn")                
-                                  ij <- merge(dt1, dt2, by = 'sn', allow.cartesian=TRUE)
-                              }
-                          else
-                              {
-                                  dt1 <- data.table(i=seq_along(sn1), sn=sn1, by = by1, key=c("sn", "by"))
-                                  dt2 <- data.table(j=seq_along(sn2), sn=sn2, by = by2, key=c("sn", "by"))
-                                  ij <- merge(dt1, dt2, by = c('sn', 'by'), allow.cartesian=TRUE)
-                              }
-
-                          if (ignore.strand && isdt)
-                              subject$strand <- '*'
-                          else if (ignore.strand)
-                              strand(subject) = '*'
-
-                          qr <- query.ix[ij$i]
-                          sb <- subject.ix[ij$j]
-                          if (!isdt) {
-                              seqlengths(qr) <- rep(NA, length(seqlengths(qr)))
-                              seqlengths(sb) <- rep(NA, length(seqlengths(sb)))
-                          }
-                          
-                          if (!isdt && any(as.character(seqnames(qr)) != as.character(seqnames(sb))))
-                              warning('gr.findoverlaps: violated pintersect assumption')
-
-                          ## changed to ranges(qr) etc rather than just GRanges call. Major problem if too many seqlevels
-                          if (isdt) {
-                              rqr <- IRanges(start=qr$start, end=qr$end)
-                              rsb <- IRanges(start=sb$start, end=sb$end)              
-                          } else {
-                              rqr <- ranges(qr)
-                              rsb <- ranges(sb)              
-                          }
-                          tmp <- pintersect(rqr, rsb, resolve.empty = 'start.x', ...)
-                          names(tmp) = NULL
-                          non.empty = which(width(tmp)!=0)
-                          h.df = as.data.frame(tmp[non.empty])
-                          if (isdt)
-                              h.df$seqnames <- qr$seqnames[non.empty]
-                          else
-                              h.df$seqnames <- as.character(seqnames(qr))[non.empty]
-                          h.df$query.id = ij$i[non.empty]
-                          h.df$subject.id = ij$j[non.empty]
-                      }
-                  else
-                      h.df = data.frame()
-              }
-          else
-              {
-                  if (verbose)
-                      print('overlaps by findOverlaps')
-                  if (isdt) {
-                      rqr <- IRanges(start=query.ix$start, end=query.ix$end)
-                      rsb <- IRanges(start=subject.ix$start, end=subject.ix$end)              
-                  } else {
-                      rqr <- ranges(query.ix)
-                      rsb <- ranges(subject.ix)              
-                  }
-
-                  h <- findOverlaps(rqr, rsb, type = type)
-                  r <- ranges(h, rqr, rsb)   
-                  h.df <- data.frame(start = start(r), end = end(r), query.id = queryHits(h), subject.id = subjectHits(h), stringsAsFactors = F);
-                                        #        sn.query = as.character(seqnames(query))[h.df$query.id]        
-                                        #        sn.subject = as.character(seqnames(subject))[h.df$subject.id]
-                  sn.query <- sn1[h.df$query.id]
-                  sn.subject <- sn2[h.df$subject.id]
-
-                  if (is.null(by))
-                      keep.ix <- sn.query == sn.subject
-                  else
-                      {
-                          by.query <- by1[h.df$query.id]
-                          by.subject <- by2[h.df$subject.id]
-                          keep.ix <- sn.query == sn.subject & by.query == by.subject
-                      }
-                  
-                  h.df <- h.df[keep.ix, ]
-                  h.df$seqnames <- sn.query[keep.ix];
-              }
-
-          if (!ignore.strand)
-              {
-                  h.df$strand <- str.query <- as.character(strand(query)[ix1[h.df$query.id]])
-                  str.subject <- as.character(strand(subject)[ix2[h.df$subject.id]])
-                  h.df <- h.df[which(str.query == str.subject | str.query == '*' | str.subject == '*'),]            
-              }
-          else if (nrow(h.df)>0)
-              h.df$strand = '*'
-      }
-    
-    if (first)
-      h.df = h.df[!duplicated(h.df$query.id), ]
-
-     if (return.type=='GRanges') 
-       if (nrow(h.df)>0)           
-           {
-               if (('strand' %in% names(h.df)))
-                   out.gr = GRanges(h.df$seqnames, IRanges(h.df$start, h.df$end),
-                       query.id = ix1[h.df$query.id], subject.id = ix2[h.df$subject.id], strand = h.df$strand, seqlengths = seqlengths(query))
-               else
-                   out.gr = GRanges(h.df$seqnames, IRanges(h.df$start, h.df$end),
-                       query.id = ix1[h.df$query.id], subject.id = ix2[h.df$subject.id], seqlengths = seqlengths(query))
-                   
-               if (!is.null(qcol))
-                   values(out.gr) = cbind(values(out.gr), values(query)[out.gr$query.id, qcol, drop = FALSE])
-
-               if (!is.null(scol))
-                   values(out.gr) = cbind(values(out.gr), values(subject)[out.gr$subject.id, scol, drop = FALSE])               
-
-               return(out.gr)
-           }
-       else
-         return(GRanges(seqlengths = seqlengths(query)))
-     else 
-         if (nrow(h.df)>0) {
-             
-             if (!is.data.table(h.df))
-                 h.df = as.data.table(h.df)
-             h.df$query.id <- ix1[h.df$query.id]
-             h.df$subject.id <- ix2[h.df$subject.id]
-
-             if (!is.null(qcol))
-                 h.df = cbind(h.df, as.data.table(as.data.frame(values(query))[h.df$query.id, qcol, drop = FALSE]))
-             
-             if (!is.null(scol))
-                 h.df = cbind(h.df, as.data.table(as.data.frame(values(subject))[h.df$subject.id, scol, drop = FALSE]))
-             
-             if ('i.start' %in% colnames(h.df))
-                 h.df[, i.start := NULL]
-                          
-             if ('i.end' %in% colnames(h.df))
-                 h.df[, i.end := NULL]
-             
-             return(h.df)
-       } else {
-         return(data.table())
-       }
-   }
-
-write.htab <-
-  function(tab, file = NULL,
-  title = NULL, # text to be written in bold above the table  
-  footer = NULL, # text to be writen in bold below the table
-  highlight = NULL,  #vector of row indices of the table to highlight
-  row.names = TRUE,  # includes row labels
-  col.names = TRUE, # includes col labels
-  high.color = 'yellow', # highlight color to use 
-  row.colors = c('lightgray', 'white'), # alternating colors to shade data rows  
-  header.colors = c('#4A4A4A', 'white'), # two element vector specifying background and text colors for header row, respectively,
-  data.size = 15, # font size in px for data, title, and footer
-  title.size = 15, footer.size = 20, header.size = round(1.1*data.size))
-  {    
-    require(hwriter)
-    require(gplots)
-    
-    if (!is.data.frame(tab))
-      tab = as.data.frame(tab)
-
-    if (is.null(rownames(tab)))
-      row.names = F;
-
-    if (!is.null(file))
-      {
-        #if (!grepl('(^~)|(^\\/)', file))
-        #  file = paste('~/public_html/', file, sep = '')
-      }
-    else
-      file = DEFAULT.HTAB.FILE    
-
-    for (nm in names(tab))
-        tab[[nm]] = as.character(tab[[nm]])
-    tab[is.na(tab)] = '';
-    tab = tab[1:nrow(tab), , drop = FALSE];  #not sure why this is necessary, but deflects occasional weird R bug
-
-    if (any(lix <<- sapply(names(tab), function(x) is.list(tab[, x]))))
-      for (i in which(lix))
-        tab[, i] = sapply(tab[, i], function(x) paste(x, collapse = ','))
-    
-    dir.create(dirname(normalizePath(file.dir(file))), recursive=T, showWarnings = F)
-    p = openPage(file, link.css = 'hwriter.css')
-    if (!is.null(title))
-      hwrite(title, p, style = sprintf('font-weight:bold; font-size:%spx; margin-top;50px', title.size), center = TRUE, div = TRUE, br = TRUE);
-
-    row.bgcolor = as.list(as.character(col2hex(row.colors)[(1:nrow(tab))%%length(row.colors)+1]));
-    names(row.bgcolor) = rownames(tab)
-    if (!is.null(highlight))
-      row.bgcolor[rownames(tab[highlight,, drop = FALSE])] = list(col2hex(high.color));
-
-    row.bgcolor = c(col2hex(header.colors[1]), row.bgcolor)
-
-#    if (row.names)
-      col.bgcolor = col2hex(header.colors[1])
-    
-    col.style = sprintf('font-weight:bold; font-size:%spx; color:%s; text-align:center', header.size, col2hex(header.colors[2]));
-    
-    row.style = rep(sprintf('font-size:%spx; text-align:center', data.size), nrow(tab))
-    names(row.style) = rownames(tab)
-    row.style = c(list(sprintf('font-weight:bold; font-size:%spx; color:%s; text-align:center', header.size, col2hex(header.colors[2]))), row.style)
-    
-    hwrite(tab, p, row.style = row.style, col.style = col.style, col.bgcolor = col.bgcolor, row.names = row.names, col.names = col.names,
-           row.bgcolor = row.bgcolor, table.frame = 'void', table.style = 'margin-left: 30px; margin-top: 30px', br = TRUE)
-    if (!is.null(footer))
-      hwrite(footer, p, style = sprintf('font-weight:bold; text-align:center; font-size:%spx; margin-top;50px', footer.size), center = TRUE, div = TRUE);
-    closePage(p)
-  }
-
-gr2dt <-
-function(gr, basic=FALSE) {
-  if (any(class(gr)=='data.table'))
-    return(gr)
-  out <- with(gr, data.table(seqnames=as.character(seqnames(gr)),
-                            start=start(gr), end=end(gr), strand=as.character(strand(gr))))
-  if (!basic && ncol(mcols(gr)))
-    out <- cbind(out, as.data.frame(mcols(gr)))
-  return(out)
-}
 library(optparse)
 
 option_list = list(
@@ -796,11 +10,11 @@ option_list = list(
   make_option(c("-o", "--output"), type = "character", default = "no_id",  help = "Output annotation name"),
   make_option(c("-t", "--splitsupport"), type = "numeric", default = 4,  help = "Minimum number of tumor supporting reads for ASSMB"),
   make_option(c("-d", "--discsupport"), type = "numeric", default = 10,  help = "Minimum number of tumor support discordant for DSCRD"),
-  make_option(c("-g", "--genes"), type = "logical", default = TRUE,  help = "Add genes to the plot?"),
+  make_option(c("-g", "--genes"), type = "numeric", default = 1,  help = "Add genes to the plot?"),
   make_option(c("-H", "--height"), type = "numeric", default = 10,  help = "Height"),
   make_option(c("-W", "--width"), type = "numeric", default = 10,  help = "Width"),
-  make_option(c("-N", "--nofilter"), type = "numeric", default = 0,  help = "Dont filter any events"),
-  make_option(c("-s", "--minsize"), type = "numeric", default = 0,  help = "Minimum size to plot for SV") 
+  make_option(c("-s", "--minsize"), type = "numeric", default = 0,  help = "Minimum size to plot for SV"),
+  make_option(c("-S", "--snowman"), type = "numeric", default = 1,  help = "This is a snowman run. 0 for generic SV VCF") 
 )
 
 parseobj = OptionParser(option_list=option_list)
@@ -810,128 +24,273 @@ if (is.null(opt$input))
   stop(print_help(parseobj))
 
 print("...loading required packages")
-suppressMessages(suppressWarnings(require(data.table, quietly = TRUE)))
-suppressMessages(suppressWarnings(require(GenomicRanges, quietly = TRUE)))
-suppressMessages(suppressWarnings(require(gplots, quietly = TRUE)))
+library(gUtils)
+library(gplots)
+library(plyr)
+source("/xchip/gistic/Jeremiah/GIT/SnowmanSV/Snowman/batch.functions.R")
 
 print("...importing tracks")
 basedir <- "/xchip/gistic/Jeremiah/tracks"
 genes <- readRDS(file.path(basedir, 'gr.allgenes.rds'))
 genes <- genes[width(genes) < 2e6] 
-cgc <- readRDS(file.path(basedir, 'gr.allgenes.rds'))
-cgc = read.delim('/home/unix/marcin/DB/COSMIC/cancer_gene_census.tsv', strings = FALSE)
-cgc <- genes[genes$gene %in% cgc$Symbol]
-
-filter = opt$nofilter == 0;
+#cgc <- readRDS(file.path(basedir, 'gr.allgenes.rds'))
+#cgc = read.delim('/home/unix/marcin/DB/COSMIC/cancer_gene_census.tsv', strings = FALSE)
+#cgc <- genes[genes$gene %in% cgc$Symbol]
 
 ## read in file
-print("...reading bps file")
-if (grepl("gz$", opt$input)) {
-  suppressWarnings(bks <- fread(paste("gunzip -c", opt$input), header=TRUE))
+print("...reading VCF file")
+
+if (opt$snowman) {
+  suppressWarnings(bks <- load_snowman(opt$input)[[1]])
+  mcols(bks)$tdisc  <- as.integer(gsub(".*?/.*?:.*?:.*?:.*?:.*?:.*?:(.*?):.*", "\\1", mcols(bks)$TUMOR))
+  mcols(bks)$tsplit <- as.integer(gsub(".*?/.*?:.*?:.*?:.*?:.*?:(.*?):.*", "\\1", mcols(bks)$TUMOR))
+
+  ## filter out discorant only with low support
+  if (length(bks)) {
+    print(paste("...filtering DSCRD breakpoints with < min support", opt$discsupport))
+    bks <- bks[mcols(bks)$EVDNC != "DSCRD" | (mcols(bks)$EVDNC == "DSCRD" & mcols(bks)$tdisc >= opt$discsupport)]
+  }
+  
+  ## filter out based on size
+  if (length(bks)) {
+    print(paste("...filtering breakpoints with < min span of", opt$minsize))
+    bks <- bks[mcols(bks)$SPAN >= opt$minsize | mcols(bks)$SPAN < 0]
+  }
+  
+  ## filter out assembly-only with low split support
+  if (length(bks) && sum(bks$evidence == "ASSMB" & bks$tsplit < opt$splitsupport)) {
+    print(paste("...filtering ASSMB with < min split support of", opt$minsize))
+    bks <- bks[-(bks$evidence == "ASSMB" & bks$tsplit < opt$splitsupport)]
+  }
+  
 } else {
-  suppressWarnings(bks <- fread(opt$input, header=TRUE))
+  dt <- fread(paste("grep -v ^#", opt$input), sep="\t")
+  setnames(dt, c("V1","V2","V3","V4","V5"), c("seqnames","start", "id","REF","ALT"))
+  dt[, end := start]
+  dt[, strand := ifelse(grepl("^\\[", ALT) | grepl("^\\]", ALT), '-', '+')]
+  dt[, uid := gsub("(,*?)_.*","\\1",id)]
+  dt[, altstrand := rev(strand), by=uid]
+  dt[, altpos := as.integer(gsub(".*?:([0-9]+).*", "\\1", ALT))]
+  dt[, altchr := gsub(".*?(\\[|\\])(.*?):([0-9A-Z]+).*", "\\2", ALT)]
+
+  dt[, V8 := NULL]
+  gg <- dt2gr(dt)
+  bks <- split(gg, gg$uid)
+  mcols(bks)$INSERTION = ""
+  mcols(bks)$HOMSEQ = ""
+  mcols(bks)$sample = gsub("(.*?)\\..*", "\\1", basename(opt$input))
 }
 
-bks$tdisc <- as.integer(gsub("(.*?/.*?):.*?:.*?:.*?:.*?:.*?:(.*?):.*", "\\2", bks[,colnames(bks)[35], with=FALSE][[1]]))
-
-##bks[, SL_t := as.numeric(gsub(".*?:.*?:.*?:.*?:.*?:.*?:.*?:.*?:.*?:(.*?)", "\\1", sim_wnormal_10x_s3.bam))]
-#setnames(bks, paste("V",seq(35),sep=""), c("chr1","pos1","strand1","chr2","pos2","strand2","ref","alt","span","mapq1","mapq2","nm1","nm2","disc_mapq1","disc_mapq2","sub_n1","sub_n2","homology","insertion","contig ","numalign","confidence","evidence","quality","secondary_alignment",
-#    "somatic_score","somatic_lod","true_lod","pon_samples","repeat_seq","graylist","DBSNP","reads","normal","tumor"))
-## filter out discorant only
-if (nrow(bks) && filter) {
-  print(paste("...filtering breakpoints. Min DSCRD support:", opt$discsupport, "Total non-indel and non-somatic:", sum(bks$evidence != "INDEL" & bks$confidence == "PASS" & bks$somatic_score >= 1)))
-  bks <- bks[(bks$evidence != "DSCRD" | (bks$evidence == "DSCRD" & bks$tdisc >= opt$discsupport)) & bks$evidence != "INDEL" & bks$confidence == "PASS" & bks$somatic_score >= 1]
-}
-
-if (nrow(bks)) {
-  print(paste("...filtering breakpoints to min size of", opt$minsize))
-  bks <- bks[bks$span > opt$minsize | bks$span < 0]
-}
-
-## filter out bad ASSMB
-#if (nrow(bks) && sum(bks$evidence == "ASSMB" & bks$tsplit < opt$splitsupport))
-#  bks <- bks[-(bks$evidence == "ASSMB" & bks$tsplit < opt$splitsupport)]
-
-if (nrow(bks) == 0) {
+## bail early if nothing found
+if (length(bks) == 0) {
   print("No rearrangements found")
   quit(status=0)
 } else {
-  print(paste("Found", nrow(bks), "rearrangements"))
+  print(paste("Found", length(bks), "rearrangements"))
 }
 
-## Clean up
-suppressWarnings(bks <- bks[,c("DBSNP","reads","tumor_allelic_fraction","normal_allelic_fraction","repeat_seq","pon_samples","graylist","somatic_score") := NULL])
-#suppressWarnings(bks <- bks[,c("DBSNP","reads","repeat_seq","pon_samples","graylist","somatic_score") := NULL])
+## annotate with gene overlaps
+suppressWarnings(gru <- gr.val(grl.unlist(bks), genes, "gene"))
+mcols(bks)$gene1 <- mcols(bks)$gene2 <- "Intergenic"
+mcols(bks)$gene1 <- gru$gene[gru$grl.iix == 1]
+mcols(bks)$gene2 <- gru$gene[gru$grl.iix == 2]                     
 
-## remove dups
-setkey(bks, chr1, pos1, chr2, pos2)
-bks <- unique(bks)
+## annotate with genes within 100kb
+suppressWarnings(gru <- gr.val(grl.unlist(bks), genes + 100e3, "gene"))
+mcols(bks)$gene1_100kb <- gru$gene[gru$grl.iix == 1]
+mcols(bks)$gene2_100kb <- gru$gene[gru$grl.iix == 2]
 
-gr1 <- with(bks, GRanges(chr1, IRanges(pos1,width=1)))
-gr2 <- with(bks, GRanges(chr2, IRanges(pos2,width=1)))
+if (!"gene1" %in% colnames(mcols(bks)))
+  mcols(bks)$gene1 <- ""
+if (!"gene2" %in% colnames(mcols(bks)))
+  mcols(bks)$gene2 <- ""
+if (!"gene1_100kb" %in% colnames(mcols(bks)))
+  mcols(bks)$gene1_100kb <- ""
+if (!"gene2_100kb" %in% colnames(mcols(bks)))
+  mcols(bks)$gene2_100kb <- ""
 
-## get the genes
-fo1 <- gr.findoverlaps(gr1, genes)
-fo2 <- gr.findoverlaps(gr2, genes)
-bks$gene1 <- "Intergenic"
-print(fo1)
-if (length(fo1))
-  bks$gene1[fo1$query.id] <- genes$gene[fo1$subject.id]
-bks$gene2 <- "Intergenic"
-if (length(fo2))
-  bks$gene2[fo2$query.id] <- genes$gene[fo2$subject.id]
+gr <- grl.unlist(bks)
+llr <- gr2dt(gr)
+llr$bk_msg <- llr$gstrand <- llr$gene <- llr$msg <- ""
+llr$elem_num <- -1
 
-## get the genes within 100kb
-fo1 <- gr2dt(gr.findoverlaps(gr1 + 100e3, genes))
-fo2 <- gr2dt(gr.findoverlaps(gr2 + 100e3, genes))
-if (nrow(fo1))
-  fo1[, genes100kb := paste(genes$gene[subject.id],collapse="_"), query.id]
-if (nrow(fo2))
-  fo2[, genes100kb := paste(genes$gene[subject.id],collapse="_"), query.id]
+gr.introns <- readRDS("/xchip/gistic/Jeremiah/tracks/gr.introns.rds")
+gr.exons <- readRDS("/xchip/gistic/Jeremiah/tracks/gr.exons.rds")
+gene.comp <- readRDS("/xchip/gistic/Jeremiah/tracks/gr.intergenic.rds") 
+gr.tub <- readRDS("/xchip/gistic/Jeremiah/tracks/master_db_29062016_ranges.rds")
 
-bks$gene100kb_1 <- "none"
-bks$gene100kb_2 <- "none"
-if (nrow(fo1))
-  bks$gene100kb_1[fo1$query.id] <- fo1$genes100kb
-if (nrow(fo2))
-  bks$gene100kb_2[fo2$query.id] <- fo2$genes100kb
+##
+print("...annotating L1")
+gr <- gr.val(gr, gr.tub, "type", ignore.strand=TRUE)
+if ('type' %in% colnames(mcols(gr))) {
+  llr$suspect_L1_retrotransposition <- nchar(gr$type) > 0
+} else { 
+  llr$suspect_L1_retrotransposition <- FALSE
+}
 
-## add cancer genome consensus genes
+## overlap introns
+print("...annotating introns")
+fo <- gr2dt(gr.findoverlaps(gr, gr.introns))
+if (nrow(fo)) {
+  fo[, intron_num   := gr.introns$num[subject.id], by=subject.id]
+  fo[, intron_str   := as.character(strand(gr.introns))[subject.id], by=subject.id]
+  fo[, intron_frm   := gr.introns$frame[subject.id], by=subject.id]
+  fo[, intron_gene  := gr.introns$gene[subject.id], by=subject.id]
+  fo[, intron_start := start(gr.introns)[subject.id], by=subject.id]
+  fo[, dist_after   := start - intron_start, by=subject.id]
+  fo[, bk_msg := paste0(dist_after, " bp into intron ", intron_num, " of ", intron_gene, "(", intron_str, ")")]
+  fo[, frame  := gr.introns$frame[subject.id], by=subject.id]
+  llr$bk_msg[fo$query.id] <- fo$bk_msg
+  llr$frame[fo$query.id] <- fo$frame
+  llr$gene[fo$query.id] <- fo$intron_gene
+  llr$gstrand[fo$query.id] <- fo$intron_str
+  llr$elem_num[fo$query.id] <- fo$intron_num
+}
 
-## get the genes
+## overlap exons
+print("...annotating exons")
+fo <- gr2dt(gr.findoverlaps(gr, gr.exons))
+if (nrow(fo)) {
+  fo[, exon_num := gr.exons$num[subject.id], by=subject.id]
+  fo[, exon_str := as.character(strand(gr.exons))[subject.id], by=subject.id]
+  fo[, exon_frm := gr.exons$frame[subject.id], by=subject.id]
+  fo[, exon_gene := gr.exons$gene[subject.id], by=subject.id]
+  fo[, exon_start := ifelse(strand(gr.exons)[subject.id] == '+', start(gr.exons)[subject.id], end(gr.exons)[subject.id]), by=subject.id]
+  fo[, dist_after := abs(start - exon_start) + 1, by=subject.id]
+  fo[, bk_msg := paste0(dist_after, " bp into exon ", exon_num, " of ", exon_gene, "(", exon_str, ")")]
+  fo[, frame  := gr.introns$frame[subject.id], by=subject.id]
+  llr$bk_msg[fo$query.id] <- fo$bk_msg
+  llr$frame[fo$query.id] <- fo$frame
+  llr$gene[fo$query.id] <- fo$exon_gene
+  llr$gstrand[fo$query.id] <- fo$exon_str
+  llr$elem_num[fo$query.id] <- fo$exon_num
+}
 
-fo1 <- gr.findoverlaps(gr1, cgc)
-fo2 <- gr.findoverlaps(gr2, cgc)
-bks$cancer_gene1 <- "none"
-if (length(fo1))
-  bks$cancer_gene1[fo1$query.id] <- cgc$gene[fo1$subject.id]
-bks$cancer_gene2 <- "none"
-if (length(fo2))
-  bks$cancer_gene2[fo2$query.id] <- cgc$gene[fo2$subject.id]
+## annotate fusions
+print("...annotating fusions")
+llr[, fusion := { f <- sum(grepl("intron|exon", bk_msg)) == 2 && (gene[1] != gene[2]); if (is.na(f)) { FALSE } else { f } } , by = uid]
+llr[, sense  := all(gstrand != "") && ((strand[1] == strand[2] && gstrand[1] != gstrand[2]) || (strand[1] != strand[2] && gstrand[1] == gstrand[2])), by = uid]
 
-## get the genes within 100kb
-fo1 <- gr2dt(gr.findoverlaps(gr1 + 100e3, cgc))
-fo2 <- gr2dt(gr.findoverlaps(gr2 + 100e3, cgc))
-if (nrow(fo1))
-  fo1[, cancer_genes100kb := paste(cgc$gene[subject.id],collapse="_"), query.id]
-if (nrow(fo2))
-  fo2[, cancer_genes100kb := paste(cgc$gene[subject.id],collapse="_"), query.id]
+## DECIDE WHICH PIECE IS "first" in the fusion gene (where Tx starts)
+## RAR_STRAND        GENE_STRAND
+## ++ or --          must be +- or -+. Starts on +
+## +- or --          msut be -- or ++. Starts on side where gstrand == rarstrand
+llr[, gorder := {
 
-bks$cancer_genes100kb_1 <- "none"
-bks$cancer_genes100kb_2 <- "none"
-if (nrow(fo1))
-  bks$cancer_genes100kb_1[fo1$query.id] <- fo1$cancer_genes100kb
-if (nrow(fo2))
-  bks$cancer_genes100kb_2[fo2$query.id] <- fo2$cancer_genes100kb
+  mk <- c(NA,NA)
+  ## inversion
+  if (strand[1] == strand[2]) {
+    if (gstrand[1] == '+')
+      mk <- c(2,1)
+    else
+      mk <- c(1,2)
+  }
+
+  ## non type
+  if (gstrand[1] == strand[1])
+    mk <- c(1,2)
+  else
+    mk <- c(2,1)
+
+  mk
+
+  }, by=uid]
+
+## decide if in frame
+if ("frame" %in% colnames(llr)) {
+  llr[, in_frame := {
+    f = (frame[gorder[2]] - frame[gorder[1]]);
+    xbases <- nchar(INSERTION[1]) - nchar(HOMSEQ[1]);
+    if (is.na(f))
+      FALSE
+    else if (all(grepl('intron', bk_msg))) ## intron to intron
+      f == 0
+    else
+      f + xbases %% 3 == 0
+  }, by=uid]
+  
+  ## make the fusion messages
+  llr[, in_frame_fusion := in_frame && fusion && sense, by=uid]
+  llr[llr$in_frame_fusion, msg := paste("In-frame sense fusion from:", bk_msg[gorder[1]], "to", bk_msg[gorder[2]]), by=uid]
+  llr[!llr$in_frame_fusion & llr$fusion & llr$sense, msg := paste("Out-of-frame sense fusion between:", bk_msg[1], "and", bk_msg[2]), by=uid]
+  llr[!llr$in_frame_fusion & llr$fusion & !llr$sense, msg := paste("Anti-sense fusion between:", bk_msg[1], "and", bk_msg[2]), by=uid]
+
+}
+#### look for UTR overlap
+## load refseq
+                                        #gr.ref <- readRDS("/xchip/gistic/Jeremiah/tracks/gr.refseq.all.rds")
+                                        #fo <- gr.findoverlaps(gr, gr.ref[gr.ref$type == "UTR"])
+                                        #llr$bk_msg[intersect(fo$query.id, which(!nchar(llr$bk_msg)))] <- "UTR"
+
+
+##llr$bk_msg[!grepl("intron|exon", llr$bk_msg)] <- ""
+print("...annotating intergenic")
+fo <- gr.findoverlaps(llr, gene.comp)
+if (nrow(fo)) {
+  fo[, left  := gene.comp$left[subject.id],  by=query.id]
+  fo[, right := gene.comp$right[subject.id], by=query.id]
+  fo[, right_start  := end(gene.comp)[subject.id], by=subject.id]
+  fo[, left_end := start(gene.comp)[subject.id], by=subject.id]
+  fo[, left_dist  := start - left_end, by=query.id]
+  fo[, right_dist := right_start - end, by=query.id]
+  fo[, mmm := paste(left_dist, "bp to right of", left, "and", right_dist, "bp to left of", right)]
+  llr$msg[!nchar(llr$msg)] <- ""
+  llr$bk_msg[fo$query.id] <- ifelse(!nchar(llr$bk_msg[fo$query.id]), fo$mmm, llr$bk_msg[fo$query.id])
+}
+
+## annotate genes withn 100kb
+llr$gene100kb <- gr.val(dt2gr(llr), genes + 100e3, 'gene', sep="_")$gene
+if (!"gene100kb" %in% colnames(llr))
+  llr$gene100kb <- ""
+
+if ("bk_msg" %in% colnames(llr)) {
+  mcols(bks)$break1 <- llr[grl.iix==1, bk_msg]
+  mcols(bks)$break2 <- llr[grl.iix==2, bk_msg]
+} else {
+  mcols(bks)$break1 <- mcols(bks)$break2 <- ""
+}
+
+if ("msg" %in% colnames(llr)) {
+  mcols(bks)$fusion <- llr[grl.iix==1, msg]
+} else {
+  mcols(bks)$fusion <- ""
+}
+
+if ("suspect_L1_retrotranspotiion" %in% colnames(llr)) {
+  mcols(bks)$suspect_L1_retrotransposition <- llr[grl.iix==1, suspect_L1_retrotransposition]
+} else {
+  mcols(bks)$suspect_L1_retrotransposition <- ""
+}
+
+
+## convert to data frame
+print("...writing data")
+dt.bks <- as.data.frame(gr2dt(grl.unlist(bks)))
+dt.bks <- rename(dt.bks, c("seqnames"="chr1", "start"="pos1", "strand"="strand1","altchr"="chr2","altpos"="pos2","altstrand"="strand2"))
+print(dt.bks)
+
+if (opt$snowman) {
+  dt.bks <- dt.bks[dt.bks$grl.iix==1, c("grl.ix", "chr1","pos1","strand1", "chr2","pos2","strand2", "FILTER","NORMAL","TUMOR","SPAN","sample","uid",
+                     "EVDNC","NUMPARTS","SCTG","DISC_MAPQ","NM","MATENM","MAPQ","REPSEQ",
+                     "HOMSEQ","INSERTION","TUMALT","TUMCOV","TUMLOD","NORMCOV","NORMALT",
+                     "NORMLOD","gene1","gene2","gene1_100kb","gene2_100kb", "fusion","break1", "break2",
+                     "suspect_L1_retrotransposition")]
+} else {
+  dt.bks <- dt.bks[dt.bks$grl.iix==1, c("grl.ix", "chr1","pos1","strand1", "chr2","pos2","strand2",
+                     "sample","uid",
+                     "gene1","gene2","gene1_100kb","gene2_100kb",
+                     "fusion","break1", "break2",
+                     "suspect_L1_retrotransposition")]
+}
+
 
 ## write the output
-write.table(bks, file=paste0(opt$output, ".csv"), quote=FALSE, sep=',', row.names=FALSE)
-suppressWarnings(write.htab(bks, file=paste0(opt$output, ".html")))
-
+write.table(dt.bks, file=paste0(opt$output, ".csv"), quote=FALSE, sep='\t', row.names=FALSE)
+##skitools::write.htab(dt.bks, file=paste0(opt$output, ".html"))
 
 ############## make the circos plot
-
-require(RCircos)
+print("...making Circos plot")
+library(RCircos)
 data(UCSC.HG19.Human.CytoBandIdeogram);
 chr.exclude <- NULL;
 cyto.info <- UCSC.HG19.Human.CytoBandIdeogram;
@@ -940,45 +299,48 @@ tracks.outside <- 0;
 RCircos.Set.Core.Components(cyto.info, chr.exclude, tracks.inside, tracks.outside);
 
 ## get the gene label dat
-genes <- genes[width(genes) < 2e6]
-fo1 <- gr.findoverlaps(gr1+10e3, genes)
-fo2 <- gr.findoverlaps(gr2+10e3, genes)
+#genes <- genes[width(genes) < 2e6]
+#fo1 <- gr.findoverlaps(gr1+10e3, genes)
+#fo2 <- gr.findoverlaps(gr2+10e3, genes)
 
 ## annoying bug with seqinfo clash on 'c'
-if (length(fo1) && length(fo2)) {
-  fo <- c(fo1,fo2)
-} else if (length(fo1)) { 
-  fo <- fo1
-} else {
-  fo <- fo2
-}
+#if (length(fo1) && length(fo2)) {
+#  fo <- c(fo1,fo2)
+#} else if (length(fo1)) { 
+#  fo <- fo1
+#} else {
+#  fo <- fo2
+#}
 
-gene.dat <- data.frame()
-if (length(fo)) {
-  fo <- fo[!duplicated(fo$subject.id)]
-  gene.dat = data.frame(Chromosome = seqnames(genes[fo$subject.id]), chromStart=start(genes[fo$subject.id]),
-    chromEnd=end(genes[fo$subject.id]), Gene=genes$gene[fo$subject.id])
-  print(gene.dat)
-}
+print("...constructing Circos plot")
 
-gename.col <- 4;
-side <- "in";
-track.num <- 1;
+## set the gene labels
+gene.dat <- data.frame(Chromsome=c(dt.bks$chr1, dt.bks$chr2), chromStart=c(dt.bks$pos1, dt.bks$pos2),
+                       chromEnd=c(dt.bks$pos1,dt.bks$pos2), Gene=as.character(c(dt.bks$gene1, dt.bks$gene2)),
+                       stringsAsFactors=FALSE)
+if (nrow(gene.dat))
+  gene.dat <- gene.dat[nchar(gene.dat$Gene) > 0,]
+if (nrow(gene.dat))
+  gene.dat <- gene.dat[!duplicated(gene.dat$Gene),]
 
 links = data.frame()
-if (nrow(bks))
-  links = with(bks, data.frame(Chromosome=chr1, chromStart=pos1, chromEnd=pos1, Chromsome.1=chr2, chromStart.1=pos2, chromEnd.1=pos2))
+if (length(bks))
+  links = with(dt.bks, data.frame(Chromosome=chr1, chromStart=pos1, chromEnd=pos1, Chromsome.1=chr2, chromStart.1=pos2, chromEnd.1=pos2))
 
 ## plot the PDF
 pdf(file=paste0(opt$output,".pdf"), height=opt$height, width=opt$width, compress=TRUE);
 RCircos.Set.Plot.Area();
 RCircos.Chromosome.Ideogram.Plot();
-if (opt$genes && nrow(gene.dat) > 0) {
-  RCircos.Gene.Connector.Plot(gene.dat, track.num, side);
+if (opt$genes != 0 && nrow(gene.dat) > 0) {
+  track.num <- 1
+  RCircos.Gene.Connector.Plot(gene.dat, track.num, "in");
   track.num <- 2;
   name.col <- 4;
-  RCircos.Gene.Name.Plot(gene.dat, name.col,track.num, side);
+  RCircos.Gene.Name.Plot(gene.dat, name.col, track.num, "in");
 }
-if (nrow(links) > 0)
+if (nrow(links) > 0) {
+  track.num = 1
   RCircos.Link.Plot(links, track.num, by.chromosome=TRUE) ## by.chromosome is for color
+}
 dev.off()
+

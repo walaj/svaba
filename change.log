@@ -245,4 +245,12 @@ NODBCUTOFF 8 -> 2.5
 	just keep them 
 
 	## snowman 105
-	-- added one trim round with trim length of 100. Insensitive parameter
+	-- added one trim round with trim length of 100. Insensitive
+	parameter
+	-- added back better kmer sampling
+
+	## snowman 106
+	-- changed BWA to have -x intractg values
+	-- -I flag now also limits on large intra-chr lookup
+	-- added Fermi-kit option
+	-- label pieces of complex breaks as such
