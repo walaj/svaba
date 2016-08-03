@@ -19,7 +19,6 @@ namespace opt {
   static std::string header;
   static std::string fasta;
   static int split_num = 1000;
-  static std::string outfile = "output.fasta.gz";
 }
 
 static const char* shortopts = "hb:B:H:f:n:o:";
@@ -48,7 +47,7 @@ static const char *RUN_SPLITCOUNTER_MESSAGE =
 "\n";
 
 static const char *RUN_FASTASPLIT_MESSAGE =
-"Usage: snowman fastasplit -f fasta -n num_bases\n\n"
+"Usage: snowman fastasplit -f fasta -n num_bases > outfile.fa\n\n"
 "  Description: Divide a fasta into smaller sub-sequences, splitting some seqs in the middle\n"
 "\n"
 "  General options\n"
@@ -66,7 +65,7 @@ void runSplitFasta(int argc, char** argv) {
   parseFastaSplitOptions(argc, argv);
 
   std::cerr << " SPLITTING: " << opt::fasta << "\n" <<
-    " NUM: " << opt::split_num << std::endl;
+    " NUM: " << SnowTools::AddCommas(opt::split_num) << std::endl;
   
   // open the fasta
   igzstream infile(opt::fasta.c_str(), std::ios::in);
@@ -79,14 +78,16 @@ void runSplitFasta(int argc, char** argv) {
   
   int line_count = 0;
 
-  ogzstream outfile;
-  outfile.open(opt::outfile.c_str(), std::ios::out);
-  
   //
   std::string line;
   std::string curr_line;
+  size_t this_line_count = 0; // new line count
   while (std::getline(infile, line, '\n')) {
     
+    ++this_line_count;
+    if (this_line_count % 20000)
+      std::cerr << "...on fasta file line (new-line separated) " << SnowTools::AddCommas(this_line_count) << std::endl;
+
     if (line.empty() || line.find(">") != std::string::npos)
       continue;
     
@@ -96,9 +97,9 @@ void runSplitFasta(int argc, char** argv) {
     
     // hits limit, but only if adding the new line
     else if ((int)line.length() <= opt::split_num) {
-      outfile << ">" << line_count << std::endl;
+      std::cout << ">" << line_count << std::endl;
       ++line_count;
-      outfile << curr_line << std::endl;
+      std::cout << curr_line << std::endl;
       curr_line = line;
     }
       
@@ -107,9 +108,9 @@ void runSplitFasta(int argc, char** argv) {
       int lsize = line.size();
       int lstart = 0;
       while (lstart < (int)line.size()) {
-	outfile << ">" << line_count << std::endl; 
+	std::cout << ">" << line_count << std::endl; 
 	++line_count;
-	outfile << line.substr(lstart, std::min(opt::split_num, lsize - lstart)) << std::endl;
+	std::cout << line.substr(lstart, std::min(opt::split_num, lsize - lstart)) << std::endl;
 	lstart += opt::split_num;
       }
 
@@ -194,8 +195,8 @@ void runSplitCounter(int argc, char** argv) {
      //#ifdef INDEL_SEARCH
     int pos = r.Position();
     for (auto& c : cig) {
-	if ((c.Type() == 'D' || c.Type() == 'I')  && c.Length() >= 30) 
-	  //if (c.Type() == 'D' || c.Type() == 'I')
+      //if ((c.Type() == 'D' || c.Type() == 'I')  && c.Length() >= 30) 
+	if (c.Type() == 'D' || c.Type() == 'I')
 	std::cout << c.Type() << "\t" << r.ChrName(walk.header()) << "\t" << pos << "\t+\t" 
 	   << r.Qname() << "\t" << r.MapQuality() << "\t" << (r.SecondaryFlag() ? "SEC" : "PRI") << "\t" << 
 	  (bks.findOverlapping(r.asGenomicRegion()) ? "IN_BK" : "NO_BK") << "\t" << c.Length() << std::endl;
@@ -266,7 +267,6 @@ void parseFastaSplitOptions(int argc, char** argv) {
     switch (c) {
     case 'f': arg >> opt::fasta; break;
     case 'n': arg >> opt::split_num; break;
-    case 'o': arg >> opt::outfile; break;
     case 'h': help = true; break;
     }
   }

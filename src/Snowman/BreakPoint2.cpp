@@ -10,8 +10,8 @@
 
 //#define T_SPLIT_BUFF 15
 //#define N_SPLIT_BUFF 8
-#define T_SPLIT_BUFF 5
-#define N_SPLIT_BUFF 5
+#define T_SPLIT_BUFF 8
+#define N_SPLIT_BUFF 8
 // if the insertion is this big or larger, don't require splits to span both sides
 #define INSERT_SIZE_TOO_BIG_SPAN_READS 16
 
@@ -340,8 +340,8 @@ namespace SnowTools {
       bool read_should_be_skipped = false;
       if (num_align == 1) {
 	std::vector<std::string> cigvec = j.GetSmartStringTag("SC"); // read against contig CIGAR
-	if (cigvec.size() != cnvec.size())//debug
-	  std::cerr << cigvec.size() << " _ " << cnvec.size() << std::endl;
+	//if (cigvec.size() != cnvec.size())//debug
+	//  std::cerr << cigvec.size() << " _ " << cnvec.size() << std::endl;
 	assert(cigvec.size() == cnvec.size());
 	size_t kk = 0;
 	
@@ -352,7 +352,7 @@ namespace SnowTools {
 	    std::vector<int> del_breaks;
 	    std::vector<int> ins_breaks;
 	    int pos = 0;
-
+	    
 	    // if this is a nasty repeat, don't trust non-perfect alignmentx on r2c alignment
 	    if ( (repeat_seq.length() > 6 || __check_homopolymer(j.Sequence())) && tcig.size() > 1) 
 	      read_should_be_skipped = true;
@@ -429,7 +429,7 @@ namespace SnowTools {
       //bool both_splitI = issplit1I && issplit2I;
       //bool one_splitI = issplit1I || issplit2I;
       // be more permissive for NORMAL, so keep out FPs
-      bool valid  = (both_split  && (tumor_read || homlen > 0)) || (one_split && !tumor_read && homlen == 0) || (one_split && insertion.length() >= INSERT_SIZE_TOO_BIG_SPAN_READS);
+      bool valid  = (both_split && (tumor_read || homlen > 0)) || (one_split && !tumor_read && homlen == 0) || (one_split && insertion.length() >= INSERT_SIZE_TOO_BIG_SPAN_READS);
       //bool validI = (both_splitI && homlen > 0) || (one_splitI && homlen == 0) || (one_splitI && insertion.length() >= INSERT_SIZE_TOO_BIG_SPAN_READS);
       // requiring both break ends to be split for homlen > 0 is for situation beow
       // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>A..........................
@@ -439,6 +439,13 @@ namespace SnowTools {
       // segment, it should be non-split on all, for overlapping alignments like above. Not true of 
       // insertions at junctions, where one can split at one and not the other because of the intervening sequence buffer
 
+
+      //debug
+      /*if (sr == "t000_163_H01PEALXX140819:2:2202:14804:18907")
+	std::cerr << " te " << te << " pos " << pos << " CIG " << j.GetZTag("SC") << " SL " << j.GetZTag("SL") << " SE " << j.GetZTag("SE") << 
+	  " leftbreak " << leftbreak1 << " rightbreak " << rightbreak1 << " leftbreak2 " << leftbreak2 << " rightbreak2 " << rightbreak2 << 
+	  " issplit1 " << issplit1 << " issplit2 " << issplit2 << " valid " << valid << std::endl;
+      */
 
       // add the split reads for each end of the break
       // a read is split if it is spans both break ends for tumor, one break end for normal (to
@@ -632,7 +639,7 @@ namespace SnowTools {
 
   void BreakPoint::__combine_with_discordant_cluster(DiscordantClusterMap& dmap)
   {
-    int PAD = 400;
+    const int PAD = 50;
     GenomicRegion bp1 = b1.gr;
     GenomicRegion bp2 = b2.gr;
     bp1.pad(PAD);
@@ -648,8 +655,15 @@ namespace SnowTools {
 
 	bool s1 = bp1.strand == d.second.m_reg1.strand;
 	bool s2 = bp2.strand == d.second.m_reg2.strand;
+	
+	int pos1 = d.second.m_reg1.strand == '+' ? d.second.m_reg1.pos2 : d.second.m_reg1.pos1; // get the edge of the cluster
+	int pos2 = d.second.m_reg2.strand == '+' ? d.second.m_reg2.pos2 : d.second.m_reg2.pos1;
 
 	bool pass = bp1reg1 && bp2reg2 && s1 && s2;
+
+	// check that the ends are not way off
+	if (std::abs(pos1 - bp1.pos1) > PAD || std::abs(pos2 - bp2.pos1) > PAD)
+	  pass = false;
 
 	/*	std::cerr << " gr1 " << gr1 << " gr2 " << gr2 << std::endl << 
 	  " m_reg1 " << d.second.m_reg1 << " m_reg2 " << 
@@ -726,14 +740,8 @@ namespace SnowTools {
       for (auto& i : reads)
 	readlen = std::max(i.Length(), readlen);
 
-    //double af = t.cov > 0 ? (double)t.alt / (double)t.cov : 0;
-    
     int span = getSpan();
-    //int this_mapq1 = b1.local ? 60 : b1.mapq;
-    //int this_mapq2 = b2.local ? 60 : b2.mapq;
-
     int num_split = t.split + n.split;
-
     int cov_span = split_cov_bounds.second - split_cov_bounds.first ;
 
     // check for high repeats
@@ -747,6 +755,8 @@ namespace SnowTools {
       // aligned to way off region. Saw cases where this happend in tumor
       // and not normal, so false-called germline event as somatic.
       confidence = "NOLOCAL";
+    if (has_local_alignment)
+      confidence = "LOCALMATCH";
     else if ( num_split > 1 && ( (cov_span <= (readlen + 5 ) && cov_span > 0) || cov_span < 0) )
       confidence = "DUPREADS"; // the same sequences keep covering the split
     else if (homology.length() >= 20 && (span > 1500 || span == -1) && std::max(b1.mapq, b2.mapq) < 60)
@@ -765,6 +775,8 @@ namespace SnowTools {
       confidence = "LOWAS";
     else if ( (std::max(b1.nm, b2.nm) >= 3 || std::min(b1.as_frac, b2.as_frac) < 0.85) && getSpan() < 0 )
       confidence = "LOWAS";      
+    else if (seq.length() - aligned_covered > 10)
+      confidence = "LOWAS";        
     else if ( (b1.matchlen < 50 && b1.mapq < 60) || (b2.matchlen < 50 && b2.mapq < 60) )
       confidence = "LOWMAPQ";
     else if ( std::min(b1.nm, b2.nm) >= 10)
@@ -778,7 +790,9 @@ namespace SnowTools {
     else if (num_align == 2 && std::min(b1.mapq, b2.mapq) < 50 && b1.gr.chr != b2.gr.chr) // interchr need good mapq for assembly only
       confidence = "LOWMAPQ";
     else if (std::min(b1.matchlen, b2.matchlen) < 40 || (complex_local && std::min(b1.matchlen, b2.matchlen) < 100)) // not enough evidence
-      confidence = "LOWMATCHLEN";      
+      confidence = "LOWMATCHLEN";    
+    else if (std::min(b1.matchlen - homology.length(), b2.matchlen - homology.length()) < 40)
+      confidence = "LOWMATCHLEN";          
     else if ((b1.sub_n && b1.mapq < 50) || (b2.sub_n && b2.mapq < 50)) // || std::max(b1.sub_n,b2.sub_n) >= 2)
       confidence = "MULTIMATCH";
     else if (secondary && std::min(b1.mapq, b2.mapq) < 30)
@@ -789,6 +803,8 @@ namespace SnowTools {
       confidence = "LOWQINVERSION";
     else if ( (b1.matchlen - b1.simple < 15 || b2.matchlen - b2.simple < 15) )
       confidence = "SIMPLESEQUENCE";
+    else if (homology.length()*4 > readlen) // if homology is too high, tough to tell from mis-assemly
+      confidence = "HIGHHOMOLOGY";
 	      
     else
       confidence = "PASS";
@@ -920,16 +936,11 @@ namespace SnowTools {
     int disc_count = dc.tcount + dc.ncount;
     int hq = dc.tcount_hq + dc.ncount_hq;
 
-    //double min_disc_mapq = std::min(dc.mapq1, dc.mapq2);
-
-    // check the mapq in different ways
-    //bool low_max_mapq = max_a_mapq <= 10 || max_b_mapq <= 10 || std::max(max_a_mapq, max_b_mapq) <= 30;
-
     if ( (max_a_mapq < 30 && !b1.local && hq < 3) || (max_b_mapq < 30 && !b2.local && hq < 3) || (b1.sub_n > 7 && b1.mapq < 10 && !b1.local && hq < 3) || (b2.sub_n > 7 && b2.mapq < 10 && !b2.local && hq < 3) )
       confidence = "LOWMAPQ";
     else if ( std::min(b1.nm, b2.nm) >= 10)
       confidence = "LOWMAPQ";
-    else if ( std::min(b1.mapq, b2.mapq) < 10 && std::min(dc.mapq1, dc.mapq2) < 10 && hq < 3)
+    else if ( std::min(b1.mapq, b2.mapq) < 10/* && std::min(dc.mapq1, dc.mapq2) < 10 */&& hq < 2)
       confidence = "LOWMAPQ";      
     else if ( total_count < 4 || (std::max(t.split, n.split) <= 5 && cov_span < (readlen + 5) && disc_count < 7) )
       confidence = "LOWSUPPORT";
@@ -937,8 +948,8 @@ namespace SnowTools {
       confidence = "LOWSUPPORT";
     else if ( std::min(b1.matchlen, b2.matchlen) < 50 && b1.gr.chr != b2.gr.chr ) 
       confidence = "LOWICSUPPORT";
-    //else if (secondary && getSpan() < 1000) // local alignments are more likely to be false for alignemnts with secondary mappings
-    //  confidence = "SECONDARY";	
+    else if (secondary && getSpan() < 1000) // local alignments are more likely to be false for alignemnts with secondary mappings
+      confidence = "SECONDARY";	
     else if (dc.tcount_hq + dc.ncount_hq < 3) { // multimathces are bad if we don't have good disc support too
       if ( ((b1.sub_n && dc.mapq1 < 1) || (b2.sub_n && dc.mapq2 < 1))  )
 	confidence = "MULTIMATCH";
@@ -989,29 +1000,14 @@ namespace SnowTools {
 
     double max_lod = 0;
     for (auto& s : allele) {
-      max_lod = std::max(max_lod, s.second.SLO);
+      max_lod = std::max(max_lod, s.second.LO);
     }
 
     double af_t = t.cov > 0 ? (double)t.alt / (double)t.cov : 0;
     double af_n = n.cov > 0 ? (double)n.alt / (double)n.cov : 0;
     double af = std::max(af_t, af_n);
 
-    //std::cerr << " LEFT MATCH " << left_match << " RIGHT MATCH " << right_match << " CNAME " << cname << std::endl;
-
-    //bool blacklist_and_low_count = blacklist && (t.split + n.split) < 5 && (t.cigar + n.cigar) < 5;
-    //bool blacklist_and_low_AF = (max_af < 0.2 && max_count < 8) && blacklist;
-
-    //if (rs.length() && (af_t < 0.1 || t.cov < 10 || std::max(n.split, n.cigar)))
-    //  confidence="DBSNP";
-    //if (blacklist && pon > 3)
-    //  confidence="GRAYLISTANDPON";
-    //else if (blacklist_and_low_count || blacklist_and_low_AF)
-    //  confidence="LOWAF";
-    //else if (max_af * (double)t.cov < 5)
-    //  confidence = "LOWAF";
-    //else if ( (max_count < 4 && max_af < 0.2) || (max_count < 2 && b1.mapq < 60) || (max_count < 5 && b1.mapq < 30))
-    //  confidence="WEAKASSEMBLY";
-    if (b1.mapq < 10)
+    if (b1.mapq < 10) // || std::max(b1.nm, b2.nm) > 6)
       confidence="LOWMAPQ";
     else if (max_lod < LOD_CUTOFF) 
       confidence = "LOWLOD";
@@ -1019,14 +1015,6 @@ namespace SnowTools {
       confidence = "VLOWAF";
     else if (std::min(left_match, right_match) < 20) 
       confidence = "SHORTALIGNMENT"; // no conf in indel if match on either side is too small
-    //else if ( (max_af < 0.1 && (n.split+n.cigar) > 0)) // || (max_af < 0.30 && n.split == 0 && t.split < 3)) // more strict for germline bc purity is not issue
-    //  confidence = "LOWAF";
-    //else if (max_af < 0.1)
-    //  confidence = "LOWAF";
-    //else if (!repeat_seq.empty() && max_af < 0.2)
-    //  confidence = "LOWAF";
-    //else if (n.cov <= 5)
-    //  confidence = "LOWNORMCOV";
     else
       confidence="PASS";
     

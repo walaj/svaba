@@ -204,6 +204,8 @@ namespace SnowTools {
    double somatic_score = 0;
    double somatic_lod = 0; // LogOdds that variant not in normal
 
+   int aligned_covered = 0;
+   
    std::string seq, cname, rs, insertion, homology, repeat_seq, evidence, confidence, ref, alt, read_names;   
 
    // the evidence per break-end
@@ -218,6 +220,9 @@ namespace SnowTools {
 
    // reads spanning this breakpoint
    BamReadVector reads;
+
+   // store if it has a non-clipped local alignment
+   bool has_local_alignment = false;
 
    //int t_reads = 0, n_reads = 0;
 

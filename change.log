@@ -254,3 +254,18 @@ NODBCUTOFF 8 -> 2.5
 	-- -I flag now also limits on large intra-chr lookup
 	-- added Fermi-kit option
 	-- label pieces of complex breaks as such
+	-- fixed bug where BWAWrapper was not recieving correct options
+	-- added aligned coverage filter, so that contigs with large
+	sections (10+ bp) of unaligned bases are rejected (they are
+	unreliable)
+	-- Switched LOD cutoff from using SLO to using regular LO
+	(i.e. turned of scaled LOD)
+	-- set PAD on discordant read overlap with breaks to 50 (from
+	400). 400 was way too spurious for short data
+	-- added local alginment check. Do initiaul BWA on just the local
+	region where the reads were assembled. If aligns without a clip,
+	then inelgible for SV
+	-- Added limit on homology to be < 25% of readlength. Anything
+	more an start to see mis-assemblies from areas where homology is
+	too great
+	

@@ -211,6 +211,8 @@ VCFFile::VCFFile(std::string file, std::string id, bam_hdr_t * h, const VCFHeade
 
   // add the filters that apply to SVs
   sv_header.addFilterField("NOLOCAL","Contig realigned to region outside of local assembly region, and no disc support.");
+  sv_header.addFilterField("LOCALMATCH","Contig realigned to assembly region without clipping");
+  sv_header.addFilterField("HIGHHOMOLOGY","Contig realigns with > 25% of readlength of homology. High probaility of assembly/mapping artifact");
   sv_header.addFilterField("DUPREADS","Contig built from what appear to be duplicate reads (split reads all same contig cov))");
   sv_header.addFilterField("NODISC","Rearrangement was not detected independently by assembly");
   sv_header.addFilterField("LOWSUPPORT","Fewer than 2 split reads or < 4 total alt reads for ASDISC");

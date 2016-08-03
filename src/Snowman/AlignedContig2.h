@@ -282,6 +282,9 @@ namespace SnowTools {
   std::unordered_map<std::string, std::vector<int>> cov;
   std::vector<int> tum_cov, norm_cov;
 
+  std::vector<int> aligned_coverage; //coverage of each base in contig, whether it has alignment 
+  int aligned_covered = 0;
+
   std::set<std::string> prefixes; // store the sample ids. Needed to create accurate BreakPoint genotypes
 
   AlignmentFragmentVector m_frag_v; // store all of the individual alignment fragments 
