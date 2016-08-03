@@ -76,7 +76,9 @@ namespace SnowTools {
 	std::unordered_map<std::string, int>::const_iterator ff = min_isize_for_disc->find(RG);
 	if (ff != min_isize_for_disc->end())
 	  cutoff = ff->second;
+
       }
+
 
       // accept as discordant if not FR, has large enough isize, is inter-chromosomal, and has both mates mapping
       if ( ( r.PairOrientation() != FRORIENTATION || r.FullInsertSize() >= cutoff || r.Interchromosomal()) && r.PairMappedFlag())

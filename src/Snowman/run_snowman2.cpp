@@ -32,6 +32,13 @@
 #define LARGE_INTRA_LOOKUP_LIMIT 1000000
 #define SECONDARY_FRAC 0.95
 
+// if a local alignment has < MIN_CLIP_FOR_LOCAL clips
+// then it has a good local (and is not an SV candidate contig)
+#define MIN_CLIP_FOR_LOCAL 40
+// if local alignment to assembly has > MAX_NM_FOR_LOCAL
+// NM, then dont' consider it a strong local match
+#define MAX_NM_FOR_LOCAL 10 
+
 // {1_A_B, {c_1_A_B_#, SEQ} }
 static std::unordered_map<std::string, std::unordered_map<std::string, std::string>> reused_contigs;
 
@@ -115,6 +122,8 @@ namespace opt {
 
   static bool run_blat = false;
 
+  static bool fast = false; // turn off dump of most files. Speeds up parallel compute
+
   static std::string kmer_correction = "s";
 
   static std::string ooc; //"/xchip/gistic/Jeremiah/blat/11.ooc";
@@ -151,7 +160,7 @@ namespace opt {
   //static std::string rules = "global@!hardclip;!duplicate;!qcfail;phred[4,100];length[LLL,1000]%region@WG%!isize[0,800]%ic%clip[10,1000]%ins[1,1000];mapq[0,100]%del[1,1000];mapq[1,1000]%mapped;!mate_mapped;mapq[1,1000]%mate_mapped;!mapped";
   //static std::string rules = "global@!hardclip;!duplicate;!qcfail;phred[4,100]%region@WG%discordant[0,800]%ic%clip[10,1000]%ins[1,1000];mapq[0,100]%del[1,1000];mapq[1,1000]%mapped;!mate_mapped;mapq[1,1000]%mate_mapped;!mapped";
   //static std::string rules = "{\"global\" : {\"duplicate\" : false, \"qcfail\" : false}, \"\" : { \"rules\" : [{\"isize\" : [LLHI,0]},{\"rr\" : true},{\"ff\" : true}, {\"rf\" : true}, {\"ic\" : true}, {\"clip\" : [5, 1000], \"phred\" : [4,100]}, {\"ins\" : [1,1000]}, {\"del\" : [1,1000]}, {\"mapped\": true , \"mate_mapped\" : false}, {\"mate_mapped\" : true, \"mapped\" : false}]}}";
-  static std::string rules = "{\"global\" : {\"duplicate\" : false, \"qcfail\" : false}, \"\" : { \"rules\" : [FRRULES,{\"rr\" : true},{\"ff\" : true}, {\"rf\" : true}, {\"ic\" : true}, {\"clip\" : 5, \"phred\" : 4}, {\"ins\" : true}, {\"del\" : true}, {\"mapped\": true , \"mate_mapped\" : false}, {\"mate_mapped\" : true, \"mapped\" : false}]}}";
+  static std::string rules = "{\"global\" : {\"duplicate\" : false, \"qcfail\" : false}, \"\" : { \"rules\" : [FRRULES,{\"rr\" : true},{\"ff\" : true}, {\"rf\" : true}, {\"ic\" : true}, {\"clip\" : 5, \"phred\" : 4}, {\"ins\" : true}, {\"del\" : true}, {\"mapped\": true , \"mate_mapped\" : false}, {\"mate_mapped\" : true, \"mapped\" : false}, {\"nm\" : [3,0]}]}}";
   //static std::string rules = "{\"\" : { \"rules\" : [{\"rf\" : true}]}}";
   //static std::string rules = "{\"global\" : {\"duplicate\" : false, \"qcfail\" : false}, \"\" : { \"rules\" : [{\"isize\" : [800,0]},{\"rr\" : true},{\"ff\" : true}, {\"rf\" : true, \"isize\" : [LLHI,LLLO]}, {\"ic\" : true}, {\"clip\" : [5, 1000], \"phred\" : [4,100]}, {\"ins\" : [1,1000]}, {\"del\" : [1,1000]}, {\"mapped\": true , \"mate_mapped\" : false}, {\"mate_mapped\" : true, \"mapped\" : false}]}}";
   //static std::string rules = "global@!duplicate;!qcfail%region@WG%discordant[0,600]%ic%clip[5,1000];phred[4,100]%ins[1,1000]%del[1,1000]%mapped;!mate_mapped%mate_mapped;!mapped";
@@ -234,7 +243,8 @@ enum {
   OPT_DEVEL_REUSE_CONTIGS,
   OPT_FERMI,
   OPT_CLIP5,
-  OPT_CLIP3
+  OPT_CLIP3,
+  OPT_FAST
 };
 
 static const char* shortopts = "hzxt:n:p:v:r:G:r:e:g:k:c:a:m:B:D:Y:S:P:L:O:Is:V:R:K:";
@@ -295,6 +305,7 @@ static const struct option longopts[] = {
   { "num-assembly-rounds",   required_argument, NULL, OPT_NUM_ASSEMBLY_ROUNDS },
   { "assemble-by-tag",       required_argument, NULL, OPT_GEMCODE_AWARE },
   { "with-blat",             no_argument, NULL, OPT_NOBLAT },
+  { "fast",                  no_argument, NULL, OPT_FAST },
   { NULL, 0, NULL, 0 }
 };
 
@@ -655,10 +666,10 @@ void runSnowman(int argc, char** argv) {
   SnowmanUtils::fopen(opt::analysis_id + ".alignments.txt.gz", all_align);
   SnowmanUtils::fopen(opt::analysis_id + ".bps.txt.gz", os_allbps);
   SnowmanUtils::fopen(opt::analysis_id + ".discordant.txt.gz", all_disc_stream);
-  SnowmanUtils::fopen(opt::analysis_id + ".cigarmap.txt.gz", os_cigmap);
+  //SnowmanUtils::fopen(opt::analysis_id + ".cigarmap.txt.gz", os_cigmap);
   if (opt::write_extracted_reads) 
     SnowmanUtils::fopen(opt::analysis_id + ".corrected.fa", r2c_c); 
-  SnowmanUtils::fopen(opt::analysis_id + ".bad_regions.bed", bad_bed);
+  //SnowmanUtils::fopen(opt::analysis_id + ".bad_regions.bed", bad_bed);
   
   // write the headers
   os_allbps << SnowTools::BreakPoint::header();
@@ -696,7 +707,7 @@ void runSnowman(int argc, char** argv) {
   all_disc_stream.close();
   if (opt::r2c) 
     r2c_c.close();
-  os_cigmap.close();
+  //os_cigmap.close();
   log_file.close();
   bad_bed.close();
 
@@ -794,6 +805,7 @@ void parseRunOptions(int argc, char** argv) {
     std::istringstream arg(optarg != NULL ? optarg : "");
     switch (c) {
     case OPT_REFILTER : opt::refilter = true; break;
+    case OPT_FAST : opt::fast = true; break;
     case OPT_NOBLAT : opt::run_blat = true; break;
     case OPT_KMER_SUBSAMPLE : arg >> opt::kmer_subsample; break;
     case OPT_DEVEL_REUSE_CONTIGS : arg >> opt::reuse_contigs; break;
@@ -1146,12 +1158,12 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
   GRC grv_small = makeAssemblyRegions(region);
 
   // get the local region
-  /*
+  
   ref_genome->queryRegion(region.ChrName(header_from_reference), region.pos1-10000, region.pos2+10000);
   SnowTools::USeqVector local_usv = {{"local", ref_genome->queryRegion(region.ChrName(header_from_reference), region.pos1, region.pos2)}};
   SnowTools::BWAWrapper local_bwa;
   local_bwa.constructIndex(local_usv);
-  local_bwa.setAScore(opt::sequence_match_score);
+  /*local_bwa.setAScore(opt::sequence_match_score);
   local_bwa.setGapOpen(opt::gap_open_penalty);
   local_bwa.setGapExtension(opt::gap_extension_penalty);
   local_bwa.setMismatchPenalty(opt::mismatch_penalty);
@@ -1304,15 +1316,17 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 
 	bool hardclip = false;	
 	// align to the local region
-	/*
 	BamReadVector local_ct_alignments;
 
 	local_bwa.alignSingleSequence(i.getSeq(), i.getID(), local_ct_alignments, hardclip, SECONDARY_FRAC, SECONDARY_CAP);
-	if (i.getID().find("83C") != std::string::npos)
-	  std::cerr << " aligned with " << local_ct_alignments.size() << std::endl;
-	for (auto& aa : local_ct_alignments)
-	  std::cout << aa << std::endl;
-	*/
+
+	// check if it has a non-local alignment
+	bool valid_sv = true;
+	for (auto& aa : local_ct_alignments) {
+	  //std::cout << aa << std::endl;
+	  if (aa.NumClip() < MIN_CLIP_FOR_LOCAL && aa.GetIntTag("NM") < MAX_NM_FOR_LOCAL)
+	    valid_sv = false; // has a non-clipped local alignment. can't be SV. Indel only
+	}
 
 	BamReadVector ct_alignments;
 	main_bwa->alignSingleSequence(i.getSeq(), i.getID(), ct_alignments, hardclip, SECONDARY_FRAC, SECONDARY_CAP);	
@@ -1352,6 +1366,8 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 	  for (auto& r : ct_alignments) {
 	    assert(main_bwa->ChrIDToName(r.ChrID()).length());
 	    r.AddZTag("MC", main_bwa->ChrIDToName(r.ChrID()));
+	    if (!valid_sv)
+	      r.AddIntTag("LA", 1); // flag as having a valid local alignment. Can't be SV
 	  }
 
 	// align with BLAT
@@ -1644,14 +1660,14 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
     std::cerr << "...dumping files" << std::endl;
 
   // print out the bad reagions
-  for (auto& i : excluded_bad_regions)
-    bad_bed << bwalker.header()->target_name[i.chr] << "\t" << i.pos1 << "\t" << i.pos2 << std::endl;
+  //for (auto& i : excluded_bad_regions)
+  //  bad_bed << bwalker.header()->target_name[i.chr] << "\t" << i.pos1 << "\t" << i.pos2 << std::endl;
   
   // dump the cigmaps
-  for (auto& i : cigmap_n) 
-    os_cigmap << i.first << "\t" << i.second << "\tN" << std::endl;
-  for (auto& i : cigmap_t) 
-    os_cigmap << i.first << "\t" << i.second << "\tT" << std::endl;
+  //for (auto& i : cigmap_n) 
+  //  os_cigmap << i.first << "\t" << i.second << "\tN" << std::endl;
+  //for (auto& i : cigmap_t) 
+  //  os_cigmap << i.first << "\t" << i.second << "\tT" << std::endl;
 
   if (opt::verbose > 2)
     std::cerr << "...writing alignments plot" << std::endl;
@@ -1660,72 +1676,79 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
   size_t contig_counter = 0;
   for (auto& i : alc) {
     if (i.hasVariant()) {
-      all_align << i << std::endl;
+      if (!opt::fast) 
+	all_align << i << std::endl;
       ++contig_counter;
     }
   }
-
-  if (opt::verbose > 2)
-    std::cerr << "...dumping discordant" << std::endl;
   
-  // send the microbe to file
-  for (auto& b : all_microbial_contigs)
-    b_microbe_writer.writeAlignment(b);
+  if (!opt::fast) {
+    
+    if (opt::verbose > 2)
+      std::cerr << "...dumping discordant" << std::endl;
+    
+    // send the microbe to file
+    for (auto& b : all_microbial_contigs)
+      b_microbe_writer.writeAlignment(b);
+    
+    // send the discordant to file
+    for (auto& i : dmap)
+      if (i.second.valid()) //std::max(i.second.mapq1, i.second.mapq2) >= 5)
+	all_disc_stream << i.second.toFileString(!opt::no_reads) << std::endl;
 
-  // send the discordant to file
-  for (auto& i : dmap)
-    if (i.second.valid()) //std::max(i.second.mapq1, i.second.mapq2) >= 5)
-      all_disc_stream << i.second.toFileString(!opt::no_reads) << std::endl;
-
-  // send breakpoints to file
-  for (auto& i : bp_glob)
-    if ( i.hasMinimal() && i.confidence != "NOLOCAL" ) {
-      os_allbps << i.toFileString(opt::no_reads) << std::endl;
-      if (i.confidence == "PASS" && i.n.split == 0 && i.n.cigar == 0 && i.dc.ncount == 0 && opt::verbose > 1) {
-	std::cout << "SOM  " << i << std::endl;
-      } else if (i.confidence == "PASS" && opt::verbose > 1) {
-	std::cout << "GER " << i << std::endl;
+    // write ALL contigs
+    if (opt::verbose > 2)
+      std::cerr << "...writing contigs" << std::endl;
+    
+    if (!opt::disc_cluster_only) { 
+      for (auto& i : all_contigs) {
+	i.RemoveTag("MC");
+	b_allwriter.writeAlignment(i);
+      }
+      for (auto& i : blat_alignments)
+	blat_allwriter.writeAlignment(i);
+      
+    }
+    
+    // write extracted reads
+    if (opt::write_extracted_reads) {
+      for (auto& r : bav_this) //walkers[opt::tumor_bam].reads) 
+	//if (!excluded_bad_reads.count(r.GetZTag("SR")))
+	er_writer.writeAlignment(r);
+    }
+    
+    // write all the to-assembly reads
+    if (!opt::disc_cluster_only && opt::r2c) {
+      for (auto& r : walkers[opt::tumor_bam].reads) {
+	r2c_writer.writeAlignment(r);
+	
+	//write the corrected
+	///std::string new_seq  = r.GetZTag("KC");
+	//if (!new_seq.length()) {
+	//new_seq = r.QualitySequence();
+	//}
+	//r2c_c << ">" << r.GetZTag("SR") << std::endl << new_seq << std::endl;
       }
     }
-
-  // write ALL contigs
-  if (opt::verbose > 2)
-    std::cerr << "...writing contigs" << std::endl;
-
-  if (!opt::disc_cluster_only) { 
-    for (auto& i : all_contigs) {
-      i.RemoveTag("MC");
-      b_allwriter.writeAlignment(i);
-    }
-    for (auto& i : blat_alignments)
-      blat_allwriter.writeAlignment(i);
-
+    
   }
   
-  // write extracted reads
-  if (opt::write_extracted_reads) {
-    for (auto& r : bav_this) //walkers[opt::tumor_bam].reads) 
-      //if (!excluded_bad_reads.count(r.GetZTag("SR")))
-	er_writer.writeAlignment(r);
-  }
-  
-  // write all the to-assembly reads
-  if (!opt::disc_cluster_only && opt::r2c) {
-    for (auto& r : walkers[opt::tumor_bam].reads) {
-      r2c_writer.writeAlignment(r);
-      
-      //write the corrected
-      ///std::string new_seq  = r.GetZTag("KC");
-      //if (!new_seq.length()) {
-      //new_seq = r.QualitySequence();
-      //}
-      //r2c_c << ">" << r.GetZTag("SR") << std::endl << new_seq << std::endl;
+  // send breakpoints to file
+  for (auto& i : bp_glob) {
+    if ( i.hasMinimal() && i.confidence != "NOLOCAL" ) {
+      os_allbps << i.toFileString(opt::no_reads) << std::endl;
+      if (opt::verbose > 1) {
+	if (i.confidence == "PASS" && i.n.split == 0 && i.n.cigar == 0 && i.dc.ncount == 0) {
+	  std::cout << "SOM  " << i << std::endl;
+	} else if (i.confidence == "PASS") {
+	  std::cout << "GER " << i << std::endl;
+	}
+      }
     }
   }
 
-  
   st.stop("pp");
-
+  
   // display the run time
   std::string rt = SnowmanUtils::runTimeString(num_t_reads, num_n_reads, contig_counter, region, bwalker.header(), st, start);
   log_file << rt;

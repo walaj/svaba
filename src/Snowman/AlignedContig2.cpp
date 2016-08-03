@@ -6,6 +6,7 @@
 #define MAX_CONTIG_SIZE 5000000
 #define MIN_INDEL_MATCH_BRACKET 1
 #define MAX_INDELS 10000
+#define MAX_INDEL_PER_CONTIG 6 
 
 namespace SnowTools {
 
@@ -46,6 +47,8 @@ namespace SnowTools {
     // zero the coverage
     for (auto& i : cov)
       i.second = std::vector<int>(m_seq.length(), 0);
+    for (size_t i = 0; i < m_seq.length(); ++i)
+      aligned_coverage.push_back(0);
     
     // find the number of primary alignments
     size_t num_align = 0;
@@ -66,7 +69,25 @@ namespace SnowTools {
 	//m_frag_v_secondary.push_back(AlignmentFragment(i, flip));
 	//m_frag_v_secondary.back().num_align = bav.size();
       }      
+
+      // set the aligned coverage
+      SnowTools::Cigar cig = i.GetCigar();
+      size_t p = 0;
+      if (!i.SecondaryFlag())
+      for (auto& c : cig) {
+	for (size_t j = 0; j < c.Length(); ++j) {
+	  if (c.Type() == 'M' || c.Type() == 'I')  // consumes contig and not clip
+	    ++aligned_coverage[p];
+	  if (c.ConsumesQuery() || c.Type() == 'H') // consumes contig, move iterator
+	    ++p;
+	}
+      }
     }
+
+    // find the total aligned coverage
+    for (auto& i : aligned_coverage)
+      if (i)
+	++aligned_covered;
 
     // sort fragments by order on fwd-strand contig
     if (m_frag_v.size() > 1)
@@ -234,6 +255,11 @@ namespace SnowTools {
     out << ac.getSequence() << "    " << ac.getContigName() << std::endl; 
     PlottedReadVector plot_vec;
     
+    // plot the coverage
+    //for (auto& i : ac.aligned_coverage)
+    //  out << i;
+    //out << std::endl;
+
     // print out the individual reads
     for (auto& i : ac.m_bamreads) {
       
@@ -341,7 +367,7 @@ namespace SnowTools {
   }
   
   void AlignedContig::setMultiMapBreakPairs() {
-    
+     
     // if single mapped contig, nothing to do here
     if (m_frag_v.size() == 1)
       return;
@@ -353,12 +379,15 @@ namespace SnowTools {
       bp.allele[i].indel = false;
 
     bp.seq = getSequence();
+    bp.aligned_covered = aligned_covered;
     bp.num_align = m_frag_v.size();
     assert(bp.num_align > 0);
     
     bp.cname = getContigName(); 
     assert(bp.cname.length());
     
+    bp.has_local_alignment = m_frag_v[0].m_align.GetIntTag("LA"); // has local alignment?
+
     // walk along the ordered contig list and make the breakpoint pairs  
     for (AlignmentFragmentVector::const_iterator it = m_frag_v.begin(); it != m_frag_v.end() - 1; it++) {
       
@@ -723,19 +752,14 @@ namespace SnowTools {
 	if (i.Type() == 'D' || i.Type() == 'I')
 	  ++di_count;
     }
-    if (di_count > 3 && m_align.Qname().substr(0,2) == "c_") // only trim for snowman assembled contigs
+    if (di_count > MAX_INDEL_PER_CONTIG && m_align.Qname().substr(0,2) == "c_") // only trim for snowman assembled contigs
       return false;
-
-    // reject if it has small matches, could get confused. Fix later
-    //for (auto& i : m_cigar) 
-    //  if (i.Type() == 'M' && i.Length() < 5)
-    //    return false;
     
      // reject if first alignment is I or D or start with too few M
     if (m_cigar.begin()->Type() == 'I' || m_cigar.begin()->Type() == 'D' || m_cigar.back().Type() == 'D' || m_cigar.back().Type() == 'I') {
       return false;
     }
-    
+
     // use next available D / I by looping until can increment idx
     size_t loc = 0; // keep track of which cigar field
     for (auto& i : m_cigar) {
@@ -849,6 +873,11 @@ namespace SnowTools {
 
     bp.b1.gr.strand = '+';
     bp.b2.gr.strand = '-';
+
+
+
+
+
 
     assert(bp.valid());
     return true;
