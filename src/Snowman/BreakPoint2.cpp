@@ -15,6 +15,9 @@
 // if the insertion is this big or larger, don't require splits to span both sides
 #define INSERT_SIZE_TOO_BIG_SPAN_READS 16
 
+// if homology is greater than homology / HOMOLOGY_FACTOR, then reject for assembly-only
+#define HOMOLOGY_FACTOR 4
+
 //#define LOD_CUTOFF 8
 //#define DBCUTOFF 15
 //#define NODBCUTOFF 2.5
@@ -662,16 +665,12 @@ namespace SnowTools {
 	bool pass = bp1reg1 && bp2reg2 && s1 && s2;
 
 	// check that the ends are not way off
-	if (std::abs(pos1 - bp1.pos1) > PAD || std::abs(pos2 - bp2.pos1) > PAD)
+	if (std::abs(pos1 - b1.gr.pos1) > PAD || std::abs(pos2 - b2.gr.pos1) > PAD)
 	  pass = false;
-
-	/*	std::cerr << " gr1 " << gr1 << " gr2 " << gr2 << std::endl << 
-	  " m_reg1 " << d.second.m_reg1 << " m_reg2 " << 
-	  d.second.m_reg2 << std::endl << " bp1 " << bp1 << 
-	  " bp2 " << bp2 << " pass " << pass << 
-	  " bp1reg1 " << bp1reg1 << " bp2reg2 " << bp2reg2 << std::endl << 
-	  " bp1reg2 " << bp1reg2 << " bp2reg1 " << bp2reg1 << std::endl;
-	*/
+	
+	//std::cerr << " cname " << cname << " pad " << PAD << " pass " << pass << " DC pos1 " << pos1 << " DC pos2 " << pos2 << 
+	//  " s1 " << s1 << " s2 " << s2 << " bp1reg1 " << bp1reg1 << " bp2reg2 " << bp2reg2 << " diff1 " << std::abs(pos1 - b1.gr.pos1) <<
+	//  " diff2 " << std::abs(pos2 - b2.gr.pos1) << " bp pos1 " << b1.gr.pos1 << " bp pos2 " << b2.gr.pos1 << std::endl;
 
 	if (pass)
 	  // check that we haven't already added a cluster to this breakpoint
@@ -787,6 +786,8 @@ namespace SnowTools {
       confidence = "LOWICSUPPORT";
     else if (num_align == 2 && b1.gr.chr != b2.gr.chr && std::max(b1.nm, b2.nm) >= 3 && std::min(b1.matchlen, b2.matchlen) < 150) // inter-chr, but no disc reads, and too many nm
       confidence = "LOWICSUPPORT";
+    else if (std::min(b1.matchlen, b2.matchlen) < 0.6 * readlen)
+      confidence = "LOWICSUPPORT";      
     else if (num_align == 2 && std::min(b1.mapq, b2.mapq) < 50 && b1.gr.chr != b2.gr.chr) // interchr need good mapq for assembly only
       confidence = "LOWMAPQ";
     else if (std::min(b1.matchlen, b2.matchlen) < 40 || (complex_local && std::min(b1.matchlen, b2.matchlen) < 100)) // not enough evidence
@@ -803,7 +804,7 @@ namespace SnowTools {
       confidence = "LOWQINVERSION";
     else if ( (b1.matchlen - b1.simple < 15 || b2.matchlen - b2.simple < 15) )
       confidence = "SIMPLESEQUENCE";
-    else if (homology.length()*4 > readlen) // if homology is too high, tough to tell from mis-assemly
+    else if ((int)homology.length() * HOMOLOGY_FACTOR > readlen) // if homology is too high, tough to tell from mis-assemly
       confidence = "HIGHHOMOLOGY";
 	      
     else
