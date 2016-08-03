@@ -17,14 +17,6 @@
 
 // if homology is greater than homology / HOMOLOGY_FACTOR, then reject for assembly-only
 #define HOMOLOGY_FACTOR 4
-
-//#define LOD_CUTOFF 8
-//#define DBCUTOFF 15
-//#define NODBCUTOFF 2.5
-
-//#define DBCUTOFF 7
-//#define NODBCUTOFF 2.5
-
 #define MIN_SOMATIC_RATIO 15
 
 // define repeats
