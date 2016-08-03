@@ -41,7 +41,7 @@ if test "$enable_development"; then
 fi
 
 # Set compiler flags.
-AC_SUBST(AM_CXXFLAGS, "-Wall -Wextra $fail_on_warning -Wno-unknown-pragmas -std=c++11 -D_GLIBCXX_USE_CXX11_ABI=0")
+AC_SUBST(AM_CXXFLAGS, "-g -Wall -Wextra $fail_on_warning -Wno-unknown-pragmas -std=c++11 -D_GLIBCXX_USE_CXX11_ABI=0")
 ##AC_SUBST(CXXFLAGS, "-O3")
 ##AC_SUBST(CFLAGS, "-O3")
 ##AC_SUBST(CPPFLAGS, "$CPPFLAGS $boost_include")
