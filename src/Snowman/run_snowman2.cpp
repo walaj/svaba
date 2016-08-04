@@ -42,7 +42,7 @@
 // {1_A_B, {c_1_A_B_#, SEQ} }
 static std::unordered_map<std::string, std::unordered_map<std::string, std::string>> reused_contigs;
 
-static SnowTools::RefGenome * ref_genome;
+static SnowTools::RefGenome * ref_genome, * ref_genome_viral;
 
 static std::unordered_map<std::string, BamParamsMap> params_map; // key is bam id (t000), value is map with read group as key
 
@@ -68,8 +68,6 @@ typedef std::map<std::string, std::shared_ptr<hts_idx_t>> BamIndexMap;
 typedef std::map<std::string, std::string> BamMap;
 
 static BamIndexMap bindices;
-static faidx_t * findex;
-static faidx_t * findex_viral;
 typedef std::unordered_map<std::string, size_t> SeqHash;
 static SeqHash over_represented_sequences;
 
@@ -379,7 +377,6 @@ void __reuse_contigs(const std::string& cfile);
 
 void runSnowman(int argc, char** argv) {
 
-
   parseRunOptions(argc, argv);
 
   // test
@@ -452,16 +449,17 @@ void runSnowman(int argc, char** argv) {
 
   if (opt::disc_cluster_only) 
     static std::string rules = "global@nbases[0,0];!hardclip;!supplementary;!duplicate;!qcfail;%region@WG%discordant[0,800];mapq[1,1000]";
-  
-  findex_viral = nullptr;
-  viral_header = nullptr;
 
+  ref_genome_viral = nullptr;
+  microbe_bwa = nullptr;
+  
   // open the microbe genome
   if (!opt::microbegenome.empty()) {
     ss << "...loading the microbe reference sequence" << std::endl;
     SnowmanUtils::print(ss, log_file, opt::verbose > 0);
     microbe_bwa = new SnowTools::BWAWrapper();
-    findex_viral = SnowmanUtils::__open_index_and_writer(opt::microbegenome, microbe_bwa, opt::analysis_id + ".microbe.bam", b_microbe_writer, findex_viral, viral_header);  
+    ref_genome_viral = new SnowTools::RefGenome;
+    SnowmanUtils::__open_index_and_writer(opt::microbegenome, microbe_bwa, opt::analysis_id + ".microbe.bam", b_microbe_writer, ref_genome_viral, viral_header);  
   }
   
   // open the tumor bam to get header info
@@ -579,9 +577,11 @@ void runSnowman(int argc, char** argv) {
   main_bwa->set3primeClippingPenalty(opt::clip3_pen);
   main_bwa->set5primeClippingPenalty(opt::clip5_pen);
 
-  findex = nullptr;
-  findex = SnowmanUtils::__open_index_and_writer(opt::refgenome, main_bwa, opt::analysis_id + ".contigs.bam", b_allwriter, findex, bwa_header);
+  ref_genome = new SnowTools::RefGenome;
+  SnowmanUtils::__open_index_and_writer(opt::refgenome, main_bwa, opt::analysis_id + ".contigs.bam", b_allwriter, ref_genome, bwa_header);
 
+  assert(!ref_genome->empty());
+  
   // parse the region file, count number of jobs
   int num_jobs = SnowmanUtils::countJobs(opt::regionFile, file_regions, regions_torun,
 					 bwa_header, opt::chunk, WINDOW_PAD); 
@@ -624,10 +624,6 @@ void runSnowman(int argc, char** argv) {
   // override the number of threads if need
   num_jobs = (num_jobs == 0) ? 1 : num_jobs;
   opt::numThreads = std::min(num_jobs, opt::numThreads);
-
-  // open ref genome for extracting sequences
-  ref_genome = nullptr;
-  ref_genome = new SnowTools::RefGenome(opt::refgenome);
 
   // open the BLAT reference
   if (opt::run_blat) {
@@ -715,11 +711,10 @@ void runSnowman(int argc, char** argv) {
     bam_hdr_destroy(viral_header);
   if (ref_genome)
     delete ref_genome;
-  if (findex)
-    fai_destroy(findex);
-  if (findex_viral)
-    fai_destroy(findex_viral);
-
+  if (ref_genome_viral)
+    delete ref_genome_viral;
+  
+  
 #ifndef __APPLE__
   std::cerr << SnowTools::displayRuntime(start) << std::endl;
 #endif
@@ -750,8 +745,6 @@ void makeVCFs() {
   header.source = opt::args;
   header.reference = opt::refgenome;
 
-  if (main_bwa)
-    bwa_header = main_bwa->HeaderFromIndex();
   if (main_bwa)
     delete main_bwa;  
   if (bwa_header)
@@ -1158,8 +1151,8 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
   GRC grv_small = makeAssemblyRegions(region);
 
   // get the local region
-  
   ref_genome->queryRegion(region.ChrName(bwa_header), region.pos1-10000, region.pos2+10000);
+
   SnowTools::USeqVector local_usv = {{"local", ref_genome->queryRegion(region.ChrName(bwa_header), region.pos1, region.pos2)}};
   SnowTools::BWAWrapper local_bwa;
   local_bwa.constructIndex(local_usv);
@@ -1645,7 +1638,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
   if (opt::verbose > 2)
     std::cerr << "...setting ref and alt" << std::endl;
   for (auto& i : bp_glob)
-    i.setRefAlt(findex, findex_viral);
+    i.setRefAlt(ref_genome, ref_genome_viral);
 
   ////////////////////////////////////
   // MUTEX LOCKED
@@ -1789,7 +1782,12 @@ void sendThreads(SnowTools::GRC& regions_torun) {
   // wait for the threads to finish
   for (int i = 0; i < opt::numThreads; i++) 
     threadqueue[i]->join();
-  
+
+  // free the items
+  // warning: deleting object of polymorphic class type ‘ConsumerThread<SnowmanWorkItem>’
+  // which has non-virtual destructor might cause undefined behaviour
+  //for (size_t i = 0; i < threadqueue.size(); ++i)
+  //  delete threadqueue[i];
 }
 
 GRC makeAssemblyRegions(const SnowTools::GenomicRegion& region) {
@@ -1809,7 +1807,7 @@ GRC makeAssemblyRegions(const SnowTools::GenomicRegion& region) {
 
 }
 
-void alignReadsToContigs(SnowTools::BWAWrapper& bw, const SnowTools::USeqVector& usv, BamReadVector& bav_this, std::vector<SnowTools::AlignedContig>& this_alc, SnowTools::RefGenome * rg) {
+void alignReadsToContigs(SnowTools::BWAWrapper& bw, const SnowTools::USeqVector& usv, BamReadVector& bav_this, std::vector<SnowTools::AlignedContig>& this_alc, SnowTools::RefGenome *  rg) {
   
   if (!usv.size())
     return;
