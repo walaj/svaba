@@ -1173,23 +1173,41 @@ namespace SnowTools {
     return false;
   }
 
-  void BreakPoint::setRefAlt(faidx_t * main_findex, faidx_t * viral_findex) {
+  void BreakPoint::setRefAlt(SnowTools::RefGenome * main_rg, SnowTools::RefGenome * viral) {
     
-    int len;
+    //int len;
 
-    assert(main_findex);
-
+    assert(!main_rg->empty());
+    
     if (evidence != "INDEL") {
-      
-      // get the reference for BP1
-      char * ref1 = faidx_fetch_seq(main_findex, const_cast<char*>(b1.chr_name.c_str()), b1.gr.pos1-1, b1.gr.pos1-1, &len);
+
+      try {
+	// get the reference for BP1
+	ref = main_rg->queryRegion(b1.chr_name, b1.gr.pos1-1, b1.gr.pos1-1);
+	if (ref.empty() && !viral->empty())
+	  ref = viral->queryRegion(b1.chr_name, b1.gr.pos1-1, b1.gr.pos1-1);
+      } catch (...) {
+	ref = "N";
+	std::cerr << "couldn't find reference on BP1 for ref " << b1.chr_name << " in either viral or human" << std::endl;
+      }
+
+      try {
+	alt = main_rg->queryRegion(b2.chr_name, b2.gr.pos1-1, b2.gr.pos1-1);
+	if (alt.empty() && !viral->empty())
+	  alt = viral->queryRegion(b2.chr_name, b2.gr.pos1-1, b2.gr.pos1-1);
+      } catch (...) {
+	alt = "N";
+	std::cerr << "couldn't find reference on BP2 for ref " << b2.chr_name << " in either viral or human" << std::endl;
+      }
+
+      /*char * ref1 = faidx_fetch_seq(main_findex, const_cast<char*>(b1.chr_name.c_str()), b1.gr.pos1-1, b1.gr.pos1-1, &len);
       if (!ref1) {
 	if (viral_findex)
 	  ref1 = faidx_fetch_seq(viral_findex, const_cast<char*>(b1.chr_name.c_str()), b1.gr.pos1-1, b1.gr.pos1-1, &len);
       }
       if (!ref1) {
 	std::cerr << "couldn't find reference on BP1 for ref " << b1.chr_name << " in either viral or human" << std::endl;
-      }
+	}
       
       char * ref2 = faidx_fetch_seq(main_findex, const_cast<char*>(b2.chr_name.c_str()), b2.gr.pos1-1, b2.gr.pos1-1, &len);
       if (!ref2) {
@@ -1208,53 +1226,71 @@ namespace SnowTools {
       ref = std::string(ref1);
       alt = std::string(ref2);
 
-      if (!ref.length())
-	ref = "N";
-      if (!alt.length())
-	alt = "N";
+      */
+      
+      //if (!ref.length())
+      //	ref = "N";
+      //if (!alt.length())
+      //	alt = "N";
 
-      if (ref1)
-	free(ref1);
-      if (ref2)
-	free(ref2);
+      //if (ref1)
+      //free(ref1);
+      //if (ref2)
+      //	free(ref2);
       
     } else {
 
       if (insertion.length() && !insertion.empty()) {
 
-	// reference
-	char * refi = faidx_fetch_seq(main_findex, const_cast<char*>(b1.chr_name.c_str()), b1.gr.pos1-1, b1.gr.pos1-1, &len);
-	if (!refi) {
+	try {
+	  ref = main_rg->queryRegion(b1.chr_name, b1.gr.pos1-1, b1.gr.pos1-1);
+	} catch (...) {
+	  ref = "N";
 	  std::cerr << "couldn't find reference sequence for ref " << b1.chr_name << " for indel, on human reference " << std::endl;
 	  return;
 	}
-	ref = std::string(refi);
-	if (!ref.length()) {
-	  ref = "N";
-	}
+	
+	// reference
+	//char * refi = faidx_fetch_seq(main_findex, const_cast<char*>(b1.chr_name.c_str()), b1.gr.pos1-1, b1.gr.pos1-1, &len);
+	//if (!refi) {
+	//  std::cerr << "couldn't find reference sequence for ref " << b1.chr_name << " for indel, on human reference " << std::endl;
+	//  return;
+	//}
+	//ref = std::string(refi);
+	//if (!ref.length()) {
+	//  ref = "N";
+	//}
 
 	// alt 
 	alt = ref + insertion;
       
-	if (refi)
-	  free(refi);
+	//if (refi)
+	//  free(refi);
 
       // deletion
       } else {	
 
 	// reference
 	assert(b2.gr.pos1 - b1.gr.pos1 - 1 >= 0);
-	char * refi = faidx_fetch_seq(main_findex, const_cast<char*>(b1.chr_name.c_str()), b1.gr.pos1-1, b2.gr.pos1-2, &len);
-	if (!refi) {
+	try {
+	  ref = main_rg->queryRegion(b1.chr_name, b1.gr.pos1-1, b2.gr.pos1-2);
+	} catch (...) {
+	  ref = "N";
 	  std::cerr << "couldn't find reference sequence for ref " << b1.chr_name << " for indel, on human reference " << std::endl;
 	  return;
 	}
-	ref = std::string(refi);
-	if (!ref.length())
-	  ref = "N";
+	
+	//char * refi = faidx_fetch_seq(main_findex, const_cast<char*>(b1.chr_name.c_str()), b1.gr.pos1-1, b2.gr.pos1-2, &len);
+	//if (!refi) {
+	//  std::cerr << "couldn't find reference sequence for ref " << b1.chr_name << " for indel, on human reference " << std::endl;
+	//  return;
+	//}
+	//ref = std::string(refi);
+	//if (!ref.length())
+	//  ref = "N";
 	alt = ref.substr(0,1);
-	if (refi)
-	  free(refi);
+	//if (refi)
+	//  free(refi);
       }
     }
   }

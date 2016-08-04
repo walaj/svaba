@@ -8,6 +8,7 @@
 
 #include "SnowTools/BamWalker.h"
 #include "SnowTools/BWAWrapper.h"
+#include "SnowTools/RefGenome.h"
 
 namespace SnowmanUtils {
 
@@ -54,7 +55,7 @@ struct SnowTimer {
 
   bool __header_has_chr_prefix(bam_hdr_t * h);
 
-  faidx_t * __open_index_and_writer(const std::string& index, SnowTools::BWAWrapper * b, const std::string& wname, SnowTools::BamWalker& writer, faidx_t * findex, bam_hdr_t *& bwa_header);
+  void __open_index_and_writer(const std::string& index, SnowTools::BWAWrapper * b, const std::string& wname, SnowTools::BamWalker& writer, SnowTools::RefGenome *&  r, bam_hdr_t *& bwa_header);
 
 }
 

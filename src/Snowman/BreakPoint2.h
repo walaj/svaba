@@ -11,6 +11,7 @@
 
 #include "SnowTools/BWAWrapper.h"
 #include "SnowTools/STCoverage.h"
+#include "SnowTools/RefGenome.h"
 
 #include "PONFilter.h"
 #include "DiscordantCluster.h"
@@ -401,7 +402,7 @@ namespace SnowTools {
    double __sv_is_somatic() const;
    double __indel_is_somatic() const;
 
-   void setRefAlt(faidx_t * main_findex, faidx_t * viral_findex);
+   void setRefAlt(SnowTools::RefGenome * main_rg, SnowTools::RefGenome * viral); 
 
 };
 

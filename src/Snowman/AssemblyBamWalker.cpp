@@ -24,7 +24,7 @@ static struct timespec start;
 
 static SnowTools::MiniRulesCollection * mr;
 
-static SnowTools::RefGenome * ref_genome;
+static SnowTools::RefGenome * ref_genomeAW, * ref_genome_viral_dummy;
 
 bool __good_contig(const SnowTools::BamReadVector& brv, const SnowTools::GenomicRegionVector& regions, int max_len, int max_mapq) {
   // NO INDELS
@@ -117,7 +117,7 @@ bool runAC(const ContigElement * c) {
     kk.m_max_indel = 20;
 
   // align the reads
-  alignReadsToContigs(bw, usv, bav_this, this_alc, ref_genome);
+  alignReadsToContigs(bw, usv, bav_this, this_alc, ref_genomeAW);
   ac->assignSupportCoverage(); // dummies
   ac->splitCoverage(); 
   
@@ -139,7 +139,7 @@ bool runAC(const ContigElement * c) {
   for (auto& i : allbreaks)
     i.scoreBreakpoint(8, 2.5, 7, 3, 0);
   for (auto& i : allbreaks)
-    i.setRefAlt(f, nullptr);
+    i.setRefAlt(ref_genomeAW, ref_genome_viral_dummy);
 
   double region_width = 0;
   for (auto& i : trimmed_regions)
@@ -236,7 +236,7 @@ void AssemblyBamWalker::walkDiscovar()
   std::vector<AssemblyWalkerWorkItem*> tmp_queue;
 
   // open ref genome for extracting sequences
-  ref_genome = new SnowTools::RefGenome(refGenome);
+  ref_genomeAW = new SnowTools::RefGenome(refGenome);
   
   int max_mapq = 0, max_len = 0;
   while(GetNextRead(r, rule)) {
