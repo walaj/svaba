@@ -42,7 +42,7 @@
 // {1_A_B, {c_1_A_B_#, SEQ} }
 static std::unordered_map<std::string, std::unordered_map<std::string, std::string>> reused_contigs;
 
-static SnowTools::RefGenome * ref_genome = nullptr;
+static SnowTools::RefGenome * ref_genome;
 
 static bam_hdr_t * header_from_reference;
 
@@ -67,8 +67,8 @@ typedef std::map<std::string, std::shared_ptr<hts_idx_t>> BamIndexMap;
 typedef std::map<std::string, std::string> BamMap;
 
 static BamIndexMap bindices;
-static faidx_t * findex = nullptr;
-static faidx_t * findex_viral = nullptr;
+static faidx_t * findex;
+static faidx_t * findex_viral;
 typedef std::unordered_map<std::string, size_t> SeqHash;
 static SeqHash over_represented_sequences;
 
@@ -457,6 +457,7 @@ void runSnowman(int argc, char** argv) {
     ss << "...loading the microbe reference sequence" << std::endl;
     SnowmanUtils::print(ss, log_file, opt::verbose > 0);
     microbe_bwa = new SnowTools::BWAWrapper();
+    findex_viral = nullptr;
     findex_viral = SnowmanUtils::__open_index_and_writer(opt::microbegenome, microbe_bwa, opt::analysis_id + ".microbe.bam", b_microbe_writer, findex_viral);  
   }
   
@@ -575,6 +576,7 @@ void runSnowman(int argc, char** argv) {
   main_bwa->set3primeClippingPenalty(opt::clip3_pen);
   main_bwa->set5primeClippingPenalty(opt::clip5_pen);
 
+  findex = nullptr;
   findex = SnowmanUtils::__open_index_and_writer(opt::refgenome, main_bwa, opt::analysis_id + ".contigs.bam", b_allwriter, findex);  
 
   /*BamReadVector dddd;
@@ -632,6 +634,7 @@ void runSnowman(int argc, char** argv) {
   opt::numThreads = std::min(num_jobs, opt::numThreads);
 
   // open ref genome for extracting sequences
+  ref_genome = nullptr;
   ref_genome = new SnowTools::RefGenome(opt::refgenome);
 
   // open the BLAT reference
@@ -717,9 +720,9 @@ void runSnowman(int argc, char** argv) {
   if (ref_genome)
     delete ref_genome;
   if (findex)
-    delete findex;
+    free(findex);
   if (findex_viral)
-    delete findex_viral;
+    free(findex_viral);
 
 #ifndef __APPLE__
   std::cerr << SnowTools::displayRuntime(start) << std::endl;
