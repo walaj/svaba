@@ -54,7 +54,7 @@ struct SnowTimer {
 
   bool __header_has_chr_prefix(bam_hdr_t * h);
 
-  faidx_t * __open_index_and_writer(const std::string& index, SnowTools::BWAWrapper * b, const std::string& wname, SnowTools::BamWalker& writer, faidx_t * findex);
+  faidx_t * __open_index_and_writer(const std::string& index, SnowTools::BWAWrapper * b, const std::string& wname, SnowTools::BamWalker& writer, faidx_t * findex, bam_hdr_t * bwa_header);
 
 }
 

@@ -268,15 +268,17 @@ int overlapSize(const SnowTools::BamRead& query, const SnowTools::BamReadVector&
     b.createTreeMap();
   }
   
-  faidx_t * __open_index_and_writer(const std::string& index, SnowTools::BWAWrapper * b, const std::string& wname, SnowTools::BamWalker& writer, faidx_t * findex) {
+  faidx_t * __open_index_and_writer(const std::string& index, SnowTools::BWAWrapper * b, const std::string& wname, SnowTools::BamWalker& writer, faidx_t * findex, bam_hdr_t * bwa_header) {
 
     if (!SnowTools::read_access_test(index))
       return findex;
 
     b->retrieveIndex(index);
+
+    bwa_header = b->HeaderFromIndex();
     
     // open the bam for writing  
-    writer.SetWriteHeader(b->HeaderFromIndex());
+    writer.SetWriteHeader(bwa_header);
     writer.OpenWriteBam(wname); // open and write header
 
     findex  = fai_load(index.c_str());  // load the sequence

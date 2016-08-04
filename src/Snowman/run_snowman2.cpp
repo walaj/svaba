@@ -47,6 +47,7 @@ static SnowTools::RefGenome * ref_genome;
 static std::unordered_map<std::string, BamParamsMap> params_map; // key is bam id (t000), value is map with read group as key
 
 static bam_hdr_t * bwa_header;
+static bam_hdr_t * viral_header;
 
 static SnowTools::GRC bad_mate_regions;
 
@@ -452,13 +453,15 @@ void runSnowman(int argc, char** argv) {
   if (opt::disc_cluster_only) 
     static std::string rules = "global@nbases[0,0];!hardclip;!supplementary;!duplicate;!qcfail;%region@WG%discordant[0,800];mapq[1,1000]";
   
+  findex_viral = nullptr;
+  viral_header = nullptr;
+
   // open the microbe genome
   if (!opt::microbegenome.empty()) {
     ss << "...loading the microbe reference sequence" << std::endl;
     SnowmanUtils::print(ss, log_file, opt::verbose > 0);
     microbe_bwa = new SnowTools::BWAWrapper();
-    findex_viral = nullptr;
-    findex_viral = SnowmanUtils::__open_index_and_writer(opt::microbegenome, microbe_bwa, opt::analysis_id + ".microbe.bam", b_microbe_writer, findex_viral);  
+    findex_viral = SnowmanUtils::__open_index_and_writer(opt::microbegenome, microbe_bwa, opt::analysis_id + ".microbe.bam", b_microbe_writer, findex_viral, viral_header);  
   }
   
   // open the tumor bam to get header info
@@ -577,22 +580,7 @@ void runSnowman(int argc, char** argv) {
   main_bwa->set5primeClippingPenalty(opt::clip5_pen);
 
   findex = nullptr;
-  findex = SnowmanUtils::__open_index_and_writer(opt::refgenome, main_bwa, opt::analysis_id + ".contigs.bam", b_allwriter, findex);  
-
-  /*BamReadVector dddd;
-  main_bwa->alignSingleSequence("TGTAATCCCAGCACTGTGGGAGGCCGAGGCGGGCGGATCGCCTGAGGTCAGGAGTTTGAGACCAGCCTGGCCAATATGGTGAACCCCGTCTCCACTAAAAATACAAAAATTAGCCGGGCATGGTGGCACACGCCTGTAATCCCAGCACTTTGGGAGGCTGAGGCGGGCAGATCACAAGGTCAGGAGATCGAGACCATCCTGGCTAACACGGTGAAACCCTGTCTCTACTAAAAAATACAAAAAAAAAAAATTAGCCGGG",
-				"test",dddd, false, 0.90, 20);
-  for(auto& a : dddd)
-    std::cerr << a << std::endl;
-  exit(0);
-  */
-
-  // get a header that is from reference genome
-  //header_from_reference = main_bwa->HeaderFromIndex();
-  bwa_header = nullptr;
-  if (main_bwa)
-    bwa_header = main_bwa->HeaderFromIndex();
-
+  findex = SnowmanUtils::__open_index_and_writer(opt::refgenome, main_bwa, opt::analysis_id + ".contigs.bam", b_allwriter, findex, bwa_header);  
 
   // parse the region file, count number of jobs
   int num_jobs = SnowmanUtils::countJobs(opt::regionFile, file_regions, regions_torun,
@@ -723,6 +711,8 @@ void runSnowman(int argc, char** argv) {
 
   if (bwa_header)
     bam_hdr_destroy(bwa_header);
+  if (viral_header)
+    bam_hdr_destroy(viral_header);
   if (ref_genome)
     delete ref_genome;
   if (findex)
