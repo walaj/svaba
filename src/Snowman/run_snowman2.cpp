@@ -580,7 +580,7 @@ void runSnowman(int argc, char** argv) {
   main_bwa->set5primeClippingPenalty(opt::clip5_pen);
 
   findex = nullptr;
-  findex = SnowmanUtils::__open_index_and_writer(opt::refgenome, main_bwa, opt::analysis_id + ".contigs.bam", b_allwriter, findex, bwa_header);  
+  findex = SnowmanUtils::__open_index_and_writer(opt::refgenome, main_bwa, opt::analysis_id + ".contigs.bam", b_allwriter, findex, bwa_header);
 
   // parse the region file, count number of jobs
   int num_jobs = SnowmanUtils::countJobs(opt::regionFile, file_regions, regions_torun,
