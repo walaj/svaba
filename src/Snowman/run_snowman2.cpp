@@ -42,7 +42,7 @@
 // {1_A_B, {c_1_A_B_#, SEQ} }
 static std::unordered_map<std::string, std::unordered_map<std::string, std::string>> reused_contigs;
 
-static SnowTools::RefGenome * ref_genome;
+static SnowTools::RefGenome * ref_genome = nullptr;
 
 static bam_hdr_t * header_from_reference;
 
@@ -67,8 +67,8 @@ typedef std::map<std::string, std::shared_ptr<hts_idx_t>> BamIndexMap;
 typedef std::map<std::string, std::string> BamMap;
 
 static BamIndexMap bindices;
-static faidx_t * findex;
-static faidx_t * findex_viral;
+static faidx_t * findex = nullptr;
+static faidx_t * findex_viral = nullptr;
 typedef std::unordered_map<std::string, size_t> SeqHash;
 static SeqHash over_represented_sequences;
 
@@ -714,7 +714,12 @@ void runSnowman(int argc, char** argv) {
   // make the VCF file
   makeVCFs();
 
-  delete ref_genome;
+  if (ref_genome)
+    delete ref_genome;
+  if (findex)
+    delete findex;
+  if (findex_viral)
+    delete findex_viral;
 
 #ifndef __APPLE__
   std::cerr << SnowTools::displayRuntime(start) << std::endl;
