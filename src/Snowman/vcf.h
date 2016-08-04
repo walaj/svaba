@@ -1,6 +1,7 @@
 #ifndef SNOWMAN_VCF_GEN_H
 #define SNOWMAN_VCF_GEN_H
 
+#include <memory>
 #include <vector>
 #include <string>
 #include <unordered_map>
@@ -74,7 +75,7 @@ struct VCFEntry {
   VCFEntry(const SnowTools::BreakEnd& b);
 
   // data
-  SnowTools::ReducedBreakPoint* bp;
+  std::shared_ptr<SnowTools::ReducedBreakPoint> bp;
   uint32_t id:30, id_num:2;
 
   std::string getRefString() const;
@@ -98,13 +99,13 @@ typedef std::vector<VCFEntry> VCFEntryVec;
 
 struct VCFEntryPair {
 
-  VCFEntryPair(SnowTools::ReducedBreakPoint * b);
+  VCFEntryPair(std::shared_ptr<SnowTools::ReducedBreakPoint>& b);
   VCFEntryPair() {};
   ~VCFEntryPair() {};
 
   // data
   VCFEntry e1, e2;
-  SnowTools::ReducedBreakPoint * bp;
+  std::shared_ptr<SnowTools::ReducedBreakPoint> bp;
 
   //SupportingReadsMap supp_reads;
 
@@ -120,7 +121,7 @@ struct VCFEntryPair {
 };
 
 typedef std::vector<VCFEntryPair> VCFEntryPairVec;
-typedef std::unordered_map<int, VCFEntryPair*> VCFEntryPairMap;
+typedef std::unordered_map<int, std::shared_ptr<VCFEntryPair>> VCFEntryPairMap;
 typedef std::unordered_map<int, VCFEntry> VCFEntryMap;
 
 // declare a structure to hold the entire VCF

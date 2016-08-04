@@ -336,27 +336,27 @@ VCFFile::VCFFile(std::string file, std::string id, bam_hdr_t * h, const VCFHeade
       continue;
 
     // parse the breakpoint from the file
-    SnowTools::ReducedBreakPoint * bp = new SnowTools::ReducedBreakPoint(line, h);
+    std::shared_ptr<SnowTools::ReducedBreakPoint> bp(new SnowTools::ReducedBreakPoint(line, h));
 
     // add the VCFentry Pair
     ++line_count;
-    VCFEntryPair * vpair = new VCFEntryPair(bp);
+    std::shared_ptr<VCFEntryPair> vpair(new VCFEntryPair(bp));
     
     ++cname_count[std::string(bp->cname)];
     if (cname_count[std::string(bp->cname)] >= VCF_SECONDARY_CAP)
       {
-	delete bp;
-	delete vpair;
+	//delete bp;
+	//delete vpair;
 	continue;
       }
 
     if (bp->indel) {
-      indels.insert(pair<int, VCFEntryPair*>(line_count, vpair));
+      indels.insert(pair<int, std::shared_ptr<VCFEntryPair>>(line_count, vpair));
     }
     else  {
-      entry_pairs.insert(pair<int, VCFEntryPair*>(line_count, vpair));
+      entry_pairs.insert(pair<int, std::shared_ptr<VCFEntryPair>>(line_count, vpair));
     }
-    
+   
   }
   
   cname_count.clear();
@@ -461,7 +461,7 @@ void VCFFile::deduplicate() {
       "_" + i.second->e1.getRefString() + "_" + i.second->e1.getAltString();
       if (!hashr.count(hh)) {
 	hashr.insert(hh); 
-	tmp_indels.insert(pair<int, VCFEntryPair*>(i.first, i.second));
+	tmp_indels.insert(pair<int, std::shared_ptr<VCFEntryPair>>(i.first, i.second));
       }
   }
   
@@ -699,7 +699,7 @@ void tabixVcf(const std::string &fn) {
 
 }
 
-VCFEntryPair::VCFEntryPair(SnowTools::ReducedBreakPoint * b) {
+VCFEntryPair::VCFEntryPair(std::shared_ptr<SnowTools::ReducedBreakPoint>& b) {
 
   bp = b;
   e1.bp = bp;
