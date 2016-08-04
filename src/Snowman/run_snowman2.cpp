@@ -200,7 +200,7 @@ namespace opt {
   static std::string normal_bam;
   static std::string tumor_bam;
 
-  static double kmer_subsample = 0.5;
+  static double kmer_subsample = 0.25;
 
   static size_t mate_lookup_min = 3;
 
