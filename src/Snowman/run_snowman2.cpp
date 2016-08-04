@@ -726,9 +726,9 @@ void runSnowman(int argc, char** argv) {
   if (ref_genome)
     delete ref_genome;
   if (findex)
-    free(findex);
+    fai_destroy(findex);
   if (findex_viral)
-    free(findex_viral);
+    fai_destroy(findex_viral);
 
 #ifndef __APPLE__
   std::cerr << SnowTools::displayRuntime(start) << std::endl;
