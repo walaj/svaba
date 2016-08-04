@@ -44,9 +44,9 @@ static std::unordered_map<std::string, std::unordered_map<std::string, std::stri
 
 static SnowTools::RefGenome * ref_genome;
 
-static bam_hdr_t * header_from_reference;
-
 static std::unordered_map<std::string, BamParamsMap> params_map; // key is bam id (t000), value is map with read group as key
+
+static bam_hdr_t * bwa_header;
 
 static SnowTools::GRC bad_mate_regions;
 
@@ -588,11 +588,15 @@ void runSnowman(int argc, char** argv) {
   */
 
   // get a header that is from reference genome
-  header_from_reference = main_bwa->HeaderFromIndex();
+  //header_from_reference = main_bwa->HeaderFromIndex();
+  bwa_header = nullptr;
+  if (main_bwa)
+    bwa_header = main_bwa->HeaderFromIndex();
+
 
   // parse the region file, count number of jobs
   int num_jobs = SnowmanUtils::countJobs(opt::regionFile, file_regions, regions_torun,
-					 header_from_reference, opt::chunk, WINDOW_PAD); 
+					 bwa_header, opt::chunk, WINDOW_PAD); 
   if (num_jobs)
     std::cerr << "...running on " << SnowTools::AddCommas(num_jobs) << " regions with chunk size of " << SnowTools::AddCommas<int>(opt::chunk) << std::endl;
   else
@@ -622,7 +626,7 @@ void runSnowman(int argc, char** argv) {
 
   // set the MiniRules to be applied to each region
   ss << opt::rules << std::endl;
-  mr = new SnowTools::MiniRulesCollection(opt::rules, header_from_reference);
+  mr = new SnowTools::MiniRulesCollection(opt::rules, bwa_header);
   ss << *mr << std::endl;
   log_file << ss.str();
   if (opt::verbose > 1)
@@ -717,6 +721,8 @@ void runSnowman(int argc, char** argv) {
   // make the VCF file
   makeVCFs();
 
+  if (bwa_header)
+    bam_hdr_destroy(bwa_header);
   if (ref_genome)
     delete ref_genome;
   if (findex)
@@ -754,7 +760,6 @@ void makeVCFs() {
   header.source = opt::args;
   header.reference = opt::refgenome;
 
-  bam_hdr_t * bwa_header = nullptr;
   if (main_bwa)
     bwa_header = main_bwa->HeaderFromIndex();
   if (main_bwa)
@@ -762,9 +767,6 @@ void makeVCFs() {
   if (bwa_header)
     for (int i = 0; i < bwa_header->n_targets; ++i)
       header.addContigField(bwa_header->target_name[i], bwa_header->target_len[i]);
-
-  if (bwa_header)
-    bam_hdr_destroy(bwa_header);
 
   for (auto& b : opt::bam) {
     //boost::filesystem::path bpf(b.second);
@@ -1167,8 +1169,8 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 
   // get the local region
   
-  ref_genome->queryRegion(region.ChrName(header_from_reference), region.pos1-10000, region.pos2+10000);
-  SnowTools::USeqVector local_usv = {{"local", ref_genome->queryRegion(region.ChrName(header_from_reference), region.pos1, region.pos2)}};
+  ref_genome->queryRegion(region.ChrName(bwa_header), region.pos1-10000, region.pos2+10000);
+  SnowTools::USeqVector local_usv = {{"local", ref_genome->queryRegion(region.ChrName(bwa_header), region.pos1, region.pos2)}};
   SnowTools::BWAWrapper local_bwa;
   local_bwa.constructIndex(local_usv);
   /*local_bwa.setAScore(opt::sequence_match_score);
@@ -1835,7 +1837,7 @@ void alignReadsToContigs(SnowTools::BWAWrapper& bw, const SnowTools::USeqVector&
   std::vector<std::string> ref_alleles;
   for (auto& i : g)
     if (i.chr < 24) //1-Y
-      ref_alleles.push_back(rg->queryRegion(i.ChrName(header_from_reference), i.pos1, i.pos2));
+      ref_alleles.push_back(rg->queryRegion(i.ChrName(bwa_header), i.pos1, i.pos2));
   
   // make the reference allele BWAWrapper
   SnowTools::BWAWrapper bw_ref;
