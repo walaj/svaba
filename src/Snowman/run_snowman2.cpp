@@ -1151,8 +1151,6 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
   GRC grv_small = makeAssemblyRegions(region);
 
   // get the local region
-  ref_genome->queryRegion(region.ChrName(bwa_header), region.pos1-10000, region.pos2+10000);
-
   SnowTools::USeqVector local_usv = {{"local", ref_genome->queryRegion(region.ChrName(bwa_header), region.pos1, region.pos2)}};
   SnowTools::BWAWrapper local_bwa;
   if (local_usv[0].seq.length() > 200) // have to have pulled some ref sequence
@@ -1307,7 +1305,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 
 	if ((int)i.getSeq().length() < (opt::readlen * 1.15))
 	  continue;
-
+	
 	bool hardclip = false;	
 	// align to the local region
 	BamReadVector local_ct_alignments;
@@ -1833,9 +1831,12 @@ void alignReadsToContigs(SnowTools::BWAWrapper& bw, const SnowTools::USeqVector&
   SnowTools::BWAWrapper bw_ref;
   SnowTools::USeqVector usv_ref;
   int aa = 0;
-  for (auto& i : ref_alleles) 
-    usv_ref.push_back({std::to_string(aa++), i});
-  bw_ref.constructIndex(usv_ref);
+  for (auto& i : ref_alleles) {
+    if (!i.empty())
+      usv_ref.push_back({std::to_string(aa++), i});
+  }
+  if (!usv_ref.empty())
+    bw_ref.constructIndex(usv_ref);
   
   // set up custom alignment parameters, mean
   bw_ref.setGapOpen(16); // default 6
@@ -1861,8 +1862,9 @@ void alignReadsToContigs(SnowTools::BWAWrapper& bw, const SnowTools::USeqVector&
     for (auto& r : brv)
       max_as = std::max(max_as, r.GetIntTag("AS"));
 
-    // alig to the reference alleles
-    bw_ref.alignSingleSequence(seqr, i.Qname(), brv_ref, hardclip, 0.60, 10);
+    // align to the reference alleles
+    if (!bw_ref.empty())
+      bw_ref.alignSingleSequence(seqr, i.Qname(), brv_ref, hardclip, 0.60, 10);
 
     // get the maximum reference alignment score
     int max_as_r = 0;
