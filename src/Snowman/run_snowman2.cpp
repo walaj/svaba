@@ -159,7 +159,8 @@ namespace opt {
   //static std::string rules = "global@!hardclip;!duplicate;!qcfail;phred[4,100];length[LLL,1000]%region@WG%!isize[0,800]%ic%clip[10,1000]%ins[1,1000];mapq[0,100]%del[1,1000];mapq[1,1000]%mapped;!mate_mapped;mapq[1,1000]%mate_mapped;!mapped";
   //static std::string rules = "global@!hardclip;!duplicate;!qcfail;phred[4,100]%region@WG%discordant[0,800]%ic%clip[10,1000]%ins[1,1000];mapq[0,100]%del[1,1000];mapq[1,1000]%mapped;!mate_mapped;mapq[1,1000]%mate_mapped;!mapped";
   //static std::string rules = "{\"global\" : {\"duplicate\" : false, \"qcfail\" : false}, \"\" : { \"rules\" : [{\"isize\" : [LLHI,0]},{\"rr\" : true},{\"ff\" : true}, {\"rf\" : true}, {\"ic\" : true}, {\"clip\" : [5, 1000], \"phred\" : [4,100]}, {\"ins\" : [1,1000]}, {\"del\" : [1,1000]}, {\"mapped\": true , \"mate_mapped\" : false}, {\"mate_mapped\" : true, \"mapped\" : false}]}}";
-  static std::string rules = "{\"global\" : {\"duplicate\" : false, \"qcfail\" : false}, \"\" : { \"rules\" : [FRRULES,{\"rr\" : true},{\"ff\" : true}, {\"rf\" : true}, {\"ic\" : true}, {\"clip\" : 5, \"phred\" : 4}, {\"ins\" : true}, {\"del\" : true}, {\"mapped\": true , \"mate_mapped\" : false}, {\"mate_mapped\" : true, \"mapped\" : false}, {\"nm\" : [3,0]}]}}";
+  //static std::string rules = "{\"global\" : {\"duplicate\" : false, \"qcfail\" : false}, \"\" : { \"rules\" : [FRRULES,{\"rr\" : true},{\"ff\" : true}, {\"rf\" : true}, {\"ic\" : true}, {\"clip\" : 5, \"phred\" : 4}, {\"ins\" : true}, {\"del\" : true}, {\"mapped\": true , \"mate_mapped\" : false}, {\"mate_mapped\" : true, \"mapped\" : false}, {\"nm\" : [3,0]}]}}";
+  static std::string rules = "{\"global\" : {\"duplicate\" : false, \"qcfail\" : false}, \"\" : { \"rules\" : [FRRULES,{\"rr\" : true},{\"ff\" : true}, {\"rf\" : true}, {\"ic\" : true}, {\"clip\" : 5, \"phred\" : 4}, {\"ins\" : true}, {\"del\" : true}, {\"mapped\": true , \"mate_mapped\" : false}, {\"mate_mapped\" : true, \"mapped\" : false}]}}";  
   //static std::string rules = "{\"\" : { \"rules\" : [{\"rf\" : true}]}}";
   //static std::string rules = "{\"global\" : {\"duplicate\" : false, \"qcfail\" : false}, \"\" : { \"rules\" : [{\"isize\" : [800,0]},{\"rr\" : true},{\"ff\" : true}, {\"rf\" : true, \"isize\" : [LLHI,LLLO]}, {\"ic\" : true}, {\"clip\" : [5, 1000], \"phred\" : [4,100]}, {\"ins\" : [1,1000]}, {\"del\" : [1,1000]}, {\"mapped\": true , \"mate_mapped\" : false}, {\"mate_mapped\" : true, \"mapped\" : false}]}}";
   //static std::string rules = "global@!duplicate;!qcfail%region@WG%discordant[0,600]%ic%clip[5,1000];phred[4,100]%ins[1,1000]%del[1,1000]%mapped;!mate_mapped%mate_mapped;!mapped";
@@ -201,6 +202,8 @@ namespace opt {
 
   static double kmer_subsample = 0.25;
 
+  static bool germline = false; // optimize defaults for single sample mode
+  
   static size_t mate_lookup_min = 3;
 
   static double lod = 8;
@@ -243,7 +246,8 @@ enum {
   OPT_FERMI,
   OPT_CLIP5,
   OPT_CLIP3,
-  OPT_FAST
+  OPT_FAST,
+  OPT_GERMLINE
 };
 
 static const char* shortopts = "hzxt:n:p:v:r:G:r:e:g:k:c:a:m:B:D:Y:S:P:L:O:Is:V:R:K:";
@@ -251,6 +255,7 @@ static const struct option longopts[] = {
   { "help",                    no_argument, NULL, 'h' },
   { "fermi",                   no_argument, NULL, OPT_FERMI },
   { "tumor-bam",               required_argument, NULL, 't' },
+  { "germline",               no_argument, NULL, OPT_GERMLINE },  
   //  { "indel-mask",          required_argument, NULL, 'M' },
   { "panel-of-normals",        required_argument, NULL, 'P' },
   { "id-string",               required_argument, NULL, 'a' },
@@ -390,6 +395,13 @@ void runSnowman(int argc, char** argv) {
     return;
   }
 
+  // set the germline parameters 
+  if (opt::germline) {
+    std::string rules = "{\"global\" : {\"duplicate\" : false, \"qcfail\" : false}, \"\" : { \"rules\" : [FRRULES,{\"rr\" : true},{\"ff\" : true}, {\"rf\" : true}, {\"ic\" : true}, {\"clip\" : 5, \"phred\" : 4}, {\"ins\" : true}, {\"del\" : true}, {\"mapped\": true , \"mate_mapped\" : false}, {\"mate_mapped\" : true, \"mapped\" : false}, {\"nm\" : [3,0]}]}}";
+    opt::interchrom_lookup = false;
+  }
+
+  
   std::stringstream ss;
   ss << 
     "-----------------------------------------------------------------" << std::endl << 
@@ -820,6 +832,7 @@ void parseRunOptions(int argc, char** argv) {
     case OPT_MATCH_SCORE : arg >> opt::sequence_match_score; break;
     case OPT_MISMATCH : arg >> opt::mismatch_penalty; break;
     case OPT_FERMI : opt::fermi = true; break;
+    case OPT_GERMLINE : opt::germline = true; break;
     case OPT_GAP_EXTENSION : arg >> opt::gap_extension_penalty; break;
     case OPT_ZDROP : arg >> opt::zdrop; break;
     case OPT_BANDWIDTH : arg >> opt::bandwidth; break;
@@ -884,7 +897,6 @@ void parseRunOptions(int argc, char** argv) {
       std::cerr << "Error: BAM file " << b.second << " is not readable / existant" << std::endl;
       exit(EXIT_FAILURE);
     }
-      
 
   // check that we input something
   if (opt::bam.size() == 0 && !die && !opt::refilter) {
