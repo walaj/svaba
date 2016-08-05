@@ -79,9 +79,9 @@ namespace SnowTools {
 
       }
 
-
       // accept as discordant if not FR, has large enough isize, is inter-chromosomal, and has both mates mapping
-      if ( ( r.PairOrientation() != FRORIENTATION || r.FullInsertSize() >= cutoff || r.Interchromosomal()) && r.PairMappedFlag())
+      // also dont cluster on weird chr
+      if ( ( r.PairOrientation() != FRORIENTATION || r.FullInsertSize() >= cutoff || r.Interchromosomal()) && r.PairMappedFlag() && r.ChrID() < 24 && r.MateChrID() < 24)
 	bav_dd.push_back(r);
     }
 

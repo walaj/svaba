@@ -450,7 +450,8 @@ void runSnowman(int argc, char** argv) {
   if (opt::disc_cluster_only) 
     static std::string rules = "global@nbases[0,0];!hardclip;!supplementary;!duplicate;!qcfail;%region@WG%discordant[0,800];mapq[1,1000]";
 
-  ref_genome_viral = nullptr;
+  // make one anyways, we check if its empty later
+  ref_genome_viral = new SnowTools::RefGenome;
   microbe_bwa = nullptr;
   
   // open the microbe genome
@@ -458,10 +459,9 @@ void runSnowman(int argc, char** argv) {
     ss << "...loading the microbe reference sequence" << std::endl;
     SnowmanUtils::print(ss, log_file, opt::verbose > 0);
     microbe_bwa = new SnowTools::BWAWrapper();
-    ref_genome_viral = new SnowTools::RefGenome;
     SnowmanUtils::__open_index_and_writer(opt::microbegenome, microbe_bwa, opt::analysis_id + ".microbe.bam", b_microbe_writer, ref_genome_viral, viral_header);  
   }
-  
+
   // open the tumor bam to get header info
   bwalker.OpenReadBam(opt::tumor_bam);
   if (opt::r2c) // open the r2c writer
@@ -1155,7 +1155,8 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 
   SnowTools::USeqVector local_usv = {{"local", ref_genome->queryRegion(region.ChrName(bwa_header), region.pos1, region.pos2)}};
   SnowTools::BWAWrapper local_bwa;
-  local_bwa.constructIndex(local_usv);
+  if (local_usv[0].seq.length() > 200) // have to have pulled some ref sequence
+    local_bwa.constructIndex(local_usv);
   /*local_bwa.setAScore(opt::sequence_match_score);
   local_bwa.setGapOpen(opt::gap_open_penalty);
   local_bwa.setGapExtension(opt::gap_extension_penalty);
@@ -1311,8 +1312,9 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 	// align to the local region
 	BamReadVector local_ct_alignments;
 
-	local_bwa.alignSingleSequence(i.getSeq(), i.getID(), local_ct_alignments, hardclip, SECONDARY_FRAC, SECONDARY_CAP);
-
+	if (!local_bwa.empty())
+	  local_bwa.alignSingleSequence(i.getSeq(), i.getID(), local_ct_alignments, hardclip, SECONDARY_FRAC, SECONDARY_CAP);
+	
 	// check if it has a non-local alignment
 	bool valid_sv = true;
 	for (auto& aa : local_ct_alignments) {

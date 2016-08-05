@@ -402,7 +402,7 @@ namespace SnowTools {
    double __sv_is_somatic() const;
    double __indel_is_somatic() const;
 
-   void setRefAlt(SnowTools::RefGenome * main_rg, SnowTools::RefGenome * viral); 
+   void setRefAlt(const SnowTools::RefGenome * main_rg, const SnowTools::RefGenome * viral); 
 
 };
 

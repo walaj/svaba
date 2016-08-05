@@ -127,7 +127,7 @@ namespace SnowTools {
        chr_name1 = bwa->ChrIDToName(dc.m_reg1.chr); //bwa->ChrIDToName(tdc.reads.begin()->second.ChrID());
        chr_name2 = bwa->ChrIDToName(dc.m_reg2.chr); //bwa->ChrIDToName(tdc.reads.begin()->second.ChrID());
     } catch (...) {
-      std::cerr << "Warning: Found mismatch between reference genome and BAM genome." << std::endl;
+      std::cerr << "Warning: Found mismatch between reference genome and BAM genome for discordant cluster " << dc << std::endl;
       chr_name1 = "Unknown";
       chr_name2 = "Unknown";
     }
@@ -1173,7 +1173,7 @@ namespace SnowTools {
     return false;
   }
 
-  void BreakPoint::setRefAlt(SnowTools::RefGenome * main_rg, SnowTools::RefGenome * viral) {
+  void BreakPoint::setRefAlt(const SnowTools::RefGenome * main_rg, const SnowTools::RefGenome * viral) {
     
     //int len;
 
