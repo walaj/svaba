@@ -369,20 +369,6 @@ VCFFile::VCFFile(std::string file, std::string id, bam_hdr_t * h, const VCFHeade
   
 }
 
-// return a sequence from the reference
-std::string getRefSequence(const std::string& chr_name, const SnowTools::GenomicRegion& gr, faidx_t * fi) {
-
-  int len;
-  char * seq = faidx_fetch_seq(fi, const_cast<char*>(chr_name.c_str()), gr.pos1-1, gr.pos2-1, &len);
-  
-  if (seq) {
-    return std::string(seq);
-  } else {
-    return "N";
-  }
-
-}
-
 // make a class to hold break end + id
 class GenomicRegionWithID : public SnowTools::GenomicRegion 
 {
@@ -453,18 +439,24 @@ void VCFFile::deduplicate() {
   }
 
   // dedupe the indels
-  std::cerr << "...hashing indels" << std::endl;
+  std::cerr << "...hashing indels for dedupe" << std::endl;
   std::unordered_set<std::string> hashr;
   VCFEntryPairMap tmp_indels;
   for (auto& i : indels) {
-    std::string hh = std::to_string(i.second->e1.bp->b1.gr.chr) + ":" + std::to_string(i.second->e1.bp->b1.gr.pos1) + 
-      "_" + i.second->e1.getRefString() + "_" + i.second->e1.getAltString();
-      if (!hashr.count(hh)) {
-	hashr.insert(hh); 
-	tmp_indels.insert(pair<int, std::shared_ptr<VCFEntryPair>>(i.first, i.second));
-      }
+
+    std::string hh;
+    //try {
+      hh = std::to_string(i.second->e1.bp->b1.gr.chr) + ":" + std::to_string(i.second->e1.bp->b1.gr.pos1) + 
+	"_" + i.second->e1.getRefString() + "_" + i.second->e1.getAltString();
+      //} catch (...) {
+      //std::cerr << " error
+   //}
+    if (!hashr.count(hh)) {
+      hashr.insert(hh);
+      tmp_indels.insert(pair<int, std::shared_ptr<VCFEntryPair>>(i.first, i.second));
+    }
   }
-  
+  std::cerr << "...done deduping indels" << std::endl;
   indels = tmp_indels;
 }
 
@@ -553,7 +545,7 @@ void VCFFile::writeIndels(string basename, bool zip, bool onefile) const {
     }
     
   }
-  
+
   if (zip) {
     bgzf_close(g_bg);
     if (!onefile)
@@ -575,7 +567,7 @@ void VCFFile::writeIndels(string basename, bool zip, bool onefile) const {
 
 // write out somatic and germline SV vcfs
 void VCFFile::writeSVs(std::string basename, bool zip, bool onefile) const {
-  
+
   std::string gname, sname, gname_nz, sname_nz; 
   gname = basename + "germline.sv.vcf.gz";
   sname = basename + "somatic.sv.vcf.gz";

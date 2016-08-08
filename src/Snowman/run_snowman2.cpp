@@ -591,7 +591,6 @@ void runSnowman(int argc, char** argv) {
 
   ref_genome = new SnowTools::RefGenome;
   SnowmanUtils::__open_index_and_writer(opt::refgenome, main_bwa, opt::analysis_id + ".contigs.bam", b_allwriter, ref_genome, bwa_header);
-
   assert(!ref_genome->empty());
   
   // parse the region file, count number of jobs
@@ -695,7 +694,7 @@ void runSnowman(int argc, char** argv) {
     __reuse_contigs(opt::reuse_contigs);
 
   // send the jobs to the queue
-  std::cerr << std::endl << "---- Starting detection pipeline --- on " << 
+  std::cerr << std::endl << "--- Starting detection pipeline --- on " << 
     opt::numThreads << " thread" << (opt::numThreads > 1 ? "s" : "") << std::endl;
   sendThreads(regions_torun);
 
@@ -712,7 +711,7 @@ void runSnowman(int argc, char** argv) {
     r2c_c.close();
   //os_cigmap.close();
   log_file.close();
-  bad_bed.close();
+  //bad_bed.close();
 
   // make the VCF file
   makeVCFs();
@@ -1163,7 +1162,17 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
   GRC grv_small = makeAssemblyRegions(region);
 
   // get the local region
-  SnowTools::USeqVector local_usv = {{"local", ref_genome->queryRegion(region.ChrName(bwa_header), region.pos1, region.pos2)}};
+  pthread_mutex_lock(&snow_lock);  
+  std::string lregion;
+  try {
+    lregion = ref_genome->queryRegion(region.ChrName(bwa_header), region.pos1, region.pos2);
+  } catch (...) {
+    std::cerr << " Caught exception for lregion with reg " << region << std::endl;
+    lregion = "";
+  }
+  pthread_mutex_unlock(&snow_lock);
+  
+  SnowTools::USeqVector local_usv = {{"local", lregion}};
   SnowTools::BWAWrapper local_bwa;
   if (local_usv[0].seq.length() > 200) // have to have pulled some ref sequence
     local_bwa.constructIndex(local_usv);
@@ -1646,17 +1655,18 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
       
   }
 
-  // add the ref and alt tags
-  if (opt::verbose > 2)
-    std::cerr << "...setting ref and alt" << std::endl;
-  for (auto& i : bp_glob)
-    i.setRefAlt(ref_genome, ref_genome_viral);
-
-  ////////////////////////////////////
+    ////////////////////////////////////
   // MUTEX LOCKED
   ////////////////////////////////////
   // write to the global contig out
   pthread_mutex_lock(&snow_lock);  
+  
+  // add the ref and alt tags
+  // WHY IS THIS NOT THREAD SAFE?
+  if (opt::verbose > 2)
+    std::cerr << "...setting ref and alt" << std::endl;
+  for (auto& i : bp_glob)
+    i.setRefAlt(ref_genome, ref_genome_viral);
 
   // update the bad mate regions
   bad_mate_regions.concat(badd);
@@ -1666,7 +1676,7 @@ bool runBigChunk(const SnowTools::GenomicRegion& region)
 
   // print out the bad reagions
   //for (auto& i : excluded_bad_regions)
-  //  bad_bed << bwalker.header()->target_name[i.chr] << "\t" << i.pos1 << "\t" << i.pos2 << std::endl;
+  // bad_bed << bwalker.header()->target_name[i.chr] << "\t" << i.pos1 << "\t" << i.pos2 << std::endl;
   
   // dump the cigmaps
   //for (auto& i : cigmap_n) 
@@ -1835,9 +1845,16 @@ void alignReadsToContigs(SnowTools::BWAWrapper& bw, const SnowTools::USeqVector&
   
   // get the reference sequence
   std::vector<std::string> ref_alleles;
+  pthread_mutex_lock(&snow_lock);  
   for (auto& i : g)
     if (i.chr < 24) //1-Y
-      ref_alleles.push_back(rg->queryRegion(i.ChrName(bwa_header), i.pos1, i.pos2));
+      try {
+	std::string tmpref = rg->queryRegion(i.ChrName(bwa_header), i.pos1, i.pos2);
+	ref_alleles.push_back(tmpref); 
+      } catch (...) {
+	std::cerr << "Caught exception for ref_allele on " << i << std::endl;
+      }
+  pthread_mutex_unlock(&snow_lock);
   
   // make the reference allele BWAWrapper
   SnowTools::BWAWrapper bw_ref;
@@ -2096,7 +2113,7 @@ MateRegionVector __collect_somatic_mate_regions(std::map<std::string, SnowmanBam
   return excluded_bad_regions;
 
   
-}*/
+  }*/
 
 /*
 void run_test_assembly() {
