@@ -427,7 +427,7 @@ void assemblyTest() {
  
   std::cerr << "...loading the reference genome" << std::endl;
   findex = fai_load(opt::refgenome.c_str());  // load the reference
-  std::string local_ref = getRefSequence("16", gr, findex);
+  std::string local_ref = ""; // debug // getRefSequence("16", gr, findex);
 
   size_t seqlen = local_ref.length();
   if (seqlen * 2 <= opt::readlen) {

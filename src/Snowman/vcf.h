@@ -11,8 +11,6 @@
 
 #include "BreakPoint2.h"
 
-//#include "faidx.h"
-
 typedef std::unordered_map<std::string, std::string> InfoMap;
 typedef std::unordered_map<std::string, std::string> FormatMap;
 typedef std::unordered_map<std::string, std::string> FilterMap;
@@ -26,7 +24,6 @@ typedef std::unordered_map<std::string, std::pair<std::string,std::string>> Form
 size_t ChrStringToNumber(const std::string& str);
 void runVCF(int argc, char** argv);
 void parseVCFOptions(int argc, char** argv);
-std::string getRefSequence(const std::string& chr_string, const SnowTools::GenomicRegion& gr, faidx_t *fi);
 std::string formatReadString(const std::string& readid, char type);
 
 // structure to store a VCF header

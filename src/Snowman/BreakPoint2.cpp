@@ -574,13 +574,13 @@ namespace SnowTools {
     std::ostream& operator<<(std::ostream& out, const BreakPoint& b) {
       
       if (b.isindel) {
-	out << ">" << (b.insertion.size() ? "INS: " : "DEL: ") << b.getSpan() << " " << b.b1.gr;
+	out << ">" << (b.insertion.size() ? "INS: " : "DEL: ") << b.getSpan() << " " << b.b1.gr << " " << b.cname << " " << b.evidence;
 	  //<< " T/N split: " << b.t.split << "/" << b.n.split << " T/N cigar: " 
           //  << b.t.cigar << "/" << b.n.cigar << " T/N Cov " << b.t.cov << "/" << b.n.cov << " DBSNP: " << rs_t;
 	for (auto& i : b.allele)
 	  out << " " << i.first << ":" << i.second.split;  
       } else {
-	out << ": " << b.b1.gr.pointString() << " to " << b.b2.gr.pointString() << " SPAN " << b.getSpan();
+	out << ": " << b.b1.gr.pointString() << " to " << b.b2.gr.pointString() << " SPAN " << b.getSpan() << " " << b.cname << " " << b.evidence;
 	  //<< " T/N split: " << b.t.split << "/" << b.n.split << " T/N disc: " 
 	  //  << b.dc.tcount << "/" << b.dc.ncount << " " << b.evidence;
 	for (auto& i : b.allele)
@@ -1178,27 +1178,37 @@ namespace SnowTools {
     //int len;
 
     assert(!main_rg->empty());
+    assert(ref.empty());
+    assert(alt.empty());
     
     if (evidence != "INDEL") {
 
       try {
 	// get the reference for BP1
 	ref = main_rg->queryRegion(b1.chr_name, b1.gr.pos1-1, b1.gr.pos1-1);
-	if (ref.empty() && !viral->empty())
-	  ref = viral->queryRegion(b1.chr_name, b1.gr.pos1-1, b1.gr.pos1-1);
-      } catch (...) {
-	ref = "N";
-	std::cerr << "couldn't find reference on BP1 for ref " << b1.chr_name << " in either viral or human" << std::endl;
-      }
-
+      } catch (const std::invalid_argument& ia) {}
+      
+      // try viral approach
+      if (ref.empty() && !viral->empty())
+	try {
+	  ref = viral->queryRegion(b1.chr_name, b1.gr.pos1-1, b1.gr.pos1-1); 
+	} catch (const std::invalid_argument& ia) {
+	  ref = "N";
+	  std::cerr << "Caught exception in BreakPoint:setRefAlt for SV Ref: " << ia.what() << std::endl;
+	}
+      
       try {
 	alt = main_rg->queryRegion(b2.chr_name, b2.gr.pos1-1, b2.gr.pos1-1);
-	if (alt.empty() && !viral->empty())
+      } catch (const std::invalid_argument& ia) {}
+
+      // try viral alt
+      if (alt.empty() && !viral->empty())
+	try {
 	  alt = viral->queryRegion(b2.chr_name, b2.gr.pos1-1, b2.gr.pos1-1);
-      } catch (...) {
-	alt = "N";
-	std::cerr << "couldn't find reference on BP2 for ref " << b2.chr_name << " in either viral or human" << std::endl;
-      }
+	} catch (const std::invalid_argument& ia) {
+	  alt = "N";
+	  std::cerr << "Caught exception in BreakPoint:setRefAlt for SV Alt: " << ia.what() << std::endl;
+	}
 
       /*char * ref1 = faidx_fetch_seq(main_findex, const_cast<char*>(b1.chr_name.c_str()), b1.gr.pos1-1, b1.gr.pos1-1, &len);
       if (!ref1) {
@@ -1241,13 +1251,16 @@ namespace SnowTools {
     } else {
 
       if (insertion.length() && !insertion.empty()) {
-
+	
 	try {
 	  ref = main_rg->queryRegion(b1.chr_name, b1.gr.pos1-1, b1.gr.pos1-1);
-	} catch (...) {
+	} catch (const std::invalid_argument& ia) {
 	  ref = "N";
-	  std::cerr << "couldn't find reference sequence for ref " << b1.chr_name << " for indel, on human reference " << std::endl;
-	  return;
+	  std::cerr << "Caught exception in BreakPoint:setRefAlt for indel ref: " << ia.what() << std::endl;
+	  //std::cerr << "couldn't find reference sequence for ref " << b1.chr_name << " for indel, on human reference " << std::endl;
+	  //std::cerr << (*this) << std::endl;
+	  //exit(EXIT_FAILURE); //debug
+	  //return;
 	}
 	
 	// reference
@@ -1274,10 +1287,12 @@ namespace SnowTools {
 	assert(b2.gr.pos1 - b1.gr.pos1 - 1 >= 0);
 	try {
 	  ref = main_rg->queryRegion(b1.chr_name, b1.gr.pos1-1, b2.gr.pos1-2);
-	} catch (...) {
-	  ref = "N";
-	  std::cerr << "couldn't find reference sequence for ref " << b1.chr_name << " for indel, on human reference " << std::endl;
-	  return;
+	} catch (const std::invalid_argument& ia) {
+	  ref = std::string(std::abs(b1.gr.pos1 - b2.gr.pos1), 'N');
+	  std::cerr << "Caught exception in BreakPoint:setRefAlt for indel ref: " << ia.what() << std::endl;	  
+	  //std::cerr << "PIECE 2 couldn't find reference sequence for ref " << b1.chr_name << " for indel, on human reference " << std::endl;
+	  //std::cerr << (*this) << std::endl;
+	  //exit(EXIT_FAILURE); //debug
 	}
 	
 	//char * refi = faidx_fetch_seq(main_findex, const_cast<char*>(b1.chr_name.c_str()), b1.gr.pos1-1, b2.gr.pos1-2, &len);
@@ -1293,6 +1308,18 @@ namespace SnowTools {
 	//  free(refi);
       }
     }
+
+    if (ref.empty()) {
+      std::cerr << " REF empty " << (*this) << " " << b1.chr_name << " b1.gr " << b1.gr << std::endl;
+      ref = "N";
+    }
+    if (alt.empty()) {
+      std::cerr << " ALT empty " << (*this) << " " << b1.chr_name << " b1.gr " << b1.gr << std::endl;
+      alt = "N";
+    }
+	
+    //assert(!ref.empty());
+    //assert(!alt.empty());
   }
 
   int BreakPoint::getSpan() const { 
