@@ -439,18 +439,19 @@ void VCFFile::deduplicate() {
   }
 
   // dedupe the indels
-  std::cerr << "...hashing indels for dedupe" << std::endl;
+  std::cerr << "...hashing " << SnowTools::AddCommas(indels.size()) << " indels for dedupe" << std::endl;
   std::unordered_set<std::string> hashr;
   VCFEntryPairMap tmp_indels;
-  for (auto& i : indels) {
 
+  for (auto& i : indels) {
+    
     std::string hh;
-    //try {
+    try {
       hh = std::to_string(i.second->e1.bp->b1.gr.chr) + ":" + std::to_string(i.second->e1.bp->b1.gr.pos1) + 
-	"_" + i.second->e1.getRefString() + "_" + i.second->e1.getAltString();
-      //} catch (...) {
-      //std::cerr << " error
-   //}
+	     "_" + i.second->e1.getRefString() + "_" + i.second->e1.getAltString();
+      } catch (...) {
+      	std::cerr << " error " << std::endl;
+   }
     if (!hashr.count(hh)) {
       hashr.insert(hh);
       tmp_indels.insert(pair<int, std::shared_ptr<VCFEntryPair>>(i.first, i.second));
@@ -835,16 +836,36 @@ std::unordered_map<std::string, std::string> VCFEntry::fillInfoFields() const {
 
 std::string VCFEntry::getRefString() const {
 
+  char* p;
   if (bp->indel || id_num == 1) 
-    return std::string(bp->ref);
-
-  return std::string(bp->alt);
+  	p = bp->ref;
+  else
+    p = bp->alt;
+    
+   if (!p) {
+   	  std::cerr << "WARNING: Empty ref/alt field for bp " << std::endl;
+   	  return (std::string("N"));
+    }
+   
+   return (std::string(p));
 }
 
 std::string VCFEntry::getAltString() const {
 
-  if (bp->indel) 
-    return std::string(bp->alt);
+
+  if (bp->indel) {
+  
+    char* p;
+    p = bp->alt;
+
+ 	if (!p) {
+  	 	 std::cerr << "WARNING: Empty ref/alt field for bp " << std::endl;
+   	 	 return (std::string("N"));
+ 	 }
+ 	 
+ 	 return (std::string(p));
+  
+  }
   
   std::string ref = getRefString();
 
