@@ -1032,7 +1032,7 @@ namespace SnowTools {
     b.mapq = m_align.MapQuality();
     b.matchlen = m_align.NumMatchBases();
     b.local = local;
-    b.nm = m_align.GetIntTag("NM");
+    b.nm = std::max(m_align.GetIntTag("NM") - m_align.MaxDeletionBases(), (uint32_t)0);
     b.simple = m_align.GetIntTag("SZ");
 
     b.as_frac = (double)m_align.GetIntTag("AS") / (double) m_align.NumMatchBases();

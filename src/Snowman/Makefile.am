@@ -42,4 +42,3 @@ snowman_SOURCES = run_snowman2.cpp splitcounter.cpp BreakPoint2.cpp AlignedConti
 		KmerFilter.cpp SnowmanBamWalker.cpp benchmark.cpp PonWalker.cpp ReadSim.cpp \
 		SeqFrag.cpp SimGenome.cpp BamSplitter.cpp SimTrainerWalker.cpp refilter.cpp LearnBamParams.cpp \
 		PowerLawSim.cpp AssemblyBamWalker.cpp assembly2vcf.cpp
-
