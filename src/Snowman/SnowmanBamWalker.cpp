@@ -4,10 +4,13 @@
 #define MIN_MAPQ_FOR_MATE_LOOKUP 0
 
 #define ALL_READS_FAIL_SAFE 50000
-//#define QNAME "FCD058BACXX:6:1101:8471:28542"
+//#define QNAME "H01PEALXX140819:2:2104:25705:6987"
+//#define QFLAG 145
+
+#define MIN_ISIZE_FOR_DISCORDANT_REALIGNMENT 1000
 
 // how much to search aroudn mate region for read alignent
-#define DISC_REALIGN_MATE_PAD 2000
+#define DISC_REALIGN_MATE_PAD 100
 
 // trim this many bases from front and back of read when determining coverage
 // this should be synced with the split-read buffer in BreakPoint2 for more accurate 
@@ -72,7 +75,7 @@ bool SnowmanBamWalker::isDuplicate(BamRead &r)
   std::string key = r.QualitySequence() + std::to_string(r.Position()) + "_" + std::to_string(r.MatePosition());
 
 #ifdef QNAME
-  if (r.Qname() == QNAME)
+  if (r.Qname() == QNAME && (r.AlignmentFlag() == QFLAG || QFLAG == -1))
     std::cerr << "dedupe key " << key << std::endl;
 #endif
 
@@ -110,7 +113,7 @@ SnowTools::GRC SnowmanBamWalker::readBam(std::ofstream * log, const SnowTools::D
   while (GetNextRead(r, rule_pass)) {
 
 #ifdef QNAME
-      if (r.Qname() == QNAME) 
+      if (r.Qname() == QNAME && (r.AlignmentFlag() == QFLAG || QFLAG == -1)) 
 	std::cerr << " read seen " << r << std::endl;
 #endif
 
@@ -194,9 +197,9 @@ SnowTools::GRC SnowmanBamWalker::readBam(std::ofstream * log, const SnowTools::D
 	is_dup = isDuplicate(r);
 
 #ifdef QNAME
-      if (r.Qname() == QNAME) 
+      if (r.Qname() == QNAME && (r.AlignmentFlag() == QFLAG || QFLAG == -1)) 
 	std::cerr << " read has qcpass " << qcpass << " blacklisted " << blacklisted << " rule_pass " << rule_pass << " isDup " << is_dup << " " << r << std::endl;
-      if (r.Qname() == QNAME)
+      if (r.Qname() == QNAME && (r.AlignmentFlag() == QFLAG || QFLAG == -1))
 	std::cerr << " qual " << r.Qualities() << " trimmed seq " << r.QualitySequence() << std::endl;
 #endif
 
@@ -232,7 +235,7 @@ SnowTools::GRC SnowmanBamWalker::readBam(std::ofstream * log, const SnowTools::D
 	  weird_cov.addRead(r, 0, false);
 	  
 #ifdef QNAME
-	  if (r.Qname() == QNAME) 
+	  if (r.Qname() == QNAME && (r.AlignmentFlag() == QFLAG || QFLAG == -1)) 
 	    std::cerr << " read added " << r << std::endl;
 #endif
 	  
@@ -244,7 +247,7 @@ SnowTools::GRC SnowmanBamWalker::readBam(std::ofstream * log, const SnowTools::D
   
 #ifdef QNAME
   for (auto& j : reads)
-      if (j.Qname() == QNAME) 
+      if (j.Qname() == QNAME && (j.AlignmentFlag() == QFLAG || QFLAG == -1)) 
 	std::cerr << " read KEPT right after loop " << j << std::endl;
 #endif
 
@@ -259,7 +262,7 @@ SnowTools::GRC SnowmanBamWalker::readBam(std::ofstream * log, const SnowTools::D
 
 #ifdef QNAME
   for (auto& j : reads)
-      if (j.Qname() == QNAME) 
+      if (j.Qname() == QNAME && (j.AlignmentFlag() == QFLAG || QFLAG == -1)) 
 	std::cerr << " read KEPT-PREFILTER " << j << std::endl;
 #endif
 
@@ -274,7 +277,7 @@ SnowTools::GRC SnowmanBamWalker::readBam(std::ofstream * log, const SnowTools::D
 
 #ifdef QNAME
   for (auto& j : reads)
-      if (j.Qname() == QNAME) 
+      if (j.Qname() == QNAME && (j.AlignmentFlag() == QFLAG || QFLAG == -1)) 
 	std::cerr << " read KEPT-POST SUBSAMPLE " << j << std::endl;
 #endif
 
@@ -287,7 +290,7 @@ SnowTools::GRC SnowmanBamWalker::readBam(std::ofstream * log, const SnowTools::D
     for (auto& j : reads) {
       if (j.NumClip() < 5 && !j.MaxInsertionBases() && !j.MaxDeletionBases() && bad_qnames.count(j.Qname())) {
 #ifdef QNAME
-	if (j.Qname() == QNAME)
+	if (j.Qname() == QNAME && (j.AlignmentFlag() == QFLAG || QFLAG == -1))
 	  std::cerr << " LOST TO QNAME FILTER AFTER REALIGN DISCORDANTS " << std::endl; 
 #endif
 	;
@@ -308,7 +311,7 @@ SnowTools::GRC SnowmanBamWalker::readBam(std::ofstream * log, const SnowTools::D
 
 #ifdef QNAME
   for (auto& j : reads)
-      if (j.Qname() == QNAME) 
+      if (j.Qname() == QNAME && (j.AlignmentFlag() == QFLAG || QFLAG == -1)) 
 	std::cerr << " read KEPT FINAL " << j << std::endl;
 #endif
 
@@ -334,7 +337,7 @@ void SnowmanBamWalker::subSampleToWeirdCoverage(double max_coverage) {
       if (this_cov > max_coverage) 
 	{
 	  #ifdef QNAME
-	  if (r.Qname() == QNAME) {
+	  if (r.Qname() == QNAME && (r.AlignmentFlag() == QFLAG || QFLAG == -1)) {
 	    std::cerr << "subsampling because this_cov is " << this_cov << " and max cov is " << max_coverage << " at position " << r.Position() << " and end position " << r.PositionEnd() << std::endl;
 	    std::cerr << " this cov 1 " << this_cov1 << " this_cov2 " << this_cov2 << std::endl;
 	  }
@@ -366,7 +369,7 @@ void SnowmanBamWalker::calculateMateRegions() {
   for (auto& r : reads)
     {
       
-      if (r.MateChrID() > 22) // no Y or M
+      if (r.MateChrID() > 22 || r.GetIntTag("DD") < 0) // no Y or M
 	continue;
       
       MateRegion mate(r.MateChrID(), r.MatePosition(), r.MatePosition());
@@ -562,17 +565,17 @@ void SnowmanBamWalker::realignDiscordants(SnowTools::BamReadVector& reads) {
 
   for (auto& r : reads) {
 
-    // if already re-aligned, move on, or if unmapped read
-    if (r.GetIntTag("DD") != 0 || !r.MappedFlag())
+    // if already re-aligned, move on, or if part of unmapped
+    if (r.GetIntTag("DD") != 0 || !r.MappedFlag() || !r.MateMappedFlag())
       continue;
 
     int fi = r.FullInsertSize();
 
     // if read is big disc or interchromosomal, double check its mapq
-    if (fi >= 1000 || r.Interchromosomal()) { //r.PairOrientation() != FRORIENTATION) {
+    if (fi >= MIN_ISIZE_FOR_DISCORDANT_REALIGNMENT || r.Interchromosomal()) { //r.PairOrientation() != FRORIENTATION) {
 
       SnowTools::BamReadVector als;
-      main_bwa->alignSingleSequence(r.Sequence(), r.Qname(), als, false, 0.80, secondary_cap);
+      main_bwa->alignSingleSequence(r.Sequence(), r.Qname(), als, false, 0.60, secondary_cap);
 
       // no alignments, so label as bad
       if (als.size() == 0) {
@@ -590,26 +593,54 @@ void SnowmanBamWalker::realignDiscordants(SnowTools::BamReadVector& reads) {
 	bool maps_near_mate = false;
 	for (auto& i : als) {
 
+#ifdef QNAME
+	  if (r.Qname() == QNAME && (r.AlignmentFlag() == QFLAG || QFLAG == -1))
+	    std::cerr << " REALIGN HIT " << i << " OF TOTAL " << als.size() << std::endl;
+#endif
+	  
+	  // if the realignment has a better mapq at differnt location
+	  // then take that, and say that it is too uncertain to be a 
+	  // reliable alignment
+	  if (i.MapQuality() > r.MapQuality() && gr.getOverlap(i.asGenomicRegion())) {
+	    i.SetChrIDMate(r.MateChrID());
+	    i.SetPositionMate(r.MatePosition());
+	    i.SetPairMappedFlag();
+	    if (r.MateReverseFlag())
+	      i.SetMateReverseFlag();
+	    i.AddZTag("SR", r.GetZTag("SR"));
+	    r = i; // reassign the read
+	    r.AddIntTag("DD", -5); // read is re-assigned, so too worrisome for discordant
+	    continue;
+	  }
+	
+	  // if there is another alignment that overlaps with the original
+	  // but has a lower MAPQ, take the new mapq
 	  if (gr.getOverlap(i.asGenomicRegion())) {
 	    has_orig = true;
-
 	    r.SetMapQuality(std::min(i.MapQuality(), r.MapQuality()));
-
 	  }
 
-	  // if mate is mapped, and read maps to near mate region withut clips, it's not 
-          // discordant
-	  if (r.MateMappedFlag() && (fi >= 10000 || r.Interchromosomal())) {
-	    if (grm.getOverlap(i.asGenomicRegion()) && r.NumClip() < 20) {
+
+#ifdef QNAME
+	  if (r.Qname() == QNAME && (r.AlignmentFlag() == QFLAG || QFLAG == -1)) {
+	    std::cerr << " CHECKING AGAINST MATE? " << (r.MateMappedFlag() && (fi >= MIN_ISIZE_FOR_DISCORDANT_REALIGNMENT || r.Interchromosomal())) << std::endl;
+	    std::cerr << " HAS OVERLAP WITH MATE REGION? " << " GR " << i.asGenomicRegion() << " MATE " << grm << " OVERLAP " << (grm.getOverlap(i.asGenomicRegion())) << " overlap count  " << r.OverlappingCoverage(i)  << std::endl;
+	  }
+#endif
+	  
+	  // if mate is mapped, and read maps to near mate region wo clips, it's not disc
+	  if (grm.getOverlap(i.asGenomicRegion())) {
+	    // if not clipped or overlaps same covered region as original, 
+	    // then it has a secondary mapping
+	    if (r.NumClip() < 20 || r.OverlappingCoverage(i) >= 20) 
 	      maps_near_mate = true;
 #ifdef QNAME	      
-	      if (r.Qname() == QNAME)
-		std::cerr << " FOUND MATCH NEAR MATE. MATCH ALIGNMENT IS " << i << std::endl;
+	    if (r.Qname() == QNAME && (r.AlignmentFlag() == QFLAG || QFLAG == -1))
+	      std::cerr << " FOUND MATCH NEAR MATE. MATCH ALIGNMENT IS " << i << std::endl;
 #endif
-	    }
 	  }
 	}
-
+	
 	// add tags
 	if (!has_orig) 
 	  r.AddIntTag("DD", -1);
@@ -617,7 +648,7 @@ void SnowmanBamWalker::realignDiscordants(SnowTools::BamReadVector& reads) {
 	  r.AddIntTag("DD", -2);
 	else
 	  r.AddIntTag("DD", als.size());
-	  
+	
       }
     }
     
@@ -625,13 +656,14 @@ void SnowmanBamWalker::realignDiscordants(SnowTools::BamReadVector& reads) {
 
   // remove discordant reads without re-creatable mappings, 
   // or with better mappings at mate region
+  // ACTUALLY lets keep them all, but don't call them discordantx
   for (auto& r : reads) {
-    if (r.GetIntTag("DD") >= 0)
-      brv.push_back(r);
-    else
-      bad_qnames.insert(r.Qname());
+    //if (r.GetIntTag("DD") >= 0)
+    brv.push_back(r);
+    //else
+    //bad_qnames.insert(r.Qname());
 #ifdef QNAME    
-    if (r.Qname() == QNAME) 
+    if (r.Qname() == QNAME && (r.AlignmentFlag() == QFLAG || QFLAG == -1)) 
       std::cerr << " AFTER DISC REALIGN " << r << std::endl;
 #endif
   }

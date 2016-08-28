@@ -59,6 +59,11 @@ namespace SnowTools {
     // only add the discordant reads, respecting diff size cutoffs for diff RG
     BamReadVector bav_dd;
     for (auto& r : bav) {
+     
+      // if suspicious as disccordant, chuck it
+      if (r.GetIntTag("DD") < 0)
+	continue;
+
       int cutoff = 800;
       if (min_isize_for_disc) {
 
