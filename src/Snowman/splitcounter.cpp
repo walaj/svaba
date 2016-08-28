@@ -8,8 +8,10 @@
 #include "SnowTools/BamWalker.h"
 #include "SnowTools/BLATWrapper.h"
 
-//#define INDEL_SEARCH 1
-#define CLIP_SEARCH 1
+#define MIN_CLIP_FACTOR 2
+#define MIN_MATCH_FACTOR 4
+#define MIN_MAPQ 10
+#define READ_LEN 151
 
 SnowTools::GRC bks;
 
@@ -140,15 +142,9 @@ void runSplitCounter(int argc, char** argv) {
   SnowTools::BamRead r;
   bool rule;
 	
-#ifdef CLIP_SEARCH								
-  std::string rules_string = "{\"\" : {\"rules\" : [{\"clip\" : 151, \"length\" : 302}, {\"del\" : 10, \"length\" : 302}]}}";
-#endif
- 
-#ifdef INDEL_SEARCH
-  std::string rules_string = "{\"\" : {\"rules\" : [{\"mapq\" : 10, \"length\" : 302}]}}";
-#endif
+  std::string rules_string = "{\"\" : {\"rules\" : [{\"mapq\" : 10}]}}";
 
-  //std::cerr << "Rules: " << rules_string << std::endl;
+  std::cerr << "Rules: " << rules_string << std::endl;
   SnowTools::MiniRulesCollection mr(rules_string, walk.header());
   walk.SetMiniRulesCollection(mr);
 
@@ -166,45 +162,57 @@ void runSplitCounter(int argc, char** argv) {
   //std::cerr << "...loading BLAT index" << std::endl;
   //blat.loadIndex("/seq/references/Homo_sapiens_assembly19/v1/Homo_sapiens_assembly19.fasta", "/xchip/gistic/Jeremiah/blat/11.ooc");
 
+  // convert qname (big) to in (small)
+  std::unordered_map<std::string, int> qname_set;
+
   size_t countr = 0;
   while(walk.GetNextRead(r, rule)) {
+
+    if (r.ChrID() > 23)
+      break;
 
     if (!rule)
       continue;
     
     ++countr;
 
-#ifdef CLIP_SEARCH
     SnowTools::Cigar cig = r.GetCigar();
     
-    assert(cig.size() > 1);
+    if (cig.size() <= 1)
+      continue;
+    
+    int matchlen = 0;
+    for (auto& c : cig)
+      if (c.Type() == 'M')
+	matchlen += c.Length();
+    if (matchlen < MIN_MATCH_FACTOR * READ_LEN)
+      continue;
+
+    if (!qname_set.count(r.Qname()))
+      qname_set[r.Qname()] = qname_set.size();
+    std::string QN = std::to_string(qname_set[r.Qname()]);
 
     if (countr % 100000 == 0 )
       std::cerr << "...at split read " << SnowTools::AddCommas(countr) << " at position " << r.Brief(walk.header()) << std::endl;
 
-    if (cig[0].Type() == 'H' || cig[0].Type() == 'S')  // split on left
+    if ( (cig[0].Type() == 'H' || cig[0].Type() == 'S') && cig[0].Length() >= MIN_CLIP_FACTOR * READ_LEN)  // split on left
       std::cout << "L\t" << r.ChrName(walk.header()) << "\t" << r.Position() << 
-	"\t" << (r.ReverseFlag() ? "-" : "+") << "\t" << r.Qname() << "\t" << r.MapQuality() << "\t" << (r.SecondaryFlag() ? "SEC" : "PRI") << "\t" << (bks.findOverlapping(r.asGenomicRegion()) ? "IN_BK" : "NO_BK") << "\t0" << std::endl;
+	"\t" << (r.ReverseFlag() ? "-" : "+") << "\t" << QN << "\t" << r.MapQuality() << "\t" << (r.SecondaryFlag() ? "SEC" : "PRI") << "\t" << (bks.findOverlapping(r.asGenomicRegion()) ? "BK" : "NBK") << "\t0" << std::endl;
     
-    if (cig.back().Type() == 'H' || cig.back().Type() == 'S')  // split on left
+    if ( (cig.back().Type() == 'H' || cig.back().Type() == 'S') && cig.back().Length() >= MIN_CLIP_FACTOR * READ_LEN)  // split on right
       std::cout << "R\t" << r.ChrName(walk.header()) << "\t" << r.PositionEnd() 
-		<<  "\t" << (r.ReverseFlag() ? "-" : "+") << "\t" << r.Qname() << "\t" << r.MapQuality() << "\t" << (r.SecondaryFlag() ? "SEC" : "PRI") << "\t" << (bks.findOverlapping(r.asGenomicRegion()) ? "IN_BK" : "NO_BK") << "\t0" << std::endl;
-#endif
+		<<  "\t" << (r.ReverseFlag() ? "-" : "+") << "\t" << QN << "\t" << r.MapQuality() << "\t" << (r.SecondaryFlag() ? "SEC" : "PRI") << "\t" << (bks.findOverlapping(r.asGenomicRegion()) ? "BK" : "NBK") << "\t0" << std::endl;
 
     // look for indels
-     //#ifdef INDEL_SEARCH
     int pos = r.Position();
     for (auto& c : cig) {
-      //if ((c.Type() == 'D' || c.Type() == 'I')  && c.Length() >= 30) 
-	if (c.Type() == 'D' || c.Type() == 'I')
+      if ((c.Type() == 'D' || c.Type() == 'I') && c.Length() >= 30) 
 	std::cout << c.Type() << "\t" << r.ChrName(walk.header()) << "\t" << pos << "\t+\t" 
-	   << r.Qname() << "\t" << r.MapQuality() << "\t" << (r.SecondaryFlag() ? "SEC" : "PRI") << "\t" << 
-	  (bks.findOverlapping(r.asGenomicRegion()) ? "IN_BK" : "NO_BK") << "\t" << c.Length() << std::endl;
+		  << QN << "\t" << r.MapQuality() << "\t" << (r.SecondaryFlag() ? "SEC" : "PRI") << "\t" 
+		  << (bks.findOverlapping(r.asGenomicRegion()) ? "BK" : "NBK") << "\t" << c.Length() << std::endl;
       if (c.ConsumesReference())
 	pos += c.Length();
     }
-    //#endif    
-
 
     // try BLAT realignment
     //SnowTools::BamReadVector brv;

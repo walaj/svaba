@@ -384,6 +384,7 @@ namespace SnowTools {
       
       // get read ID
       std::string sr = j.GetZTag("SR");
+      assert(sr.length());
       assert(sr.at(0) == 't' || sr.at(0) == 'n');
       bool tumor_read = sr.at(0) == 't';
       std::string sample_id = sr.substr(0,4);

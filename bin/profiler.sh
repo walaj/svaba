@@ -10,7 +10,7 @@ echo "pdf('memgraph.pdf'); g <- ggplot(df, aes(x=time, y=V1/1024)) + geom_line()
 chmod +x memplot.R;
 
 while true; do
-  sleep 1
+  sleep 0.1
   sample="$(ps -o rss= $pid 2> /dev/null)" || break
   let peak='sample > peak ? sample : peak'
   echo "$sample" >> mem.log
