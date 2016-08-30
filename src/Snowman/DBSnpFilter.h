@@ -6,17 +6,16 @@
 #include <iostream>
 #include <unordered_set>
 
-#include "SnowTools/GenomicRegionCollection.h"
+#include "SeqLib/GenomicRegionCollection.h"
+#include "SeqLib/BamHeader.h"
 
 #include "BreakPoint2.h"
 
-namespace SnowTools {
-
-  class DBSnpSite: public GenomicRegion {
+class DBSnpSite: public SeqLib::GenomicRegion {
 
   public:
 
-    DBSnpSite(const std::string& tchr, const std::string& pos, const std::string& rs, const std::string& ref, const std::string& alt);
+  DBSnpSite(const std::string& tchr, const std::string& pos, const std::string& rs, const std::string& ref, const std::string& alt, const SeqLib::BamHeader& h);
 
     //std::string m_rs;
     //std::string m_ref;
@@ -26,7 +25,7 @@ namespace SnowTools {
     
   };
 
-  typedef GenomicRegionCollection<DBSnpSite> DBC;
+typedef SeqLib::GenomicRegionCollection<DBSnpSite> DBC;
 
   class DBSnpFilter {
     
@@ -34,14 +33,14 @@ namespace SnowTools {
 
     DBSnpFilter() {}
 
-    DBSnpFilter(const std::string& db); 
+    DBSnpFilter(const std::string& db, const SeqLib::BamHeader& h); 
 
     /** Test whether the variant overlaps a DBSnp site 
      * If it does, fill the BreakPoint rs field
      */
     bool queryBreakpoint(BreakPoint& bp);
 
-    bool queryRead(const BamRead& r) const;
+    bool queryRead(const SeqLib::BamRecord& r) const;
 
     bool queryHash(const std::string& r) const;
     
@@ -56,7 +55,5 @@ namespace SnowTools {
     std::unordered_set<std::string> m_hash;
     
   };
-
-}
 
 #endif

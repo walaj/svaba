@@ -5,6 +5,10 @@
 #include <numeric>
 #include <unordered_set>
 
+#include "SeqLib/BamWalker.h"
+#include "SeqLib/BamRecord.h"
+#include "SnowmanUtils.h"
+
 #define DISC_PAD 150
 #define MIN_PER_CLUST 2
 
@@ -12,29 +16,9 @@
 
 //#define DEBUG_CLUSTER 1
 
-namespace SnowTools {
+using namespace SeqLib;
 
-  //http://stackoverflow.com/questions/2114797/compute-median-of-values-stored-in-vector-c
-  double CalcMHWScore(std::vector<int>& scores)
-  {
-    double median;
-    size_t size = scores.size();
-    
-    std::sort(scores.begin(), scores.end());
-    
-    if (size  % 2 == 0)
-      {
-	median = (scores[size / 2 - 1] + scores[size / 2]) / 2;
-      }
-    else 
-      {
-	median = scores[size / 2];
-      }
-    
-    return median;
-  }
-  
-  DiscordantClusterMap DiscordantCluster::clusterReads(const BamReadVector& bav, const GenomicRegion& interval, int max_mapq_possible, const std::unordered_map<std::string, int> * min_isize_for_disc) {
+  DiscordantClusterMap DiscordantCluster::clusterReads(const BamRecordVector& bav, const GenomicRegion& interval, int max_mapq_possible, const std::unordered_map<std::string, int> * min_isize_for_disc) {
 
 #ifdef DEBUG_CLUSTER
     std::cerr << "CLUSTERING WITH " << bav.size() << " reads " << " and min isize for disc " << min_isize_for_disc << std::endl;
@@ -57,7 +41,7 @@ namespace SnowTools {
 	}*/
 
     // only add the discordant reads, respecting diff size cutoffs for diff RG
-    BamReadVector bav_dd;
+    BamRecordVector bav_dd;
     for (auto& r : bav) {
      
       // if suspicious as disccordant, chuck it
@@ -95,7 +79,7 @@ namespace SnowTools {
       return DiscordantClusterMap();
 
     // sort by position
-    std::sort(bav_dd.begin(), bav_dd.end(), BamReadSort::ByReadPosition());
+    std::sort(bav_dd.begin(), bav_dd.end(), BamRecordSort::ByReadPosition());
 
 #ifdef DEBUG_CLUSTER    
     for (auto& i : bav_dd)
@@ -105,7 +89,7 @@ namespace SnowTools {
     // clear the tmp map. Now we want to use it to store if we already clustered read
     //tmp_map.clear();
     
-    BamReadClusterVector fwd, rev, fwdfwd, revrev, fwdrev, revfwd;
+    BamRecordClusterVector fwd, rev, fwdfwd, revrev, fwdrev, revfwd;
     std::pair<int, int> fwd_info, rev_info; // refid, pos
     fwd_info = {-1,-1};
     rev_info = {-1,-1};
@@ -177,7 +161,7 @@ namespace SnowTools {
     DiscordantClusterMap dd_clean;
     for (auto& i : dd) {
       if (!i.second.isEmpty())
-	if (interval.isEmpty() /* whole genome */ || i.second.m_reg1.getOverlap(interval) > 0 || i.second.m_reg2.getOverlap(interval))
+	if (interval.IsEmpty() /* whole genome */ || i.second.m_reg1.GetOverlap(interval) > 0 || i.second.m_reg2.GetOverlap(interval))
 	  dd_clean[i.first] = i.second;
     }
 
@@ -206,7 +190,7 @@ namespace SnowTools {
   }
   
   // this reads is reads in the cluster. all_reads is big pile where all the clusters came from
-  DiscordantCluster::DiscordantCluster(const BamReadVector& this_reads, const BamReadVector& all_reads, int max_mapq_possible) {
+  DiscordantCluster::DiscordantCluster(const BamRecordVector& this_reads, const BamRecordVector& all_reads, int max_mapq_possible) {
     
     if (this_reads.size() == 0)
       return;
@@ -232,7 +216,7 @@ namespace SnowTools {
     std::sort(isizer.begin(), isizer.end());
     if (isizer.size() >= 5 && isizer.back() - isizer[0] > 400) {
 
-      medr = CalcMHWScore(isizer);
+      medr = SnowmanUtils::CalcMHWScore(isizer);
 
       // get the mean
       double sum = std::accumulate(isizer.begin(), isizer.end(), 0.0);
@@ -289,9 +273,9 @@ namespace SnowTools {
     assert(reads.size());
 
     // set the regions
-    m_reg1 = SnowTools::GenomicRegion(-1, -1, -1);
+    m_reg1 = GenomicRegion(-1, -1, -1);
     m_reg1.pos1 = REGPOS1;
-    m_reg2 = SnowTools::GenomicRegion(-1, -1, -1); // mate region
+    m_reg2 = GenomicRegion(-1, -1, -1); // mate region
     m_reg2.pos1 = REGPOS1;
     for (auto& i : reads) 
       {
@@ -302,7 +286,7 @@ namespace SnowTools {
 	int endpos = i.second.PositionEnd(); //r_endpos(i.second);
 	if (endpos > m_reg1.pos2)
 	  m_reg1.pos2 = endpos;
-	assert(m_reg1.width() < 5000);
+	assert(m_reg1.Width() < 5000);
       }
     
     for (auto& i : mates) 
@@ -314,7 +298,7 @@ namespace SnowTools {
 	int endpos = i.second.PositionEnd();
 	if (endpos > m_reg2.pos2)
 	  m_reg2.pos2 = endpos;
-	assert(m_reg2.width() < 5000);
+	assert(m_reg2.Width() < 5000);
       }
     
     // if no mates (we didn't look up), still make the mate region
@@ -327,7 +311,7 @@ namespace SnowTools {
 	int endpos = i.second.MatePosition() + i.second.Length();
 	if (endpos > m_reg2.pos2)
 	  m_reg2.pos2 = endpos;
-	assert(m_reg2.width() < 5000);
+	assert(m_reg2.Width() < 5000);
       }
     }
 
@@ -363,7 +347,7 @@ namespace SnowTools {
 
   }
   
-  void DiscordantCluster::addMateReads(const BamReadVector& bav) 
+  void DiscordantCluster::addMateReads(const BamRecordVector& bav) 
   { 
     
     if (!reads.size())
@@ -382,14 +366,14 @@ namespace SnowTools {
     // with mate regions
     GenomicRegion g(reads.begin()->second.MateChrID(), reads.begin()->second.MatePosition(), reads.begin()->second.MatePosition()); 
     bool st = reads.begin()->second.MateReverseFlag();
-    g.pad(DISC_PAD + 1000);
+    g.Pad(DISC_PAD + 1000);
     
     for (auto& i : bav) {
       std::string sr;
       if (qnames.count(i.Qname())) {
 	  std::string tmp = i.GetZTag("SR");
 	  if (reads.count(tmp) == 0)  {// only add if this is a mate read
-	    if (i.ReverseFlag() == st && g.getOverlap(i.asGenomicRegion()) > 0) // agrees with intiial mate orientation and position
+	    if (i.ReverseFlag() == st && g.GetOverlap(i.asGenomicRegion()) > 0) // agrees with intiial mate orientation and position
 	      mates[tmp] = i;
 	  }
 	}
@@ -535,7 +519,7 @@ namespace SnowTools {
    * @param mate Flag to specify if we should cluster on mate position instead of read position
    * @return Description of the return value
    */
-  bool DiscordantCluster::__add_read_to_cluster(BamReadClusterVector &cvec, BamReadVector &clust, const BamRead &a, bool mate) {
+  bool DiscordantCluster::__add_read_to_cluster(BamRecordClusterVector &cvec, BamRecordVector &clust, const BamRecord &a, bool mate) {
 
     // get the position of the previous read. If none, we're starting a new one so make a dummy
     std::pair<int,int> last_info;
@@ -588,13 +572,13 @@ namespace SnowTools {
     }
   }
 
-  void DiscordantCluster::__cluster_mate_reads(BamReadClusterVector& brcv, BamReadClusterVector& fwd, BamReadClusterVector& rev)
+  void DiscordantCluster::__cluster_mate_reads(BamRecordClusterVector& brcv, BamRecordClusterVector& fwd, BamRecordClusterVector& rev)
   {
     // loop through the clusters, and cluster within clusters based on mate read
     for (auto& v : brcv) 
       {
-	BamReadVector this_fwd, this_rev;
-	std::sort(v.begin(), v.end(), BamReadSort::ByMatePosition());
+	BamRecordVector this_fwd, this_rev;
+	std::sort(v.begin(), v.end(), BamRecordSort::ByMatePosition());
 
 	for (auto& r : v) 
 	  {
@@ -614,11 +598,11 @@ namespace SnowTools {
       } // finish main cluster loop
   }
   
-  void DiscordantCluster::__cluster_reads(const BamReadVector& brv, BamReadClusterVector& fwd, BamReadClusterVector& rev, int orientation) 
+  void DiscordantCluster::__cluster_reads(const BamRecordVector& brv, BamRecordClusterVector& fwd, BamRecordClusterVector& rev, int orientation) 
   {
 
     // hold the current cluster
-    BamReadVector this_fwd, this_rev;
+    BamRecordVector this_fwd, this_rev;
 
     std::unordered_set<std::string> tmp_set;
 
@@ -653,7 +637,7 @@ namespace SnowTools {
 
   }
 
-  void DiscordantCluster::__convertToDiscordantCluster(DiscordantClusterMap &dd, const BamReadClusterVector& cvec, const BamReadVector& bav, int max_mapq_possible) {
+  void DiscordantCluster::__convertToDiscordantCluster(DiscordantClusterMap &dd, const BamRecordClusterVector& cvec, const BamRecordVector& bav, int max_mapq_possible) {
     
     for (auto& v : cvec) {
       if (v.size() > 1) {
@@ -665,27 +649,25 @@ namespace SnowTools {
   
   GenomicRegion DiscordantCluster::GetMateRegionOfOverlap(const GenomicRegion& gr) const {
     
-    if (gr.getOverlap(m_reg1))
+    if (gr.GetOverlap(m_reg1))
       return m_reg2;
-    if (gr.getOverlap(m_reg2))
+    if (gr.GetOverlap(m_reg2))
       return m_reg1;
     return GenomicRegion();
 
   }
 
   bool DiscordantCluster::isEmpty() const {
-    return m_reg1.isEmpty() || m_reg2.isEmpty() || m_reg1.chr == -1 || m_reg2.chr == -1;
+    return m_reg1.IsEmpty() || m_reg2.IsEmpty() || m_reg1.chr == -1 || m_reg2.chr == -1;
   }
 
-  void DiscordantCluster::__remove_singletons(BamReadClusterVector& b)  {
+  void DiscordantCluster::__remove_singletons(BamRecordClusterVector& b)  {
 
-    BamReadClusterVector tmp;
+    BamRecordClusterVector tmp;
     for (auto& f : b)
       if (f.size() > 1)
 	tmp.push_back(f);
     
     b = tmp;
   }
-  
-}
 

@@ -11,7 +11,8 @@
 #include "SGAlgorithms.h"
 #include "SGUtil.h"
 #include "Util.h"
-#include "contigs.h"
+//#include "contigs.h"
+#include "SeqLib/UnalignedSequence.h"
 
 #ifndef SGVISITORS_H
 #define SGVISITORS_H
@@ -33,62 +34,23 @@ struct SGFastaVisitor
 };
 
 // Visit each node, writing it to a file as a fasta record
+// jwala modified
 struct SGVisitorContig
 {
-    // constructor
+  // constructor
   SGVisitorContig() {}
   ~SGVisitorContig() {}
-
-    // functions
-    void previsit(StringGraph* /*pGraph*/) {}
-    bool visit(StringGraph* pGraph, Vertex* pVertex);
-    void postvisit(StringGraph* /*pGraph*/) {}
-
-    // data
-    std::vector<Contig> m_ct;
+  
+  // functions
+  void previsit(StringGraph* /*pGraph*/) {}
+  bool visit(StringGraph* pGraph, Vertex* pVertex);
+  void postvisit(StringGraph* /*pGraph*/) {}
+  
+  // data
+  SeqLib::UnalignedSequenceVector m_ct;
 };
-
 
 // Visit each node, writing it to a file as a fasta record
-//JEREMIAH
-/*
-struct SGFastaVisitorSTDOUT
-{
-  // constructor
-  SGFastaVisitorSTDOUT(int cutoff) : cut(cutoff) {}
-
-  // functions
-  void previsit(StringGraph*) {} 
-  bool visit(StringGraph* pGraph, Vertex* pVertex);
-  void postvisit(StringGraph*) {}
-
-  // data
-  int cut;
-  SeqRecordVector sqrv;
-  //std::cout m_fileHandle;
-};
-*/
-
-// Visit each node, writing it to a file as a fasta record
- //JEREMIAH
- /*
-struct SGFastaVisitorSeqRecord
-{
-
-  SGFastaVisitorSeqRecord(int cutoff) : cut(cutoff) {}
-
-  // functions
-  void previsit(StringGraph*) {} 
-  bool visit(StringGraph* pGraph, Vertex* pVertex);
-  void postvisit(StringGraph*) {}
-
-  // data
-  int cut;
-  SeqRecordVector sqrv;
-  //std::cout m_fileHandle;
-};
-*/
-
 // Run the Myers transitive reduction algorithm on each node
 struct SGTransitiveReductionVisitor
 {

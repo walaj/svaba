@@ -171,7 +171,8 @@ libstringgraph_a_CPPFLAGS = \
 	-I$(top_srcdir)/src/SGA/Util \
 	-I$(top_srcdir)/src/SGA/Thirdparty \
 	-I$(top_srcdir)/src/SGA/Algorithm \
-	-I$(top_srcdir)/src/SGA/SQG
+	-I$(top_srcdir)/src/SGA/SQG \
+	-I$(top_srcdir)/SeqLib
 
 libstringgraph_a_SOURCES = \
         SGUtil.cpp SGUtil.h \

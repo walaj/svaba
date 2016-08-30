@@ -1,4 +1,7 @@
 #include "AssemblyBamWalker.h"
+#include "SeqLib/UnalignedSequence.h"
+#include "SeqLib/ReadFilter.h"
+
 #include <chrono>
 #include <thread>
 
@@ -19,14 +22,14 @@ static std::shared_ptr<hts_idx_t> ttindex, nnindex;
 static faidx_t* f;
 static std::set<std::string> prefixes;
 
+static SeqLib::Filter::ReadFilterCollection * mr;
+
 //static ofstream os_allbps;
 static struct timespec start;
 
-static SnowTools::MiniRulesCollection * mr;
+static SeqLib::RefGenome * ref_genomeAW, * ref_genome_viral_dummy;
 
-static SnowTools::RefGenome * ref_genomeAW, * ref_genome_viral_dummy;
-
-bool __good_contig(const SnowTools::BamReadVector& brv, const SnowTools::GenomicRegionVector& regions, int max_len, int max_mapq) {
+bool __good_contig(const SeqLib::BamRecordVector& brv, const SeqLib::GenomicRegionVector& regions, int max_len, int max_mapq) {
   // NO INDELS
   /*  return (brv.size() && regions.size() && brv.size() < 20  && (brv.size() > 1) && 
 	  brv[0].Length() < 20000 && brv[0].CigarSize() < 50 &&
@@ -44,14 +47,14 @@ bool __good_contig(const SnowTools::BamReadVector& brv, const SnowTools::Genomic
 	  max_len > 101 && max_mapq >= 0);
 }
 
-//bool runAC(SnowTools::BamReadVector& brv, faidx_t * f, std::shared_ptr<hts_idx_t> pt, std::shared_ptr<hts_idx_t> pn,
-//	   const std::string& t, const std::string& n, const SnowTools::GenomicRegionVector& regions) {
+//bool runAC(SeqLib::BamRecordVector& brv, faidx_t * f, std::shared_ptr<hts_idx_t> pt, std::shared_ptr<hts_idx_t> pn,
+//	   const std::string& t, const std::string& n, const SeqLib::GenomicRegionVector& regions) {
 bool runAC(const ContigElement * c) {
   
-  SnowTools::GenomicRegionVector trimmed_regions;
+  SeqLib::GRC trimmed_regions;
   for (auto& r : c->regions)
     if (r.chr < 24)
-      trimmed_regions.push_back(r);
+      trimmed_regions.add(r);
 
   if (!trimmed_regions.size())
     return true;
@@ -63,8 +66,8 @@ bool runAC(const ContigElement * c) {
     twalk.prefix = "t000";
     twalk.max_cov = 200;
     twalk.get_mate_regions = false;
-    twalk.setBamWalkerRegions(trimmed_regions, ttindex);
-    twalk.SetMiniRulesCollection(*mr);
+    twalk.SetPreloadedIndex(ttindex);
+    twalk.SetMultipleRegions(trimmed_regions);
     twalk.readBam();
   }
   if (!nn.empty()) {
@@ -72,11 +75,11 @@ bool runAC(const ContigElement * c) {
     nwalk.prefix = "n000";
     nwalk.max_cov = 200;
     nwalk.get_mate_regions = false;
-    nwalk.setBamWalkerRegions(trimmed_regions, nnindex);
-    nwalk.SetMiniRulesCollection(*mr);
+    nwalk.SetPreloadedIndex(nnindex);
+    nwalk.SetMultipleRegions(trimmed_regions);
     nwalk.readBam();
   }
-  SnowTools::BamReadVector bav_this;
+  SeqLib::BamRecordVector bav_this;
   for (auto& q : twalk.reads)
     bav_this.push_back(q);
   for (auto& q : nwalk.reads)
@@ -84,12 +87,12 @@ bool runAC(const ContigElement * c) {
 
   // cluster the reads
   // set region to empty, just won't double-check that cluster overlaps regino. No big deal
-  SnowTools::DiscordantClusterMap dmap = SnowTools::DiscordantCluster::clusterReads(bav_this, SnowTools::GenomicRegion(), 37, nullptr);
+  DiscordantClusterMap dmap = DiscordantCluster::clusterReads(bav_this, SeqLib::GenomicRegion(), 37, nullptr);
 
-  std::vector<SnowTools::AlignedContig> this_alc;
+  std::vector<AlignedContig> this_alc;
 
   // contruct the index
-  SnowTools::USeqVector usv;
+  SeqLib::UnalignedSequenceVector usv;
   assert(c->brv[0].Qname().length());
   assert(c->brv[0].Sequence().find("N") == std::string::npos);
   
@@ -100,10 +103,10 @@ bool runAC(const ContigElement * c) {
   // BY THE ALIGNER.
   std::string sss = c->brv[0].Sequence();
   if (c->brv[0].ReverseFlag())
-    SnowTools::rcomplement(sss);
-  usv.push_back({c->brv[0].Qname(), sss});
+    SeqLib::rcomplement(sss);
+  usv.push_back({c->brv[0].Qname(), sss, std::string()});
   
-  SnowTools::BWAWrapper bw;
+  SeqLib::BWAWrapper bw;
   bw.constructIndex(usv);
   
   if (!prefixes.size()) {
@@ -111,8 +114,8 @@ bool runAC(const ContigElement * c) {
     prefixes.insert("n000");
   }
 
-  this_alc.push_back(SnowTools::AlignedContig(c->brv, prefixes));
-  SnowTools::AlignedContig * ac = &this_alc.back();
+  this_alc.push_back(AlignedContig(c->brv, prefixes));
+  AlignedContig * ac = &this_alc.back();
   for (auto& kk : ac->m_frag_v)
     kk.m_max_indel = 20;
 
@@ -124,14 +127,14 @@ bool runAC(const ContigElement * c) {
   ac->addDiscordantCluster(dmap);
 
   // get teh coverages
-  std::unordered_map<std::string, SnowTools::STCoverage*> covs;
-  std::unordered_map<std::string, SnowTools::STCoverage*> clip_covs;
+  std::unordered_map<std::string, STCoverage*> covs;
+  std::unordered_map<std::string, STCoverage*> clip_covs;
   covs["t000"] = &twalk.cov;
   covs["n000"] = &nwalk.cov;
   clip_covs["t000"] = &twalk.cov;
   clip_covs["n000"] = &nwalk.cov;
   
-  std::vector<SnowTools::BreakPoint> allbreaks = ac->getAllBreakPoints(false); // false says dont worry about "local"
+  std::vector<BreakPoint> allbreaks = ac->getAllBreakPoints(false); // false says dont worry about "local"
   for (auto& i : allbreaks)
     i.repeatFilter();
   for (auto& i : allbreaks)
@@ -150,11 +153,11 @@ bool runAC(const ContigElement * c) {
   if (cov > 100 || num_to_run % 1000 == 0) {
     std::stringstream ss;
 #ifndef __APPLE__
-    ss << SnowTools::displayRuntime(start);
+    ss << SeqLib::displayRuntime(start);
 #endif
-    std::cerr << "..read " << SnowTools::AddCommas(bav_this.size()) << " reads from " << 
+    std::cerr << "..read " << SeqLib::AddCommas(bav_this.size()) << " reads from " << 
       trimmed_regions.size() << " region starting at " << trimmed_regions.at(0) << " Queue-left " << 
-      SnowTools::AddCommas(num_to_run) << " " << ss.str() << std::endl;
+      SeqLib::AddCommas(num_to_run) << " " << ss.str() << std::endl;
   }
 
   std::stringstream outr;
@@ -186,7 +189,7 @@ void AssemblyBamWalker::walkDiscovar()
 
   rules.replace(rules.find("MINS"), 4, std::to_string(MIN_ISIZE_FOR_DISC));
 
-  mr = new SnowTools::MiniRulesCollection(rules, header());
+  mr = new SeqLib::Filter::ReadFilterCollection(rules, SeqLib::BamHeader());
 
   f = findex;
   tt = tbam;
@@ -196,18 +199,18 @@ void AssemblyBamWalker::walkDiscovar()
 
   SnowmanUtils::fopen(id + ".alignments.txt.gz", all_align);
   SnowmanUtils::fopen(id + ".bps.txt.gz", os_allbps);
-  os_allbps << SnowTools::BreakPoint::header() << std::endl;
+  os_allbps << BreakPoint::header() << std::endl;
 
-  SnowTools::BamRead r;
+  SeqLib::BamRecord r;
   std::cerr << "...starting to walk assembly BAM" << std::endl;
 
-  std::vector<SnowTools::AlignedContig> ac_vec;
+  std::vector<AlignedContig> ac_vec;
   
-  std::unordered_map<std::string, SnowTools::BamReadVector> map;
+  std::unordered_map<std::string, SeqLib::BamRecordVector> map;
 
-  SnowTools::BamReadVector brv;
+  SeqLib::BamRecordVector brv;
 
-  SnowTools::GenomicRegionVector regions;
+  SeqLib::GenomicRegionVector regions;
 
   // start the timer
 #ifndef __APPLE__
@@ -229,19 +232,19 @@ void AssemblyBamWalker::walkDiscovar()
     threadqueue.push_back(threadr);
   }
   
-  bool rule;
   int count = 0, acc_count = 0;
   std::string curr_name;
 
   std::vector<AssemblyWalkerWorkItem*> tmp_queue;
 
   // open ref genome for extracting sequences
-  ref_genomeAW = new SnowTools::RefGenome(refGenome);
+  ref_genomeAW = new SeqLib::RefGenome(refGenome);
   
   int max_mapq = 0, max_len = 0;
-  while(GetNextRead(r, rule)) {
+  while(GetNextRecord(r)) {
+
     if (++count % 200000 == 0) 
-      std::cerr << "...checking contig " << SnowTools::AddCommas(count) << " to see if we should parse" << std::endl;
+      std::cerr << "...checking contig " << SeqLib::AddCommas(count) << " to see if we should parse" << std::endl;
 
     // give each contig a unique prefix
     //r.SetQname("contig_" + r.Qname());
@@ -260,8 +263,8 @@ void AssemblyBamWalker::walkDiscovar()
     // add to existing
     if (curr_name == r.Qname()) {
 
-      SnowTools::GenomicRegion gr = r.asGenomicRegion();
-      gr.pad(100);
+      SeqLib::GenomicRegion gr = r.asGenomicRegion();
+      gr.Pad(100);
       regions.push_back(gr);
       brv.push_back(r);
       max_mapq = std::max(r.MapQuality(), max_mapq);
@@ -290,91 +293,7 @@ void AssemblyBamWalker::walkDiscovar()
 #endif
 
 	tmp_queue.push_back(item);
-	//queue.add(item);
-	//std::cerr << " qua " << queue.size() <<std::endl;
-
 	regions.clear();
-	/// hack
-	//while (queue.size() > 1000) {
-	//  std::cerr << queue.size() << std::endl;
-	//  std::this_thread::sleep_for(std::chrono::milliseconds(1));
-	//	}
-
-	/*if (acc_count % 10000 == 0)
-	  std::cerr << " adding count " << SnowTools::AddCommas(count) << " Nmap: " << brv.size() << " Name: " << 
-	    brv[0].Qname() << " " << brv[0].asGenomicRegion() << " qsize " << tmp_queue.size() << std::endl;	
-	*/
-	/*if (count > 5e6) {
-	  all_align.close();
-	  os_allbps.close();
-	  return; //exit(0);
-	  break;
-	  }*/
-
-
-	/*
-	std::vector<SnowTools::AlignedContig> this_alc;
-
-	int rsize = regions.size();
-
-	// grab the reads
-	assert(regions.size());
-	twalk.setBamWalkerRegions(regions, tindex);
-	nwalk.setBamWalkerRegions(regions, nindex);
-	twalk.readBam();
-	nwalk.readBam();
-	SnowTools::BamReadVector bav_this;
-	for (auto& q : twalk.reads)
-	  bav_this.push_back(q);
-	for (auto& q : nwalk.reads)
-	  bav_this.push_back(q);
-	twalk.resetAll(); twalk.reads.clear();
-	nwalk.resetAll(); nwalk.reads.clear();
-
-	// contruct the index
-	SnowTools::USeqVector usv;
-	for (auto i : brv) {
-	  assert(i.Qname().length());
-	  assert(i.Sequence().find("N") == std::string::npos);
-	  usv.push_back({i.Qname(), i.Sequence()});
-	}
-	SnowTools::BWAWrapper bw;
-	bw.constructIndex(usv);
-
-	this_alc.push_back(SnowTools::AlignedContig(brv));
-	SnowTools::AlignedContig * ac = &this_alc.back();
-
-	// align the reads
-	alignReadsToContigs(bw, usv, bav_this, this_alc);
-	ac->assignSupportCoverage(); // dummies
-	ac->splitCoverage(); 
-
-	// get teh coverages
-	std::unordered_map<std::string, SnowTools::STCoverage*> covs;
-	std::unordered_map<std::string, SnowTools::STCoverage*> clip_covs;
-	covs["t000"] = &twalk.cov;
-	covs["n000"] = &nwalk.cov;
-	clip_covs["t000"] = &twalk.cov;
-	clip_covs["n000"] = &nwalk.cov;
-
-	std::vector<SnowTools::BreakPoint> allbreaks = ac->getAllBreakPoints(false); // false says dont worry about "local"
-	for (auto& i : allbreaks)
-	  i.addCovs(covs, clip_covs);
-	for (auto& i : allbreaks)
-	  i.scoreBreakpoint();
-	for (auto& i : allbreaks)
-	  i.setRefAlt(findex, nullptr);
-
-	all_align << (*ac) << std::endl;
-	bool no_reads = true;
-	for (auto& i : allbreaks)
-	  os_allbps << i.toFileString(no_reads) << std::endl;
-
-	std::stringstream ss;
-	ss << SnowTools::displayRuntime(start);
-	std::cerr << "..read " << SnowTools::AddCommas(bav_this.size()) << " reads from " << rsize << " regions for contig " << SnowTools::AddCommas(count) << " " << ss.str() << std::endl;
-	*/
-	
       }
 
       // prepare the next one
@@ -382,8 +301,8 @@ void AssemblyBamWalker::walkDiscovar()
       brv.push_back(r);
       curr_name = r.Qname();
       regions.clear();
-      SnowTools::GenomicRegion gr = r.asGenomicRegion();
-      gr.pad(1000);
+      SeqLib::GenomicRegion gr = r.asGenomicRegion();
+      gr.Pad(1000);
       regions.push_back(gr);
       max_mapq = r.MapQuality();
       max_len  = r.Length();
@@ -397,7 +316,7 @@ void AssemblyBamWalker::walkDiscovar()
     tmp_queue.push_back(item);
   }
 
-  std::cerr << "...done adding " << SnowTools::AddCommas(tmp_queue.size()) << " contigs. Firing up " << 
+  std::cerr << "...done adding " << SeqLib::AddCommas(tmp_queue.size()) << " contigs. Firing up " << 
     numThreads << " re-alignment threads" << std::endl;
   num_to_run = tmp_queue.size();
   

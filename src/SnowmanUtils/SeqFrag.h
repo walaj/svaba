@@ -3,11 +3,11 @@
 
 #include <string>
 
-#include "SnowTools/BWAWrapper.h"
+#include "SeqLib/BWAWrapper.h"
 
 #include "ReadSim.h"
 
-using SnowTools::GenomicRegion;
+using SeqLib::GenomicRegion;
 
 class SeqFrag {
 

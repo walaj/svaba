@@ -246,7 +246,7 @@ const char* PSUEDO = "CAAAAAGACATTTTTTTTGGGATATTAAGATTTCCTAGGATAGAAATCAAATTATTAG
  std::string to_insert = phage.substr(start, width);
 
  // get the center point
- int center = m_gr.width() / 2;
+ int center = m_gr.Width() / 2;
  phage_site = center;
  phage_string = to_insert;
 
@@ -277,7 +277,7 @@ void SeqFrag::addIndels(size_t n) {
     return;
 
   if (m_gr.strand == '-') // flip it back to process, then flip at end
-    SnowTools::rcomplement(m_seq);
+    SeqLib::rcomplement(m_seq);
 
   std::vector<std::string> TCGA = {"T","C","G","A"};
 
@@ -310,7 +310,7 @@ void SeqFrag::addIndels(size_t n) {
 	  ins_string += TCGA[rand() % 4];
       } else { // tandem duplications for large
 	int len;
-	std::string chrstring = SnowTools::GenomicRegion::chrToString(m_gr.chr);
+	std::string chrstring = m_gr.ChrName(SeqLib::BamHeader());
 	char * seq = faidx_fetch_seq(m_index, const_cast<char*>(chrstring.c_str()), m_gr.pos1 + breaks[i], m_gr.pos1 + breaks[i] + ds -1, &len);
 	ins_string = std::string(seq);
 	//std::cerr << ins_string.length() << " " << ds << std::endl;
@@ -325,9 +325,9 @@ void SeqFrag::addIndels(size_t n) {
     // make the indel object
     Indel ind(ds, etype, ref_seq, alt_seq, lead_base);
     if (etype == 'D')
-      ind.gr = SnowTools::GenomicRegion(m_gr.chr, m_gr.pos1 + breaks[i]-1, m_gr.pos1 + breaks[i] + ds-1);
+      ind.gr = SeqLib::GenomicRegion(m_gr.chr, m_gr.pos1 + breaks[i]-1, m_gr.pos1 + breaks[i] + ds-1);
     else
-      ind.gr = SnowTools::GenomicRegion(m_gr.chr, m_gr.pos1 + breaks[i], m_gr.pos1 + breaks[i] + 1);
+      ind.gr = SeqLib::GenomicRegion(m_gr.chr, m_gr.pos1 + breaks[i], m_gr.pos1 + breaks[i] + 1);
     ind.frag_id = frag_id;
 
     // check that it's not on a blank region
@@ -359,7 +359,7 @@ void SeqFrag::addIndels(size_t n) {
   }
 
   if (m_gr.strand == '-') // flip back if need be
-    SnowTools::rcomplement(new_seq);
+    SeqLib::rcomplement(new_seq);
   
   m_seq = new_seq;
 
@@ -368,7 +368,7 @@ void SeqFrag::addIndels(size_t n) {
 void SeqFrag::getSeqFromRef(faidx_t * findex) {
 
   int len;
-  std::string chrstring = SnowTools::GenomicRegion::chrToString(m_gr.chr);
+  std::string chrstring = m_gr.ChrName(SeqLib::BamHeader());
   char * seq = faidx_fetch_seq(findex, const_cast<char*>(chrstring.c_str()), m_gr.pos1-1, m_gr.pos2/*-1*/, &len);
   
   if (!seq) {
@@ -380,7 +380,7 @@ void SeqFrag::getSeqFromRef(faidx_t * findex) {
 
   // reverse complement if need
   if (m_gr.strand == '-') {
-    SnowTools::rcomplement(m_seq); 
+    SeqLib::rcomplement(m_seq); 
   }
 }
 

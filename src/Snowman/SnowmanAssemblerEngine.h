@@ -2,10 +2,11 @@
 #define SNOWMAN_ASSEMBLER_ENGINE_H__
 
 #include "Util.h"
-#include "contigs.h"
+//#include "contigs.h"
 #include "SGUtil.h"
 #include "ReadTable.h"
-#include "SnowTools/BamRead.h"
+#include "SeqLib/BamRecord.h"
+#include "SeqLib/UnalignedSequence.h"
 
 class SnowmanAssemblerEngine
 {
@@ -17,17 +18,19 @@ class SnowmanAssemblerEngine
   
   bool hasRepeat(const std::string& seq);
   
-  void fillReadTable(SnowTools::BamReadVector& r);
+  void fillReadTable(SeqLib::BamRecordVector& r);
   
   void fillReadTable(const std::vector<std::string>& r);
   
   bool performAssembly(int num_assembly_rounds);
   
-  void doAssembly(ReadTable *pRT, ContigVector &contigs, int pass);
+  //void doAssembly(ReadTable *pRT, ContigVector &contigs, int pass);
+  void doAssembly(ReadTable *pRT, SeqLib::UnalignedSequenceVector &contigs, int pass);
   
   void setToWriteASQG() { m_write_asqg = true; }
   
-  ContigVector getContigs() const { return m_contigs; }
+  SeqLib::UnalignedSequenceVector getContigs() const { return m_contigs; }
+  //ContigVector getContigs() const { return m_contigs; }
   
   void clearContigs() { m_contigs.clear(); }
 
@@ -37,37 +40,39 @@ class SnowmanAssemblerEngine
 
  private:
 
-    void print_results(const ContigVector& cc) const;
+  void print_results(const SeqLib::UnalignedSequenceVector& cc) const;
 
-    void remove_exact_dups(ContigVector& cc) const;
+  // void remove_exact_dups(ContigVector& cc) const;
+  void remove_exact_dups(SeqLib::UnalignedSequenceVector& cc) const;
 
-    void write_asqg(const StringGraph * oGraph, std::stringstream& asqg_stream, std::stringstream& hits_stream, int pass) const;
-    
-    std::string m_id;
-    double m_error_rate;
-    size_t m_min_overlap;
-    size_t m_readlen;
+  void write_asqg(const StringGraph * oGraph, std::stringstream& asqg_stream, std::stringstream& hits_stream, int pass) const;
   
-    size_t numBubbleRounds = 3;
-    float divergence = 0.00; //0.05
-    float gap_divergence = 0.00;
-    int maxEdges = 128;
-    int numTrimRounds = 0; //
-    int trimLengthThreshold = -1; // doesn't matter
-    bool bPerformTR = false; // transitivie edge reducetion
-    bool bValidate = false;
-    int resolveSmallRepeatLen = -1; 
-    int maxIndelLength = 20;
-    bool bExact = true;
-    std::string outVariantsFile = ""; // dummy
-    
-    bool m_write_asqg = false;
-
-    ReadTable m_pRT;
-    
-    SnowTools::BamReadVector m_reads;
-    
-    ContigVector m_contigs;
+  std::string m_id;
+  double m_error_rate;
+  size_t m_min_overlap;
+  size_t m_readlen;
+  
+  size_t numBubbleRounds = 3;
+  float divergence = 0.00; //0.05
+  float gap_divergence = 0.00;
+  int maxEdges = 128;
+  int numTrimRounds = 0; //
+  int trimLengthThreshold = -1; // doesn't matter
+  bool bPerformTR = false; // transitivie edge reducetion
+  bool bValidate = false;
+  int resolveSmallRepeatLen = -1; 
+  int maxIndelLength = 20;
+  bool bExact = true;
+  std::string outVariantsFile = ""; // dummy
+  
+  bool m_write_asqg = false;
+  
+  ReadTable m_pRT;
+  
+  SeqLib::BamRecordVector m_reads;
+  
+  //ContigVector m_contigs;
+  SeqLib::UnalignedSequenceVector m_contigs;
 
 };
 

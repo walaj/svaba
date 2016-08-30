@@ -3,10 +3,10 @@
 #include <regex>
 #include <sstream>
 
-#include "SnowTools/gzstream.h"
-#include "SnowTools/SnowUtils.h"
+#include "gzstream.h"
+#include "SeqLib/SeqLibUtils.h"
 
-namespace SnowTools {
+using namespace SeqLib;
 
   std::ostream& operator<<(std::ostream& out, const PONFilter& p) {
     size_t max_samples = 0;
@@ -71,5 +71,3 @@ namespace SnowTools {
 
     
   }
-  
-}

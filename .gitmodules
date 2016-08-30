@@ -1,3 +1,6 @@
 [submodule "SnowTools"]
 	path = SnowTools
 	url = https://github.com/jwalabroad/SnowTools.git
+[submodule "SeqLib"]
+	path = SeqLib
+	url = https://github.com/jwalabroad/SeqLib

@@ -8,65 +8,57 @@
 
 #include "htslib/khash.h"
 
-#include "SnowTools/BamWalker.h"
-#include "SnowTools/Fractions.h"
-#include "SnowTools/STCoverage.h"
-#include "SnowTools/BWAWrapper.h"
+#include "SeqLib/BamReader.h"
+#include "SeqLib/ReadFilter.h"
+//#include "SnowTools/Fractions.h"
+#include "STCoverage.h"
+#include "SeqLib/BWAWrapper.h"
+
+
+#include "DiscordantRealigner.h"
 
 #include "KmerFilter.h"
-#include "DBSnpFilter.h"
 
 #define GET_COVERAGE 1
 
-typedef std::unordered_map<std::string, size_t> CigarMap;
-using SnowTools::GRC;
-using SnowTools::BamReadVector;
-using SnowTools::STCoverage;
-using SnowTools::BamRead;
+//typedef std::unordered_map<std::string, size_t> CigarMap;
 
-class MateRegion: public SnowTools::GenomicRegion
+class MateRegion: public SeqLib::GenomicRegion
 {
  public:
   MateRegion() {}
-  MateRegion (int32_t c, uint32_t p1, uint32_t p2, char s = '*') : SnowTools::GenomicRegion(c, p1, p2, s) {}
+  MateRegion (int32_t c, uint32_t p1, uint32_t p2, char s = '*') : SeqLib::GenomicRegion(c, p1, p2, s) {}
   size_t count = 0;// read count
-  SnowTools::GenomicRegion partner;
+  SeqLib::GenomicRegion partner;
 
 };
 
-typedef SnowTools::GenomicRegionCollection<MateRegion> MateRegionVector;
+typedef SeqLib::GenomicRegionCollection<MateRegion> MateRegionVector;
 
-class SnowmanBamWalker: public SnowTools::BamWalker {
+class SnowmanBamWalker: public SeqLib::BamReader {
   
  public:
   
   SnowmanBamWalker() {}
 
- SnowmanBamWalker(const std::string& in) : SnowTools::BamWalker(in) {}
-  
-  SnowmanBamWalker(const std::string& in, SnowTools::BWAWrapper * b, int rlen, 
-		  const std::string& p, const SnowTools::GRC& bl) : 
-  SnowTools::BamWalker(in), main_bwa(b), readlen(rlen), prefix(p), blacklist(bl) {  }
-
-
-  SnowTools::BWAWrapper * main_bwa = nullptr;
+  SeqLib::BWAWrapper * main_bwa = nullptr;
   int readlen;  
   std::string prefix; // eg. tumor, normal
-  SnowTools::GRC blacklist;
+  SeqLib::GRC blacklist;
   
-  SnowTools::GRC readBam(std::ofstream* log = nullptr, const SnowTools::DBSnpFilter* dbs = nullptr);
+  SeqLib::GRC readBam(std::ofstream* log = nullptr);
 
-  void realignDiscordants(SnowTools::BamReadVector& reads);
+  void realignDiscordants(SeqLib::BamRecordVector& reads);
   
-  void filterMicrobial(SnowTools::BWAWrapper * b);
+  void filterMicrobial(SeqLib::BWAWrapper * b);
   
   void KmerCorrect();
   
-  bool hasAdapter(const BamRead& r) const;
+  bool hasAdapter(const SeqLib::BamRecord& r) const;
   
-  bool addCigar(BamRead &r, const SnowTools::DBSnpFilter* d = nullptr);
+  bool addCigar(SeqLib::BamRecord &r);
   
-  bool isDuplicate(BamRead &r);
+  bool isDuplicate(const SeqLib::BamRecord &r);
   
   void subSampleToWeirdCoverage(double max_coverage);
   
@@ -81,49 +73,57 @@ class SnowmanBamWalker: public SnowTools::BamWalker {
   std::unordered_set<std::string> bad_qnames;
   
   //ReadVec reads;
-  BamReadVector reads;
+  SeqLib::BamRecordVector reads;
 
-  BamReadVector all_reads;
+  SeqLib::BamRecordVector all_reads;
 
   std::vector<char*> all_seqs;
 
-  std::unordered_map<uint32_t, size_t> cig_pos;
+  //std::unordered_map<uint32_t, size_t> cig_pos;
 
-  STCoverage cov, weird_cov, bad_cov, clip_cov;
+  // cov is the all-read coverage tracker
+  // weird-cov just tracks coverage of accepted (clip, disc, etc reads)
+  STCoverage cov, weird_cov;
   
-  CigarMap cigmap;
+  SeqLib::CigarMap cigmap;
 
-  //SnowTools::GenomicRegion coverage_region;
-  
-  size_t max_weird_cov = 100;
-  
   MateRegionVector mate_regions;
   
-  SnowTools::ReadCount rc;
+  //ReadCount rc;
   
-  SnowTools::GRC * simple_seq;
+  SeqLib::GRC * simple_seq;
   
+  // object for realigning discordant reads
+  DiscordantRealigner dr; 
+  
+  // maximum coverage of accepted reads, before subsampling
   size_t max_cov = 100;
   
-  bool do_kmer_filtering = true;
-  
+  // should we trim adapter sequences
   bool adapter_trim = true;
 
+  // should we keep reads for learning correction 
   double kmer_subsample = 0.5;
+  // should we subsample the learning reads?
+  bool do_kmer_filtering = true;
 
+  //size_t m_keep_limit = 0;
+
+  // set a hard limit on how many reads to accept
   size_t m_limit = 0;
-  //std::stringstream cigr;
+
+  //size_t m_num_reads_kept = 0;
+
+  // set a read filter
+  SeqLib::Filter::ReadFilterCollection * m_mr;
+
  private:
   
   // private string stream. Initialize once here for speed
 
   
   // might want these in case we are looking for duplicates
-  //std::unordered_map<std::string, bool> name_map;
-  //std::unordered_map<std::string, bool> seq_map;
   std::unordered_set<std::string> seq_set;
-  //std::unordered_set<int> seq_set;
- 
   
   uint32_t m_seed = 1337;
   

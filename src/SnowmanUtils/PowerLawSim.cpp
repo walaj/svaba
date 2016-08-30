@@ -1,4 +1,5 @@
 #include "PowerLawSim.h"
+#include "SnowmanUtils.h"
 
 #include <cmath>
 #include <string>
@@ -10,7 +11,7 @@
 #define MAX_RAR_SIZE 35e6
 #define EVENT_BUFFER 4000
 
-void PowerLawSim(faidx_t* findex, int num_breaks, double power_law, SnowTools::GRC& grc, std::ofstream& outfasta, std::ofstream& events) {
+void PowerLawSim(faidx_t* findex, int num_breaks, double power_law, SeqLib::GRC& grc, std::ofstream& outfasta, std::ofstream& events) {
 
   double frac_inter = 0.05;
 
@@ -71,7 +72,7 @@ void PowerLawSim(faidx_t* findex, int num_breaks, double power_law, SnowTools::G
 
       outstring = frag + inserts[i] + frag_ic;
 
-      events << SnowTools::CHR_NAME[e.reg1.chr] << "\t" << e.reg1.pos2 << "\t" << SnowTools::CHR_NAME[e.reg2.chr] << "\t" << e.reg2.pos1 << "\t+\t-\t" << "N\t-1\tINT\t" << (inserts[i].empty() ? "N" : inserts[i]) << "\t" << ename << std::endl;
+      events << SeqLib::CHR_NAME[e.reg1.chr] << "\t" << e.reg1.pos2 << "\t" << SeqLib::CHR_NAME[e.reg2.chr] << "\t" << e.reg2.pos1 << "\t+\t-\t" << "N\t-1\tINT\t" << (inserts[i].empty() ? "N" : inserts[i]) << "\t" << ename << std::endl;
 
     // deletion
     } else if (rpower[i] <= 50 && rand() % 2) {
@@ -81,7 +82,7 @@ void PowerLawSim(faidx_t* findex, int num_breaks, double power_law, SnowTools::G
       genRandomSequence(frag, e.reg1, EVENT_BUFFER * 2 + rpower[i], findex, grc);
       try {outstring = frag.substr(0, EVENT_BUFFER) + frag.substr(EVENT_BUFFER + rpower[i], frag.length() - rpower[i] - EVENT_BUFFER);} catch (...) { std::cerr << " len " << (frag.length() - rpower[i] - EVENT_BUFFER)  << std::endl; } 
       assert(outstring.length() < EVENT_BUFFER * 10);
-      events << SnowTools::CHR_NAME[e.reg1.chr] << "\t" << (e.reg1.pos1+EVENT_BUFFER) << "\t" << SnowTools::CHR_NAME[e.reg1.chr] << "\t" << (e.reg1.pos1 + EVENT_BUFFER + rpower[i]) << "\t+\t-\tN\t" << rpower[i] << "\tdel\tN\t" << ename << std::endl;
+      events << SeqLib::CHR_NAME[e.reg1.chr] << "\t" << (e.reg1.pos1+EVENT_BUFFER) << "\t" << SeqLib::CHR_NAME[e.reg1.chr] << "\t" << (e.reg1.pos1 + EVENT_BUFFER + rpower[i]) << "\t+\t-\tN\t" << rpower[i] << "\tdel\tN\t" << ename << std::endl;
     // insertion
     } else if (rpower[i] <= 50) {
       etype = "ins";
@@ -93,7 +94,7 @@ void PowerLawSim(faidx_t* findex, int num_breaks, double power_law, SnowTools::G
 	ins[y] = TCGA[rand() % 3];
       outstring = frag.substr(0, EVENT_BUFFER) + ins + frag.substr(EVENT_BUFFER, frag.length() - EVENT_BUFFER);
       assert(outstring.length() < EVENT_BUFFER * 10);
-      events << SnowTools::CHR_NAME[e.reg1.chr] << "\t" << (e.reg1.pos1+EVENT_BUFFER) << "\t" << SnowTools::CHR_NAME[e.reg1.chr] << "\t" << (e.reg1.pos1 + EVENT_BUFFER + 1) << "\t+\t-\t" << ins << "\t" << rpower[i] << "\tins\tN\t" << ename << std::endl;
+      events << SeqLib::CHR_NAME[e.reg1.chr] << "\t" << (e.reg1.pos1+EVENT_BUFFER) << "\t" << SeqLib::CHR_NAME[e.reg1.chr] << "\t" << (e.reg1.pos1 + EVENT_BUFFER + 1) << "\t+\t-\t" << ins << "\t" << rpower[i] << "\tins\tN\t" << ename << std::endl;
     // TANDEM DUPLICATION
     } else if (rpower[i] < MAX_DUP_DEL_INV_SIZE && rval == 0) {
       etype = "DUP";
@@ -102,7 +103,7 @@ void PowerLawSim(faidx_t* findex, int num_breaks, double power_law, SnowTools::G
       genRandomSequence(frag, e.reg1, EVENT_BUFFER * 2 + rpower[i], findex, grc);
       outstring = frag.substr(0, EVENT_BUFFER + rpower[i]) + inserts[i] + frag.substr(EVENT_BUFFER, frag.length() - EVENT_BUFFER); //rpower[i]) + frag.substr(EVENT_BUFFER, frag.length() - EVENT_BUFFER);
       assert(outstring.length() < EVENT_BUFFER * 10);
-      events << SnowTools::CHR_NAME[e.reg1.chr] << "\t" << (e.reg1.pos1+EVENT_BUFFER+rpower[i]) << "\t" << SnowTools::CHR_NAME[e.reg1.chr] << "\t" << (e.reg1.pos1 + EVENT_BUFFER) << "\t+\t-\t" << "N" << "\t" << rpower[i] << "\tDUP\t" << (inserts[i].empty() ? "N" : inserts[i]) << "\t" << ename << std::endl;
+      events << SeqLib::CHR_NAME[e.reg1.chr] << "\t" << (e.reg1.pos1+EVENT_BUFFER+rpower[i]) << "\t" << SeqLib::CHR_NAME[e.reg1.chr] << "\t" << (e.reg1.pos1 + EVENT_BUFFER) << "\t+\t-\t" << "N" << "\t" << rpower[i] << "\tDUP\t" << (inserts[i].empty() ? "N" : inserts[i]) << "\t" << ename << std::endl;
     // DELETION
     } else if (rpower[i] < MAX_DUP_DEL_INV_SIZE && rval == 1) {
       etype = "DEL";
@@ -111,7 +112,7 @@ void PowerLawSim(faidx_t* findex, int num_breaks, double power_law, SnowTools::G
       genRandomSequence(frag, e.reg1, rpower[i] + EVENT_BUFFER * 2, findex, grc);
       outstring = frag.substr(0, EVENT_BUFFER) + inserts[i] + frag.substr(EVENT_BUFFER + rpower[i], frag.length() - EVENT_BUFFER - rpower[i]);
       assert(outstring.length() < EVENT_BUFFER * 10);
-      events << SnowTools::CHR_NAME[e.reg1.chr] << "\t" << (e.reg1.pos1+EVENT_BUFFER) << "\t" << SnowTools::CHR_NAME[e.reg1.chr] << "\t" << (e.reg1.pos1 + EVENT_BUFFER + rpower[i]) << "\t+\t-\tN\t" << rpower[i] << "\tDEL\t" << (inserts[i].empty() ? "N" : inserts[i]) << "\t" << ename << std::endl;
+      events << SeqLib::CHR_NAME[e.reg1.chr] << "\t" << (e.reg1.pos1+EVENT_BUFFER) << "\t" << SeqLib::CHR_NAME[e.reg1.chr] << "\t" << (e.reg1.pos1 + EVENT_BUFFER + rpower[i]) << "\t+\t-\tN\t" << rpower[i] << "\tDEL\t" << (inserts[i].empty() ? "N" : inserts[i]) << "\t" << ename << std::endl;
     // INV
     } else if (rpower[i] < MAX_DUP_DEL_INV_SIZE && rval == 2 && false) {
       etype = "INV";
@@ -122,14 +123,14 @@ void PowerLawSim(faidx_t* findex, int num_breaks, double power_law, SnowTools::G
       std::reverse(inv_frag.begin(), inv_frag.end());
       outstring = frag.substr(0, EVENT_BUFFER) + inv_frag + frag.substr(EVENT_BUFFER, frag.length() - EVENT_BUFFER - rpower[i]);
       assert(outstring.length() < EVENT_BUFFER * 10);
-      events << SnowTools::CHR_NAME[e.reg1.chr] << "\t" << (e.reg1.pos1+EVENT_BUFFER) << "\t" << SnowTools::CHR_NAME[e.reg1.chr] << "\t" << (e.reg1.pos1 + EVENT_BUFFER + rpower[i]) << "\t+\t-\tN\t" << rpower[i] << "\tINV\t" << (inserts[i].empty() ? "N" : inserts[i]) << "\t" << ename << std::endl;
+      events << SeqLib::CHR_NAME[e.reg1.chr] << "\t" << (e.reg1.pos1+EVENT_BUFFER) << "\t" << SeqLib::CHR_NAME[e.reg1.chr] << "\t" << (e.reg1.pos1 + EVENT_BUFFER + rpower[i]) << "\t+\t-\tN\t" << rpower[i] << "\tINV\t" << (inserts[i].empty() ? "N" : inserts[i]) << "\t" << ename << std::endl;
     } else  {
       etype = "RAR";
       ename = "tumor-" + std::to_string(i) + "-" + etype;
       if (verbose) std::cerr << "...generating RAR of length " << rpower[i] << std::endl;      
       genRandomSequence(frag, e.reg1, EVENT_BUFFER, findex, grc);
       bool leftfit  = e.reg1.pos1 - rpower[i] > 1e6;
-      bool rightfit = e.reg1.pos2 + rpower[i] < SnowTools::CHR_LEN[e.reg1.chr];
+      bool rightfit = e.reg1.pos2 + rpower[i] < SeqLib::CHR_LEN[e.reg1.chr];
       int rrr = -1;
       if (leftfit && rightfit)
 	rrr = rand() % 2;
@@ -145,8 +146,8 @@ void PowerLawSim(faidx_t* findex, int num_breaks, double power_law, SnowTools::G
 	if (verbose) 
 	  std::cerr << "...generating LEFT RAR of length " << rpower[i] << std::endl;      
 
-	SnowTools::GenomicRegion gr(e.reg1.chr, e.reg1.pos1 - rpower[i] - EVENT_BUFFER, e.reg1.pos1 - rpower[i]);
-	std::string chrstring = SnowTools::CHR_NAME[e.reg1.chr];
+	SeqLib::GenomicRegion gr(e.reg1.chr, e.reg1.pos1 - rpower[i] - EVENT_BUFFER, e.reg1.pos1 - rpower[i]);
+	std::string chrstring = SeqLib::CHR_NAME[e.reg1.chr];
 	int len;
 	char * seq = faidx_fetch_seq(findex, const_cast<char*>(chrstring.c_str()), gr.pos1, gr.pos2 - 1, &len);
 	if (!seq)
@@ -156,7 +157,7 @@ void PowerLawSim(faidx_t* findex, int num_breaks, double power_law, SnowTools::G
 
         outstring = seq2 + inserts[i] + frag;
 	assert(outstring.length() < EVENT_BUFFER * 10);
-	events << SnowTools::CHR_NAME[gr.chr] << "\t" << gr.pos2 << "\t" << SnowTools::CHR_NAME[e.reg1.chr] << "\t" << e.reg1.pos1 << "\t+\t-\tN\t" << rpower[i] << "\tRAR\t" << (inserts[i].empty() ? "N" : inserts[i]) << "\t" << ename << std::endl;
+	events << SeqLib::CHR_NAME[gr.chr] << "\t" << gr.pos2 << "\t" << SeqLib::CHR_NAME[e.reg1.chr] << "\t" << e.reg1.pos1 << "\t+\t-\tN\t" << rpower[i] << "\tRAR\t" << (inserts[i].empty() ? "N" : inserts[i]) << "\t" << ename << std::endl;
 	//std::cerr << rpower[i] << " span " << (std::abs(gr.pos2 - e.reg1.pos1) - rpower[i]) << std::endl;
 	assert(rpower[i] == (e.reg1.pos1 - gr.pos2));
 
@@ -166,8 +167,8 @@ void PowerLawSim(faidx_t* findex, int num_breaks, double power_law, SnowTools::G
 
 	if (verbose) 
 	  std::cerr << "...generating RIGHT RAR of length " << rpower[i] << std::endl;      
-	SnowTools::GenomicRegion gr(e.reg1.chr, e.reg1.pos2 + rpower[i], e.reg1.pos2 + rpower[i] + EVENT_BUFFER);
-	std::string chrstring = SnowTools::CHR_NAME[gr.chr];
+	SeqLib::GenomicRegion gr(e.reg1.chr, e.reg1.pos2 + rpower[i], e.reg1.pos2 + rpower[i] + EVENT_BUFFER);
+	std::string chrstring = SeqLib::CHR_NAME[gr.chr];
 	int len;
 	char * seq = faidx_fetch_seq(findex, const_cast<char*>(chrstring.c_str()), gr.pos1, gr.pos2 - 1, &len);
 	if (!seq)
@@ -175,7 +176,7 @@ void PowerLawSim(faidx_t* findex, int num_breaks, double power_law, SnowTools::G
 	else
 	  seq2 = std::string(seq);
 
-	events << SnowTools::CHR_NAME[e.reg1.chr] << "\t" << e.reg1.pos2 << "\t" << SnowTools::CHR_NAME[gr.chr] << "\t" << gr.pos1 << "\t+\t-\tN\t" << rpower[i] << "\tRAR\t" << (inserts[i].empty() ? "N" : inserts[i]) << "\t" << ename << std::endl;	
+	events << SeqLib::CHR_NAME[e.reg1.chr] << "\t" << e.reg1.pos2 << "\t" << SeqLib::CHR_NAME[gr.chr] << "\t" << gr.pos1 << "\t+\t-\tN\t" << rpower[i] << "\tRAR\t" << (inserts[i].empty() ? "N" : inserts[i]) << "\t" << ename << std::endl;	
         outstring = frag + inserts[i] + seq2;
 	assert(outstring.length() < EVENT_BUFFER * 10);
 	//std::cerr << rpower[i] << " span " << (std::abs(gr.pos1 - e.reg1.pos2) - rpower[i]) << std::endl;
@@ -218,10 +219,10 @@ std::vector<int> drawFromPower(double x0, double x1, double power, int n_draws) 
   return rpower;
 }
 
-void genRandomSequence(std::string& s, SnowTools::GenomicRegion& gr, int width, faidx_t * findex, SnowTools::GRC& grc) {
+void genRandomSequence(std::string& s, SeqLib::GenomicRegion& gr, int width, faidx_t * findex, SeqLib::GRC& grc) {
 
-  gr.chr = SnowTools::weightedRandom(SnowTools::CHR_CUMSUM_WEIGHT_X);
-  std::string chrstring = SnowTools::CHR_NAME[gr.chr];
+  gr.chr = SnowmanUtils::weightedRandom(SeqLib::CHR_CUMSUM_WEIGHT_X);
+  std::string chrstring = SeqLib::CHR_NAME[gr.chr];
   char * seq = nullptr;
   int len;
   // get the first sequence
@@ -230,11 +231,11 @@ void genRandomSequence(std::string& s, SnowTools::GenomicRegion& gr, int width, 
       free(seq);
     seq = nullptr;
     s = std::string();
-    gr.pos1 = 1e6 + rand() % (int)(SnowTools::CHR_LEN_VEC[gr.chr] - 2e6);
+    gr.pos1 = 1e6 + rand() % (int)(SeqLib::CHR_LEN_VEC[gr.chr] - 2e6);
     gr.pos2 = gr.pos1 + width;
     seq = faidx_fetch_seq(findex, const_cast<char*>(chrstring.c_str()), gr.pos1, gr.pos2 - 1, &len);
     if (seq)
       s = std::string(seq);
-  } while (!seq || s.find("N") != std::string::npos || grc.findOverlapping(gr));
+  } while (!seq || s.find("N") != std::string::npos || grc.CountOverlaps(gr));
 
 }

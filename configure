@@ -5253,7 +5253,7 @@ done
 # Make sure the boost headers can be found
 ##AC_CHECK_HEADERS([boost/regex.hpp],[AC_SUBST(CPPFLAGS, "$CPPFLAGS -DHAVE_BOOST")],[AC_MSG_ERROR([The Boost library must be installed for Snowman. Specify its path with the --with-boost=PATH option])])
 
-ac_config_files="$ac_config_files Makefile SnowTools/htslib/Makefile SnowTools/src/Makefile src/SGA/Util/Makefile src/SGA/SQG/Makefile src/SGA/Bigraph/Makefile src/SGA/Algorithm/Makefile src/SGA/StringGraph/Makefile src/SGA/SuffixTools/Makefile src/SGA/SGA/Makefile src/Snowman/Makefile"
+ac_config_files="$ac_config_files Makefile SeqLib/src/Makefile src/SGA/Util/Makefile src/SGA/SQG/Makefile src/SGA/Bigraph/Makefile src/SGA/Algorithm/Makefile src/SGA/StringGraph/Makefile src/SGA/SuffixTools/Makefile src/SGA/SGA/Makefile src/Snowman/Makefile"
 
 
 cat >confcache <<\_ACEOF
@@ -5900,8 +5900,7 @@ do
     "config.h") CONFIG_HEADERS="$CONFIG_HEADERS config.h" ;;
     "depfiles") CONFIG_COMMANDS="$CONFIG_COMMANDS depfiles" ;;
     "Makefile") CONFIG_FILES="$CONFIG_FILES Makefile" ;;
-    "SnowTools/htslib/Makefile") CONFIG_FILES="$CONFIG_FILES SnowTools/htslib/Makefile" ;;
-    "SnowTools/src/Makefile") CONFIG_FILES="$CONFIG_FILES SnowTools/src/Makefile" ;;
+    "SeqLib/src/Makefile") CONFIG_FILES="$CONFIG_FILES SeqLib/src/Makefile" ;;
     "src/SGA/Util/Makefile") CONFIG_FILES="$CONFIG_FILES src/SGA/Util/Makefile" ;;
     "src/SGA/SQG/Makefile") CONFIG_FILES="$CONFIG_FILES src/SGA/SQG/Makefile" ;;
     "src/SGA/Bigraph/Makefile") CONFIG_FILES="$CONFIG_FILES src/SGA/Bigraph/Makefile" ;;

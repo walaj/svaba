@@ -3,17 +3,20 @@
 #include <getopt.h>
 #include <iostream>
 #include <sstream>
+#include <cassert>
+#include "gzstream.h"
 
 #include "SnowmanUtils.h"
-#include "SnowTools/BamWalker.h"
-#include "SnowTools/BLATWrapper.h"
+#include "SeqLib/BamReader.h"
+#include "SeqLib/ReadFilter.h"
+
 
 #define MIN_CLIP_FACTOR 2
 #define MIN_MATCH_FACTOR 4
 #define MIN_MAPQ 10
 #define READ_LEN 151
 
-SnowTools::GRC bks;
+SeqLib::GRC bks;
 
 namespace opt {
   static std::string bam;
@@ -67,7 +70,7 @@ void runSplitFasta(int argc, char** argv) {
   parseFastaSplitOptions(argc, argv);
 
   std::cerr << " SPLITTING: " << opt::fasta << "\n" <<
-    " NUM: " << SnowTools::AddCommas(opt::split_num) << std::endl;
+    " NUM: " << SeqLib::AddCommas(opt::split_num) << std::endl;
   
   // open the fasta
   igzstream infile(opt::fasta.c_str(), std::ios::in);
@@ -88,7 +91,7 @@ void runSplitFasta(int argc, char** argv) {
     
     ++this_line_count;
     if (this_line_count % 20000)
-      std::cerr << "...on fasta file line (new-line separated) " << SnowTools::AddCommas(this_line_count) << std::endl;
+      std::cerr << "...on fasta file line (new-line separated) " << SeqLib::AddCommas(this_line_count) << std::endl;
 
     if (line.empty() || line.find(">") != std::string::npos)
       continue;
@@ -129,54 +132,40 @@ void runSplitCounter(int argc, char** argv) {
 
   // open the header BAM
   std::cerr << "...opening the header BAM " << opt::header << std::endl;
-  SnowTools::BamWalker bwh(opt::header);
+  SeqLib::BamReader bwh;
+  assert(bwh.Open(opt::header));
 
   // open the breaks
   std::cerr << "...reading " << opt::breaks_file << std::endl;
-  SnowmanUtils::__open_bed(opt::breaks_file, bks, bwh.header());
-  std::cerr << "...read in " << SnowTools::AddCommas(bks.size()) << " break regions " << std::endl;
+  SnowmanUtils::__open_bed(opt::breaks_file, bks, bwh.Header());
+  std::cerr << "...read in " << SeqLib::AddCommas(bks.size()) << " break regions " << std::endl;
 
   // open the BAM
-  SnowTools::BamWalker walk(opt::bam);
+  SeqLib::BamReader walk;
+  assert(walk.Open(opt::bam));
 
-  SnowTools::BamRead r;
-  bool rule;
+  SeqLib::BamRecord r;
 	
   std::string rules_string = "{\"\" : {\"rules\" : [{\"mapq\" : 10}]}}";
 
   std::cerr << "Rules: " << rules_string << std::endl;
-  SnowTools::MiniRulesCollection mr(rules_string, walk.header());
-  walk.SetMiniRulesCollection(mr);
-
-  //SnowTools::BamWalker w;
-  //w.OpenWriteBam("out.bam");
-
-  //SnowTools::BLATWrapper blat;
-  //SnowTools::BWAWrapper bwa;
-  //bwa.retrieveIndex("/seq/references/Homo_sapiens_assembly19/v1/Homo_sapiens_assembly19.fasta");
-  
-  // add a header made from the index, so BLAT can convert between reference names and ID #s
-  //bam_hdr_t * bwa_header = bwa.HeaderFromIndex(); // creates new one in memory, need to destroy bwa_header
-  
-  //blat.addHeader(bwa_header);
-  //std::cerr << "...loading BLAT index" << std::endl;
-  //blat.loadIndex("/seq/references/Homo_sapiens_assembly19/v1/Homo_sapiens_assembly19.fasta", "/xchip/gistic/Jeremiah/blat/11.ooc");
+  SeqLib::Filter::ReadFilterCollection mr(rules_string, walk.Header());
 
   // convert qname (big) to in (small)
   std::unordered_map<std::string, int> qname_set;
 
   size_t countr = 0;
-  while(walk.GetNextRead(r, rule)) {
+  while(walk.GetNextRecord(r)) {
 
     if (r.ChrID() > 23)
       break;
 
-    if (!rule)
+    if (!mr.isValid(r))
       continue;
     
     ++countr;
 
-    SnowTools::Cigar cig = r.GetCigar();
+    SeqLib::Cigar cig = r.GetCigar();
     
     if (cig.size() <= 1)
       continue;
@@ -193,29 +182,29 @@ void runSplitCounter(int argc, char** argv) {
     std::string QN = std::to_string(qname_set[r.Qname()]);
 
     if (countr % 100000 == 0 )
-      std::cerr << "...at split read " << SnowTools::AddCommas(countr) << " at position " << r.Brief(walk.header()) << std::endl;
+      std::cerr << "...at split read " << SeqLib::AddCommas(countr) << " at position " << r.Brief() << std::endl;
 
     if ( (cig[0].Type() == 'H' || cig[0].Type() == 'S') && cig[0].Length() >= MIN_CLIP_FACTOR * READ_LEN)  // split on left
-      std::cout << "L\t" << r.ChrName(walk.header()) << "\t" << r.Position() << 
-	"\t" << (r.ReverseFlag() ? "-" : "+") << "\t" << QN << "\t" << r.MapQuality() << "\t" << (r.SecondaryFlag() ? "SEC" : "PRI") << "\t" << (bks.findOverlapping(r.asGenomicRegion()) ? "BK" : "NBK") << "\t0" << std::endl;
+      std::cout << "L\t" << r.ChrName(walk.Header()) << "\t" << r.Position() << 
+	"\t" << (r.ReverseFlag() ? "-" : "+") << "\t" << QN << "\t" << r.MapQuality() << "\t" << (r.SecondaryFlag() ? "SEC" : "PRI") << "\t" << (bks.CountOverlaps(r.asGenomicRegion()) ? "BK" : "NBK") << "\t0" << std::endl;
     
     if ( (cig.back().Type() == 'H' || cig.back().Type() == 'S') && cig.back().Length() >= MIN_CLIP_FACTOR * READ_LEN)  // split on right
-      std::cout << "R\t" << r.ChrName(walk.header()) << "\t" << r.PositionEnd() 
-		<<  "\t" << (r.ReverseFlag() ? "-" : "+") << "\t" << QN << "\t" << r.MapQuality() << "\t" << (r.SecondaryFlag() ? "SEC" : "PRI") << "\t" << (bks.findOverlapping(r.asGenomicRegion()) ? "BK" : "NBK") << "\t0" << std::endl;
+      std::cout << "R\t" << r.ChrName(walk.Header()) << "\t" << r.PositionEnd() 
+		<<  "\t" << (r.ReverseFlag() ? "-" : "+") << "\t" << QN << "\t" << r.MapQuality() << "\t" << (r.SecondaryFlag() ? "SEC" : "PRI") << "\t" << (bks.CountOverlaps(r.asGenomicRegion()) ? "BK" : "NBK") << "\t0" << std::endl;
 
     // look for indels
     int pos = r.Position();
     for (auto& c : cig) {
       if ((c.Type() == 'D' || c.Type() == 'I') && c.Length() >= 30) 
-	std::cout << c.Type() << "\t" << r.ChrName(walk.header()) << "\t" << pos << "\t+\t" 
+	std::cout << c.Type() << "\t" << r.ChrName(walk.Header()) << "\t" << pos << "\t+\t" 
 		  << QN << "\t" << r.MapQuality() << "\t" << (r.SecondaryFlag() ? "SEC" : "PRI") << "\t" 
-		  << (bks.findOverlapping(r.asGenomicRegion()) ? "BK" : "NBK") << "\t" << c.Length() << std::endl;
+		  << (bks.CountOverlaps(r.asGenomicRegion()) ? "BK" : "NBK") << "\t" << c.Length() << std::endl;
       if (c.ConsumesReference())
 	pos += c.Length();
     }
 
     // try BLAT realignment
-    //SnowTools::BamReadVector brv;
+    //SeqLib::BamReadVector brv;
     //blat.querySequence(r.Qname(), r.Sequence(), brv);
     
     //for(auto& a : brv)
@@ -223,8 +212,6 @@ void runSplitCounter(int argc, char** argv) {
   }
 
   std::cerr << "...done" << std::endl;
-
-
 
 }
 

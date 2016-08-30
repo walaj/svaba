@@ -4,8 +4,8 @@
 #include <sstream>
 #include <iostream>
 
-#include "SnowTools/gzstream.h"
-#include "SnowTools/BamWalker.h"
+#include "gzstream.h"
+#include "SeqLib/BamReader.h"
 
 #include "vcf.h"
 #include "BreakPoint2.h"
@@ -151,12 +151,13 @@ void runRefilterBreakpoints(int argc, char** argv) {
   }
 
     
-  if (!SnowTools::read_access_test(opt::input_file)) {
+  if (!SeqLib::read_access_test(opt::input_file)) {
     std::cerr << "ERROR: Cannot read file " << opt::input_file  << std::endl;
     exit(EXIT_FAILURE);
   }
   
-  SnowTools::BamWalker bwalker(opt::bam);
+  SeqLib::BamReader bwalker;
+  assert(bwalker.Open(opt::bam));
 
   // load the reference index
   //if (opt::verbose > 0)
@@ -176,14 +177,15 @@ void runRefilterBreakpoints(int argc, char** argv) {
   
   // read the indel mask
   //GenomicIntervalTreeMap grm_mask;
-  if (!SnowTools::read_access_test(opt::indel_mask) && opt::indel_mask.length()) {
+  if (!SeqLib::read_access_test(opt::indel_mask) && opt::indel_mask.length()) {
     std::cerr << "indel mask " << opt::indel_mask << " does not exist / is not readable. Skipping indel masking."  << std::endl;
     opt::indel_mask = "";
   }
   
-  SnowTools::GRC grv_mask;
+  SeqLib::GRC grv_mask;
   if (opt::indel_mask.length()) 
-    grv_mask.regionFileToGRV(opt::indel_mask, 0, NULL);
+    grv_mask = SeqLib::GRC(opt::indel_mask, bwalker.Header());
+  //grv_mask.regionFileToGRV(opt::indel_mask, 0, NULL);
  
   VCFHeader header;
   header.filedate = SnowmanUtils::fileDateString();
@@ -196,7 +198,7 @@ void runRefilterBreakpoints(int argc, char** argv) {
 
   // read in the BPS
   std::vector<std::string> allele_names; // store with real name
-  std::map<std::string, SnowTools::SampleInfo> tmp_alleles;
+  std::map<std::string, SampleInfo> tmp_alleles;
   std::string line, line2, val;
   igzstream infile(opt::input_file.c_str(), std::ios::in);
   size_t line_count = 0;
@@ -214,7 +216,7 @@ void runRefilterBreakpoints(int argc, char** argv) {
       }
 
     } else {
-	SnowTools::BreakPoint * bp = new SnowTools::BreakPoint(line, bwalker.header());
+	BreakPoint * bp = new BreakPoint(line, bwalker.Header());
 
 	// fill in with the correct names from the header of bps.txt
 	std::string id = "";
@@ -244,10 +246,10 @@ void runRefilterBreakpoints(int argc, char** argv) {
   
   // primary VCFs
   std::cerr << " input file " << opt::input_file << std::endl;
-  if (SnowTools::read_access_test(new_bps_file)) {
+  if (SeqLib::read_access_test(new_bps_file)) {
     if (opt::verbose)
       std::cerr << "...making the primary VCFs (unfiltered and filtered) from file " << new_bps_file << std::endl;
-    VCFFile snowvcf(new_bps_file, opt::analysis_id, bwalker.header(), header);
+    VCFFile snowvcf(new_bps_file, opt::analysis_id, bwalker.Header(), header);
     std::string basename = opt::analysis_id + ".snowman.unfiltered.";
     snowvcf.include_nonpass = true;
     snowvcf.writeIndels(basename, false, false);

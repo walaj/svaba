@@ -5,7 +5,7 @@
 #include <vector>
 #include <cassert>
 
-#include "SnowTools/GenomicRegion.h"
+#include "SeqLib/GenomicRegion.h"
 
 struct Indel {
   
@@ -23,7 +23,7 @@ struct Indel {
   size_t len;
   char type;
   std::string ref_seq, alt_seq, lead_base;
-  SnowTools::GenomicRegion gr;
+  SeqLib::GenomicRegion gr;
   int frag_id;
 
   friend std::ostream& operator<<(std::ostream& out, const Indel& i);

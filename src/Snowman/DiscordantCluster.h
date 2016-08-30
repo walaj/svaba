@@ -7,13 +7,10 @@
 #include <iostream>
 #include <unordered_map>
 
-#include "SnowTools/BamRead.h"
+#include "SeqLib/BamRecord.h"
 
-namespace SnowTools 
-{
+typedef std::vector<SeqLib::BamRecordVector> BamRecordClusterVector;
 
-  //class DiscordantCluster;
-  
   /** Class to hold clusters of discordant reads */
   class DiscordantCluster 
   {
@@ -24,9 +21,9 @@ namespace SnowTools
 
     /** Create an empty cluster */
     DiscordantCluster() { 
-      m_reg1 = GenomicRegion(); 
-      m_reg2 = GenomicRegion(); 
-      assert(m_reg1.isEmpty()); 
+      m_reg1 = SeqLib::GenomicRegion(); 
+      m_reg2 = SeqLib::GenomicRegion(); 
+      assert(m_reg1.IsEmpty()); 
       ncount = 0; tcount = 0;
       mapq1 = -1; mapq2 = -1;
     }
@@ -36,7 +33,7 @@ namespace SnowTools
      * @param this_reads Pre-clustered set of discordant reads (but not their mates)
      * @param all_reads A pile of reads to search for mates
      */
-    DiscordantCluster(const BamReadVector& this_reads, const BamReadVector& all_reads, int max_mapq_possible);
+    DiscordantCluster(const SeqLib::BamRecordVector& this_reads, const SeqLib::BamRecordVector& all_reads, int max_mapq_possible);
     
     /** Is this discordant cluster empty? */
     bool isEmpty() const;
@@ -48,7 +45,7 @@ namespace SnowTools
     
     bool hasAssociatedAssemblyContig() const { return m_contig.length(); }
 
-    void addMateReads(const BamReadVector& bav);
+    void addMateReads(const SeqLib::BamRecordVector& bav);
     
     /** Return the discordant cluster as a string with just coordinates */
     std::string toRegionString() const;
@@ -68,22 +65,22 @@ namespace SnowTools
     /** Is this a valid cluster? */
     bool valid() const;
 
-    static void __remove_singletons(BamReadClusterVector& b);
+    static void __remove_singletons(BamRecordClusterVector& b);
 
-    static std::unordered_map<std::string, DiscordantCluster> clusterReads(const BamReadVector& bav, const GenomicRegion& interval, int max_mapq_possible, const std::unordered_map<std::string, int> * min_isize_for_disc);
+    static std::unordered_map<std::string, DiscordantCluster> clusterReads(const SeqLib::BamRecordVector& bav, const SeqLib::GenomicRegion& interval, int max_mapq_possible, const std::unordered_map<std::string, int> * min_isize_for_disc);
 
-    static bool __add_read_to_cluster(BamReadClusterVector &cvec, BamReadVector &clust, const BamRead &a, bool mate);
+    static bool __add_read_to_cluster(BamRecordClusterVector &cvec, SeqLib::BamRecordVector &clust, const SeqLib::BamRecord &a, bool mate);
 
-    static void __cluster_reads(const BamReadVector& brv, BamReadClusterVector& fwd, BamReadClusterVector& rev, int orientation);
+    static void __cluster_reads(const SeqLib::BamRecordVector& brv, BamRecordClusterVector& fwd, BamRecordClusterVector& rev, int orientation);
 
-    static void __cluster_mate_reads(BamReadClusterVector& brcv, BamReadClusterVector& fwd, BamReadClusterVector& rev);
+    static void __cluster_mate_reads(BamRecordClusterVector& brcv, BamRecordClusterVector& fwd, BamRecordClusterVector& rev);
 
-    static void __convertToDiscordantCluster(std::unordered_map<std::string, DiscordantCluster> &dd, const BamReadClusterVector& cvec, const BamReadVector& bav, int max_mapq_possible);
+    static void __convertToDiscordantCluster(std::unordered_map<std::string, DiscordantCluster> &dd, const BamRecordClusterVector& cvec, const SeqLib::BamRecordVector& bav, int max_mapq_possible);
 
     /** Query an interval against the two regions of the cluster. If the region overlaps
      * with one region, return the other region. This is useful for finding the partner 
      * region give a query region */
-    GenomicRegion GetMateRegionOfOverlap(const GenomicRegion& gr) const; 
+    SeqLib::GenomicRegion GetMateRegionOfOverlap(const SeqLib::GenomicRegion& gr) const; 
 
     int tcount = 0;
     int ncount = 0; 
@@ -95,8 +92,8 @@ namespace SnowTools
 
     std::unordered_map<std::string, int> counts; // supporting read counts per sample (e.g. t001 - 4, n001 - 6)
 
-    std::unordered_map<std::string, BamRead> reads;
-    std::unordered_map<std::string, BamRead> mates;
+    std::unordered_map<std::string, SeqLib::BamRecord> reads;
+    std::unordered_map<std::string, SeqLib::BamRecord> mates;
 
     std::string m_contig = "";
 
@@ -105,8 +102,8 @@ namespace SnowTools
 
     //int rp_orientation = -1; // FR, FF,  RR, RF
     
-    GenomicRegion m_reg1;
-    GenomicRegion m_reg2;
+    SeqLib::GenomicRegion m_reg1;
+    SeqLib::GenomicRegion m_reg2;
 
     int mapq1;
     int mapq2;
@@ -125,8 +122,5 @@ namespace SnowTools
   
   //! Store a set of DiscordantCluster objects, indexed by the "id" field
   typedef std::unordered_map<std::string, DiscordantCluster> DiscordantClusterMap;
-
-  
-}
 
 #endif

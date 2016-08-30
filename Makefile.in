@@ -34,7 +34,6 @@ POST_UNINSTALL = :
 subdir = .
 DIST_COMMON = $(am__configure_deps) $(srcdir)/Makefile.am \
 	$(srcdir)/Makefile.in $(srcdir)/config.h.in \
-	$(top_srcdir)/SnowTools/htslib/Makefile.in \
 	$(top_srcdir)/configure depcomp install-sh missing
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
 am__aclocal_m4_deps = $(top_srcdir)/configure.ac
@@ -44,7 +43,7 @@ am__CONFIG_DISTCLEAN_FILES = config.status config.cache config.log \
  configure.lineno config.status.lineno
 mkinstalldirs = $(install_sh) -d
 CONFIG_HEADER = config.h
-CONFIG_CLEAN_FILES = SnowTools/htslib/Makefile
+CONFIG_CLEAN_FILES =
 CONFIG_CLEAN_VPATH_FILES =
 SOURCES =
 DIST_SOURCES =
@@ -192,7 +191,7 @@ top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 AUTOMAKE_OPTIONS = foreign
-SUBDIRS = SnowTools/fermi-lite SnowTools/multifast-v1.4.2/ahocorasick SnowTools/bwa SnowTools/htslib SnowTools/src src/SGA/SQG src/SGA/Bigraph src/SGA/Algorithm src/SGA/Util src/SGA/StringGraph src/SGA/SGA src/SGA/SuffixTools src/Snowman 
+SUBDIRS = SeqLib/fermi-lite SeqLib/htslib SeqLib/bwa SeqLib/src src/SGA/SQG src/SGA/Bigraph src/SGA/Algorithm src/SGA/Util src/SGA/StringGraph src/SGA/SGA src/SGA/SuffixTools src/Snowman 
 all: config.h
 	$(MAKE) $(AM_MAKEFLAGS) all-recursive
 
@@ -248,8 +247,6 @@ $(srcdir)/config.h.in: @MAINTAINER_MODE_TRUE@ $(am__configure_deps)
 
 distclean-hdr:
 	-rm -f config.h stamp-h1
-SnowTools/htslib/Makefile: $(top_builddir)/config.status $(top_srcdir)/SnowTools/htslib/Makefile.in
-	cd $(top_builddir) && $(SHELL) ./config.status $@
 
 # This directory's subdirectories are mostly independent; you can cd
 # into them and run `make' without going through this Makefile.

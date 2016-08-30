@@ -1,12 +1,13 @@
 #include "DBSnpFilter.h"
+#include "gzstream.h"
 
-namespace SnowTools {
+using namespace SeqLib;
 
-  DBSnpSite::DBSnpSite(const std::string& tchr, const std::string& pos, const std::string& rs, const std::string& ref, const std::string& alt) {
+DBSnpSite::DBSnpSite(const std::string& tchr, const std::string& pos, const std::string& rs, const std::string& ref, const std::string& alt, const BamHeader& h) {
     
     // make the genomic region
     try { 
-      GenomicRegion gr(tchr, pos, pos);
+      GenomicRegion gr(tchr, pos, pos, h);
       chr = gr.chr; 
       pos1 = std::stoi(pos);
     } catch (...) {
@@ -29,7 +30,7 @@ namespace SnowTools {
     
   }
 
-  DBSnpFilter::DBSnpFilter(const std::string& db) {
+DBSnpFilter::DBSnpFilter(const std::string& db, const BamHeader& h) {
     
     // read in the file
     if (!read_access_test(db)) {
@@ -65,7 +66,7 @@ namespace SnowTools {
 	}
       }
 
-      DBSnpSite db(chr, pos, rs, ref, alt);
+      DBSnpSite db(chr, pos, rs, ref, alt, h);
 
       // for now reject SNP sites
       if (ref.length() + alt.length() > 2) {
@@ -85,7 +86,7 @@ namespace SnowTools {
     }
     
     // build the tree
-    m_sites.createTreeMap();
+    m_sites.CreateTreeMap();
 
   }
 
@@ -108,9 +109,9 @@ namespace SnowTools {
     
     std::vector<int32_t> sub, que;
     GenomicRegion gr = bp.b1.gr;
-    gr.pad(2);
+    gr.Pad(2);
     GRC subject(gr);
-    GRC out = subject.findOverlaps(m_sites, sub, que, true); // true = ignore_strand
+    GRC out = subject.FindOverlaps(m_sites, sub, que, true); // true = ignore_strand
     
     if (que.size()) {
       //bp.rs = m_sites[sub[0]].m_rs;
@@ -123,6 +124,3 @@ namespace SnowTools {
     }
     return false;
   }
-
-
-}

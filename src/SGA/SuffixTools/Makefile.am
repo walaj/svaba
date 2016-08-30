@@ -2,9 +2,8 @@ noinst_LIBRARIES = libsuffixtools.a
 
 libsuffixtools_a_CPPFLAGS = \
 	-I$(top_srcdir)/src/SGA/Util \
-##	-I$(top_srcdir)/SGA/Thirdparty \
-	-I$(top_srcdir)/src/SGA/Bigraph 
-##	-I$(top_srcdir)/SGA/Concurrency
+	-I$(top_srcdir)/src/SGA/Bigraph \
+	-I$(top_srcdir)/SeqLib
 
 libsuffixtools_a_SOURCES = STCommon.cpp STCommon.h \
                            STGlobals.h \

@@ -6,9 +6,10 @@
 #include <unordered_map>
 #include <map>
 
-#include "SnowTools/BamWalker.h"
-#include "SnowTools/BWAWrapper.h"
-#include "SnowTools/RefGenome.h"
+#include "SeqLib/BamReader.h"
+#include "SeqLib/BamWriter.h"
+#include "SeqLib/BWAWrapper.h"
+#include "SeqLib/RefGenome.h"
 
 namespace SnowmanUtils {
 
@@ -29,14 +30,16 @@ struct SnowTimer {
   // print it
   friend std::ostream& operator<<(std::ostream &out, const SnowTimer st);
 };
+
+ double CalcMHWScore(std::vector<int>& scores);
  
- int overlapSize(const SnowTools::BamRead& query, const SnowTools::BamReadVector& subject);
+ int overlapSize(const SeqLib::BamRecord& query, const SeqLib::BamRecordVector& subject);
  bool hasRepeat(const std::string& seq);
  std::string runTimeString(int num_t_reads, int num_n_reads, int contig_counter, 
-			   const SnowTools::GenomicRegion& region, const bam_hdr_t * h, const SnowTimer& st, 
+			   const SeqLib::GenomicRegion& region, const SeqLib::BamHeader h, const SnowTimer& st, 
 			   const timespec& start);
- int countJobs(const std::string& regionFile, SnowTools::GRC &file_regions, SnowTools::GRC &run_regions, 
-	       bam_hdr_t * h, int chunk, int window_pad);
+ int countJobs(const std::string& regionFile, SeqLib::GRC &file_regions, SeqLib::GRC &run_regions, 
+	       const SeqLib::BamHeader& h, int chunk, int window_pad);
  
   template <typename T>
   void fopen(const std::string& s, T& o) {
@@ -49,14 +52,20 @@ struct SnowTimer {
 
   std::string __bamOptParse(std::map<std::string, std::string>& obam, std::istringstream& arg, int sample_number, const std::string& prefix);
 
-  void __openWriterBam(const SnowTools::BamWalker& bwalker, const std::string& name, SnowTools::BamWalker& wbam);
+  bool __openWriterBam(const SeqLib::BamHeader& h, const std::string& name, SeqLib::BamWriter& wbam);
 
-  void __open_bed(const std::string& f, SnowTools::GRC& b, bam_hdr_t* h);
+  void __open_bed(const std::string& f, SeqLib::GRC& b, const SeqLib::BamHeader& h);
 
   bool __header_has_chr_prefix(bam_hdr_t * h);
 
-  void __open_index_and_writer(const std::string& index, SnowTools::BWAWrapper * b, const std::string& wname, SnowTools::BamWalker& writer, SnowTools::RefGenome *&  r, bam_hdr_t *& bwa_header);
+  bool __open_index_and_writer(const std::string& index, SeqLib::BWAWrapper * b, const std::string& wname, SeqLib::BamWriter& writer, SeqLib::RefGenome *& r, SeqLib::BamHeader& bwa_header);
 
+  /** Generate a weighed random integer 
+   * @param cs Weighting for each integer (values must sum to one) 
+   * @return Random integer bounded on [0,cs.size())
+   */
+  int weightedRandom(const std::vector<double>& cs);
+  
 }
 
 

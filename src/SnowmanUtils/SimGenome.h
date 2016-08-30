@@ -9,7 +9,7 @@ class SimGenome {
 
  public:
 
-  SimGenome(const SnowTools::GenomicRegion& gr, int nbreaks, int nindels, faidx_t * findex, bool scramble, int viral_count); 
+  SimGenome(const SeqLib::GenomicRegion& gr, int nbreaks, int nindels, faidx_t * findex, bool scramble, int viral_count); 
 
   void addBreak(int b);
 
@@ -24,7 +24,7 @@ class SimGenome {
   std::string printMicrobeSpikes() const;
  private:
   
-  SnowTools::GenomicRegion m_gr;
+  SeqLib::GenomicRegion m_gr;
 
   std::vector<SeqFrag> m_sfv;
 

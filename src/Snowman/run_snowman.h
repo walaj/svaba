@@ -9,9 +9,10 @@
 #include <unordered_map>
 #include <map>
 
-#include "SnowTools/BamWalker.h"
-#include "SnowTools/BWAWrapper.h"
-#include "SnowTools/RefGenome.h"
+#include "SeqLib/BamReader.h"
+#include "SeqLib/BamWriter.h"
+#include "SeqLib/BWAWrapper.h"
+#include "SeqLib/RefGenome.h"
 
 #include "SnowmanUtils.h"
 #include "AlignedContig2.h"
@@ -21,22 +22,22 @@
 
 #include "workqueue.h"
 
-void learnBamParams(SnowTools::BamWalker& walk, std::string id);
+void learnBamParams(SeqLib::BamReader& walk, std::string id);
 void makeVCFs();
-int overlapSize(const BamRead& query, const BamReadVector& subject);
+int overlapSize(const SeqLib::BamRecord& query, const SeqLib::BamRecordVector& subject);
 bool hasRepeat(const std::string& seq);
 void parseRunOptions(int argc, char** argv);
 void runSnowman(int argc, char** argv);
-void learnParameters(const SnowTools::GRC& regions);
-int countJobs(SnowTools::GRC &file_regions, SnowTools::GRC &run_regions);
-void sendThreads(SnowTools::GRC& regions_torun);
-bool runBigChunk(const SnowTools::GenomicRegion& region); 
-SnowTools::GRC makeAssemblyRegions(const SnowTools::GenomicRegion& region);
-void alignReadsToContigs(SnowTools::BWAWrapper& bw, const SnowTools::USeqVector& usv, BamReadVector& bav_this, std::vector<SnowTools::AlignedContig>& this_alc, SnowTools::RefGenome * rg);
-SnowmanBamWalker __make_walkers(const std::string& p, const std::string& b, const SnowTools::GenomicRegion& region, int& tcount, int& ncount);
+void learnParameters(const SeqLib::GRC& regions);
+int countJobs(SeqLib::GRC &file_regions, SeqLib::GRC &run_regions);
+void sendThreads(SeqLib::GRC& regions_torun);
+bool runBigChunk(const SeqLib::GenomicRegion& region); 
+SeqLib::GRC makeAssemblyRegions(const SeqLib::GenomicRegion& region);
+void alignReadsToContigs(SeqLib::BWAWrapper& bw, const SeqLib::UnalignedSequenceVector& usv, SeqLib::BamRecordVector& bav_this, std::vector<AlignedContig>& this_alc, SeqLib::RefGenome * rg);
+SnowmanBamWalker __make_walkers(const std::string& p, const std::string& b, const SeqLib::GenomicRegion& region, int& tcount, int& ncount);
 MateRegionVector __collect_normal_mate_regions(std::map<std::string, SnowmanBamWalker>& walkers);
 MateRegionVector __collect_somatic_mate_regions(std::map<std::string, SnowmanBamWalker>& walkers, MateRegionVector& bl);
-SnowTools::GRC __get_exclude_on_badness(std::map<std::string, SnowmanBamWalker>& walkers, const SnowTools::GenomicRegion& region);
+SeqLib::GRC __get_exclude_on_badness(std::map<std::string, SnowmanBamWalker>& walkers, const SeqLib::GenomicRegion& region);
 void run_test_assembly();
 /** @brief p-thread work item that calls Snowman on a small region
 
@@ -48,11 +49,11 @@ void run_test_assembly();
 class SnowmanWorkItem {
 
  private:
-  SnowTools::GenomicRegion m_gr;
+  SeqLib::GenomicRegion m_gr;
   int m_number;  
 
  public:
-  SnowmanWorkItem(const SnowTools::GenomicRegion& gr, int number)  
+  SnowmanWorkItem(const SeqLib::GenomicRegion& gr, int number)  
     : m_gr(gr), m_number(number) {}
     ~SnowmanWorkItem() {}
     

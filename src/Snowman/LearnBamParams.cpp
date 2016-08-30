@@ -1,7 +1,8 @@
 #include "LearnBamParams.h"
 
 #include <numeric>
-#include "SnowTools/BamWalker.h"
+#include "SeqLib/BamReader.h"
+#include "SnowmanUtils.h"
 
 std::ostream& operator<<(std::ostream& out, const BamParams& p) {
  
@@ -15,49 +16,30 @@ std::ostream& operator<<(std::ostream& out, const BamParams& p) {
   return out;
 }
 
-//http://stackoverflow.com/questions/2114797/compute-median-of-values-stored-in-vector-c
-double CalcMHWScore(std::vector<int>& scores)
-{
-  double median;
-  size_t size = scores.size();
-
-  std::sort(scores.begin(), scores.end());
-
-  if (size  % 2 == 0)
-    {
-      median = (scores[size / 2 - 1] + scores[size / 2]) / 2;
-    }
-  else 
-    {
-      median = scores[size / 2];
-    }
-
-  return median;
-}
-
 void LearnBamParams::learnParams(BamParamsMap& p, int max_count) {
 
-  SnowTools::GenomicRegionVector grv = {SnowTools::GenomicRegion(0, 1000000,2000000), SnowTools::GenomicRegion(1,1000000,2000000)};
-  SnowTools::BamWalker bwalker;
-  bwalker.OpenReadBam(bam);
-  bwalker.setBamWalkerRegions(grv);
+  SeqLib::GRC grv;
+  grv.add(SeqLib::GenomicRegion(0, 1000000,2000000));
+  grv.add(SeqLib::GenomicRegion(1,1000000,2000000));
+  SeqLib::BamReader bwalker;
+  assert(bwalker.Open(bam));
+  bwalker.SetMultipleRegions(grv);
 
-  SnowTools::BamRead r;
+  SeqLib::BamRecord r;
 
   int wid = 0;
   double pos1 = 0, pos2 = 0, chr = -1;
-  bool rule;
 
   // loop through a bunch of reads
   int count = 0;
-  while (bwalker.GetNextRead(r, rule) && ++count < max_count) {
+  while (bwalker.GetNextRecord(r) && ++count < max_count) {
 
     bool qcpass = !r.DuplicateFlag() && !r.QCFailFlag() && !r.SecondaryFlag() && r.MappedFlag();
     if (!qcpass)
       continue;
 
     if (count % 500000 == 0)
-      std::cerr << "...learning from read " << r.Brief(bwalker.header()) << " at count " << SnowTools::AddCommas(count) << " of " << SnowTools::AddCommas(max_count) << std::endl;
+      std::cerr << "...learning from read " << r.Brief() << " at count " << SeqLib::AddCommas(count) << " of " << SeqLib::AddCommas(max_count) << std::endl;
 
     // get the first read position
     if (count == 1 || r.ChrID() != chr) {
@@ -136,7 +118,7 @@ void BamParams::collectStats() {
   isize_vec = tmp;
 
   // get the median first. Use to threshold
-  median_isize = isize_vec.size() ? CalcMHWScore(isize_vec) : 0;
+  median_isize = isize_vec.size() ? SnowmanUtils::CalcMHWScore(isize_vec) : 0;
 
   double sum = std::accumulate(isize_vec.begin(), isize_vec.end(), 0.0);
   mean_isize = isize_vec.size() > 0 ? sum / isize_vec.size() : 0;
@@ -157,12 +139,12 @@ void BamParams::collectStats() {
 
 /*void LearnBamParams::learnParams(BamParams& p, int max_count) {
 
-  SnowTools::GenomicRegionVector grv = {SnowTools::GenomicRegion(0, 1000000,2000000), SnowTools::GenomicRegion(1,1000000,2000000)};
-  SnowTools::BamWalker bwalker;
+  SeqLib::GenomicRegionVector grv = {SeqLib::GenomicRegion(0, 1000000,2000000), SeqLib::GenomicRegion(1,1000000,2000000)};
+  SeqLib::BamWalker bwalker;
   bwalker.OpenReadBam(bam);
   bwalker.setBamWalkerRegions(grv);
 
-  SnowTools::BamRead r;
+  SeqLib::BamRecord r;
 
   double frac_clip = 0;
   double frac_disc = 0;
@@ -205,7 +187,7 @@ void BamParams::collectStats() {
       isizer.push_back(r.FullInsertSize());
 
     if (count % 500000 == 0)
-      std::cerr << "...learning from read " << r.Brief(bwalker.header()) << " at count " << SnowTools::AddCommas(count) << " of " << SnowTools::AddCommas(max_count) << std::endl;
+      std::cerr << "...learning from read " << r.Brief(bwalker.header()) << " at count " << SeqLib::AddCommas(count) << " of " << SeqLib::AddCommas(max_count) << std::endl;
     
     // last read position
     if (chr1 == r.ChrID() && r.MapQuality() > 0 && std::abs(r.InsertSize()) > 10 && std::abs(r.InsertSize()) < 2000) {

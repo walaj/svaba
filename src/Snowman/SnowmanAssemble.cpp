@@ -6,6 +6,7 @@
 //
 // assemble - convert read overlaps into contigs
 //
+
 #include <iostream>
 #include <fstream>
 #include "Util.h"
@@ -26,7 +27,7 @@ StringGraph* assemble(std::stringstream& asqg_stream, int minOverlap, int maxEdg
 	      int trimLengthThreshold, bool bPerformTR, bool bValidate, int numTrimRounds, 
               int resolveSmallRepeatLen, int numBubbleRounds, double maxBubbleGapDivergence, 
               double maxBubbleDivergence, int maxIndelLength, int cutoff, std::string prefix, 
-		      ContigVector &contigs, bool walk_all, bool get_components)
+		      SeqLib::UnalignedSequenceVector &contigs, bool walk_all, bool get_components)
 {
 
   AssemblyOptions ao;
@@ -68,12 +69,10 @@ StringGraph* assemble(std::stringstream& asqg_stream, int minOverlap, int maxEdg
       int numTrims = numTrimRounds;
       while(numTrims-- > 0)
 	pGraph->visit(trimVisit);
-      //pGraph->visit(statsVisit);
     }
   
   // Resolve small repeats
-  if(resolveSmallRepeatLen > 0 && false)
-    {
+  if(resolveSmallRepeatLen > 0 && false) {
       SGSmallRepeatResolveVisitor smallRepeatVisit(resolveSmallRepeatLen);
     }
   
@@ -91,10 +90,10 @@ StringGraph* assemble(std::stringstream& asqg_stream, int minOverlap, int maxEdg
   SGVisitorContig av;
   pGraph->visit(av);
   
-  ContigVector tmp = av.m_ct;
-  for (ContigVector::const_iterator it = tmp.begin(); it != tmp.end(); it++) {
-    if ((int)(it->getLength()) >= cutoff) {
-      contigs.push_back(Contig(it->getID() + "C", it->getSeq())); //postpend with character to distribugish _2 from _22
+  SeqLib::UnalignedSequenceVector tmp = av.m_ct;
+  for (SeqLib::UnalignedSequenceVector::const_iterator it = tmp.begin(); it != tmp.end(); it++) {
+    if ((int)(it->Seq.length()) >= cutoff) {
+      contigs.push_back({it->Name + "C", it->Seq, std::string()}); //postpend with character to distribugish _2 from _22
     }
   }
   

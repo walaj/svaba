@@ -1,8 +1,8 @@
 #include "SimGenome.h"
 
-#include "SnowTools/GenomicRegionCollection.h"
+#include "SeqLib/GenomicRegionCollection.h"
 
-SimGenome::SimGenome(const SnowTools::GenomicRegion& gr, int nbreaks, int ndels, faidx_t * findex, bool scramble, int viral_count) : m_gr(gr) {
+SimGenome::SimGenome(const SeqLib::GenomicRegion& gr, int nbreaks, int ndels, faidx_t * findex, bool scramble, int viral_count) : m_gr(gr) {
   
   std::vector<size_t> index = {0};
   size_t ii = 1;
@@ -10,23 +10,23 @@ SimGenome::SimGenome(const SnowTools::GenomicRegion& gr, int nbreaks, int ndels,
   double viral_prob = viral_count ? (double)viral_count/((double)(nbreaks+1)) * 2 * 1000: 0;
 
   // int
-  size_t avg_width  = std::max((size_t)(m_gr.width() / nbreaks  ), (size_t)1000);
-  size_t max_breaks = std::min((size_t)(m_gr.width() / avg_width), (size_t)nbreaks);
+  size_t avg_width  = std::max((size_t)(m_gr.Width() / nbreaks  ), (size_t)1000);
+  size_t max_breaks = std::min((size_t)(m_gr.Width() / avg_width), (size_t)nbreaks);
   std::cerr << "avg width: " << avg_width << " max breaks: " << max_breaks << std::endl;
   size_t real_vcount = 0;
 
   // choose a set of random break points 
-  SnowTools::GRC grc;
-  grc.add(SnowTools::GenomicRegion(m_gr.chr, m_gr.pos1, m_gr.pos1, '+'));
+  SeqLib::GRC grc;
+  grc.add(SeqLib::GenomicRegion(m_gr.chr, m_gr.pos1, m_gr.pos1, '+'));
   size_t exp_break = 0;
   while(grc.size() < (size_t)(nbreaks)) {
   
     exp_break += avg_width;
-    uint32_t r = exp_break + (rand() % 400) - 200; //m_gr.width();
+    uint32_t r = exp_break + (rand() % 400) - 200; //m_gr.Width();
     r += m_gr.pos1; 
 
     char strand = (rand() % 2) ? '+' : '-';
-    grc.add(SnowTools::GenomicRegion(0, r, r, strand));
+    grc.add(SeqLib::GenomicRegion(0, r, r, strand));
     index.push_back(ii++);
   }
 
@@ -40,7 +40,7 @@ SimGenome::SimGenome(const SnowTools::GenomicRegion& gr, int nbreaks, int ndels,
   }
 
   grc.SortAndStretchRight(m_gr.pos2);
-  grc.sendToBED("segments.bed");
+  //grc.sendToBED("segments.bed");
   
   // shuffle the indices
   if (index.size() > 2)
@@ -52,7 +52,7 @@ SimGenome::SimGenome(const SnowTools::GenomicRegion& gr, int nbreaks, int ndels,
   //std::cerr << std::endl;
   
   // get the sequence and add insertions / deletions
-  double grcwidth = grc.width();
+  double grcwidth = grc.TotalWidth();
   size_t id = 0;
   for (auto& i : index) {
     SeqFrag sf(grc.at(i), findex);
