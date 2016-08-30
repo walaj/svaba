@@ -2,10 +2,9 @@
 
 void SimTrainerWalker::train() {
 
-  SnowTools::BamRead r;
-  bool rule;
+  SeqLib::BamRecord r;
   size_t count = 0;
-  while (GetNextRead(r, rule)) {
+  while (GetNextRecord(r)) {
    
     ++count;
     
@@ -14,7 +13,7 @@ void SimTrainerWalker::train() {
       assert(r.GetZTag("RG").length());
 
     if (count % 1000000 == 0)
-      std::cerr << "...training on read " << SnowTools::AddCommas(count) << " at read at " << r.Brief(br.get()) << std::endl;
+      std::cerr << "...training on read " << SeqLib::AddCommas(count) << " at read at " << r.Brief() << std::endl;
 
     m_bam_stats.addRead(r);
     

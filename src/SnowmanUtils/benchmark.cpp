@@ -9,10 +9,10 @@
  #include <algorithm>
 
  #include "vcf.h"
- #include "SnowTools/Fractions.h"
- #include "SnowTools/BWAWrapper.h"
- #include "SnowTools/SnowToolsCommon.h"
- #include "SnowTools/GenomicRegion.h"
+ #include "Fractions.h"
+ #include "SeqLib/BWAWrapper.h"
+ #include "SeqLib/SeqLibCommon.h"
+ #include "SeqLib/GenomicRegion.h"
 
  #include "ReadSim.h"
  #include "SeqFrag.h"
@@ -32,9 +32,9 @@
  static std::vector<double> coverages;
  static std::vector<double> fractions;
 
- static SnowTools::GRC regions;
- static SnowTools::Fractions fractions_bed;
- static SnowTools::BamWalker bwalker;
+ static SeqLib::GRC regions;
+ static Fractions fractions_bed;
+ static SeqLib::BamReader bwalker;
  static faidx_t * findex;
 
  #define DEFAULT_SNV_RATE 0.01
@@ -44,7 +44,7 @@
 
  namespace opt {
 
-   static std::string refgenome = SnowTools::REFHG19;  
+   static std::string refgenome = "/seq/references/Homo_sapiens_assembly19/v1/Homo_sapiens_assembly19.fasta";
    static int mode = -1;
    static size_t readlen = 101;
    static int num_runs = 100;
@@ -185,25 +185,26 @@
    }
 
    // open the BAM
-   if (opt::bam.length() && SnowTools::read_access_test(opt::bam)) 
-     bwalker = SnowTools::BamWalker(opt::bam);
+   if (opt::bam.length() && SeqLib::read_access_test(opt::bam)) {
+     assert(bwalker.Open(opt::bam));
+   }
    else if (opt::mode == OPT_REALIGN || opt::mode == OPT_SPLITBAM || opt::mode == OPT_REALIGN_SV) {
      std::cerr << "NEED TO INPUT VALID BAM (perhaps just to get header info)" << std::endl;
      exit(EXIT_FAILURE);
   }
     // parse the region file
   if (opt::regionFile.length()) {
-    if (SnowTools::read_access_test(opt::regionFile)) {
-      regions.regionFileToGRV(opt::regionFile, 1, bwalker.header());
-      regions.mergeOverlappingIntervals();
+    if (SeqLib::read_access_test(opt::regionFile)) {
+      regions = SeqLib::GRC(opt::regionFile, bwalker.Header());
+      regions.MergeOverlappingIntervals();
     }
     // samtools format
     else if (opt::regionFile.find(":") != std::string::npos && opt::regionFile.find("-") != std::string::npos) {
-      if (!bwalker.header()) {
+      if (bwalker.Header().isEmpty()) {
 	std::cerr << "Error: To parse a samtools style string, need a BAM header. Input bam with -b" << std::endl;
 	exit(EXIT_FAILURE);
       }
-      regions.add(SnowTools::GenomicRegion(opt::regionFile, bwalker.header()));    
+      regions.add(SeqLib::GenomicRegion(opt::regionFile, bwalker.Header()));    
     } else {
       std::cerr << "Can't parse the regions. Input as BED file or Samtools style string (requires BAM with -b to for header info)" << std::endl;
       exit(EXIT_FAILURE);
@@ -224,17 +225,17 @@
 
   // read the fractions file
   if (opt::frac_bed_file.length() && opt::mode == OPT_SPLITBAM) {
-    fractions_bed.readFromBed(opt::frac_bed_file, bwalker.header());
+    fractions_bed.readFromBed(opt::frac_bed_file, bwalker.Header());
     //  fractions_bed.readBEDfile(opt::frac_bed_file.length(), 0, bwalker.header());
   }
 
   findex = fai_load(opt::refgenome.c_str());  // load the reference
 
-  SnowTools::GRC blacklist;
+  SeqLib::GRC blacklist;
   if (opt::mode == OPT_POWERSIM && !opt::blacklist.empty()) {
     std::cerr << "...reading blacklist file " << opt::blacklist << std::endl;
-    blacklist.regionFileToGRV(opt::blacklist, 0, bwalker.header());
-    blacklist.createTreeMap();
+    blacklist = SeqLib::GRC(opt::blacklist, bwalker.Header());
+    blacklist.CreateTreeMap();
     std::cerr << "...read in " << blacklist.size() << " blacklist regions " << std::endl;
   }
 
@@ -271,17 +272,18 @@ std::string genBreaks() {
 
   // train on the input BAM
   std::vector<std::string> quality_scores;
-  std::vector<SnowTools::GenomicRegion> v = {
-    SnowTools::GenomicRegion(0, 1000000, 2000000)
-    /*SnowTools::GenomicRegion(0, 60000000,70000000),
-    SnowTools::GenomicRegion(1, 1000000, 10000000), 
-    SnowTools::GenomicRegion(1, 60000000,70000000),
-    SnowTools::GenomicRegion(2, 1000000, 10000000), 
-    SnowTools::GenomicRegion(3, 60000000,70000000),
-    SnowTools::GenomicRegion(16, 1000000,1110000),
-    SnowTools::GenomicRegion(17, 1000000,1110000),
-    SnowTools::GenomicRegion(21, 1000000,1110000) */
-  };
+  SeqLib::GenomicRegion v(0, 1000000,2000000);
+    /*  std::vector<SeqLib::GenomicRegion> v = {
+    SeqLib::GenomicRegion(0, 1000000, 2000000)
+    SeqLib::GenomicRegion(0, 60000000,70000000),
+    SeqLib::GenomicRegion(1, 1000000, 10000000), 
+    SeqLib::GenomicRegion(1, 60000000,70000000),
+    SeqLib::GenomicRegion(2, 1000000, 10000000), 
+    SeqLib::GenomicRegion(3, 60000000,70000000),
+    SeqLib::GenomicRegion(16, 1000000,1110000),
+    SeqLib::GenomicRegion(17, 1000000,1110000),
+    SeqLib::GenomicRegion(21, 1000000,1110000) 
+    };*/
   
   /*
   SimTrainerWalker stw(opt::bam);
@@ -293,10 +295,10 @@ std::string genBreaks() {
   bamstats.close();
   */
 
-  bwalker.setBamWalkerRegions(v);
-  SnowTools::BamRead r; bool dum;
+  bwalker.SetRegion(v);
+  SeqLib::BamRecord r; 
   std::cerr << "...sampling reads to learn quality scores" << std::endl;
-  while (bwalker.GetNextRead(r, dum)) {
+  while (bwalker.GetNextRecord(r)) {
     std::string ss = r.Sequence();
     if (ss.find("AAAAAAAA") == std::string::npos && ss.find("TTTTTTTT") == std::string::npos) // already handle homopolymers
       quality_scores.push_back(r.Qualities());
@@ -305,7 +307,7 @@ std::string genBreaks() {
   std::cerr << "...loading the reference genome" << std::endl;
 
 
-  SnowTools::GenomicRegion gg = regions[0];
+  SeqLib::GenomicRegion gg = regions[0];
   std::cerr << "--Generating breaks on: " << gg << std::endl; 
   std::cerr << "--Total number of rearrangement breaks: " << opt::nbreaks << std::endl; 
   std::cerr << "--Total (approx) number of indels: " << opt::nindels << std::endl; 
@@ -394,11 +396,12 @@ std::string genBreaks() {
 
 void splitBam() {
 
-  BamSplitter bs(opt::bam, opt::seed);
+  BamSplitter bs(opt::seed);
+  assert(bs.Open(opt::bam));
 
   // set the regions to split on
   if (regions.size()) 
-    bs.setBamWalkerRegions(regions.asGenomicRegionVector());
+    bs.SetMultipleRegions(regions);
 
   std::cerr << "...set " << regions.size() << " walker regions " << std::endl;
 
@@ -423,7 +426,7 @@ void splitBam() {
 
 void assemblyTest() {
 
-  SnowTools::GenomicRegion gr(16, 7565720, 7575000); //"chr17:7,569,720-7,592,868");
+  SeqLib::GenomicRegion gr(16, 7565720, 7575000); //"chr17:7,569,720-7,592,868");
  
   std::cerr << "...loading the reference genome" << std::endl;
   findex = fai_load(opt::refgenome.c_str());  // load the reference
@@ -437,15 +440,15 @@ void assemblyTest() {
 
   // make the BWA Wrapper
   std::cerr << "...constructing local_seq index" << std::endl;
-  SnowTools::BWAWrapper local_bwa; 
-  local_bwa.constructIndex({{"local_ref", local_ref}});
+  SeqLib::BWAWrapper local_bwa; 
+  local_bwa.ConstructIndex({{"local_ref", local_ref, std::string()}});
 
   // align local_seq to itself
-  SnowTools::BamReadVector self_align;
-  local_bwa.alignSingleSequence(local_ref, "local_ref", self_align, false, false, 0);
+  SeqLib::BamRecordVector self_align;
+  local_bwa.AlignSequence(local_ref, "local_ref", self_align, false, false, 0);
 
   // write out the index
-  local_bwa.writeIndex("local_ref.fa");
+  local_bwa.WriteIndex("local_ref.fa");
   std::ofstream fa;
   fa.open("local_ref.fa");
   fa << ">local_ref" << std::endl << local_ref << std::endl;
@@ -481,12 +484,12 @@ void assemblyTest() {
 	      
 	      // align these reads to the local_seq
 	      //std::cerr << "...realigned to local_seq" << std::endl;
-	      SnowTools::BamReadVector reads_to_local;
+	      SeqLib::BamRecordVector reads_to_local;
 	      int count = 0;
 	      for (auto& i : reads) {
 		if (i.find("N") == std::string::npos) {
-		  SnowTools::BamReadVector read_hits;
-		  local_bwa.alignSingleSequence(i, "read_" + std::to_string(++count), read_hits, false,false, 0);
+		  SeqLib::BamRecordVector read_hits;
+		  local_bwa.AlignSequence(i, "read_" + std::to_string(++count), read_hits, false,false, 0);
 		  if (read_hits.size())
 		    reads_to_local.push_back(read_hits[0]);
 		}
@@ -500,7 +503,7 @@ void assemblyTest() {
 	      //std::cerr << " Attempted align of " << reads.size() << " to local_seq. Got hits on " << reads_to_local.size() << std::endl;
 	  
 	  // make plot of reads to contig
-	  //SnowTools::AlignedContig sa(self_align);  
+	  //AlignedContig sa(self_align);  
 	  //sa.alignReads(reads_to_local);
 	  
 	  // assemble them
@@ -514,33 +517,34 @@ void assemblyTest() {
 	  engine.performAssembly(2);
 	  
 	  // align them back
-	  SnowTools::BamReadVector contigs_to_local;
+	  SeqLib::BamRecordVector contigs_to_local;
 	  for (auto& i : engine.getContigs()) {
-	    SnowTools::BamReadVector ct_alignments;
-	    local_bwa.alignSingleSequence(i.getSeq(), i.getID(), ct_alignments, false, false, 0);
-	    SnowTools::AlignedContig ac(ct_alignments, opt::prefixes);
+	    SeqLib::BamRecordVector ct_alignments;
+	    local_bwa.AlignSequence(i.Seq, i.Name, ct_alignments, false, false, 0);
+	    AlignedContig ac(ct_alignments, opt::prefixes);
 	    //ac.alignReads(reads_to_local);
 	    //std::cout << ac;
 	    contigs_to_local.insert(contigs_to_local.begin(), ct_alignments.begin(), ct_alignments.end());
 	  }
 	  
 	  // write the results
-	  SnowTools::GRC grc(contigs_to_local);
-	  grc.mergeOverlappingIntervals();
+	  SeqLib::GRC grc(contigs_to_local);
+	  grc.MergeOverlappingIntervals();
 	  double width = 0;
 	  for (auto& i : grc)
-	    width = std::max(width, (double)i.width());
+	    width = std::max(width, (double)i.Width());
 	  width = width / local_ref.length();
 	  std::cout << c << "\t" << reads_to_local.size() << "\t" << engine.getContigs().size() << 
 	    "\t" << grc.size() << "\t" << width << "\t" << k << "\t" << E << std::endl;
 	  
 	  if (k == 1 && c == 20 && E == 0.01) {
 	    // write out the contig to local ref bam
-	    SnowTools::BamWalker bw2;
-	    bw2.SetWriteHeader(local_bwa.HeaderFromIndex());
-	    bw2.OpenWriteBam("contigs_to_ref.bam");
+	    SeqLib::BamWriter bw2;
+	    bw2.Open("contigs_to_ref.bam");
+	    bw2.SetHeader(local_bwa.HeaderFromIndex());
+	    bw2.WriteHeader();
 	    for (auto& i : contigs_to_local)
-	      bw2.writeAlignment(i);
+	      bw2.WriteRecord(i);
 	    
 	    // write the paired end fasta
 	    std::ofstream pe1;
@@ -558,20 +562,22 @@ void assemblyTest() {
 	    pe2.close();
 	    
 	    // write out the read to local ref aligned bam
-	    SnowTools::BamWalker bw;
-	    bw.SetWriteHeader(local_bwa.HeaderFromIndex());
-	    bw.OpenWriteBam("reads_to_ref_" + std::to_string(c) + ".bam");
+	    SeqLib::BamWriter bw;
+	    bw.Open("reads_to_ref_" + std::to_string(c) + ".bam");
+	    bw.SetHeader(local_bwa.HeaderFromIndex());
+	    bw.WriteHeader();
 	    for (auto& i : reads_to_local)
-	      bw.writeAlignment(i);
+	      bw.WriteRecord(i);
 	    
-	    SnowTools::BamWalker bwk;
-	    bwk.SetWriteHeader(local_bwa.HeaderFromIndex());
-	    bwk.OpenWriteBam("k.bam");      
+	    SeqLib::BamWriter bwk;
+	    bwk.Open("k.bam");
+	    bwk.SetHeader(local_bwa.HeaderFromIndex());
+	    bwk.WriteHeader();
 	    for (auto& i : reads_to_local) {
 	      std::string kc = i.GetZTag("KC");
 	      if (kc.length())
 		i.SetSequence(kc);
-	      bwk.writeAlignment(i);
+	      bwk.WriteRecord(i);
 	    }
 	    
 	  }
@@ -643,13 +649,13 @@ void assemblyTest() {
   coverages = parseErrorRates(covs);
 
   // parse the fractions string or read file
-  if (!SnowTools::read_access_test(frac))
+  if (!SeqLib::read_access_test(frac))
     fractions = parseErrorRates(frac);
   else
     opt::frac_bed_file = frac;
 
   // check that the bam is valid
-  if (opt::mode == OPT_SIMBREAKS && !SnowTools::read_access_test(opt::bam)) {
+  if (opt::mode == OPT_SIMBREAKS && !SeqLib::read_access_test(opt::bam)) {
     std::cerr << "ERROR: Input BAM required for --sim-breaks" << std::endl;
     exit(EXIT_FAILURE);
   }
@@ -707,8 +713,8 @@ void realignBreaks() {
   ReadSim rs;
   
   std::cerr << "...loading reference genome" << std::endl;
-  SnowTools::BWAWrapper bwa; 
-  bwa.retrieveIndex(opt::refgenome);
+  SeqLib::BWAWrapper bwa; 
+  bwa.LoadIndex(opt::refgenome);
 
   std::ofstream results;
   SnowmanUtils::fopen("realign.sv.results.csv", results);
@@ -721,13 +727,13 @@ void realignBreaks() {
   for (int k = 0; k < RUN_NUM; ++k) {
   for (int i = 30; i < 500; i += 10) {
 
-    SnowTools::GenomicRegion gr1, gr2;
-    gr1.random();
-    gr2.random();
+    SeqLib::GenomicRegion gr1, gr2;
+    gr1.Random();
+    gr2.Random();
     gr1.pos2 = gr1.pos1 + i/2; ; //+ k - 1 + (ins == 0 ? iii : 0); // add sequence to deletion ones, because it gets removed later
     gr2.pos2 = gr2.pos2 + i/2;
-    chrstring1 = bwalker.header()->target_name[gr1.chr]; //std::to_string(gr.chr+1);
-    chrstring2 = bwalker.header()->target_name[gr2.chr]; //std::to_string(gr.chr+1);
+    chrstring1 = bwalker.Header().IDtoName(gr1.chr); //std::to_string(gr.chr+1);
+    chrstring2 = bwalker.Header().IDtoName(gr2.chr); //std::to_string(gr.chr+1);
 	
     int len;
     char * seq1 = faidx_fetch_seq(findex, const_cast<char*>(chrstring1.c_str()), gr1.pos1, gr1.pos2 - 1, &len);
@@ -750,17 +756,17 @@ void realignBreaks() {
 
     
     if (rand() % 2)
-      SnowTools::rcomplement(s2);
+      SeqLib::rcomplement(s2);
     std::string ss = s1 + s2;
 
-    SnowTools::BamReadVector aligns;
-    bwa.alignSingleSequence(ss, std::to_string(i), aligns, false, 0.90, 2);
+    SeqLib::BamRecordVector aligns;
+    bwa.AlignSequence(ss, std::to_string(i), aligns, false, 0.90, 2);
     
     bool a1 = false; bool a2 = false;
     for (auto& jj : aligns) {
-      if (gr1.getOverlap(jj.asGenomicRegion())) 
+      if (gr1.GetOverlap(jj.asGenomicRegion())) 
 	a1 = true;
-      if (gr2.getOverlap(jj.asGenomicRegion()))       
+      if (gr2.GetOverlap(jj.asGenomicRegion()))       
 	a2 = true;
     }
 
@@ -776,8 +782,8 @@ void realignRandomSegments() {
   ReadSim rs;
 
   std::cerr << "...loading reference genome" << std::endl;
-  SnowTools::BWAWrapper bwa; 
-  bwa.retrieveIndex(opt::refgenome);
+  SeqLib::BWAWrapper bwa; 
+  bwa.LoadIndex(opt::refgenome);
 
   std::ofstream results;
   SnowmanUtils::fopen("realign.results.csv", results);
@@ -804,10 +810,10 @@ void realignRandomSegments() {
 	    if (i == 0)
 	      std::cerr << "...working on width " << k << " and SNV rate " << snv << "\t" << (ins == 1 ? "INS" : "DEL") << "\t" << iii << ". " << tcount << " of " << (2 * widths.size() * snv_rate.size() * indel_size.size()) << std::endl;
 	    
-	    SnowTools::GenomicRegion gr;
-	    gr.random();
+	    SeqLib::GenomicRegion gr;
+	    gr.Random();
 	    gr.pos2 = gr.pos1 + k - 1 + (ins == 0 ? iii : 0); // add sequence to deletion ones, because it gets removed later
-	    chrstring = bwalker.header()->target_name[gr.chr]; //std::to_string(gr.chr+1);
+	    chrstring = bwalker.Header().IDtoName(gr.chr); //bwalker.header()->target_name[gr.chr]; //std::to_string(gr.chr+1);
 	    
 	    int len;
 	    char * seq = faidx_fetch_seq(findex, const_cast<char*>(chrstring.c_str()), gr.pos1, gr.pos2 - 1, &len);
@@ -823,7 +829,7 @@ void realignRandomSegments() {
 	    
 	    rs.makeSNVErrors(s, snv);
 	    
-	    if (gr.width() < iii + 10)
+	    if (gr.Width() < iii + 10)
 	      continue;
 
 	    if (ins == 1 && iii > 0)
@@ -831,33 +837,15 @@ void realignRandomSegments() {
 	    else if (iii > 0)
 	      rs.makeDelErrors(s, iii);      
 	    
-	    SnowTools::BamReadVector aligns;
-	    bwa.alignSingleSequence(s, std::to_string(i), aligns, false, 0.90, 50);
-	    
-	    /*
-	    BamReadVector tmp;
-	    if (iii > 0 && aligns.size() == 1) {
-	      for (auto& r : aligns) {
-		if (ins == 1) {
-		  int g = r.MaxInsertionBases();
-		  if (g && g - 2 < iii && g + 2 > iii)
-		    tmp.push_back(r);
-		} else {
-		  int d = r.MaxDeletionBases();
-		  if (d && d - 2 < iii && d + 2 > iii)
-		    tmp.push_back(r);
-		}
-	      }
-	      aligns = tmp;
-	    }
-	    */
+	    SeqLib::BamRecordVector aligns;
+	    bwa.AlignSequence(s, std::to_string(i), aligns, false, 0.90, 50);
 
 	    int align_num = -1;
 	    for (size_t j = 0; j < aligns.size(); ++j) {
 	      
-	      SnowTools::GenomicRegion gr_this = aligns[j].asGenomicRegion();
-	      gr_this.pad(100);
-	      if (gr.getOverlap(gr_this)) {
+	      SeqLib::GenomicRegion gr_this = aligns[j].asGenomicRegion();
+	      gr_this.Pad(100);
+	      if (gr.GetOverlap(gr_this)) {
 		
 		if (iii == 0) { 
 		  align_num = j;

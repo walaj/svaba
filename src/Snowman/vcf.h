@@ -7,7 +7,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
-#include "SnowTools/GenomicRegion.h"
+#include "SeqLib/GenomicRegion.h"
 
 #include "BreakPoint2.h"
 
@@ -69,10 +69,10 @@ struct VCFEntry {
   VCFEntry() {}
   ~VCFEntry() {}
   VCFEntry(std::string line, std::string method);
-  VCFEntry(const SnowTools::BreakEnd& b);
+  VCFEntry(const BreakEnd& b);
 
   // data
-  std::shared_ptr<SnowTools::ReducedBreakPoint> bp;
+  std::shared_ptr<ReducedBreakPoint> bp;
   uint32_t id:30, id_num:2;
 
   std::string getRefString() const;
@@ -96,13 +96,13 @@ typedef std::vector<VCFEntry> VCFEntryVec;
 
 struct VCFEntryPair {
 
-  VCFEntryPair(std::shared_ptr<SnowTools::ReducedBreakPoint>& b);
+  VCFEntryPair(std::shared_ptr<ReducedBreakPoint>& b);
   VCFEntryPair() {};
   ~VCFEntryPair() {};
 
   // data
   VCFEntry e1, e2;
-  std::shared_ptr<SnowTools::ReducedBreakPoint> bp;
+  std::shared_ptr<ReducedBreakPoint> bp;
 
   //SupportingReadsMap supp_reads;
 
@@ -130,7 +130,7 @@ struct VCFFile {
   VCFFile(std::string file, std::string tmethod);
 
   // create a VCFFile from a csv
-  VCFFile(std::string file, std::string id, bam_hdr_t * h, const VCFHeader& vheader);
+  VCFFile(std::string file, std::string id, const SeqLib::BamHeader& h, const VCFHeader& vheader);
 
   std::string filename;
   std::string method;

@@ -7,31 +7,27 @@
 #include <unordered_map>
 #include <unordered_set>
 
-#include "htslib/faidx.h"
-
-#include "SnowTools/BWAWrapper.h"
-#include "SnowTools/STCoverage.h"
-#include "SnowTools/RefGenome.h"
-
-#include "PONFilter.h"
+#include "SeqLib/BWAWrapper.h"
+#include "SeqLib/BamHeader.h"
+#include "STCoverage.h"
+#include "SeqLib/RefGenome.h"
 #include "DiscordantCluster.h"
 
-namespace SnowTools {
+#include "PONFilter.h"
 
   // forward declares
   struct BreakPoint;
-  
+
   typedef std::vector<BreakPoint> BPVec;
- 
+   
  struct ReducedBreakEnd {
    
    ReducedBreakEnd() {}
 
-   ReducedBreakEnd(const GenomicRegion& g, int mq, const std::string & chr_n);
+   ReducedBreakEnd(const SeqLib::GenomicRegion& g, int mq, const std::string & chr_n);
    
    std::string chr_name;
-   //char * chr_name;
-   GenomicRegion gr;
+   SeqLib::GenomicRegion gr;
    int32_t mapq:8, sub_n:8, nm:16;
 
  };
@@ -40,17 +36,17 @@ namespace SnowTools {
    
    BreakEnd() { mapq = 0; sub_n = 0; nm = 0; }
 
-   BreakEnd(const GenomicRegion& g, int mq, const std::string & chr_n);
+   BreakEnd(const SeqLib::GenomicRegion& g, int mq, const std::string & chr_n);
    
-   BreakEnd(const BamRead& b);
+   BreakEnd(const SeqLib::BamRecord& b);
    
-   void checkLocal(const GenomicRegion& window);
+   void checkLocal(const SeqLib::GenomicRegion& window);
 
    std::string hash(int offset = 0) const;
 
    std::string id;
    std::string chr_name;
-   GenomicRegion gr;
+   SeqLib::GenomicRegion gr;
 
    int mapq = -1;
    int cpos = -1;
@@ -115,7 +111,7 @@ namespace SnowTools {
      __smart_check_free(repeat);
      //__smart_check_free(read_names);
    }
-   ReducedBreakPoint(const std::string &line, bam_hdr_t* h);
+   ReducedBreakPoint(const std::string &line, const SeqLib::BamHeader& h);
 
    char * ref;
    char * alt;
@@ -159,7 +155,6 @@ namespace SnowTools {
    int split = 0;
    int cigar = 0;
    int alt = 0;
-   int clip_cov = 0;
    int cov = 0;
    int disc = 0;
    
@@ -220,7 +215,7 @@ namespace SnowTools {
    SampleInfo t, n, a;
 
    // reads spanning this breakpoint
-   BamReadVector reads;
+   SeqLib::BamRecordVector reads;
 
    // store if it has a non-clipped local alignment
    bool has_local_alignment = false;
@@ -257,23 +252,27 @@ namespace SnowTools {
    
    /** Construct a breakpoint from a cluster of discordant reads
     */
-   BreakPoint(DiscordantCluster& tdc, const BWAWrapper * bwa, SnowTools::DiscordantClusterMap& dmap);
+   BreakPoint(DiscordantCluster& tdc, const SeqLib::BWAWrapper * bwa, DiscordantClusterMap& dmap);
      
    BreakPoint() {}
    
-   BreakPoint(const std::string &line, bam_hdr_t* h);
+   BreakPoint(const std::string &line, const SeqLib::BamHeader& h);
 
-   void checkLocal(const GenomicRegion& window);
+   void checkLocal(const SeqLib::GenomicRegion& window);
 
    void __set_total_reads();
    
    void __score_somatic(double NODBCUTOFF, double DBCUTOFF);
 
-   void addCovs(const std::unordered_map<std::string, STCoverage*>& covs, const std::unordered_map<std::string, STCoverage*>& clip_covs);
+   void addCovs(const std::unordered_map<std::string, STCoverage*>& covs);
 
    /** Retrieve the reference sequence at a breakpoint and determine if 
     * it lands on a repeat */
    void repeatFilter();
+
+
+   int checkPon(const PONFilter * p);
+  
 
    void __combine_with_discordant_cluster(DiscordantClusterMap& dmap);
    
@@ -282,7 +281,7 @@ namespace SnowTools {
     * @discussion Note: will cause an error if the AL tag not filled in for the reads. 
     * The AL tag is filled in by AlignedContig::alignReadsToContigs.
     */
-   void splitCoverage(BamReadVector &bav);
+   void splitCoverage(SeqLib::BamRecordVector &bav);
    
    /*! Determines if the BreakPoint overlays a blacklisted region. If 
     * and overlap is found, sets the blacklist bool to true.
@@ -291,7 +290,7 @@ namespace SnowTools {
     * If the BreakPoint object is not an indel, no action is taken. 
     * @param grm An interval tree map created from a BED file containing blacklist regions
     */
-   void checkBlacklist(GRC &grv);
+   void checkBlacklist(SeqLib::GRC &grv);
    
    /*! Score a breakpoint with a QUAL score, and as somatic or germline
     */
@@ -309,19 +308,13 @@ namespace SnowTools {
    * @param t_cov Base-pair level Coverage object, with coverage for all reads from Tumor bam(s).
    * @param n_cov Base-pair level Coverage object, with coverage for all reads from Normal bam(s).
    */
-   void addAllelicFraction(STCoverage * t_cov, STCoverage * n_cov, STCoverage * n_clip_cov);
+   //void addAllelicFraction(STCoverage * t_cov, STCoverage * n_cov);
   
   /*! @function get the span of the breakpoints (in bp). -1 for interchrom
    * @return int distance between breakpoints
    */
    int getSpan() const;
 
-   /*! @function check the breakpoint against a panel of normals
-    * @param Panel of normals hash
-    * @return number of normal samples with this variant
-    */
-   int checkPon(const SnowTools::PONFilter * p);
-   
    /*! @function get a unique string representation of this breakpoint.
     * Format for indel is chr_breakpos_type (eg. 0_134134_I)
     * @return string with breakpoint info
@@ -402,10 +395,8 @@ namespace SnowTools {
    double __sv_is_somatic() const;
    double __indel_is_somatic() const;
 
-   void setRefAlt(const SnowTools::RefGenome * main_rg, const SnowTools::RefGenome * viral); 
+   void setRefAlt(const SeqLib::RefGenome * main_rg, const SeqLib::RefGenome * viral); 
 
 };
-
-}
 
 #endif

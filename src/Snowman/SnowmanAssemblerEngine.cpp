@@ -45,7 +45,7 @@ void SnowmanAssemblerEngine::fillReadTable(const std::vector<std::string>& r) {
   
 }
 
-void SnowmanAssemblerEngine::fillReadTable(SnowTools::BamReadVector& r)
+void SnowmanAssemblerEngine::fillReadTable(SeqLib::BamRecordVector& r)
 {
   
   m_reads = r;
@@ -75,7 +75,7 @@ void SnowmanAssemblerEngine::fillReadTable(SnowTools::BamReadVector& r)
 
     // put onto the foward strand if not
     if (!i.MappedFlag() && !i.MateReverseFlag())
-      SnowTools::rcomplement(seq);
+      SeqLib::rcomplement(seq);
 
     si.seq = seq;
     m_pRT.addRead(si);
@@ -116,7 +116,8 @@ bool SnowmanAssemblerEngine::performAssembly(int num_assembly_rounds)
   std::cout << "Doing assembly on: " << m_id << " with " << m_pRT.getCount() << " reads" << std::endl; 
 #endif
 
-  ContigVector contigs0;
+  SeqLib::UnalignedSequenceVector contigs0;
+  //ContigVector contigs0;
 
 #ifdef DEBUG_ENGINE
   std::cout << "...round 1" << std::endl;
@@ -135,10 +136,10 @@ bool SnowmanAssemblerEngine::performAssembly(int num_assembly_rounds)
 #endif    
     
     // do the second round (on assembled contigs)
-    ContigVector tmpc;
+    SeqLib::UnalignedSequenceVector tmpc;
     for (auto& j : m_contigs)
-      if (j.getLength() > m_readlen)
-	  tmpc.push_back(j);
+      if (j.Seq.length() > m_readlen)
+	tmpc.push_back(j);
     
     ReadTable pRTc0(tmpc);
     m_contigs.clear();
@@ -150,7 +151,7 @@ bool SnowmanAssemblerEngine::performAssembly(int num_assembly_rounds)
 
 
 // call the assembler
-void SnowmanAssemblerEngine::doAssembly(ReadTable *pRT, ContigVector &contigs, int pass) {
+void SnowmanAssemblerEngine::doAssembly(ReadTable *pRT, SeqLib::UnalignedSequenceVector &contigs, int pass) {
   
   if (pRT->getCount() == 0)
     return;
@@ -364,13 +365,13 @@ void SnowmanAssemblerEngine::write_asqg(const StringGraph* oGraph, std::stringst
 
 }
 
-void SnowmanAssemblerEngine::remove_exact_dups(ContigVector& cc) const {
+void SnowmanAssemblerEngine::remove_exact_dups(SeqLib::UnalignedSequenceVector& cc) const {
 
   std::set<std::string> ContigDeDup;
-  ContigVector cvec;
+  SeqLib::UnalignedSequenceVector cvec;
   for (auto& i : cc) {
-    if (!ContigDeDup.count(i.getSeq())) {
-      ContigDeDup.insert(i.getSeq());
+    if (!ContigDeDup.count(i.Seq)) {
+      ContigDeDup.insert(i.Seq);
       cvec.push_back(i);
     } else {
       //std::cerr << "Filtered out a contig for having exact duplicate with another contig" << std::endl;
@@ -379,12 +380,12 @@ void SnowmanAssemblerEngine::remove_exact_dups(ContigVector& cc) const {
   cc = cvec;
 }
 
-void SnowmanAssemblerEngine::print_results(const ContigVector& cc) const {
+void SnowmanAssemblerEngine::print_results(const SeqLib::UnalignedSequenceVector& cc) const {
 
   if (cc.size() >= 1) {
     std::cout << "Contig Count: " << cc.size() << " at " << m_id << std::endl;
     for (auto& i : cc) 
-    	std::cout << "   " << i.getID() << " " << i.getSeq().length() << " " << i.getSeq() << std::endl;
+    	std::cout << "   " << i.Name << " " << i.Seq.length() << " " << i.Seq << std::endl;
   }
 
 }

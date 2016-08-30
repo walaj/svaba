@@ -46,38 +46,30 @@ CONFIG_CLEAN_VPATH_FILES =
 am__installdirs = "$(DESTDIR)$(bindir)"
 PROGRAMS = $(bin_PROGRAMS)
 am_snowman_OBJECTS = snowman-run_snowman2.$(OBJEXT) \
-	snowman-splitcounter.$(OBJEXT) snowman-BreakPoint2.$(OBJEXT) \
-	snowman-AlignedContig2.$(OBJEXT) \
+	snowman-BreakPoint2.$(OBJEXT) snowman-AlignedContig2.$(OBJEXT) \
 	snowman-DiscordantCluster.$(OBJEXT) \
 	snowman-DBSnpFilter.$(OBJEXT) snowman-PONFilter.$(OBJEXT) \
 	snowman-SnowmanUtils.$(OBJEXT) snowman-snowman.$(OBJEXT) \
 	snowman-SnowmanAssemblerEngine.$(OBJEXT) snowman-vcf.$(OBJEXT) \
-	snowman-SnowmanRead.$(OBJEXT) \
+	snowman-DiscordantRealigner.$(OBJEXT) \
 	snowman-SnowmanOverlapAlgorithm.$(OBJEXT) \
 	snowman-SnowmanASQG.$(OBJEXT) \
-	snowman-SnowmanAssemble.$(OBJEXT) snowman-genpon.$(OBJEXT) \
-	snowman-KmerFilter.$(OBJEXT) \
-	snowman-SnowmanBamWalker.$(OBJEXT) snowman-benchmark.$(OBJEXT) \
-	snowman-PonWalker.$(OBJEXT) snowman-ReadSim.$(OBJEXT) \
-	snowman-SeqFrag.$(OBJEXT) snowman-SimGenome.$(OBJEXT) \
-	snowman-BamSplitter.$(OBJEXT) \
-	snowman-SimTrainerWalker.$(OBJEXT) snowman-refilter.$(OBJEXT) \
-	snowman-LearnBamParams.$(OBJEXT) snowman-PowerLawSim.$(OBJEXT) \
-	snowman-AssemblyBamWalker.$(OBJEXT) \
-	snowman-assembly2vcf.$(OBJEXT)
+	snowman-SnowmanAssemble.$(OBJEXT) snowman-KmerFilter.$(OBJEXT) \
+	snowman-SnowmanBamWalker.$(OBJEXT) snowman-refilter.$(OBJEXT) \
+	snowman-LearnBamParams.$(OBJEXT) snowman-STCoverage.$(OBJEXT) \
+	snowman-Histogram.$(OBJEXT) snowman-BamStats.$(OBJEXT)
 snowman_OBJECTS = $(am_snowman_OBJECTS)
 snowman_DEPENDENCIES = $(top_builddir)/src/SGA/SGA/libsga.a \
-	$(top_builddir)/SnowTools/bwa/libbwa.a \
-	$(top_builddir)/SnowTools/htslib/libhts.a \
-	$(top_builddir)/SnowTools/src/libsnowtools.a \
 	$(top_builddir)/src/SGA/StringGraph/libstringgraph.a \
 	$(top_builddir)/src/SGA/Algorithm/libalgorithm.a \
 	$(top_builddir)/src/SGA/SuffixTools/libsuffixtools.a \
 	$(top_builddir)/src/SGA/Bigraph/libbigraph.a \
 	$(top_builddir)/src/SGA/Util/libutil.a \
 	$(top_builddir)/src/SGA/SQG/libsqg.a \
-	$(top_builddir)/SnowTools/fermi-lite/libfml.a \
-	$(top_builddir)/SnowTools/multifast-v1.4.2/ahocorasick/build/libahocorasick.a
+	$(top_builddir)/SeqLib/src/libseqlib.a \
+	$(top_builddir)/SeqLib/bwa/libbwa.a \
+	$(top_builddir)/SeqLib/htslib/libhts.a \
+	$(top_builddir)/SeqLib/fermi-lite/libfml.a
 snowman_LINK = $(CXXLD) $(AM_CXXFLAGS) $(CXXFLAGS) $(snowman_LDFLAGS) \
 	$(LDFLAGS) -o $@
 DEFAULT_INCLUDES = -I.@am__isrc@ -I$(top_builddir)
@@ -89,10 +81,6 @@ CXXCOMPILE = $(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) \
 CXXLD = $(CXX)
 CXXLINK = $(CXXLD) $(AM_CXXFLAGS) $(CXXFLAGS) $(AM_LDFLAGS) $(LDFLAGS) \
 	-o $@
-COMPILE = $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) \
-	$(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS)
-CCLD = $(CC)
-LINK = $(CCLD) $(AM_CFLAGS) $(CFLAGS) $(AM_LDFLAGS) $(LDFLAGS) -o $@
 SOURCES = $(snowman_SOURCES)
 DIST_SOURCES = $(snowman_SOURCES)
 ETAGS = etags
@@ -198,36 +186,30 @@ snowman_CPPFLAGS = \
 	-I$(top_srcdir)/src/SGA/Algorithm \
 	-I$(top_srcdir)/src/SGA/SQG \
 	-I$(top_srcdir)/src/SGA/SGA \
-	-I$(top_srcdir)/SnowTools/src \
-	-I$(top_srcdir)/SnowTools \
-	-I$(top_srcdir)/SnowTools/htslib \
-	-I$(top_srcdir)/SnowTools/multifast-v1.4.2 \
-	-I$(top_srcdir)/SnowTools/fermi-lite \
-	-I$(top_srcdir)/SnowTools/blat/inc \
-	-I$(top_srcdir)/SnowTools/blat/jkOwnLib -Wno-write-strings
+	-I$(top_srcdir)/SeqLib \
+	-I$(top_srcdir)/SeqLib/htslib
 
 snowman_LDADD = \
 	$(top_builddir)/src/SGA/SGA/libsga.a \
-	$(top_builddir)/SnowTools/bwa/libbwa.a \
-	$(top_builddir)/SnowTools/htslib/libhts.a \
-	$(top_builddir)/SnowTools/src/libsnowtools.a \
 	$(top_builddir)/src/SGA/StringGraph/libstringgraph.a \
 	$(top_builddir)/src/SGA/Algorithm/libalgorithm.a \
 	$(top_builddir)/src/SGA/SuffixTools/libsuffixtools.a \
 	$(top_builddir)/src/SGA/Bigraph/libbigraph.a \
 	$(top_builddir)/src/SGA/Util/libutil.a \
 	$(top_builddir)/src/SGA/SQG/libsqg.a \
-	$(top_builddir)/SnowTools/fermi-lite/libfml.a \
-	$(top_builddir)/SnowTools/multifast-v1.4.2/ahocorasick/build/libahocorasick.a 
+	$(top_builddir)/SeqLib/src/libseqlib.a \
+	$(top_builddir)/SeqLib/bwa/libbwa.a \
+	$(top_builddir)/SeqLib/htslib/libhts.a \
+	$(top_builddir)/SeqLib/fermi-lite/libfml.a
 
 snowman_LDFLAGS = -pthread -std=c++11
-snowman_SOURCES = run_snowman2.cpp splitcounter.cpp BreakPoint2.cpp AlignedContig2.cpp DiscordantCluster.cpp DBSnpFilter.cpp PONFilter.cpp \
-		SnowmanUtils.cpp snowman.cpp workqueue.h SnowmanAssemblerEngine.cpp vcf.cpp SnowmanRead.cpp \
-		SnowmanOverlapAlgorithm.cpp SnowmanASQG.cpp \
-		SnowmanAssemble.h SnowmanAssemble.cpp genpon.cpp \
-		KmerFilter.cpp SnowmanBamWalker.cpp benchmark.cpp PonWalker.cpp ReadSim.cpp \
-		SeqFrag.cpp SimGenome.cpp BamSplitter.cpp SimTrainerWalker.cpp refilter.cpp LearnBamParams.cpp \
-		PowerLawSim.cpp AssemblyBamWalker.cpp assembly2vcf.cpp
+snowman_SOURCES = run_snowman2.cpp BreakPoint2.cpp AlignedContig2.cpp \
+		DiscordantCluster.cpp DBSnpFilter.cpp PONFilter.cpp \
+		SnowmanUtils.cpp snowman.cpp SnowmanAssemblerEngine.cpp vcf.cpp \
+		DiscordantRealigner.cpp SnowmanOverlapAlgorithm.cpp SnowmanASQG.cpp \
+		SnowmanAssemble.cpp KmerFilter.cpp SnowmanBamWalker.cpp \
+		refilter.cpp LearnBamParams.cpp \
+		STCoverage.cpp Histogram.cpp BamStats.cpp
 
 all: all-am
 
@@ -311,34 +293,25 @@ distclean-compile:
 	-rm -f *.tab.c
 
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-AlignedContig2.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-AssemblyBamWalker.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-BamSplitter.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-BamStats.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-BreakPoint2.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-DBSnpFilter.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-DiscordantCluster.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-DiscordantRealigner.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-Histogram.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-KmerFilter.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-LearnBamParams.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-PONFilter.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-PonWalker.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-PowerLawSim.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-ReadSim.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-SeqFrag.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-SimGenome.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-SimTrainerWalker.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-STCoverage.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-SnowmanASQG.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-SnowmanAssemble.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-SnowmanAssemblerEngine.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-SnowmanBamWalker.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-SnowmanOverlapAlgorithm.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-SnowmanRead.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-SnowmanUtils.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-assembly2vcf.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-benchmark.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-genpon.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-refilter.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-run_snowman2.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-snowman.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-splitcounter.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-vcf.Po@am__quote@
 
 .cpp.o:
@@ -368,20 +341,6 @@ snowman-run_snowman2.obj: run_snowman2.cpp
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='run_snowman2.cpp' object='snowman-run_snowman2.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-run_snowman2.obj `if test -f 'run_snowman2.cpp'; then $(CYGPATH_W) 'run_snowman2.cpp'; else $(CYGPATH_W) '$(srcdir)/run_snowman2.cpp'; fi`
-
-snowman-splitcounter.o: splitcounter.cpp
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-splitcounter.o -MD -MP -MF $(DEPDIR)/snowman-splitcounter.Tpo -c -o snowman-splitcounter.o `test -f 'splitcounter.cpp' || echo '$(srcdir)/'`splitcounter.cpp
-@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/snowman-splitcounter.Tpo $(DEPDIR)/snowman-splitcounter.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='splitcounter.cpp' object='snowman-splitcounter.o' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-splitcounter.o `test -f 'splitcounter.cpp' || echo '$(srcdir)/'`splitcounter.cpp
-
-snowman-splitcounter.obj: splitcounter.cpp
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-splitcounter.obj -MD -MP -MF $(DEPDIR)/snowman-splitcounter.Tpo -c -o snowman-splitcounter.obj `if test -f 'splitcounter.cpp'; then $(CYGPATH_W) 'splitcounter.cpp'; else $(CYGPATH_W) '$(srcdir)/splitcounter.cpp'; fi`
-@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/snowman-splitcounter.Tpo $(DEPDIR)/snowman-splitcounter.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='splitcounter.cpp' object='snowman-splitcounter.obj' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-splitcounter.obj `if test -f 'splitcounter.cpp'; then $(CYGPATH_W) 'splitcounter.cpp'; else $(CYGPATH_W) '$(srcdir)/splitcounter.cpp'; fi`
 
 snowman-BreakPoint2.o: BreakPoint2.cpp
 @am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-BreakPoint2.o -MD -MP -MF $(DEPDIR)/snowman-BreakPoint2.Tpo -c -o snowman-BreakPoint2.o `test -f 'BreakPoint2.cpp' || echo '$(srcdir)/'`BreakPoint2.cpp
@@ -509,19 +468,19 @@ snowman-vcf.obj: vcf.cpp
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-vcf.obj `if test -f 'vcf.cpp'; then $(CYGPATH_W) 'vcf.cpp'; else $(CYGPATH_W) '$(srcdir)/vcf.cpp'; fi`
 
-snowman-SnowmanRead.o: SnowmanRead.cpp
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-SnowmanRead.o -MD -MP -MF $(DEPDIR)/snowman-SnowmanRead.Tpo -c -o snowman-SnowmanRead.o `test -f 'SnowmanRead.cpp' || echo '$(srcdir)/'`SnowmanRead.cpp
-@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/snowman-SnowmanRead.Tpo $(DEPDIR)/snowman-SnowmanRead.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='SnowmanRead.cpp' object='snowman-SnowmanRead.o' libtool=no @AMDEPBACKSLASH@
+snowman-DiscordantRealigner.o: DiscordantRealigner.cpp
+@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-DiscordantRealigner.o -MD -MP -MF $(DEPDIR)/snowman-DiscordantRealigner.Tpo -c -o snowman-DiscordantRealigner.o `test -f 'DiscordantRealigner.cpp' || echo '$(srcdir)/'`DiscordantRealigner.cpp
+@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/snowman-DiscordantRealigner.Tpo $(DEPDIR)/snowman-DiscordantRealigner.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='DiscordantRealigner.cpp' object='snowman-DiscordantRealigner.o' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-SnowmanRead.o `test -f 'SnowmanRead.cpp' || echo '$(srcdir)/'`SnowmanRead.cpp
+@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-DiscordantRealigner.o `test -f 'DiscordantRealigner.cpp' || echo '$(srcdir)/'`DiscordantRealigner.cpp
 
-snowman-SnowmanRead.obj: SnowmanRead.cpp
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-SnowmanRead.obj -MD -MP -MF $(DEPDIR)/snowman-SnowmanRead.Tpo -c -o snowman-SnowmanRead.obj `if test -f 'SnowmanRead.cpp'; then $(CYGPATH_W) 'SnowmanRead.cpp'; else $(CYGPATH_W) '$(srcdir)/SnowmanRead.cpp'; fi`
-@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/snowman-SnowmanRead.Tpo $(DEPDIR)/snowman-SnowmanRead.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='SnowmanRead.cpp' object='snowman-SnowmanRead.obj' libtool=no @AMDEPBACKSLASH@
+snowman-DiscordantRealigner.obj: DiscordantRealigner.cpp
+@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-DiscordantRealigner.obj -MD -MP -MF $(DEPDIR)/snowman-DiscordantRealigner.Tpo -c -o snowman-DiscordantRealigner.obj `if test -f 'DiscordantRealigner.cpp'; then $(CYGPATH_W) 'DiscordantRealigner.cpp'; else $(CYGPATH_W) '$(srcdir)/DiscordantRealigner.cpp'; fi`
+@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/snowman-DiscordantRealigner.Tpo $(DEPDIR)/snowman-DiscordantRealigner.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='DiscordantRealigner.cpp' object='snowman-DiscordantRealigner.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-SnowmanRead.obj `if test -f 'SnowmanRead.cpp'; then $(CYGPATH_W) 'SnowmanRead.cpp'; else $(CYGPATH_W) '$(srcdir)/SnowmanRead.cpp'; fi`
+@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-DiscordantRealigner.obj `if test -f 'DiscordantRealigner.cpp'; then $(CYGPATH_W) 'DiscordantRealigner.cpp'; else $(CYGPATH_W) '$(srcdir)/DiscordantRealigner.cpp'; fi`
 
 snowman-SnowmanOverlapAlgorithm.o: SnowmanOverlapAlgorithm.cpp
 @am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-SnowmanOverlapAlgorithm.o -MD -MP -MF $(DEPDIR)/snowman-SnowmanOverlapAlgorithm.Tpo -c -o snowman-SnowmanOverlapAlgorithm.o `test -f 'SnowmanOverlapAlgorithm.cpp' || echo '$(srcdir)/'`SnowmanOverlapAlgorithm.cpp
@@ -565,20 +524,6 @@ snowman-SnowmanAssemble.obj: SnowmanAssemble.cpp
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-SnowmanAssemble.obj `if test -f 'SnowmanAssemble.cpp'; then $(CYGPATH_W) 'SnowmanAssemble.cpp'; else $(CYGPATH_W) '$(srcdir)/SnowmanAssemble.cpp'; fi`
 
-snowman-genpon.o: genpon.cpp
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-genpon.o -MD -MP -MF $(DEPDIR)/snowman-genpon.Tpo -c -o snowman-genpon.o `test -f 'genpon.cpp' || echo '$(srcdir)/'`genpon.cpp
-@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/snowman-genpon.Tpo $(DEPDIR)/snowman-genpon.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='genpon.cpp' object='snowman-genpon.o' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-genpon.o `test -f 'genpon.cpp' || echo '$(srcdir)/'`genpon.cpp
-
-snowman-genpon.obj: genpon.cpp
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-genpon.obj -MD -MP -MF $(DEPDIR)/snowman-genpon.Tpo -c -o snowman-genpon.obj `if test -f 'genpon.cpp'; then $(CYGPATH_W) 'genpon.cpp'; else $(CYGPATH_W) '$(srcdir)/genpon.cpp'; fi`
-@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/snowman-genpon.Tpo $(DEPDIR)/snowman-genpon.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='genpon.cpp' object='snowman-genpon.obj' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-genpon.obj `if test -f 'genpon.cpp'; then $(CYGPATH_W) 'genpon.cpp'; else $(CYGPATH_W) '$(srcdir)/genpon.cpp'; fi`
-
 snowman-KmerFilter.o: KmerFilter.cpp
 @am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-KmerFilter.o -MD -MP -MF $(DEPDIR)/snowman-KmerFilter.Tpo -c -o snowman-KmerFilter.o `test -f 'KmerFilter.cpp' || echo '$(srcdir)/'`KmerFilter.cpp
 @am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/snowman-KmerFilter.Tpo $(DEPDIR)/snowman-KmerFilter.Po
@@ -606,104 +551,6 @@ snowman-SnowmanBamWalker.obj: SnowmanBamWalker.cpp
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='SnowmanBamWalker.cpp' object='snowman-SnowmanBamWalker.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-SnowmanBamWalker.obj `if test -f 'SnowmanBamWalker.cpp'; then $(CYGPATH_W) 'SnowmanBamWalker.cpp'; else $(CYGPATH_W) '$(srcdir)/SnowmanBamWalker.cpp'; fi`
-
-snowman-benchmark.o: benchmark.cpp
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-benchmark.o -MD -MP -MF $(DEPDIR)/snowman-benchmark.Tpo -c -o snowman-benchmark.o `test -f 'benchmark.cpp' || echo '$(srcdir)/'`benchmark.cpp
-@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/snowman-benchmark.Tpo $(DEPDIR)/snowman-benchmark.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='benchmark.cpp' object='snowman-benchmark.o' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-benchmark.o `test -f 'benchmark.cpp' || echo '$(srcdir)/'`benchmark.cpp
-
-snowman-benchmark.obj: benchmark.cpp
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-benchmark.obj -MD -MP -MF $(DEPDIR)/snowman-benchmark.Tpo -c -o snowman-benchmark.obj `if test -f 'benchmark.cpp'; then $(CYGPATH_W) 'benchmark.cpp'; else $(CYGPATH_W) '$(srcdir)/benchmark.cpp'; fi`
-@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/snowman-benchmark.Tpo $(DEPDIR)/snowman-benchmark.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='benchmark.cpp' object='snowman-benchmark.obj' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-benchmark.obj `if test -f 'benchmark.cpp'; then $(CYGPATH_W) 'benchmark.cpp'; else $(CYGPATH_W) '$(srcdir)/benchmark.cpp'; fi`
-
-snowman-PonWalker.o: PonWalker.cpp
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-PonWalker.o -MD -MP -MF $(DEPDIR)/snowman-PonWalker.Tpo -c -o snowman-PonWalker.o `test -f 'PonWalker.cpp' || echo '$(srcdir)/'`PonWalker.cpp
-@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/snowman-PonWalker.Tpo $(DEPDIR)/snowman-PonWalker.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='PonWalker.cpp' object='snowman-PonWalker.o' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-PonWalker.o `test -f 'PonWalker.cpp' || echo '$(srcdir)/'`PonWalker.cpp
-
-snowman-PonWalker.obj: PonWalker.cpp
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-PonWalker.obj -MD -MP -MF $(DEPDIR)/snowman-PonWalker.Tpo -c -o snowman-PonWalker.obj `if test -f 'PonWalker.cpp'; then $(CYGPATH_W) 'PonWalker.cpp'; else $(CYGPATH_W) '$(srcdir)/PonWalker.cpp'; fi`
-@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/snowman-PonWalker.Tpo $(DEPDIR)/snowman-PonWalker.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='PonWalker.cpp' object='snowman-PonWalker.obj' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-PonWalker.obj `if test -f 'PonWalker.cpp'; then $(CYGPATH_W) 'PonWalker.cpp'; else $(CYGPATH_W) '$(srcdir)/PonWalker.cpp'; fi`
-
-snowman-ReadSim.o: ReadSim.cpp
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-ReadSim.o -MD -MP -MF $(DEPDIR)/snowman-ReadSim.Tpo -c -o snowman-ReadSim.o `test -f 'ReadSim.cpp' || echo '$(srcdir)/'`ReadSim.cpp
-@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/snowman-ReadSim.Tpo $(DEPDIR)/snowman-ReadSim.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='ReadSim.cpp' object='snowman-ReadSim.o' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-ReadSim.o `test -f 'ReadSim.cpp' || echo '$(srcdir)/'`ReadSim.cpp
-
-snowman-ReadSim.obj: ReadSim.cpp
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-ReadSim.obj -MD -MP -MF $(DEPDIR)/snowman-ReadSim.Tpo -c -o snowman-ReadSim.obj `if test -f 'ReadSim.cpp'; then $(CYGPATH_W) 'ReadSim.cpp'; else $(CYGPATH_W) '$(srcdir)/ReadSim.cpp'; fi`
-@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/snowman-ReadSim.Tpo $(DEPDIR)/snowman-ReadSim.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='ReadSim.cpp' object='snowman-ReadSim.obj' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-ReadSim.obj `if test -f 'ReadSim.cpp'; then $(CYGPATH_W) 'ReadSim.cpp'; else $(CYGPATH_W) '$(srcdir)/ReadSim.cpp'; fi`
-
-snowman-SeqFrag.o: SeqFrag.cpp
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-SeqFrag.o -MD -MP -MF $(DEPDIR)/snowman-SeqFrag.Tpo -c -o snowman-SeqFrag.o `test -f 'SeqFrag.cpp' || echo '$(srcdir)/'`SeqFrag.cpp
-@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/snowman-SeqFrag.Tpo $(DEPDIR)/snowman-SeqFrag.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='SeqFrag.cpp' object='snowman-SeqFrag.o' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-SeqFrag.o `test -f 'SeqFrag.cpp' || echo '$(srcdir)/'`SeqFrag.cpp
-
-snowman-SeqFrag.obj: SeqFrag.cpp
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-SeqFrag.obj -MD -MP -MF $(DEPDIR)/snowman-SeqFrag.Tpo -c -o snowman-SeqFrag.obj `if test -f 'SeqFrag.cpp'; then $(CYGPATH_W) 'SeqFrag.cpp'; else $(CYGPATH_W) '$(srcdir)/SeqFrag.cpp'; fi`
-@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/snowman-SeqFrag.Tpo $(DEPDIR)/snowman-SeqFrag.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='SeqFrag.cpp' object='snowman-SeqFrag.obj' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-SeqFrag.obj `if test -f 'SeqFrag.cpp'; then $(CYGPATH_W) 'SeqFrag.cpp'; else $(CYGPATH_W) '$(srcdir)/SeqFrag.cpp'; fi`
-
-snowman-SimGenome.o: SimGenome.cpp
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-SimGenome.o -MD -MP -MF $(DEPDIR)/snowman-SimGenome.Tpo -c -o snowman-SimGenome.o `test -f 'SimGenome.cpp' || echo '$(srcdir)/'`SimGenome.cpp
-@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/snowman-SimGenome.Tpo $(DEPDIR)/snowman-SimGenome.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='SimGenome.cpp' object='snowman-SimGenome.o' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-SimGenome.o `test -f 'SimGenome.cpp' || echo '$(srcdir)/'`SimGenome.cpp
-
-snowman-SimGenome.obj: SimGenome.cpp
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-SimGenome.obj -MD -MP -MF $(DEPDIR)/snowman-SimGenome.Tpo -c -o snowman-SimGenome.obj `if test -f 'SimGenome.cpp'; then $(CYGPATH_W) 'SimGenome.cpp'; else $(CYGPATH_W) '$(srcdir)/SimGenome.cpp'; fi`
-@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/snowman-SimGenome.Tpo $(DEPDIR)/snowman-SimGenome.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='SimGenome.cpp' object='snowman-SimGenome.obj' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-SimGenome.obj `if test -f 'SimGenome.cpp'; then $(CYGPATH_W) 'SimGenome.cpp'; else $(CYGPATH_W) '$(srcdir)/SimGenome.cpp'; fi`
-
-snowman-BamSplitter.o: BamSplitter.cpp
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-BamSplitter.o -MD -MP -MF $(DEPDIR)/snowman-BamSplitter.Tpo -c -o snowman-BamSplitter.o `test -f 'BamSplitter.cpp' || echo '$(srcdir)/'`BamSplitter.cpp
-@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/snowman-BamSplitter.Tpo $(DEPDIR)/snowman-BamSplitter.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='BamSplitter.cpp' object='snowman-BamSplitter.o' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-BamSplitter.o `test -f 'BamSplitter.cpp' || echo '$(srcdir)/'`BamSplitter.cpp
-
-snowman-BamSplitter.obj: BamSplitter.cpp
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-BamSplitter.obj -MD -MP -MF $(DEPDIR)/snowman-BamSplitter.Tpo -c -o snowman-BamSplitter.obj `if test -f 'BamSplitter.cpp'; then $(CYGPATH_W) 'BamSplitter.cpp'; else $(CYGPATH_W) '$(srcdir)/BamSplitter.cpp'; fi`
-@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/snowman-BamSplitter.Tpo $(DEPDIR)/snowman-BamSplitter.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='BamSplitter.cpp' object='snowman-BamSplitter.obj' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-BamSplitter.obj `if test -f 'BamSplitter.cpp'; then $(CYGPATH_W) 'BamSplitter.cpp'; else $(CYGPATH_W) '$(srcdir)/BamSplitter.cpp'; fi`
-
-snowman-SimTrainerWalker.o: SimTrainerWalker.cpp
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-SimTrainerWalker.o -MD -MP -MF $(DEPDIR)/snowman-SimTrainerWalker.Tpo -c -o snowman-SimTrainerWalker.o `test -f 'SimTrainerWalker.cpp' || echo '$(srcdir)/'`SimTrainerWalker.cpp
-@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/snowman-SimTrainerWalker.Tpo $(DEPDIR)/snowman-SimTrainerWalker.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='SimTrainerWalker.cpp' object='snowman-SimTrainerWalker.o' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-SimTrainerWalker.o `test -f 'SimTrainerWalker.cpp' || echo '$(srcdir)/'`SimTrainerWalker.cpp
-
-snowman-SimTrainerWalker.obj: SimTrainerWalker.cpp
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-SimTrainerWalker.obj -MD -MP -MF $(DEPDIR)/snowman-SimTrainerWalker.Tpo -c -o snowman-SimTrainerWalker.obj `if test -f 'SimTrainerWalker.cpp'; then $(CYGPATH_W) 'SimTrainerWalker.cpp'; else $(CYGPATH_W) '$(srcdir)/SimTrainerWalker.cpp'; fi`
-@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/snowman-SimTrainerWalker.Tpo $(DEPDIR)/snowman-SimTrainerWalker.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='SimTrainerWalker.cpp' object='snowman-SimTrainerWalker.obj' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-SimTrainerWalker.obj `if test -f 'SimTrainerWalker.cpp'; then $(CYGPATH_W) 'SimTrainerWalker.cpp'; else $(CYGPATH_W) '$(srcdir)/SimTrainerWalker.cpp'; fi`
 
 snowman-refilter.o: refilter.cpp
 @am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-refilter.o -MD -MP -MF $(DEPDIR)/snowman-refilter.Tpo -c -o snowman-refilter.o `test -f 'refilter.cpp' || echo '$(srcdir)/'`refilter.cpp
@@ -733,47 +580,47 @@ snowman-LearnBamParams.obj: LearnBamParams.cpp
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-LearnBamParams.obj `if test -f 'LearnBamParams.cpp'; then $(CYGPATH_W) 'LearnBamParams.cpp'; else $(CYGPATH_W) '$(srcdir)/LearnBamParams.cpp'; fi`
 
-snowman-PowerLawSim.o: PowerLawSim.cpp
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-PowerLawSim.o -MD -MP -MF $(DEPDIR)/snowman-PowerLawSim.Tpo -c -o snowman-PowerLawSim.o `test -f 'PowerLawSim.cpp' || echo '$(srcdir)/'`PowerLawSim.cpp
-@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/snowman-PowerLawSim.Tpo $(DEPDIR)/snowman-PowerLawSim.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='PowerLawSim.cpp' object='snowman-PowerLawSim.o' libtool=no @AMDEPBACKSLASH@
+snowman-STCoverage.o: STCoverage.cpp
+@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-STCoverage.o -MD -MP -MF $(DEPDIR)/snowman-STCoverage.Tpo -c -o snowman-STCoverage.o `test -f 'STCoverage.cpp' || echo '$(srcdir)/'`STCoverage.cpp
+@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/snowman-STCoverage.Tpo $(DEPDIR)/snowman-STCoverage.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='STCoverage.cpp' object='snowman-STCoverage.o' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-PowerLawSim.o `test -f 'PowerLawSim.cpp' || echo '$(srcdir)/'`PowerLawSim.cpp
+@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-STCoverage.o `test -f 'STCoverage.cpp' || echo '$(srcdir)/'`STCoverage.cpp
 
-snowman-PowerLawSim.obj: PowerLawSim.cpp
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-PowerLawSim.obj -MD -MP -MF $(DEPDIR)/snowman-PowerLawSim.Tpo -c -o snowman-PowerLawSim.obj `if test -f 'PowerLawSim.cpp'; then $(CYGPATH_W) 'PowerLawSim.cpp'; else $(CYGPATH_W) '$(srcdir)/PowerLawSim.cpp'; fi`
-@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/snowman-PowerLawSim.Tpo $(DEPDIR)/snowman-PowerLawSim.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='PowerLawSim.cpp' object='snowman-PowerLawSim.obj' libtool=no @AMDEPBACKSLASH@
+snowman-STCoverage.obj: STCoverage.cpp
+@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-STCoverage.obj -MD -MP -MF $(DEPDIR)/snowman-STCoverage.Tpo -c -o snowman-STCoverage.obj `if test -f 'STCoverage.cpp'; then $(CYGPATH_W) 'STCoverage.cpp'; else $(CYGPATH_W) '$(srcdir)/STCoverage.cpp'; fi`
+@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/snowman-STCoverage.Tpo $(DEPDIR)/snowman-STCoverage.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='STCoverage.cpp' object='snowman-STCoverage.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-PowerLawSim.obj `if test -f 'PowerLawSim.cpp'; then $(CYGPATH_W) 'PowerLawSim.cpp'; else $(CYGPATH_W) '$(srcdir)/PowerLawSim.cpp'; fi`
+@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-STCoverage.obj `if test -f 'STCoverage.cpp'; then $(CYGPATH_W) 'STCoverage.cpp'; else $(CYGPATH_W) '$(srcdir)/STCoverage.cpp'; fi`
 
-snowman-AssemblyBamWalker.o: AssemblyBamWalker.cpp
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-AssemblyBamWalker.o -MD -MP -MF $(DEPDIR)/snowman-AssemblyBamWalker.Tpo -c -o snowman-AssemblyBamWalker.o `test -f 'AssemblyBamWalker.cpp' || echo '$(srcdir)/'`AssemblyBamWalker.cpp
-@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/snowman-AssemblyBamWalker.Tpo $(DEPDIR)/snowman-AssemblyBamWalker.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='AssemblyBamWalker.cpp' object='snowman-AssemblyBamWalker.o' libtool=no @AMDEPBACKSLASH@
+snowman-Histogram.o: Histogram.cpp
+@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-Histogram.o -MD -MP -MF $(DEPDIR)/snowman-Histogram.Tpo -c -o snowman-Histogram.o `test -f 'Histogram.cpp' || echo '$(srcdir)/'`Histogram.cpp
+@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/snowman-Histogram.Tpo $(DEPDIR)/snowman-Histogram.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='Histogram.cpp' object='snowman-Histogram.o' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-AssemblyBamWalker.o `test -f 'AssemblyBamWalker.cpp' || echo '$(srcdir)/'`AssemblyBamWalker.cpp
+@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-Histogram.o `test -f 'Histogram.cpp' || echo '$(srcdir)/'`Histogram.cpp
 
-snowman-AssemblyBamWalker.obj: AssemblyBamWalker.cpp
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-AssemblyBamWalker.obj -MD -MP -MF $(DEPDIR)/snowman-AssemblyBamWalker.Tpo -c -o snowman-AssemblyBamWalker.obj `if test -f 'AssemblyBamWalker.cpp'; then $(CYGPATH_W) 'AssemblyBamWalker.cpp'; else $(CYGPATH_W) '$(srcdir)/AssemblyBamWalker.cpp'; fi`
-@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/snowman-AssemblyBamWalker.Tpo $(DEPDIR)/snowman-AssemblyBamWalker.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='AssemblyBamWalker.cpp' object='snowman-AssemblyBamWalker.obj' libtool=no @AMDEPBACKSLASH@
+snowman-Histogram.obj: Histogram.cpp
+@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-Histogram.obj -MD -MP -MF $(DEPDIR)/snowman-Histogram.Tpo -c -o snowman-Histogram.obj `if test -f 'Histogram.cpp'; then $(CYGPATH_W) 'Histogram.cpp'; else $(CYGPATH_W) '$(srcdir)/Histogram.cpp'; fi`
+@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/snowman-Histogram.Tpo $(DEPDIR)/snowman-Histogram.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='Histogram.cpp' object='snowman-Histogram.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-AssemblyBamWalker.obj `if test -f 'AssemblyBamWalker.cpp'; then $(CYGPATH_W) 'AssemblyBamWalker.cpp'; else $(CYGPATH_W) '$(srcdir)/AssemblyBamWalker.cpp'; fi`
+@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-Histogram.obj `if test -f 'Histogram.cpp'; then $(CYGPATH_W) 'Histogram.cpp'; else $(CYGPATH_W) '$(srcdir)/Histogram.cpp'; fi`
 
-snowman-assembly2vcf.o: assembly2vcf.cpp
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-assembly2vcf.o -MD -MP -MF $(DEPDIR)/snowman-assembly2vcf.Tpo -c -o snowman-assembly2vcf.o `test -f 'assembly2vcf.cpp' || echo '$(srcdir)/'`assembly2vcf.cpp
-@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/snowman-assembly2vcf.Tpo $(DEPDIR)/snowman-assembly2vcf.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='assembly2vcf.cpp' object='snowman-assembly2vcf.o' libtool=no @AMDEPBACKSLASH@
+snowman-BamStats.o: BamStats.cpp
+@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-BamStats.o -MD -MP -MF $(DEPDIR)/snowman-BamStats.Tpo -c -o snowman-BamStats.o `test -f 'BamStats.cpp' || echo '$(srcdir)/'`BamStats.cpp
+@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/snowman-BamStats.Tpo $(DEPDIR)/snowman-BamStats.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='BamStats.cpp' object='snowman-BamStats.o' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-assembly2vcf.o `test -f 'assembly2vcf.cpp' || echo '$(srcdir)/'`assembly2vcf.cpp
+@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-BamStats.o `test -f 'BamStats.cpp' || echo '$(srcdir)/'`BamStats.cpp
 
-snowman-assembly2vcf.obj: assembly2vcf.cpp
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-assembly2vcf.obj -MD -MP -MF $(DEPDIR)/snowman-assembly2vcf.Tpo -c -o snowman-assembly2vcf.obj `if test -f 'assembly2vcf.cpp'; then $(CYGPATH_W) 'assembly2vcf.cpp'; else $(CYGPATH_W) '$(srcdir)/assembly2vcf.cpp'; fi`
-@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/snowman-assembly2vcf.Tpo $(DEPDIR)/snowman-assembly2vcf.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='assembly2vcf.cpp' object='snowman-assembly2vcf.obj' libtool=no @AMDEPBACKSLASH@
+snowman-BamStats.obj: BamStats.cpp
+@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-BamStats.obj -MD -MP -MF $(DEPDIR)/snowman-BamStats.Tpo -c -o snowman-BamStats.obj `if test -f 'BamStats.cpp'; then $(CYGPATH_W) 'BamStats.cpp'; else $(CYGPATH_W) '$(srcdir)/BamStats.cpp'; fi`
+@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/snowman-BamStats.Tpo $(DEPDIR)/snowman-BamStats.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='BamStats.cpp' object='snowman-BamStats.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-assembly2vcf.obj `if test -f 'assembly2vcf.cpp'; then $(CYGPATH_W) 'assembly2vcf.cpp'; else $(CYGPATH_W) '$(srcdir)/assembly2vcf.cpp'; fi`
+@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-BamStats.obj `if test -f 'BamStats.cpp'; then $(CYGPATH_W) 'BamStats.cpp'; else $(CYGPATH_W) '$(srcdir)/BamStats.cpp'; fi`
 
 ID: $(HEADERS) $(SOURCES) $(LISP) $(TAGS_FILES)
 	list='$(SOURCES) $(HEADERS) $(LISP) $(TAGS_FILES)'; \
@@ -864,7 +711,6 @@ installdirs:
 	for dir in "$(DESTDIR)$(bindir)"; do \
 	  test -z "$$dir" || $(MKDIR_P) "$$dir"; \
 	done
-install: install-am
 install-exec: install-exec-am
 install-data: install-data-am
 uninstall: uninstall-am
@@ -973,6 +819,9 @@ uninstall-am: uninstall-binPROGRAMS
 	mostlyclean-generic pdf pdf-am ps ps-am tags uninstall \
 	uninstall-am uninstall-binPROGRAMS
 
+
+install:
+	mkdir -p ../../bin && mv snowman ../../bin
 
 # Tell versions [3.59,3.63) of GNU make to not export all variables.
 # Otherwise a system limit (for SysV at least) may be exceeded.

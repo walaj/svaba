@@ -27,14 +27,14 @@ ReadTable::ReadTable(SeqRecordVector &srv)
 }
 
 // JEREMIAH
-ReadTable::ReadTable(const ContigVector &contigs)
+ReadTable::ReadTable(const SeqLib::UnalignedSequenceVector &contigs)
 {
   idx = 0;
   m_pIndex = NULL; // not built by default
-  for (ContigVector::const_iterator it = contigs.begin(); it != contigs.end(); it++) {
+  for (SeqLib::UnalignedSequenceVector::const_iterator it = contigs.begin(); it != contigs.end(); it++) {
     SeqItem si;
-    si.seq = it->getSeq();
-    si.id = it->getID();
+    si.seq = it->Seq;
+    si.id = it->Name;
     m_table.push_back(si);
   }
   

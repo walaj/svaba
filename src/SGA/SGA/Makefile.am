@@ -5,12 +5,9 @@ libsga_a_CPPFLAGS = \
 	-I$(top_srcdir)/src/SGA/Bigraph \
 	-I$(top_srcdir)/src/SGA/SuffixTools \
 	-I$(top_srcdir)/src/SGA/StringGraph \
-	##-I$(top_srcdir)/src/SGA/Concurrency \
+	-I$(top_srcdir)/SeqLib \
 	-I$(top_srcdir)/src/SGA/Algorithm \
 	-I$(top_srcdir)/src/SGA/SQG 
-	##-I$(top_srcdir)/src/SGA/Scaffold \
-	##-I$(top_srcdir)/src/SGA/GraphDiff \
-	##-I$(top_srcdir)/src/SGA/Thirdparty
 
 libsga_a_SOURCES = \
 ##index.cpp index.h \

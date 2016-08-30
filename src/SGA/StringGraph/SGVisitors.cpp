@@ -25,44 +25,10 @@ bool SGFastaVisitor::visit(StringGraph* /*pGraph*/, Vertex* pVertex)
     return false;
 }
 
-//JEREMIAH
-/*bool SGFastaVisitorSTDOUT::visit(StringGraph* , Vertex* pVertex)
-{
-  int len = pVertex->getSeq().length();
-  if (len >= cut) {
-    std::cout << ">" << pVertex->getID() << " " <<  pVertex->getSeq().length() 
-	      << " " << 0 << "isContained: " << pVertex->isContained() << "\n";
-    std::cout << pVertex->getSeq() << "\n";
-  }
-  return false;
-}*/
-
-
-//JEREMIAH
-/*
-bool SGFastaVisitorSeqRecord::visit(StringGraph*, Vertex* pVertex)
-{
-  int len = pVertex->getSeq().length();
-  if (len >= cut) {
-    SeqRecord sr; 
-    std::vector<std::string> vec = pVertex->getParentID();
-    for (unsigned int i = 0; i < vec.size(); i++) 
-      std::cerr << "ID: " << vec[i] << std::endl;
-    std::cerr << "\n\n";
-    sr.seq = pVertex->getSeq().toString();
-    sr.id = pVertex->getID();
-    sqrv.push_back(sr);
-  }
-  return false;
-}*/
-
-//JEREMIAH
+// jwala added
 bool SGVisitorContig::visit(StringGraph* /*pGraph*/, Vertex* pVertex)
 {
-  
-  //m_ct.push_back(Contig(pVertex->getID(), pVertex->getParentID(), pVertex->getSeq().toString(), 
-  //	  pVertex->getSeq().length()));
-  m_ct.push_back(Contig(pVertex->getID(), pVertex->getSeq().toString()));
+  m_ct.push_back({pVertex->getID(), pVertex->getSeq().toString()});
   return false;
 }
 

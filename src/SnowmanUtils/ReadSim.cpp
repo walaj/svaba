@@ -168,7 +168,7 @@ void ReadSim::samplePairedEndReadsToCoverage(std::vector<std::string>& reads1, s
     if (s1.find("N") != std::string::npos || s2.find("N") != std::string::npos)
       continue;
 
-    SnowTools::rcomplement(s2);
+    SeqLib::rcomplement(s2);
     std::reverse(q2.begin(), q2.end());
     
     // add the errors

@@ -4,13 +4,10 @@
 #include <map>
 #include <string>
 
-#include "SnowTools/BamRead.h"
+#include "SeqLib/BamRecord.h"
 
 #include "CorrectionThresholds.h"
 #include "OverlapCommon.h"
-
-using SnowTools::BamRead;
-using SnowTools::BamReadVector;
 
 typedef std::map<std::string, int> KmerCountMap;
 
@@ -22,7 +19,7 @@ class KmerFilter {
 
     ~KmerFilter() { delete pBWT; delete pSAf; }
 
-    int correctReads(BamReadVector& vec, BamReadVector& ref_reads);
+    int correctReads(SeqLib::BamRecordVector& vec, SeqLib::BamRecordVector& ref_reads);
 
     void makeIndex(const std::vector<char*>& v);
   
@@ -35,7 +32,7 @@ class KmerFilter {
 
   bool attemptKmerCorrection(size_t i, size_t k_idx, size_t minCount, std::string& readSequence, BWTIndexSet& inds);
 
-  void __makeIndex(BamReadVector& vec);
+  void __makeIndex(SeqLib::BamRecordVector& vec);
 
 };
 

@@ -4,8 +4,7 @@
 #include <iomanip>
 #include <cassert>
 
-#include "SnowTools/gzstream.h"
-
+#include "gzstream.h"
 #include "SnowmanUtils.h"
 
 //#define T_SPLIT_BUFF 15
@@ -46,7 +45,8 @@ double scale_factor = 5.0;
 static std::unordered_map<int, double> ERROR_RATES = {{0,scale_factor * 1e-4}, {1, scale_factor * 1e-4}, {2, scale_factor * 1e-4}, {3, scale_factor * 1e-4}, {4, scale_factor * 1e-4}, {5, scale_factor * 2e-4}, {6, scale_factor * 5e-4}, {7, scale_factor * 1e-3},
 						      {scale_factor * 8,2e-3}, {9,scale_factor * 3e-3}, {10, scale_factor * 1e-2}, {11, scale_factor * 2e-2}, {12, scale_factor * 3e-5}};
 
-namespace SnowTools {
+
+using namespace SeqLib;
 
   double __myround(double x) { return std:: floor(x * 10) / 10; }
 
@@ -114,7 +114,7 @@ namespace SnowTools {
 
 
   // make a breakpoint from a discordant cluster 
-  BreakPoint::BreakPoint(DiscordantCluster& tdc, const BWAWrapper * bwa, SnowTools::DiscordantClusterMap& dmap) {
+  BreakPoint::BreakPoint(DiscordantCluster& tdc, const BWAWrapper * bwa, DiscordantClusterMap& dmap) {
     
     num_align = 0;
     dc = tdc;
@@ -177,12 +177,12 @@ namespace SnowTools {
 	continue;
 
       // isolate and pad
-      SnowTools::GenomicRegion gr1 = d.second.m_reg1;
-      SnowTools::GenomicRegion gr2 = d.second.m_reg2;
-      gr1.pad(100);
-      gr2.pad(100);
+      GenomicRegion gr1 = d.second.m_reg1;
+      GenomicRegion gr2 = d.second.m_reg2;
+      gr1.Pad(100);
+      gr2.Pad(100);
       
-      if (dc.m_reg1.getOverlap(gr1) && dc.m_reg2.getOverlap(gr2))
+      if (dc.m_reg1.GetOverlap(gr1) && dc.m_reg2.GetOverlap(gr2))
 	if (dc.m_reg1.strand != d.second.m_reg1.strand || dc.m_reg2.strand != d.second.m_reg2.strand) {
 	  dc.m_id_competing = d.second.ID();
 	  tdc.m_id_competing = d.second.ID();
@@ -191,7 +191,7 @@ namespace SnowTools {
     }
 
   }
-  
+
   bool BreakPoint::hasDiscordant() const {
     return (dc.ncount || dc.tcount);
   }
@@ -230,12 +230,12 @@ namespace SnowTools {
   }
 
 
-  BreakPoint::BreakPoint(const std::string &line, bam_hdr_t* h) {
+BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h) {
 
-    if (!h) {
-      std::cerr << "BreakPoint::BreakPoint - Must supply non-empty header" << std::endl;
-      exit(EXIT_FAILURE);
-    }
+  if (h.isEmpty()) {
+    std::cerr << "BreakPoint::BreakPoint - Must supply non-empty header" << std::endl;
+    exit(EXIT_FAILURE);
+  }
 
     std::istringstream iss(line);
     std::string val;
@@ -309,7 +309,7 @@ namespace SnowTools {
 
   }
   
-  void BreakPoint::splitCoverage(BamReadVector &bav) {
+  void BreakPoint::splitCoverage(SeqLib::BamRecordVector &bav) {
     
     // keep track of if first and second mate covers same split. 
     // if so, this is fishy and remove them both
@@ -571,9 +571,9 @@ namespace SnowTools {
     return pon;
     
   }
+
+std::ostream& operator<<(std::ostream& out, const BreakPoint& b) {
   
-    std::ostream& operator<<(std::ostream& out, const BreakPoint& b) {
-      
       if (b.isindel) {
 	out << ">" << (b.insertion.size() ? "INS: " : "DEL: ") << b.getSpan() << " " << b.b1.gr << " " << b.cname << " " << b.evidence;
 	  //<< " T/N split: " << b.t.split << "/" << b.n.split << " T/N cigar: " 
@@ -581,7 +581,7 @@ namespace SnowTools {
 	for (auto& i : b.allele)
 	  out << " " << i.first << ":" << i.second.split;  
       } else {
-	out << ": " << b.b1.gr.pointString() << " to " << b.b2.gr.pointString() << " SPAN " << b.getSpan() << " " << b.cname << " " << b.evidence;
+	out << ": " << b.b1.gr.PointString() << " to " << b.b2.gr.PointString() << " SPAN " << b.getSpan() << " " << b.cname << " " << b.evidence;
 	  //<< " T/N split: " << b.t.split << "/" << b.n.split << " T/N disc: " 
 	  //  << b.dc.tcount << "/" << b.dc.ncount << " " << b.evidence;
 	for (auto& i : b.allele)
@@ -598,7 +598,7 @@ namespace SnowTools {
     //if (num_align != 1)
     //  return;
     
-    if (grv.findOverlapping(b1.gr) || grv.findOverlapping(b2.gr)) {
+    if (grv.CountOverlaps(b1.gr) || grv.CountOverlaps(b2.gr)) {
       blacklist = true;
     }
   }
@@ -620,7 +620,7 @@ namespace SnowTools {
     }
   }
   
-  BreakEnd::BreakEnd(const BamRead& b) {
+BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
     gr.chr = b.ChrID(); 
     gr.pos1 = -1;
     gr.pos2 = -1;
@@ -638,16 +638,16 @@ namespace SnowTools {
     const int PAD = 50;
     GenomicRegion bp1 = b1.gr;
     GenomicRegion bp2 = b2.gr;
-    bp1.pad(PAD);
-    bp2.pad(PAD);
+    bp1.Pad(PAD);
+    bp2.Pad(PAD);
 
     for (auto& d : dmap)
       {
 	if (!d.second.valid())
 	  continue;
 
-	bool bp1reg1 = bp1.getOverlap(d.second.m_reg1) > 0;
-	bool bp2reg2 = bp2.getOverlap(d.second.m_reg2) > 0;
+	bool bp1reg1 = bp1.GetOverlap(d.second.m_reg1) > 0;
+	bool bp2reg2 = bp2.GetOverlap(d.second.m_reg2) > 0;
 
 	bool s1 = bp1.strand == d.second.m_reg1.strand;
 	bool s2 = bp2.strand == d.second.m_reg2.strand;
@@ -1174,11 +1174,11 @@ namespace SnowTools {
     return false;
   }
 
-  void BreakPoint::setRefAlt(const SnowTools::RefGenome * main_rg, const SnowTools::RefGenome * viral) {
+  void BreakPoint::setRefAlt(const RefGenome * main_rg, const RefGenome * viral) {
     
     //int len;
 
-    assert(!main_rg->empty());
+    assert(!main_rg->IsEmpty());
     assert(ref.empty());
     assert(alt.empty());
     
@@ -1186,26 +1186,26 @@ namespace SnowTools {
 
       try {
 	// get the reference for BP1
-	ref = main_rg->queryRegion(b1.chr_name, b1.gr.pos1-1, b1.gr.pos1-1);
+	ref = main_rg->QueryRegion(b1.chr_name, b1.gr.pos1-1, b1.gr.pos1-1);
       } catch (const std::invalid_argument& ia) {}
       
       // try viral approach
-      if (ref.empty() && !viral->empty())
+      if (ref.empty() && !viral->IsEmpty())
 	try {
-	  ref = viral->queryRegion(b1.chr_name, b1.gr.pos1-1, b1.gr.pos1-1); 
+	  ref = viral->QueryRegion(b1.chr_name, b1.gr.pos1-1, b1.gr.pos1-1); 
 	} catch (const std::invalid_argument& ia) {
 	  ref = "N";
 	  std::cerr << "Caught exception in BreakPoint:setRefAlt for SV Ref: " << ia.what() << std::endl;
 	}
       
       try {
-	alt = main_rg->queryRegion(b2.chr_name, b2.gr.pos1-1, b2.gr.pos1-1);
+	alt = main_rg->QueryRegion(b2.chr_name, b2.gr.pos1-1, b2.gr.pos1-1);
       } catch (const std::invalid_argument& ia) {}
 
       // try viral alt
-      if (alt.empty() && !viral->empty())
+      if (alt.empty() && !viral->IsEmpty())
 	try {
-	  alt = viral->queryRegion(b2.chr_name, b2.gr.pos1-1, b2.gr.pos1-1);
+	  alt = viral->QueryRegion(b2.chr_name, b2.gr.pos1-1, b2.gr.pos1-1);
 	} catch (const std::invalid_argument& ia) {
 	  alt = "N";
 	  std::cerr << "Caught exception in BreakPoint:setRefAlt for SV Alt: " << ia.what() << std::endl;
@@ -1254,7 +1254,7 @@ namespace SnowTools {
       if (insertion.length() && !insertion.empty()) {
 	
 	try {
-	  ref = main_rg->queryRegion(b1.chr_name, b1.gr.pos1-1, b1.gr.pos1-1);
+	  ref = main_rg->QueryRegion(b1.chr_name, b1.gr.pos1-1, b1.gr.pos1-1);
 	} catch (const std::invalid_argument& ia) {
 	  ref = "N";
 	  std::cerr << "Caught exception in BreakPoint:setRefAlt for indel ref: " << ia.what() << std::endl;
@@ -1287,7 +1287,7 @@ namespace SnowTools {
 	// reference
 	assert(b2.gr.pos1 - b1.gr.pos1 - 1 >= 0);
 	try {
-	  ref = main_rg->queryRegion(b1.chr_name, b1.gr.pos1-1, b2.gr.pos1-2);
+	  ref = main_rg->QueryRegion(b1.chr_name, b1.gr.pos1-1, b2.gr.pos1-2);
 	} catch (const std::invalid_argument& ia) {
 	  ref = std::string(std::abs(b1.gr.pos1 - b2.gr.pos1), 'N');
 	  std::cerr << "Caught exception in BreakPoint:setRefAlt for indel ref: " << ia.what() << std::endl;	  
@@ -1335,9 +1335,9 @@ namespace SnowTools {
       return -1;
   }
 
-  ReducedBreakPoint::ReducedBreakPoint(const std::string &line, bam_hdr_t* h) {
+ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamHeader& h) {
     
-    if (!h) {
+  if (h.isEmpty()) {
       std::cerr << "ReducedBreakPoint::ReducedBreakPoint - Must supply non-empty header" << std::endl;
       exit(EXIT_FAILURE);
     }
@@ -1528,13 +1528,11 @@ namespace SnowTools {
 
   }
 
-  void BreakPoint::addCovs(const std::unordered_map<std::string, STCoverage*>& covs, const std::unordered_map<std::string, STCoverage*>& clip_covs) {
+  void BreakPoint::addCovs(const std::unordered_map<std::string, STCoverage*>& covs) {
 
     // setting to min coverage because we want to accurately genotype indels
     for (auto& i : covs) 
       allele[i.first].cov = std::min(i.second->getCoverageAtPosition(b1.gr.chr, b1.gr.pos1), i.second->getCoverageAtPosition(b2.gr.chr, b2.gr.pos1));
-    for (auto& i : clip_covs)
-      allele[i.first].clip_cov = std::min(i.second->getCoverageAtPosition(b1.gr.chr, b1.gr.pos1), i.second->getCoverageAtPosition(b2.gr.chr, b2.gr.pos1));
   }
 
   std::ostream& operator<<(std::ostream& out, const BreakEnd& b) {
@@ -1543,7 +1541,7 @@ namespace SnowTools {
   }
   
   std::ostream& operator<<(std::ostream& out, const SampleInfo& a) {
-    out << " split: " << a.split << " cigar " << a.cigar << " alt " << a.alt << " clip_cov " << a.clip_cov << " cov " << a.cov << " disc " << a.disc;
+    out << " split: " << a.split << " cigar " << a.cigar << " alt " << a.alt << " cov " << a.cov << " disc " << a.disc;
     return out;
   }
 
@@ -1554,7 +1552,6 @@ namespace SnowTools {
     a.disc = a1.disc + a2.disc;
     a.split = a1.split + a2.split;
     a.cigar = a1.cigar + a2.cigar;
-    a.clip_cov = a1.clip_cov + a2.clip_cov;
     a.cov = a1.cov + a2.cov;
 
     // add the reads
@@ -1714,7 +1711,7 @@ namespace SnowTools {
 
   void BreakEnd::checkLocal(const GenomicRegion& window) {
     
-    if (gr.getOverlap(window))
+    if (gr.GetOverlap(window))
       local = true;
   }
 
@@ -1739,4 +1736,3 @@ namespace SnowTools {
     return val;
   }
 
-}

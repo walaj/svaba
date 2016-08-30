@@ -2,7 +2,7 @@
 
 #include "ReadTable.h"
 
-int KmerFilter::correctReads(BamReadVector& vec, BamReadVector& ref_reads) {
+int KmerFilter::correctReads(SeqLib::BamRecordVector& vec, SeqLib::BamRecordVector& ref_reads) {
 
   // first you have to make the index if not there
   if (!pBWT)
@@ -245,7 +245,7 @@ void KmerFilter::makeIndex(const std::vector<char*>& v) {
 }
 
 //
-void KmerFilter::__makeIndex(BamReadVector& vec) {
+void KmerFilter::__makeIndex(SeqLib::BamRecordVector& vec) {
 
   ReadTable pRT;
   pRT.setZero();

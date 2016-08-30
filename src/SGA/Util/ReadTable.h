@@ -11,7 +11,7 @@
 
 #include "Util.h"
 #include "SeqReader.h"
-#include "contigs.h"
+#include "SeqLib/UnalignedSequence.h"
 #include <map>
 
 typedef std::vector<SeqItem> ReadVector;
@@ -24,7 +24,7 @@ class ReadTable
   ReadTable() : idx(0), m_pIndex(NULL) {}
     //ReadTable(std::string* seq, std::string * id, int length);
     ReadTable(SeqRecordVector &srv);
-    ReadTable(const ContigVector &contigs);
+    ReadTable(const SeqLib::UnalignedSequenceVector &contigs);
     ReadTable(std::string filename, uint32_t reader_flags = 0);
     ~ReadTable();
 

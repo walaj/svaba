@@ -61,8 +61,7 @@ AC_CHECK_HEADERS([ \
 ##AC_CHECK_HEADERS([boost/regex.hpp],[AC_SUBST(CPPFLAGS, "$CPPFLAGS -DHAVE_BOOST")],[AC_MSG_ERROR([The Boost library must be installed for Snowman. Specify its path with the --with-boost=PATH option])])
 
 AC_CONFIG_FILES([Makefile
-                SnowTools/htslib/Makefile
-                SnowTools/src/Makefile
+                SeqLib/src/Makefile
 		src/SGA/Util/Makefile
 		src/SGA/SQG/Makefile
 		src/SGA/Bigraph/Makefile

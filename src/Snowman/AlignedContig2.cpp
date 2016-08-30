@@ -8,7 +8,7 @@
 #define MAX_INDELS 10000
 #define MAX_INDEL_PER_CONTIG 6 
 
-namespace SnowTools {
+using namespace SeqLib;
 
   static std::vector<std::string> repr = {"AAAAA", "TTTTT", "CCCCC", "GGGG", 
 					  "TATATATA", "ATATATAT", 
@@ -19,7 +19,7 @@ namespace SnowTools {
 					  "GAGAGAGA", "AGAGAGAG"};
   
 
-  AlignedContig::AlignedContig(const BamReadVector& bav, const std::set<std::string>& pref) {
+  AlignedContig::AlignedContig(const BamRecordVector& bav, const std::set<std::string>& pref) {
     
     if (!bav.size())
       return;
@@ -32,14 +32,14 @@ namespace SnowTools {
 	  m_seq = i.Sequence();
 	} else {
 	  m_seq = i.Sequence();
-	  SnowTools::rcomplement(m_seq);
+	  SeqLib::rcomplement(m_seq);
 	}
       }
     }
 
     // set the sequence. Convention is store as it came off assembler for first alignment
     if (bav.begin()->ReverseFlag()) {
-      SnowTools::rcomplement(m_seq);
+      SeqLib::rcomplement(m_seq);
     }
 
     prefixes = pref;
@@ -71,7 +71,7 @@ namespace SnowTools {
       }      
 
       // set the aligned coverage
-      SnowTools::Cigar cig = i.GetCigar();
+      SeqLib::Cigar cig = i.GetCigar();
       size_t p = 0;
       if (!i.SecondaryFlag())
       for (auto& c : cig) {
@@ -125,13 +125,13 @@ namespace SnowTools {
 	grc.add(GenomicRegion(0, i.b1.cpos-buff, i.b2.cpos+buff)); // insertion	
       }
     }
-    grc.createTreeMap();
+    grc.CreateTreeMap();
 
     // check if 
     for (auto& i : m_frag_v) {
       BPVec new_indel_vec;
       for (auto& b : i.m_indel_breaks) {
-	if (!grc.findOverlapping(GenomicRegion(0, b.b1.cpos, b.b2.cpos)))
+	if (!grc.CountOverlaps(GenomicRegion(0, b.b1.cpos, b.b2.cpos)))
 	  new_indel_vec.push_back(b);
       }
       i.m_indel_breaks = new_indel_vec;
@@ -139,8 +139,8 @@ namespace SnowTools {
     
   }
   
-  SnowTools::GenomicRegionVector AlignedContig::getAsGenomicRegionVector() const {
-    SnowTools::GenomicRegionVector g;
+  SeqLib::GenomicRegionVector AlignedContig::getAsGenomicRegionVector() const {
+    SeqLib::GenomicRegionVector g;
     for (auto& i : m_frag_v)
       g.push_back(i.m_align.asGenomicRegion());
     return g;
@@ -304,7 +304,7 @@ namespace SnowTools {
       
       // reverse complement if need be
       if (rc)
-	SnowTools::rcomplement(seq);      
+	SeqLib::rcomplement(seq);      
       
       if (aln > 0)
 	try {
@@ -545,7 +545,7 @@ namespace SnowTools {
     // make a region for this frag
     GenomicRegion gfrag(m_align.ChrID(), m_align.Position(), m_align.PositionEnd());
     
-    if (window.getOverlap(gfrag)) {
+    if (window.GetOverlap(gfrag)) {
       local = true;
       return true;
     }
@@ -553,7 +553,7 @@ namespace SnowTools {
     return false;
   }
 
-  AlignmentFragment::AlignmentFragment(const BamRead &talign, bool flip, const std::set<std::string>& prefixes) {
+  AlignmentFragment::AlignmentFragment(const BamRecord &talign, bool flip, const std::set<std::string>& prefixes) {
 
     m_align = talign;
 
@@ -662,14 +662,6 @@ namespace SnowTools {
     return out;
   }
   
-  
-  void AlignedContig::checkAgainstCigarMatches(const CigarMap& nmap, const CigarMap& tmap, const std::unordered_map<uint32_t, size_t>* n_cigpos) {
-
-    for (auto& i : m_frag_v)
-      i.indelCigarMatches(nmap, tmap, n_cigpos);
-    
-  }
-
   void AlignedContig::checkAgainstCigarMatches(const std::unordered_map<std::string, CigarMap>& cmap) {
 
     for (auto& i : m_frag_v)
@@ -697,43 +689,6 @@ namespace SnowTools {
       }
     }      
     
-  }
-
-  void AlignmentFragment::indelCigarMatches(const CigarMap &nmap, const CigarMap &tmap, const std::unordered_map<uint32_t, size_t> *n_cigpos) { 
-    
-    // loop through the indel breakpoints
-    for (auto& i : m_indel_breaks) {
-      
-      assert(i.getSpan() > 0);
-      
-      // get the hash string in same formate as cigar map (eg. pos_3D)
-      std::string st = i.getHashString();
-
-      //std::cerr << " hash " << st << " nmap.size() " << nmap.size() << " tmap.size() " << tmap.size() << std::endl;
-
-      // check if this breakpoint from assembly is in the cigarmap
-      //CigarMap::const_iterator ffn = nmap.find(st);
-      //CigarMap::const_iterator fft = tmap.find(st);
-
-      // if it is, add it
-      //if (ffn != nmap.end())
-      //i.ncigar = ffn->second;
-      //if (fft != tmap.end())
-      //i.tcigar = fft->second;
-      
-      if (!n_cigpos)
-	return;
-
-      // do extra check on near neighbors for normal
-      //std::unordered_map<uint32_t, size_t>::const_iterator it = n_cigpos->find(i.b1.gr.chr * 1e9 + i.b1.gr.pos1);
-      //int nn = 0;
-      //if (it != n_cigpos->end())
-      //nn = it->second;
-      //i.ncigar = std::max(i.ncigar, nn);
-      //if (it != n_cigpos->end() && it->second i.ncigar < 2)
-      // i.ncigar = 2;
-      
-    }
   }
 
   // convention is that cpos and gpos for deletions refer to flanking REF sequence.
@@ -1044,11 +999,11 @@ namespace SnowTools {
       b.mapq = 0;
 
     if (left) {
-      b.gr = SnowTools::GenomicRegion(m_align.ChrID(), gbreak2, gbreak2);
+      b.gr = SeqLib::GenomicRegion(m_align.ChrID(), gbreak2, gbreak2);
       b.gr.strand = m_align.ReverseFlag() ? '-' : '+'; 
       b.cpos = break2; // take the right-most breakpoint as the first
     } else {
-      b.gr = SnowTools::GenomicRegion(m_align.ChrID(), gbreak1, gbreak1);
+      b.gr = SeqLib::GenomicRegion(m_align.ChrID(), gbreak1, gbreak1);
       b.gr.strand = m_align.ReverseFlag() ? '+' : '-';
       b.cpos = break1;  // take the left-most of the next one
     }
@@ -1086,5 +1041,3 @@ namespace SnowTools {
 
   }
   
-  
-}

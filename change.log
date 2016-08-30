@@ -268,4 +268,12 @@ NODBCUTOFF 8 -> 2.5
 	-- Added limit on homology to be < 25% of readlength. Anything
 	more an start to see mis-assemblies from areas where homology is
 	too great
+
+	## snowman 110
+	-- improved re-alignment filtering of discordant reads.
+	-- if discordant read has a better alignment else where with
+	BWA-MEM,
+	-- accept that alignment
+	-- fixed bug in this implementation from 109 that was causing
+	assert fail
 	

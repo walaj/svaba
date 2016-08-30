@@ -14,8 +14,9 @@
 #include <fstream>
 #include <sstream>
 #include "Util.h"
-#include "contigs.h"
 #include "SGUtil.h"
+
+#include "SeqLib/UnalignedSequence.h"
 
 
 struct AssemblyOptions {
@@ -53,7 +54,7 @@ StringGraph* assemble(std::stringstream& asqg_stream, int minOverlap, int maxEdg
 	      int trimLengthThreshold, bool bPerformTR, bool bValidate, int numTrimRounds, 
               int resolveSmallRepeatLen, int numBubbleRounds, double maxBubbleGapDivergence, 
               double maxBubbleDivergence, int maxIndelLength, int cutoff, std::string prefix, 
-		      ContigVector &contigs, bool walk_all, bool get_components);
+		      SeqLib::UnalignedSequenceVector &contigs, bool walk_all, bool get_components);
 
 
 #endif

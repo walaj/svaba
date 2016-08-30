@@ -15,15 +15,13 @@ void BamSplitter::splitBam() {
     csum.push_back(cs);
   }
     
-  SnowTools::BamRead r;
-  
-  bool rule_pass;
+  SeqLib::BamRecord r;
 
   std::cerr << "**Starting to split BAM " << __startMessage(); 
 
   size_t countr = 0;
   std::vector<size_t> all_counts(m_writers.size(), 0);
-  while (GetNextRead(r, rule_pass))
+  while (GetNextRecord(r))
     {
 
       // print a message
@@ -39,7 +37,7 @@ void BamSplitter::splitBam() {
 	// decide whether to keep
 	if (hash_val <= csum[i]/*sample_rate*/) {
 	  //r.RemoveAllTags();
-	  m_writers[i].writeAlignment(r);
+	  m_writers[i].WriteRecord(r);
 	  ++all_counts[i];
 	  break;
 	}
@@ -50,27 +48,28 @@ void BamSplitter::splitBam() {
   
 }
 
-void BamSplitter::fractionateBam(const std::string& outbam, SnowTools::Fractions& f) {
+void BamSplitter::fractionateBam(const std::string& outbam, Fractions& f) {
 
   std::cerr << "...setting up output fractionated BAM " << outbam << std::endl;
   
-  SnowTools::BamWalker w;
-  bam_hdr_t * h = bam_hdr_dup(br.get());
+  SeqLib::BamWriter w;
+  assert(w.Open(outbam));
+  w.SetHeader(Header());
+  w.WriteHeader();
+  //bam_hdr_t * h = bam_hdr_dup(br.get());
   
-  w.SetWriteHeader(h);
-  w.OpenWriteBam(outbam);
+  //w.SetWriteHeader(h);
+  //w.OpenWriteBam(outbam);
 
-  f.m_frc.createTreeMap();
+  f.m_frc.CreateTreeMap();
 
-  SnowTools::BamRead r;
-  
-  bool rule_pass;
+  SeqLib::BamRecord r;
   
   std::cerr << "**Starting to fractionate BAM " << __startMessage(); 
 
   size_t countr = 0;
   std::vector<size_t> all_counts(m_writers.size(), 0);
-  while (GetNextRead(r, rule_pass))
+  while (GetNextRecord(r))
     {
       
       // print a message
@@ -78,10 +77,10 @@ void BamSplitter::fractionateBam(const std::string& outbam, SnowTools::Fractions
       if (countr % PRINT_MOD == 0) 
 	std::cerr << "...fractionating BAM at position " << r.Brief();
       
-      SnowTools::GenomicRegion gr(r.ChrID(), r.Position(), r.Position(), '*');
+      SeqLib::GenomicRegion gr(r.ChrID(), r.Position(), r.Position(), '*');
       std::vector<int32_t> qid, sid;
-      SnowTools::GRC grc(gr);
-      grc.findOverlaps(f.m_frc, sid, qid, true);
+      SeqLib::GRC grc(gr);
+      grc.FindOverlaps(f.m_frc, sid, qid, true);
       //f.m_frc.findOverlaps(grc, qid, sid, true);
 
       /*
@@ -101,7 +100,7 @@ void BamSplitter::fractionateBam(const std::string& outbam, SnowTools::Fractions
       double sample_rate = f.m_frc.at(qid[0]).frac;
       
       if (countr % PRINT_MOD == 0) 
-	std::cerr << " -- found frac region " << f.m_frc.at(qid[0]).toPrettyString() << " w/rate " << sample_rate << std::endl;
+	std::cerr << " -- found frac region " << f.m_frc.at(qid[0]) << " w/rate " << sample_rate << std::endl;
 
       // put in one BAM or another
       uint32_t k = __ac_Wang_hash(__ac_X31_hash_string(r.Qname().c_str()) ^ m_seed);
@@ -129,7 +128,7 @@ void BamSplitter::fractionateBam(const std::string& outbam, SnowTools::Fractions
 	    r.AddZTag("RT", std::to_string(sample_rate));
 	  }
 
-	  w.writeAlignment(r);
+	  w.WriteRecord(r);
 	  ++num_sampled;
 	}
 	
@@ -146,10 +145,13 @@ void BamSplitter::setWriters(const std::vector<std::string>& writers, const std:
   for (auto& i : writers) {
 
     std::cerr << "...setting up BAM: " << i << std::endl;
-    SnowTools::BamWalker w;
-    bam_hdr_t * h = bam_hdr_dup(br.get()/*header()*/);
-    w.SetWriteHeader(h);
-    w.OpenWriteBam(i);
+    SeqLib::BamWriter w;
+    assert(w.Open(i));
+    w.SetHeader(Header());
+    w.WriteHeader();
+    //    bam_hdr_t * h = bam_hdr_dup(br.get()/*header()*/);
+    //w.SetWriteHeader(h);
+    //w.OpenWriteBam(i);
     m_writers.push_back(w);
 
   }

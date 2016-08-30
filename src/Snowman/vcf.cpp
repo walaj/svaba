@@ -11,8 +11,8 @@
 #include "htslib/tbx.h"
 #include "htslib/bgzf.h"
 
-#include "SnowTools/gzstream.h"
-#include "SnowTools/GenomicRegionCollection.h"
+#include "gzstream.h"
+#include "SeqLib/GenomicRegionCollection.h"
 
 #define VCF_SECONDARY_CAP 200
 #define SOMATIC_LOD 1
@@ -166,7 +166,7 @@ std::ostream& operator<<(std::ostream& out, const VCFEntry& v) {
     info = info.substr(0, info.length() - 1);
 
   std::string sep = "\t";
-  SnowTools::ReducedBreakEnd * be = v.id_num == 1 ? &v.bp->b1 : &v.bp->b2;
+  ReducedBreakEnd * be = v.id_num == 1 ? &v.bp->b1 : &v.bp->b2;
 
   //std::pair<std::string, std::string> samps = v.getSampStrings();
   out << be->chr_name << sep  
@@ -181,13 +181,13 @@ std::ostream& operator<<(std::ostream& out, const VCFEntry& v) {
 
 // sort the VCFEntry by genomic position
 bool VCFEntry::operator<(const VCFEntry &v) const {
-  SnowTools::ReducedBreakEnd * be = id_num == 1 ? &bp->b1 : &bp->b2;
-  SnowTools::ReducedBreakEnd * vbe = v.id_num == 1 ? &v.bp->b1 : &v.bp->b2;
+  ReducedBreakEnd * be = id_num == 1 ? &bp->b1 : &bp->b2;
+  ReducedBreakEnd * vbe = v.id_num == 1 ? &v.bp->b1 : &v.bp->b2;
   return be->gr < vbe->gr;    
 }
 
 // create a VCFFile from a snowman breakpoints file
-VCFFile::VCFFile(std::string file, std::string id, bam_hdr_t * h, const VCFHeader& vheader) {
+VCFFile::VCFFile(std::string file, std::string id, const SeqLib::BamHeader& h, const VCFHeader& vheader) {
 
   analysis_id = id;
 
@@ -336,7 +336,7 @@ VCFFile::VCFFile(std::string file, std::string id, bam_hdr_t * h, const VCFHeade
       continue;
 
     // parse the breakpoint from the file
-    std::shared_ptr<SnowTools::ReducedBreakPoint> bp(new SnowTools::ReducedBreakPoint(line, h));
+    std::shared_ptr<ReducedBreakPoint> bp(new ReducedBreakPoint(line, h));
 
     // add the VCFentry Pair
     ++line_count;
@@ -361,19 +361,19 @@ VCFFile::VCFFile(std::string file, std::string id, bam_hdr_t * h, const VCFHeade
   
   cname_count.clear();
   std::cerr << "...vcf sizeof empty VCFEntryPair " << sizeof(VCFEntryPair) << " bytes " << std::endl;
-  std::cerr << "...read in " << SnowTools::AddCommas(indels.size()) << " indels and " << SnowTools::AddCommas(entry_pairs.size()) << " SVs " << std::endl;
+  std::cerr << "...read in " << SeqLib::AddCommas(indels.size()) << " indels and " << SeqLib::AddCommas(entry_pairs.size()) << " SVs " << std::endl;
   
-  std::cerr << "...vcf - deduplicating " << SnowTools::AddCommas(entry_pairs.size()) << " events" << std::endl;
+  std::cerr << "...vcf - deduplicating " << SeqLib::AddCommas(entry_pairs.size()) << " events" << std::endl;
   deduplicate();
-  std::cerr << "...vcf - deduplicated down to " << SnowTools::AddCommas((entry_pairs.size() - dups.size())) << " break pairs" << std::endl;
+  std::cerr << "...vcf - deduplicated down to " << SeqLib::AddCommas((entry_pairs.size() - dups.size())) << " break pairs" << std::endl;
   
 }
 
 // make a class to hold break end + id
-class GenomicRegionWithID : public SnowTools::GenomicRegion 
+class GenomicRegionWithID : public SeqLib::GenomicRegion 
 {
   public: 
-  GenomicRegionWithID(int32_t c, uint32_t p1, uint32_t p2, int i, int p) : SnowTools::GenomicRegion(c,p1,p2), id(i), pass(p) {}
+  GenomicRegionWithID(int32_t c, uint32_t p1, uint32_t p2, int i, int p) : SeqLib::GenomicRegion(c,p1,p2), id(i), pass(p) {}
   uint32_t id:30, pass:2;
 };
 
@@ -385,14 +385,14 @@ void VCFFile::deduplicate() {
   // create the interval tree maps
   // grv1 are left entries, grv2 are right
   // keep it sorted so grv1 always has left most
-  SnowTools::GenomicRegionCollection<GenomicRegionWithID> grv1;
-  SnowTools::GenomicRegionCollection<GenomicRegionWithID> grv2;
+  SeqLib::GenomicRegionCollection<GenomicRegionWithID> grv1;
+  SeqLib::GenomicRegionCollection<GenomicRegionWithID> grv2;
   for (auto& i : entry_pairs) {
     grv1.add(GenomicRegionWithID(i.second->bp->b1.gr.chr, i.second->bp->b1.gr.pos1, i.second->bp->b1.gr.pos2, i.first, i.second->e1.bp->pass)); 
     grv2.add(GenomicRegionWithID(i.second->bp->b2.gr.chr, i.second->bp->b2.gr.pos1, i.second->bp->b2.gr.pos2, i.first, i.second->e2.bp->pass)); 
   }
-  grv1.createTreeMap();
-  grv2.createTreeMap();
+  grv1.CreateTreeMap();
+  grv2.CreateTreeMap();
   assert(grv1.size() == grv2.size());
 
   int pad = 1;
@@ -408,9 +408,15 @@ void VCFFile::deduplicate() {
     pad = (i.second->bp->b1.gr.chr != i.second->bp->b2.gr.chr) || std::abs(i.second->bp->b1.gr.pos1 - i.second->bp->b2.gr.pos1) > 100 ? 10 : 1;
 
     ++count;
-    SnowTools::GenomicIntervalVector giv1, giv2;
-    grv1.m_tree[i.second->bp->b1.gr.chr].findContained(i.second->bp->b1.gr.pos1-pad, i.second->bp->b1.gr.pos1+pad, giv1);
-    grv2.m_tree[i.second->bp->b2.gr.chr].findContained(i.second->bp->b2.gr.pos1-pad, i.second->bp->b2.gr.pos1+pad, giv2);
+    SeqLib::GenomicIntervalVector giv1, giv2;
+    SeqLib::GenomicIntervalTreeMap::const_iterator ff1 = grv1.GetTree()->find(i.second->bp->b1.gr.chr);
+    SeqLib::GenomicIntervalTreeMap::const_iterator ff2 = grv2.GetTree()->find(i.second->bp->b2.gr.chr);
+    assert(ff1 != grv1.GetTree()->end());
+    assert(ff2 != grv2.GetTree()->end());
+    ff1->second.findContained(i.second->bp->b1.gr.pos1-pad, i.second->bp->b1.gr.pos1+pad, giv1);
+    ff2->second.findContained(i.second->bp->b2.gr.pos1-pad, i.second->bp->b2.gr.pos1+pad, giv2);
+      //grv1.m_tree[i.second->bp->b1.gr.chr].findContained(i.second->bp->b1.gr.pos1-pad, i.second->bp->b1.gr.pos1+pad, giv1);
+      //grv2.m_tree[i.second->bp->b2.gr.chr].findContained(i.second->bp->b2.gr.pos1-pad, i.second->bp->b2.gr.pos1+pad, giv2);
     
     // loop through hits and only add if not the current site.
     // If key_count is 2, then it hit on each side. This is a dup
@@ -439,7 +445,7 @@ void VCFFile::deduplicate() {
   }
 
   // dedupe the indels
-  std::cerr << "...hashing " << SnowTools::AddCommas(indels.size()) << " indels for dedupe" << std::endl;
+  std::cerr << "...hashing " << SeqLib::AddCommas(indels.size()) << " indels for dedupe" << std::endl;
   std::unordered_set<std::string> hashr;
   VCFEntryPairMap tmp_indels;
 
@@ -471,8 +477,8 @@ ostream& operator<<(ostream& out, const VCFEntryPair& v) {
 }
 
 bool VCFEntry::operator==(const VCFEntry &v) const {
-  SnowTools::ReducedBreakEnd * be = id_num == 1 ? &bp->b1 : &bp->b2;
-  SnowTools::ReducedBreakEnd * vbe = v.id_num == 1 ? &v.bp->b1 : &v.bp->b2;
+  ReducedBreakEnd * be = id_num == 1 ? &bp->b1 : &bp->b2;
+  ReducedBreakEnd * vbe = v.id_num == 1 ? &v.bp->b1 : &v.bp->b2;
   return (vbe->gr == be->gr) ; //chr == v.chr && pos == v.pos);
 }
 
@@ -692,7 +698,7 @@ void tabixVcf(const std::string &fn) {
 
 }
 
-VCFEntryPair::VCFEntryPair(std::shared_ptr<SnowTools::ReducedBreakPoint>& b) {
+VCFEntryPair::VCFEntryPair(std::shared_ptr<ReducedBreakPoint>& b) {
 
   bp = b;
   e1.bp = bp;

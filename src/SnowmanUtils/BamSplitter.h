@@ -1,23 +1,24 @@
 #ifndef SNOWMAN_BAM_SPLITTER_H__
 #define SNOWMAN_BAM_SPLITTER_H__
 
-#include "SnowTools/BamWalker.h"
-#include "SnowTools/Fractions.h"
+#include "SeqLib/BamReader.h"
+#include "SeqLib/BamWriter.h"
+#include "Fractions.h"
 
-class BamSplitter: public SnowTools::BamWalker 
+class BamSplitter: public SeqLib::BamReader
 {
 
  public:
 
   BamSplitter() {}
 
-  BamSplitter(const std::string& in, uint32_t seed) : SnowTools::BamWalker(in), m_seed(seed) {}
+  BamSplitter(uint32_t seed) : m_seed(seed) {}
     
     void setWriters(const std::vector<std::string>& writers, const std::vector<double>& fracs);
 
   void splitBam();
 
-  void fractionateBam(const std::string& outbam, SnowTools::Fractions& f);
+  void fractionateBam(const std::string& outbam, Fractions& f);
 
  private:
 
@@ -27,7 +28,7 @@ class BamSplitter: public SnowTools::BamWalker
 
     std::vector<double> m_frac;
 
-    std::vector<SnowTools::BamWalker> m_writers;
+    std::vector<SeqLib::BamWriter> m_writers;
 
 };
 

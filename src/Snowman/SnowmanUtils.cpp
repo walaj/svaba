@@ -63,12 +63,12 @@ static std::string POLYTC = "TCTCTCTCTCTCTCTCTCTCTCTC";
 
     if (total_time)
       sprintf (buffer, "R: %2d%% M: %2d%% K: %2d%% A: %2d%% P: %2d%%", 
-	       SnowTools::percentCalc<double>(itr->second, total_time),
-	       SnowTools::percentCalc<double>(itm->second, total_time),
-	       SnowTools::percentCalc<double>(itk->second, total_time),
-	       SnowTools::percentCalc<double>(ita->second, total_time),
-	       //SnowTools::percentCalc<double>(itb->second, total_time),
-	       SnowTools::percentCalc<double>(itp->second, total_time));
+	       SeqLib::percentCalc<double>(itr->second, total_time),
+	       SeqLib::percentCalc<double>(itm->second, total_time),
+	       SeqLib::percentCalc<double>(itk->second, total_time),
+	       SeqLib::percentCalc<double>(ita->second, total_time),
+	       //SeqLib::percentCalc<double>(itb->second, total_time),
+	       SeqLib::percentCalc<double>(itp->second, total_time));
     else
       sprintf (buffer, "NO TIME");
     out << std::string(buffer);
@@ -94,7 +94,7 @@ bool hasRepeat(const std::string& seq) {
   
 }
 
-int overlapSize(const SnowTools::BamRead& query, const SnowTools::BamReadVector& subject) {
+int overlapSize(const SeqLib::BamRecord& query, const SeqLib::BamRecordVector& subject) {
 
   // get the amount covered by subjet sequences
   typedef std::pair<int32_t, int32_t> AP;
@@ -136,23 +136,23 @@ int overlapSize(const SnowTools::BamRead& query, const SnowTools::BamReadVector&
   
 
   std::string runTimeString(int num_t_reads, int num_n_reads, int contig_counter, 
-			    const SnowTools::GenomicRegion& region, const bam_hdr_t * h, const SnowTimer& st,
+			    const SeqLib::GenomicRegion& region, const SeqLib::BamHeader h, const SnowTimer& st,
 			    const timespec& start) {
     
     std::stringstream ss;
 
-    if ( (num_t_reads + num_n_reads) > 0 && !region.isEmpty()) {
-      std::string print1 = SnowTools::AddCommas<int>(region.pos1);
-      std::string print2 = SnowTools::AddCommas<int>(region.pos2);
+    if ( (num_t_reads + num_n_reads) > 0 && !region.IsEmpty()) {
+      std::string print1 = SeqLib::AddCommas<int>(region.pos1);
+      std::string print2 = SeqLib::AddCommas<int>(region.pos2);
       char buffer[180];
       sprintf (buffer, "Ran %2s:%11s-%11s | T: %5d N: %5d C: %5d | ", 
-	       h->target_name[region.chr],
+	       h.IDtoName(region.chr).c_str(),
 	       print1.c_str(),print2.c_str(),
 	       (int)num_t_reads, (int)num_n_reads, 
 	       (int)contig_counter);
       ss << std::string(buffer) << st << " | ";
 #ifndef __APPLE__
-      ss << SnowTools::displayRuntime(start);
+      ss << SeqLib::displayRuntime(start);
 #endif
       ss << std::endl;
     } else if (num_t_reads + num_n_reads > 0) {
@@ -163,7 +163,7 @@ int overlapSize(const SnowTools::BamRead& query, const SnowTools::BamReadVector&
       
       ss << std::string(buffer) << st << " | ";
 #ifndef __APPLE__
-      ss << SnowTools::displayRuntime(start);
+      ss << SeqLib::displayRuntime(start);
 #endif
       ss << std::endl;
       
@@ -173,14 +173,14 @@ int overlapSize(const SnowTools::BamRead& query, const SnowTools::BamReadVector&
   }
 
   // just get a count of how many jobs to run. Useful for limiting threads. Also set the regions
-  int countJobs(const std::string& regionFile, SnowTools::GRC &file_regions, SnowTools::GRC &run_regions, 
-		bam_hdr_t * h, int chunk, int window_pad) {
+  int countJobs(const std::string& regionFile, SeqLib::GRC &file_regions, SeqLib::GRC &run_regions, 
+		const SeqLib::BamHeader& h, int chunk, int window_pad) {
     
     // open the region file if it exists
-    bool rgfile = SnowTools::read_access_test(regionFile);
+    bool rgfile = SeqLib::read_access_test(regionFile);
     if (rgfile) {
       try {
-	file_regions.regionFileToGRV(regionFile, 0);
+	file_regions = SeqLib::GRC(regionFile, h);
       } catch (const std::exception &exc) {
 	std::cerr << "Found chromosome in region file " << regionFile << " not in reference genome. Skipping." << std::endl;
 	std::cerr << "     Caught error: " << exc.what() << std::endl;
@@ -189,36 +189,28 @@ int overlapSize(const SnowTools::BamRead& query, const SnowTools::BamReadVector&
     
     // parse as a samtools string eg 1:1,000,000-2,000,000
     else if (regionFile.find(":") != std::string::npos && regionFile.find("-") != std::string::npos) {
-      file_regions.add(SnowTools::GenomicRegion(regionFile, h));
+      file_regions.add(SeqLib::GenomicRegion(regionFile, h));
     }
     
     // it's a single chromosome
     else if (!regionFile.empty()) {
-      SnowTools::GenomicRegion gr(regionFile, "1", "1", h);
-      if (gr.chr == -1 || gr.chr >= h->n_targets) {
+      SeqLib::GenomicRegion gr(regionFile, "1", "1", h);
+      if (gr.chr == -1 || gr.chr >= h.NumSequences()) {
 	std::cerr << "ERROR: Trying to match chromosome " << regionFile << " to one in header, but no match found" << std::endl;
 	exit(EXIT_FAILURE);
       } else {
-	gr.pos2 = h->target_len[gr.chr];
+	gr.pos2 = h.GetSequenceLength(gr.chr); //get_()->target_len[gr.chr];
 	file_regions.add(gr);
       }
     }
     // add all chromosomes
     else {
-      for (int i = 0; i < h->n_targets; i++) {
-	int region_id = bam_name2id(h, h->target_name[i]);
-	
-	//if (opt::verbose > 1)
-	//  std::cerr << "chr id from header " << region_id << " name " << h->target_name[i] << " len " << h->target_len[i] << std::endl;
-	
-	if (region_id < 23) // don't add outsdie of 1-X
-	  file_regions.add(SnowTools::GenomicRegion(region_id, 1, h->target_len[i]));
+      for (int i = 0; i < h.NumSequences(); i++) {
+	//int region_id = i; //bam_name2id(h, h.IDtoName(i)); //get()_->target_name[i]);
+	if (i < 23) // don't add outsdie of 1-X
+	  file_regions.add(SeqLib::GenomicRegion(i, 1, h.GetSequenceLength(i))); //h.get()_->target_len[i]));
       }
     }
-    
-    //if (opt::verbose > 1)
-    //for (auto& i : file_regions)
-    //  std::cerr << "file regions " << i << std::endl;
     
     // check if the mask was successful
     if (file_regions.size() == 0) {
@@ -229,8 +221,8 @@ int overlapSize(const SnowTools::BamRead& query, const SnowTools::BamReadVector&
     // divide it up
     if (chunk > 0) // if <= 0, whole genome at once
       for (auto& r : file_regions) {
-	SnowTools::GRC test(chunk, window_pad, r);
-	run_regions.concat(test);
+	SeqLib::GRC test(chunk, window_pad, r);
+	run_regions.Concat(test);
       }
     return run_regions.size();
     
@@ -247,48 +239,85 @@ int overlapSize(const SnowTools::BamRead& query, const SnowTools::BamReadVector&
     return bam;
   }
 
-  void __openWriterBam(const SnowTools::BamWalker& bwalker, const std::string& name, SnowTools::BamWalker& wbam) {
-    bam_hdr_t * r2c_hdr = bam_hdr_dup(bwalker.header());
-    wbam.SetWriteHeader(r2c_hdr);
-    wbam.OpenWriteBam(name);
+  bool __openWriterBam(const SeqLib::BamHeader& h, const std::string& name, SeqLib::BamWriter& wbam) {
+    
+    if (!wbam.Open(name))
+      return false;
+
+    wbam.SetHeader(h);;
+    if (!wbam.WriteHeader())
+      return false;
+    
+    return true;
   }
 
-  bool __header_has_chr_prefix(bam_hdr_t * h) {
-    for (int i = 0; i < h->n_targets; ++i) 
+  /*  bool __header_has_chr_prefix(bam_hdr_t * h) {
+    for (int i = 0; i < h.NumSequences()) //->n_targets; ++i) 
       if (h->target_name[i] && std::string(h->target_name[i]).find("chr") != std::string::npos) 
 	return true;
     return false;
   }
-
-  void __open_bed(const std::string& f, SnowTools::GRC& b, bam_hdr_t* h) {
-    //blacklist.add(SnowTools::GenomicRegion(1,33139671,33143258)); // really nasty region
+  */
+  void __open_bed(const std::string& f, SeqLib::GRC& b, const SeqLib::BamHeader& h) {
     if (f.empty())
       return;
-    b.regionFileToGRV(f, 0, h, __header_has_chr_prefix(h));
-    b.createTreeMap();
+    b = SeqLib::GRC(f, h);
+    b.CreateTreeMap();
   }
   
-  void __open_index_and_writer(const std::string& index, SnowTools::BWAWrapper * b, const std::string& wname, SnowTools::BamWalker& writer, SnowTools::RefGenome *& r, bam_hdr_t *& bwa_header) {
-
-    if (!SnowTools::read_access_test(index))
-      return;
-
+  bool __open_index_and_writer(const std::string& index, SeqLib::BWAWrapper * b, const std::string& wname, SeqLib::BamWriter& writer, SeqLib::RefGenome *& r, SeqLib::BamHeader& bwa_header) {
+    
     // load the BWA index
-    b->retrieveIndex(index);
+    if (!b->LoadIndex(index))
+      return false;
 
     // load the same index, but for querying seq from ref
-    r->retrieveIndex(index);
+    if (!r->LoadIndex(index))
+      return false;
 
     // get the dictionary from reference
     bwa_header = b->HeaderFromIndex();
     
     // open the bam for writing  
-    writer.SetWriteHeader(bwa_header);
-    writer.OpenWriteBam(wname); // open and write header
+    writer.SetHeader(bwa_header);
+    if (!writer.Open(wname)) // open and write header
+      return false;
+    writer.WriteHeader();
 
+    return true;
   }
 
-  
+//http://stackoverflow.com/questions/2114797/compute-median-of-values-stored-in-vector-c
+double CalcMHWScore(std::vector<int>& scores)
+{
+  double median;
+  size_t size = scores.size();
+
+  std::sort(scores.begin(), scores.end());
+
+  if (size  % 2 == 0)
+    {
+      median = (scores[size / 2 - 1] + scores[size / 2]) / 2;
+    }
+  else 
+    {
+      median = scores[size / 2];
+    }
+
+  return median;
 }
 
+  int weightedRandom(const std::vector<double>& cs) {
+    
+    // get a weighted random number
+    size_t al = 0;
+    double rand_val = rand() % 1000;
+    while (al < cs.size()) {
+      if (rand_val <= cs[al] * 1000) 
+	return al;
+      ++al;
+    }
+    return al;
+  }
 
+}
