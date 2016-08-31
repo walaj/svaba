@@ -39,7 +39,7 @@ void LearnBamParams::learnParams(BamParamsMap& p, int max_count) {
       continue;
 
     if (count % 500000 == 0)
-      std::cerr << "...learning from read " << r.Brief() << " at count " << SeqLib::AddCommas(count) << " of " << SeqLib::AddCommas(max_count) << std::endl;
+      ;//std::cerr << "...learning from read " << r.Brief() << " at count " << SeqLib::AddCommas(count) << " of " << SeqLib::AddCommas(max_count) << std::endl;
 
     // get the first read position
     if (count == 1 || r.ChrID() != chr) {

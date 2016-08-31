@@ -1,6 +1,5 @@
-#include "AlignedContig2.h"
+#include "AlignedContig.h"
 
-#include <regex>
 #include <unordered_map>
 
 #define MAX_CONTIG_SIZE 5000000
@@ -66,8 +65,6 @@ using namespace SeqLib;
 	bool flip = (m_seq != i.Sequence()); // if the seq was flipped, need to flip the AlignmentFragment
 	if (m_frag_v.size())
 	  m_frag_v.back().secondaries.push_back(AlignmentFragment(i, flip, pref));
-	//m_frag_v_secondary.push_back(AlignmentFragment(i, flip));
-	//m_frag_v_secondary.back().num_align = bav.size();
       }      
 
       // set the aligned coverage
@@ -178,19 +175,6 @@ using namespace SeqLib;
     if (!m_global_bp.isEmpty()) 
       m_global_bp.splitCoverage(m_bamreads);
     
-    // set the split coverage for global complexes (jumping over a large insertion)
-    // if not complex, then local breaks should be cleared
-    /*    if (!m_global_bp.isEmpty() && m_local_breaks.size()) {
-	  
-	  assert(m_local_breaks.size() > 1);
-	  // set the allele
-	  m_global_bp.allele = m_local_breaks[0].allele;
-	  
-	  for (auto& i : m_global_bp.allele)
-	  i.second = m_local_breaks[0].allele[i.first] + m_local_breaks.back().allele[i.first];
-	  
-	  }*/
-    
   }
   
   std::ostream& operator<<(std::ostream& out, const AlignedContig &ac) {
@@ -248,18 +232,9 @@ using namespace SeqLib;
       }
     }
     
-    //std::string sss = ac.getSequence();
-    //if (ac.m_frag_v.size() && ac.m_frag_v[0].m_align.ReverseFlag())
-    //  SnowTools::rcomplement(sss);
-    // print the contig base-pairs
-    out << ac.getSequence() << "    " << ac.getContigName() << std::endl; 
+
     PlottedReadVector plot_vec;
     
-    // plot the coverage
-    //for (auto& i : ac.aligned_coverage)
-    //  out << i;
-    //out << std::endl;
-
     // print out the individual reads
     for (auto& i : ac.m_bamreads) {
       
@@ -267,16 +242,9 @@ using namespace SeqLib;
       int aln = -1;
       int rc = 0;
       std::string this_cig;
-      //bool was_trimmed = false;
-      //std::string seq = i.QualityTrimmedSequence(4, dum, was_trimmed);
-      //std::string seq = ""; // dummy
       std::string seq = i.QualitySequence();
       std::string sr = i.GetZTag("SR");
       
-      // reverse complement if need be
-      //int32_t rc = i.GetIntTag("RC");
-      //if (rc/* && false*/)
-      //  SnowTools::rcomplement(seq);
       
       // get the more complex tags (since there can be multiple annotations per tag)
       std::vector<int> posvec = i.GetSmartIntTag("SL"); // start positions ON CONTIG
@@ -476,39 +444,15 @@ using namespace SeqLib;
       i.complex = true;
       i.complex_local = true; // this is a sub-piece
     }
-
-    // set the strands
-    //m_global_bp.gr1.strand = m_frag_v[bstart].align.IsReverseStrand() ? '-' : '+';
-    //m_global_bp.gr2.strand = m_frag_v[bend].align.IsReverseStrand()   ? '+' : '-';
-    ///////m_global_bp.b1.gr.strand = !m_frag_v[bstart].m_align.ReverseFlag() ? '+' : '-';
-    ///////m_global_bp.b2.gr.strand =  m_frag_v[bend].m_align.ReverseFlag() ? '+' : '-';
     
     // set the homologies
     m_global_bp.__set_homologies_insertions();
     
     // order the breakpoint
     m_global_bp.order();
-
-  // clear out the locals
-  //m_local_breaks.clear();
-
-  //std::cerr << m_global_bp << " " << (*this) << std::endl;
-  assert(m_global_bp.valid());
-  }
-  
-  //std::pair<int,int> AlignedContig::getCoverageAtPosition(int pos) const {
-    //if (pos <= 0 || pos >= (int)tum_cov.size())
-    //  return std::pair<int,int>(0,0);
     
-    //return std::pair<int,int>(tum_cov[pos], norm_cov[pos]);
-  //}
-
-  //std::unordered_map<std::string, int> AlignedContig::getCoverageAtPosition(int pos) const {
-  //for (auto& i : allele) 
-      //   i.second.cov[pos];
-  //    return std::pair<int,int>(tum_cov[pos], norm_cov[pos]);
-  // }
-
+    assert(m_global_bp.valid());
+  }
   
   std::string AlignedContig::printDiscordantClusters() const {
     
@@ -819,48 +763,15 @@ using namespace SeqLib;
    
     // should have been explicitly ordered in the creation above
     if (!(bp.b1.gr < bp.b2.gr)) {
-      //std::cerr << "Warning: something went wrong in indelParseBreaks. Can't order breaks" << std::endl;
-      //std::cerr << bp.b1.gr << " " << bp.b2.gr << std::endl;
-      //std::cerr << (*this) << std::endl;
       return false;
     }
-    //bp.order();
 
     bp.b1.gr.strand = '+';
     bp.b2.gr.strand = '-';
 
-
-
-
-
-
     assert(bp.valid());
     return true;
   }
-  
-  //bool AlignedContig::parseDiscovarName(size_t &tumor, size_t &normal) {
-  /*
-    std::string s = "";
-    bool valid = m_frag_v[0].m_align.GetZTag("TN", s);
-    if (!valid)
-    return false;
-    
-    // set the tumor support
-    std::regex reg("^t([0-9]+)_*");
-    std::smatch match;
-    //if (std::regex_search(s.begin(), s.end(), match, reg))
-    if (std::regex_search(s, match, reg))
-    tumor = std::stoi(match[1].str());
-    
-    // set the normal support
-    std::regex reg2("^t[0-9]+n([0-9]+)");
-    std::smatch match2;
-    if (std::regex_search(s, match2, reg2))
-    normal = std::stoi(match2[1].str());
-    
-    return false;
-  */
-  //}
   
   std::vector<BreakPoint> AlignedContig::getAllBreakPoints(bool local_restrict) const {
     
@@ -874,7 +785,6 @@ using namespace SeqLib;
     if (!m_global_bp.isEmpty())
       out.push_back(m_global_bp);
     
-    //if (m_global_bp.num_align == 2) // if complex, don't get the locals
     out.insert(out.end(), m_local_breaks.begin(), m_local_breaks.end());
     out.insert(out.end(), m_global_bp_secondaries.begin(), m_global_bp_secondaries.end());
     
@@ -932,36 +842,6 @@ using namespace SeqLib;
       i.__combine_with_discordant_cluster(dmap);
   }
   
-  void AlignedContig::assignSupportCoverage() {
-
-    
-
-    /*
-    // go through the indel breaks and assign support coverage
-    for (auto& j : m_frag_v) {
-      for (auto& i : j.m_indel_breaks) {
-	std::pair<int,int> p1 = getCoverageAtPosition(i.b1.cpos);
-	std::pair<int,int> p2 = getCoverageAtPosition(i.b2.cpos);
-	i.tcov_support = std::min(p1.first, p2.first);
-	i.ncov_support = std::min(p1.second, p2.second);
-      }
-    }
-    
-    // go through the SV breaks and assign support coverage
-    for (auto& i : m_local_breaks) {
-      std::pair<int,int> p1 = getCoverageAtPosition(i.b1.cpos);
-      std::pair<int,int> p2 = getCoverageAtPosition(i.b2.cpos);
-      i.tcov_support = std::min(p1.first, p2.first);
-      i.ncov_support = std::min(p1.second, p2.second);
-    }
-    
-    std::pair<int,int> p1 = getCoverageAtPosition(m_global_bp.b1.cpos);
-    std::pair<int,int> p2 = getCoverageAtPosition(m_global_bp.b2.cpos);
-    m_global_bp.tcov_support = std::min(p1.first, p2.first);
-    m_global_bp.ncov_support = std::min(p1.second, p2.second);
-    */
-  }
-
   void AlignedContig::assessRepeats() {
 
     for (auto& a : m_frag_v)
@@ -1018,15 +898,12 @@ using namespace SeqLib;
     if (m_global_bp.num_align <= 2)
       return;
 
-    //std::cerr << "REFILTERING COMPLEX FOR " << getContigName() << std::endl;
-
     // initialize split counts vec
     std::vector<int> scounts(m_local_breaks.size(), 0);
 
     for (size_t i = 0; i < scounts.size() ; ++i) {
       for (auto& j : m_local_breaks[i].allele)
 	scounts[i] += j.second.split;
-      //std::cerr << "scounts " << scounts[i] << std::endl; 
     }
 
     bool bad = false;
@@ -1036,8 +913,6 @@ using namespace SeqLib;
 
     if (bad) 
       m_global_bp = BreakPoint();
-    
-    //m_local_breaks.clear();
 
   }
   

@@ -9,7 +9,7 @@
 #include "SeqLib/GenomicRegionCollection.h"
 #include "SeqLib/BamHeader.h"
 
-#include "BreakPoint2.h"
+#include "BreakPoint.h"
 
 class DBSnpSite: public SeqLib::GenomicRegion {
 

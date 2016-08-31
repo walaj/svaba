@@ -45,8 +45,8 @@ CONFIG_CLEAN_FILES =
 CONFIG_CLEAN_VPATH_FILES =
 am__installdirs = "$(DESTDIR)$(bindir)"
 PROGRAMS = $(bin_PROGRAMS)
-am_snowman_OBJECTS = snowman-run_snowman2.$(OBJEXT) \
-	snowman-BreakPoint2.$(OBJEXT) snowman-AlignedContig2.$(OBJEXT) \
+am_snowman_OBJECTS = snowman-run_snowman.$(OBJEXT) \
+	snowman-BreakPoint.$(OBJEXT) snowman-AlignedContig.$(OBJEXT) \
 	snowman-DiscordantCluster.$(OBJEXT) \
 	snowman-DBSnpFilter.$(OBJEXT) snowman-PONFilter.$(OBJEXT) \
 	snowman-SnowmanUtils.$(OBJEXT) snowman-snowman.$(OBJEXT) \
@@ -203,7 +203,7 @@ snowman_LDADD = \
 	$(top_builddir)/SeqLib/fermi-lite/libfml.a
 
 snowman_LDFLAGS = -pthread -std=c++11
-snowman_SOURCES = run_snowman2.cpp BreakPoint2.cpp AlignedContig2.cpp \
+snowman_SOURCES = run_snowman.cpp BreakPoint.cpp AlignedContig.cpp \
 		DiscordantCluster.cpp DBSnpFilter.cpp PONFilter.cpp \
 		SnowmanUtils.cpp snowman.cpp SnowmanAssemblerEngine.cpp vcf.cpp \
 		DiscordantRealigner.cpp SnowmanOverlapAlgorithm.cpp SnowmanASQG.cpp \
@@ -292,9 +292,9 @@ mostlyclean-compile:
 distclean-compile:
 	-rm -f *.tab.c
 
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-AlignedContig2.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-AlignedContig.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-BamStats.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-BreakPoint2.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-BreakPoint.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-DBSnpFilter.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-DiscordantCluster.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-DiscordantRealigner.Po@am__quote@
@@ -310,7 +310,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-SnowmanOverlapAlgorithm.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-SnowmanUtils.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-refilter.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-run_snowman2.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-run_snowman.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-snowman.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-vcf.Po@am__quote@
 
@@ -328,47 +328,47 @@ distclean-compile:
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCXX_FALSE@	$(CXXCOMPILE) -c -o $@ `$(CYGPATH_W) '$<'`
 
-snowman-run_snowman2.o: run_snowman2.cpp
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-run_snowman2.o -MD -MP -MF $(DEPDIR)/snowman-run_snowman2.Tpo -c -o snowman-run_snowman2.o `test -f 'run_snowman2.cpp' || echo '$(srcdir)/'`run_snowman2.cpp
-@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/snowman-run_snowman2.Tpo $(DEPDIR)/snowman-run_snowman2.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='run_snowman2.cpp' object='snowman-run_snowman2.o' libtool=no @AMDEPBACKSLASH@
+snowman-run_snowman.o: run_snowman.cpp
+@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-run_snowman.o -MD -MP -MF $(DEPDIR)/snowman-run_snowman.Tpo -c -o snowman-run_snowman.o `test -f 'run_snowman.cpp' || echo '$(srcdir)/'`run_snowman.cpp
+@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/snowman-run_snowman.Tpo $(DEPDIR)/snowman-run_snowman.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='run_snowman.cpp' object='snowman-run_snowman.o' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-run_snowman2.o `test -f 'run_snowman2.cpp' || echo '$(srcdir)/'`run_snowman2.cpp
+@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-run_snowman.o `test -f 'run_snowman.cpp' || echo '$(srcdir)/'`run_snowman.cpp
 
-snowman-run_snowman2.obj: run_snowman2.cpp
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-run_snowman2.obj -MD -MP -MF $(DEPDIR)/snowman-run_snowman2.Tpo -c -o snowman-run_snowman2.obj `if test -f 'run_snowman2.cpp'; then $(CYGPATH_W) 'run_snowman2.cpp'; else $(CYGPATH_W) '$(srcdir)/run_snowman2.cpp'; fi`
-@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/snowman-run_snowman2.Tpo $(DEPDIR)/snowman-run_snowman2.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='run_snowman2.cpp' object='snowman-run_snowman2.obj' libtool=no @AMDEPBACKSLASH@
+snowman-run_snowman.obj: run_snowman.cpp
+@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-run_snowman.obj -MD -MP -MF $(DEPDIR)/snowman-run_snowman.Tpo -c -o snowman-run_snowman.obj `if test -f 'run_snowman.cpp'; then $(CYGPATH_W) 'run_snowman.cpp'; else $(CYGPATH_W) '$(srcdir)/run_snowman.cpp'; fi`
+@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/snowman-run_snowman.Tpo $(DEPDIR)/snowman-run_snowman.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='run_snowman.cpp' object='snowman-run_snowman.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-run_snowman2.obj `if test -f 'run_snowman2.cpp'; then $(CYGPATH_W) 'run_snowman2.cpp'; else $(CYGPATH_W) '$(srcdir)/run_snowman2.cpp'; fi`
+@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-run_snowman.obj `if test -f 'run_snowman.cpp'; then $(CYGPATH_W) 'run_snowman.cpp'; else $(CYGPATH_W) '$(srcdir)/run_snowman.cpp'; fi`
 
-snowman-BreakPoint2.o: BreakPoint2.cpp
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-BreakPoint2.o -MD -MP -MF $(DEPDIR)/snowman-BreakPoint2.Tpo -c -o snowman-BreakPoint2.o `test -f 'BreakPoint2.cpp' || echo '$(srcdir)/'`BreakPoint2.cpp
-@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/snowman-BreakPoint2.Tpo $(DEPDIR)/snowman-BreakPoint2.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='BreakPoint2.cpp' object='snowman-BreakPoint2.o' libtool=no @AMDEPBACKSLASH@
+snowman-BreakPoint.o: BreakPoint.cpp
+@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-BreakPoint.o -MD -MP -MF $(DEPDIR)/snowman-BreakPoint.Tpo -c -o snowman-BreakPoint.o `test -f 'BreakPoint.cpp' || echo '$(srcdir)/'`BreakPoint.cpp
+@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/snowman-BreakPoint.Tpo $(DEPDIR)/snowman-BreakPoint.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='BreakPoint.cpp' object='snowman-BreakPoint.o' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-BreakPoint2.o `test -f 'BreakPoint2.cpp' || echo '$(srcdir)/'`BreakPoint2.cpp
+@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-BreakPoint.o `test -f 'BreakPoint.cpp' || echo '$(srcdir)/'`BreakPoint.cpp
 
-snowman-BreakPoint2.obj: BreakPoint2.cpp
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-BreakPoint2.obj -MD -MP -MF $(DEPDIR)/snowman-BreakPoint2.Tpo -c -o snowman-BreakPoint2.obj `if test -f 'BreakPoint2.cpp'; then $(CYGPATH_W) 'BreakPoint2.cpp'; else $(CYGPATH_W) '$(srcdir)/BreakPoint2.cpp'; fi`
-@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/snowman-BreakPoint2.Tpo $(DEPDIR)/snowman-BreakPoint2.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='BreakPoint2.cpp' object='snowman-BreakPoint2.obj' libtool=no @AMDEPBACKSLASH@
+snowman-BreakPoint.obj: BreakPoint.cpp
+@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-BreakPoint.obj -MD -MP -MF $(DEPDIR)/snowman-BreakPoint.Tpo -c -o snowman-BreakPoint.obj `if test -f 'BreakPoint.cpp'; then $(CYGPATH_W) 'BreakPoint.cpp'; else $(CYGPATH_W) '$(srcdir)/BreakPoint.cpp'; fi`
+@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/snowman-BreakPoint.Tpo $(DEPDIR)/snowman-BreakPoint.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='BreakPoint.cpp' object='snowman-BreakPoint.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-BreakPoint2.obj `if test -f 'BreakPoint2.cpp'; then $(CYGPATH_W) 'BreakPoint2.cpp'; else $(CYGPATH_W) '$(srcdir)/BreakPoint2.cpp'; fi`
+@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-BreakPoint.obj `if test -f 'BreakPoint.cpp'; then $(CYGPATH_W) 'BreakPoint.cpp'; else $(CYGPATH_W) '$(srcdir)/BreakPoint.cpp'; fi`
 
-snowman-AlignedContig2.o: AlignedContig2.cpp
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-AlignedContig2.o -MD -MP -MF $(DEPDIR)/snowman-AlignedContig2.Tpo -c -o snowman-AlignedContig2.o `test -f 'AlignedContig2.cpp' || echo '$(srcdir)/'`AlignedContig2.cpp
-@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/snowman-AlignedContig2.Tpo $(DEPDIR)/snowman-AlignedContig2.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='AlignedContig2.cpp' object='snowman-AlignedContig2.o' libtool=no @AMDEPBACKSLASH@
+snowman-AlignedContig.o: AlignedContig.cpp
+@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-AlignedContig.o -MD -MP -MF $(DEPDIR)/snowman-AlignedContig.Tpo -c -o snowman-AlignedContig.o `test -f 'AlignedContig.cpp' || echo '$(srcdir)/'`AlignedContig.cpp
+@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/snowman-AlignedContig.Tpo $(DEPDIR)/snowman-AlignedContig.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='AlignedContig.cpp' object='snowman-AlignedContig.o' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-AlignedContig2.o `test -f 'AlignedContig2.cpp' || echo '$(srcdir)/'`AlignedContig2.cpp
+@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-AlignedContig.o `test -f 'AlignedContig.cpp' || echo '$(srcdir)/'`AlignedContig.cpp
 
-snowman-AlignedContig2.obj: AlignedContig2.cpp
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-AlignedContig2.obj -MD -MP -MF $(DEPDIR)/snowman-AlignedContig2.Tpo -c -o snowman-AlignedContig2.obj `if test -f 'AlignedContig2.cpp'; then $(CYGPATH_W) 'AlignedContig2.cpp'; else $(CYGPATH_W) '$(srcdir)/AlignedContig2.cpp'; fi`
-@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/snowman-AlignedContig2.Tpo $(DEPDIR)/snowman-AlignedContig2.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='AlignedContig2.cpp' object='snowman-AlignedContig2.obj' libtool=no @AMDEPBACKSLASH@
+snowman-AlignedContig.obj: AlignedContig.cpp
+@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-AlignedContig.obj -MD -MP -MF $(DEPDIR)/snowman-AlignedContig.Tpo -c -o snowman-AlignedContig.obj `if test -f 'AlignedContig.cpp'; then $(CYGPATH_W) 'AlignedContig.cpp'; else $(CYGPATH_W) '$(srcdir)/AlignedContig.cpp'; fi`
+@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/snowman-AlignedContig.Tpo $(DEPDIR)/snowman-AlignedContig.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='AlignedContig.cpp' object='snowman-AlignedContig.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-AlignedContig2.obj `if test -f 'AlignedContig2.cpp'; then $(CYGPATH_W) 'AlignedContig2.cpp'; else $(CYGPATH_W) '$(srcdir)/AlignedContig2.cpp'; fi`
+@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-AlignedContig.obj `if test -f 'AlignedContig.cpp'; then $(CYGPATH_W) 'AlignedContig.cpp'; else $(CYGPATH_W) '$(srcdir)/AlignedContig.cpp'; fi`
 
 snowman-DiscordantCluster.o: DiscordantCluster.cpp
 @am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-DiscordantCluster.o -MD -MP -MF $(DEPDIR)/snowman-DiscordantCluster.Tpo -c -o snowman-DiscordantCluster.o `test -f 'DiscordantCluster.cpp' || echo '$(srcdir)/'`DiscordantCluster.cpp

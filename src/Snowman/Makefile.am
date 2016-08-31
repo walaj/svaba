@@ -26,7 +26,7 @@ snowman_LDADD = \
 
 snowman_LDFLAGS = -pthread -std=c++11
 
-snowman_SOURCES = run_snowman2.cpp BreakPoint2.cpp AlignedContig2.cpp \
+snowman_SOURCES = run_snowman.cpp BreakPoint.cpp AlignedContig.cpp \
 		DiscordantCluster.cpp DBSnpFilter.cpp PONFilter.cpp \
 		SnowmanUtils.cpp snowman.cpp SnowmanAssemblerEngine.cpp vcf.cpp \
 		DiscordantRealigner.cpp SnowmanOverlapAlgorithm.cpp SnowmanASQG.cpp \

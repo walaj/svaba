@@ -136,7 +136,7 @@ int overlapSize(const SeqLib::BamRecord& query, const SeqLib::BamRecordVector& s
   
 
   std::string runTimeString(int num_t_reads, int num_n_reads, int contig_counter, 
-			    const SeqLib::GenomicRegion& region, const SeqLib::BamHeader h, const SnowTimer& st,
+			    const SeqLib::GenomicRegion& region, const SeqLib::BamHeader& h, const SnowTimer& st,
 			    const timespec& start) {
     
     std::stringstream ss;
@@ -154,7 +154,6 @@ int overlapSize(const SeqLib::BamRecord& query, const SeqLib::BamRecordVector& s
 #ifndef __APPLE__
       ss << SeqLib::displayRuntime(start);
 #endif
-      ss << std::endl;
     } else if (num_t_reads + num_n_reads > 0) {
       char buffer[180];
       sprintf (buffer, "Ran Whole Genome | T: %5d N: %5d C: %5d | ", 
@@ -165,10 +164,7 @@ int overlapSize(const SeqLib::BamRecord& query, const SeqLib::BamRecordVector& s
 #ifndef __APPLE__
       ss << SeqLib::displayRuntime(start);
 #endif
-      ss << std::endl;
-      
-    }
-    
+    }    
     return ss.str();
   }
 

@@ -39,7 +39,7 @@ bool DiscordantRealigner::RealignRead(SeqLib::BamRecord& r, const SeqLib::BWAWra
   
   // no alignments, so label as bad
   if (!als.size()) {
-    r.AddIntTag("DD", -3);
+    r.AddIntTag("DD", MAPS_NOWHERE);
     return false;
   }
 
@@ -58,8 +58,8 @@ bool DiscordantRealigner::RealignRead(SeqLib::BamRecord& r, const SeqLib::BWAWra
     // then take that, and say that it is too uncertain to be a 
     // reliable alignment
     if (i.MapQuality() > r.MapQuality() && gr.GetOverlap(i.asGenomicRegion())) {
-      ReassignRead(r, i);
-      continue;
+      ;//ReassignRead(r, i); // to, from
+      //continue;
     }
     
     // if there is another alignment that overlaps with the original
@@ -83,9 +83,9 @@ bool DiscordantRealigner::RealignRead(SeqLib::BamRecord& r, const SeqLib::BWAWra
   
   // add tags
   if (!has_orig) 
-    r.AddIntTag("DD", -1);
+    r.AddIntTag("DD", MAPS_NOT_NEAR_ORIG);
   else if (maps_near_mate) 
-    r.AddIntTag("DD", -2);
+    r.AddIntTag("DD", MAPS_NEAR_MATE);
   else
     r.AddIntTag("DD", als.size());
   
@@ -96,18 +96,28 @@ bool DiscordantRealigner::RealignRead(SeqLib::BamRecord& r, const SeqLib::BWAWra
   
 }
 
-void DiscordantRealigner::ReassignRead(SeqLib::BamRecord& r, SeqLib::BamRecord& s) const {
+void DiscordantRealigner::ReassignRead(SeqLib::BamRecord& r, const SeqLib::BamRecord& s) const {
 
-  s.SetChrIDMate(r.MateChrID());
-  s.SetPositionMate(r.MatePosition());
-  s.SetPairMappedFlag();
+  std::string sr = r.GetZTag("SR");
 
-  if (r.MateReverseFlag())
-    s.SetMateReverseFlag();
+  // make a deep copy
+  // now if s is deleted, it doesn't affect r 
+  // (t is new memory location)
+  bam1_t* t = bam_dup1(s.raw());
 
-  s.AddZTag("SR", r.GetZTag("SR"));
-  r = s; // reassign the read
-  s.AddIntTag("DD", -5); // read is re-assigned, so too worrisome for discordant
+  // should carry with it everything (tags etc)
+  r.assign(t);
+
+  r.SetChrIDMate(s.MateChrID());
+  r.SetPositionMate(s.MatePosition());
+  r.SetPairMappedFlag();
+
+  if (s.MateReverseFlag())
+    r.SetMateReverseFlag();
+
+  r.AddIntTag("DD", REASSIGNED_READ); // read is re-assigned, so too worrisome for discordant
+  r.AddZTag("SR", sr);
+
   return;
 
 }
