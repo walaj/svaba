@@ -24,8 +24,8 @@ int KmerFilter::correctReads(SeqLib::BamRecordVector& vec) {
   for (auto& r : vec) {
 
     // non-clipped mapped reads with no mismatches are OK (nothing to correct)
-    if (r.GetIntTag("NM") == 0 && r.NumClip() == 0 && r.MappedFlag()) 
-      continue;
+    //if (r.GetIntTag("NM") == 0 && r.NumClip() == 0 && r.MappedFlag()) 
+    //  continue;
 
     std::string readSequence = r.QualitySequence(); //QualityTrimmedSequence(4, dum);
 
@@ -58,12 +58,13 @@ int KmerFilter::correctReads(SeqLib::BamRecordVector& vec) {
 	    std::cerr << "KmerFilter substr out of bounds. seqlen " << readSequence.length() << 
 	      " stat " << i << " length " << 31 << std::endl;
 	  }
-	  
+
 	  int count = 0;
 	  KmerCountMap::iterator iter = kmerCache.find(kmer);
 	  if (iter != kmerCache.end()) {
 	    count = iter->second; 
 	  } else {
+	    
 	    count = BWTAlgorithms::countSequenceOccurrences(kmer, indices);
 	    kmerCache.insert(std::make_pair(kmer, count));
 	  }
@@ -256,6 +257,7 @@ void KmerFilter::makeIndex(SeqLib::BamRecordVector& vec) {
     if (seq.length() >= 40 && seq.find("N") == std::string::npos) {
       si.id = std::to_string(dd);
       si.seq = seq;
+      std::cerr << " seq " << seq << std::endl;
       pRT.addRead(si);
       ++dd;
     }

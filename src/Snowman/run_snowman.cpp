@@ -916,6 +916,7 @@ bool runBigChunk(const SeqLib::GenomicRegion& region)
   }
   st.stop("k");
   
+  std::cerr << " RUNNING ASSEMBLYIES " << std::endl;
   // do the assembly, contig realignment, contig local realignment, and read realignment
   // modifes bav_this, alc, all_contigs and all_microbial_contigs
   run_assembly(region, bav_this, alc, all_contigs, all_microbial_contigs, dmap, cigmap);
@@ -1297,7 +1298,8 @@ SnowmanBamWalker make_walkers(const std::string& p, const std::string& b, const 
   // setup the walker
   SnowmanBamWalker walk;
   walk.Open(b);
-  walk.bfc = bfc;
+  if (opt::kmer_correction == "f")
+    walk.bfc = bfc;
   walk.main_bwa = main_bwa;
   walk.prefix = p;
   walk.blacklist = blacklist;
@@ -1431,17 +1433,19 @@ void correct_reads(std::vector<char*>& learn_seqs, SeqLib::BamRecordVector brv) 
     
     KmerFilter kmer;
     int kmer_corrected = 0;
-    
+ 
     // make the index for learning correction
     kmer.makeIndex(learn_seqs);
-    
+
     // free the training sequences
+    // this memory was alloced w/strdup in collect_and_clear_reads
     for (size_t i = 0; i < learn_seqs.size(); ++i)
-      free(learn_seqs[i]);
+      if (learn_seqs[i]) 
+    	free(learn_seqs[i]);
     
     // do the correction
     kmer_corrected = kmer.correctReads(brv);
-    
+
     WRITELOG("...SGA kmer corrected " + std::to_string(kmer_corrected) + " reads of " + std::to_string(brv.size()), opt::verbose > 1, true);  
   } //else if (opt::kmer_correction == "f") {
     
@@ -1705,9 +1709,12 @@ void collect_and_clear_reads(WalkerMap& walkers, SeqLib::BamRecordVector& brv, s
     }
     
     // concat together all of the learning sequences
-    for (auto& r : w.second.all_seqs)
-      learn_seqs.push_back(r);
-    
+    for (auto& r : w.second.all_seqs) {
+      learn_seqs.push_back(strdup(r));
+      free(r); // free what was alloced in snowmanbamwalker
+    }
+
+    w.second.all_seqs.clear();
     w.second.reads.clear();
   }
 }

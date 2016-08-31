@@ -178,7 +178,7 @@ SeqLib::GRC SnowmanBamWalker::readBam(std::ofstream * log)
     // add all the reads for kmer correction
     if (do_kmer_filtering && all_seqs.size() < ALL_READS_FAIL_SAFE && qcpass && !r.NumHardClip() && !blacklisted) {
       std::string qq = r.QualitySequence();
-      bool train = pass_all;
+      bool train = pass_all && qq.length() > 40;
       
       // if not 
       if (!pass_all) {
@@ -187,12 +187,15 @@ SeqLib::GRC SnowmanBamWalker::readBam(std::ofstream * log)
 	  train = true;
       }
       
+      // in bfc addsequence, memory is copied. for all_seqs,i copy explicitly
       if (train) {
 	if (bfc)
 	  bfc->AddSequence(qq.c_str(), r.Qualities().c_str(), r.Qname().c_str()); // for BFC correciton
-	else
-	  all_seqs.push_back(strdup(qq.c_str())); // for SGA correction
+	else {
+	  all_seqs.push_back(strdup(qq.c_str()));
+	}
       }
+
     }
      
     if (!pass_all)
