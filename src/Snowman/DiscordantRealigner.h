@@ -21,9 +21,14 @@ class DiscordantRealigner {
   bool RealignRead(SeqLib::BamRecord& r, const SeqLib::BWAWrapper* bwa) const;
 
   // reassign a read if it has a better mapping
-  // r is the original read to be reassigned, s is the new alignment
-  void ReassignRead(SeqLib::BamRecord& r, SeqLib::BamRecord& s) const;
-  
+  // r is the read to be reassigned, s source alignment is the new alignment
+  void ReassignRead(SeqLib::BamRecord& r, const SeqLib::BamRecord& s) const;
+
+  static const int MAPS_NOT_NEAR_ORIG = -1;  
+  static const int MAPS_NEAR_MATE = -2;
+  static const int MAPS_NOWHERE = -3;
+  static const int MATE_BAD_DISC = -4;
+  static const int REASSIGNED_READ = -5;
 
  private:
   

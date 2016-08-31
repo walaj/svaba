@@ -19,9 +19,11 @@ class KmerFilter {
 
     ~KmerFilter() { delete pBWT; delete pSAf; }
 
-    int correctReads(SeqLib::BamRecordVector& vec, SeqLib::BamRecordVector& ref_reads);
+    int correctReads(SeqLib::BamRecordVector& vec);
 
     void makeIndex(const std::vector<char*>& v);
+
+    void makeIndex(SeqLib::BamRecordVector& vec);
   
  private: 
 
@@ -32,7 +34,7 @@ class KmerFilter {
 
   bool attemptKmerCorrection(size_t i, size_t k_idx, size_t minCount, std::string& readSequence, BWTIndexSet& inds);
 
-  void __makeIndex(SeqLib::BamRecordVector& vec);
+
 
 };
 

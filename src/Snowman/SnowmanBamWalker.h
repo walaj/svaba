@@ -6,23 +6,15 @@
 #include <unordered_map>
 #include <unordered_set>
 
-#include "htslib/khash.h"
-
 #include "SeqLib/BamReader.h"
 #include "SeqLib/ReadFilter.h"
-//#include "SnowTools/Fractions.h"
 #include "STCoverage.h"
 #include "SeqLib/BWAWrapper.h"
-
-
 #include "DiscordantRealigner.h"
 
-#include "KmerFilter.h"
+#include "SeqLib/BFC.h"
 
-#define GET_COVERAGE 1
-
-//typedef std::unordered_map<std::string, size_t> CigarMap;
-
+// storage container for mate lookup-regions
 class MateRegion: public SeqLib::GenomicRegion
 {
  public:
@@ -41,56 +33,50 @@ class SnowmanBamWalker: public SeqLib::BamReader {
   
   SnowmanBamWalker() {}
 
+  // for discordant read realignments
   SeqLib::BWAWrapper * main_bwa = nullptr;
-  int readlen;  
+
+  // for setting the SR tag
   std::string prefix; // eg. tumor, normal
+
+  // regions to blacklist
   SeqLib::GRC blacklist;
-  
+
+  // read in the reads
   SeqLib::GRC readBam(std::ofstream* log = nullptr);
 
   void realignDiscordants(SeqLib::BamRecordVector& reads);
   
-  void filterMicrobial(SeqLib::BWAWrapper * b);
-  
-  void KmerCorrect();
-  
   bool hasAdapter(const SeqLib::BamRecord& r) const;
   
-  bool addCigar(SeqLib::BamRecord &r);
+  void addCigar(SeqLib::BamRecord &r);
   
   bool isDuplicate(const SeqLib::BamRecord &r);
   
   void subSampleToWeirdCoverage(double max_coverage);
   
   void calculateMateRegions();
-  
-  void removeRepeats();
-  
-  bool get_coverage = true;
+
+  // should we store the mate regions?
   bool get_mate_regions = true;
- 
-  // bad qnames, as found from discordant realignment
-  std::unordered_set<std::string> bad_qnames;
-  
-  //ReadVec reads;
+
+  // place to store reads when we get them
   SeqLib::BamRecordVector reads;
 
-  SeqLib::BamRecordVector all_reads;
-
+  // store raw sequences for kmer correction learning
   std::vector<char*> all_seqs;
-
-  //std::unordered_map<uint32_t, size_t> cig_pos;
 
   // cov is the all-read coverage tracker
   // weird-cov just tracks coverage of accepted (clip, disc, etc reads)
   STCoverage cov, weird_cov;
-  
+
+  // hash of cigars for indels
   SeqLib::CigarMap cigmap;
 
+  // mate regions to lookup
   MateRegionVector mate_regions;
-  
-  //ReadCount rc;
-  
+
+  // filter out reads at simple repeats?
   SeqLib::GRC * simple_seq;
   
   // object for realigning discordant reads
@@ -99,32 +85,32 @@ class SnowmanBamWalker: public SeqLib::BamReader {
   // maximum coverage of accepted reads, before subsampling
   size_t max_cov = 100;
   
-  // should we trim adapter sequences
-  bool adapter_trim = true;
-
   // should we keep reads for learning correction 
   double kmer_subsample = 0.5;
   // should we subsample the learning reads?
   bool do_kmer_filtering = true;
 
-  //size_t m_keep_limit = 0;
+  // should we get the read coverage
+  bool get_coverage = true;
 
   // set a hard limit on how many reads to accept
   size_t m_limit = 0;
 
-  //size_t m_num_reads_kept = 0;
-
   // set a read filter
   SeqLib::Filter::ReadFilterCollection * m_mr;
 
- private:
-  
-  // private string stream. Initialize once here for speed
+  // 
+  SeqLib::BFC * bfc = nullptr;
 
-  
+ private:
+
   // might want these in case we are looking for duplicates
   std::unordered_set<std::string> seq_set;
-  
+
+  // keep track of which reads were flagged for being bad discordant
+  std::unordered_set<std::string> bad_discordant;
+
+  // seed for the kmer-learning subsampling
   uint32_t m_seed = 1337;
   
 };

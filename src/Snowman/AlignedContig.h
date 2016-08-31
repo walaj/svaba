@@ -7,7 +7,7 @@
 #include "SeqLib/BamReader.h"
 #include "SeqLib/BamWriter.h"
 
-#include "BreakPoint2.h"
+#include "BreakPoint.h"
 #include "DiscordantCluster.h"
 
   class AlignedContig;
@@ -252,8 +252,6 @@
   std::vector<BreakPoint> getAllBreakPointsSecondary() const;
 
   void refilterComplex();
-
-  void assignSupportCoverage();
 
   std::vector<const BreakPoint*> getAllBreakPointPointers() const ;
 

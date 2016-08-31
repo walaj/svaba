@@ -9,7 +9,7 @@
 
 #include "SeqLib/GenomicRegion.h"
 
-#include "BreakPoint2.h"
+#include "BreakPoint.h"
 
 typedef std::unordered_map<std::string, std::string> InfoMap;
 typedef std::unordered_map<std::string, std::string> FormatMap;

@@ -1,6 +1,7 @@
 #include "SnowmanAssemblerEngine.h"
 
 #include <map>
+#include <algorithm>
 
 #include "SGACommon.h"
 
@@ -70,7 +71,7 @@ void SnowmanAssemblerEngine::fillReadTable(SeqLib::BamRecordVector& r)
 
     if (hasRepeat(seq) || seq.length() < m_min_overlap)
       continue;
-
+      
     si.id = sr;
 
     // put onto the foward strand if not

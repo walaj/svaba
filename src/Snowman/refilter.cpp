@@ -8,7 +8,7 @@
 #include "SeqLib/BamReader.h"
 
 #include "vcf.h"
-#include "BreakPoint2.h"
+#include "BreakPoint.h"
 #include "SnowmanUtils.h"
 
 

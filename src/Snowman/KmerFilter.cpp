@@ -2,16 +2,13 @@
 
 #include "ReadTable.h"
 
-int KmerFilter::correctReads(SeqLib::BamRecordVector& vec, SeqLib::BamRecordVector& ref_reads) {
-
-  // first you have to make the index if not there
-  if (!pBWT)
-    __makeIndex(ref_reads);
-  if (!pBWT)
-    return 0;
+int KmerFilter::correctReads(SeqLib::BamRecordVector& vec) {
 
   if (!vec.size())
     return 0;
+
+  if (!pBWT)
+    return 0; // cant correct if didnt learn how
 
   int corrected_reads = 0;
 
@@ -25,10 +22,6 @@ int KmerFilter::correctReads(SeqLib::BamRecordVector& vec, SeqLib::BamRecordVect
   KmerCountMap kmerCache;
 
   for (auto& r : vec) {
-
-    // only correct valid reads
-    //if (!r.GetIntTag("VR"))
-    //  continue;
 
     // non-clipped mapped reads with no mismatches are OK (nothing to correct)
     if (r.GetIntTag("NM") == 0 && r.NumClip() == 0 && r.MappedFlag()) 
@@ -239,13 +232,13 @@ void KmerFilter::makeIndex(const std::vector<char*>& v) {
   // make suffix array
   pSAf = new SuffixArray(&pRT, 1, false);
   // make BWT
-  pBWT= new RLBWT(pSAf, &pRT);
+  pBWT = new RLBWT(pSAf, &pRT);
 
-
+  return;
 }
 
 //
-void KmerFilter::__makeIndex(SeqLib::BamRecordVector& vec) {
+void KmerFilter::makeIndex(SeqLib::BamRecordVector& vec) {
 
   ReadTable pRT;
   pRT.setZero();
@@ -257,9 +250,7 @@ void KmerFilter::__makeIndex(SeqLib::BamRecordVector& vec) {
     SeqItem si;
     std::string sr, seq = "";
 
-    //sr = i.GetZTag("SR");
     seq = i.QualitySequence(); //i.QualityTrimmedSequence(4, dum);
-    //seq = i.Sequence();
 
     // if the read is good, add it to the table so we can use for kmer index
     if (seq.length() >= 40 && seq.find("N") == std::string::npos) {
