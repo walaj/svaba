@@ -99,6 +99,10 @@ SeqLib::GRC SnowmanBamWalker::readBam(std::ofstream * log)
     // quality score trim read. Stores in GV tag
     QualityTrimRead(r);
 
+    // if its less than 20, dont even mess with it
+    if (r.QualitySequence().length() < 20)
+      continue;
+
     rule_pass = m_mr->isValid(r);
       
     DEBUG("SBW read seen", r);
@@ -410,7 +414,7 @@ void SnowmanBamWalker::realignDiscordants(SeqLib::BamRecordVector& reads) {
 void SnowmanBamWalker::QualityTrimRead(SeqLib::BamRecord& r) const {
 
   int32_t startpoint = 0, endpoint = 0;
-  r.QualityTrimmedSequence(5, startpoint, endpoint);
+  r.QualityTrimmedSequence(3, startpoint, endpoint);
   int32_t new_len = endpoint - startpoint;
   if (endpoint != -1 && new_len < r.Length() && new_len > 0 && new_len - startpoint >= 0 && startpoint + new_len <= r.Length()) { 
     try { 
