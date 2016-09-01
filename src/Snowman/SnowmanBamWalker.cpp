@@ -96,9 +96,9 @@ SeqLib::GRC SnowmanBamWalker::readBam(std::ofstream * log)
     bool qcpass = !r.DuplicateFlag() && !r.QCFailFlag();
     bool pass_all = true;
     
-    // quality score trim read, and check if passes rules
-    int sstart, send;
-    r.QualityTrimmedSequence(4, sstart, send);
+    // quality score trim read. Stores in GV tag
+    QualityTrimRead(r);
+
     rule_pass = m_mr->isValid(r);
       
     DEBUG("SBW read seen", r);
@@ -176,7 +176,7 @@ SeqLib::GRC SnowmanBamWalker::readBam(std::ofstream * log)
     DEBUG("SBW pass all? " + std::to_string(pass_all), r);
    
     // add all the reads for kmer correction
-    if (do_kmer_filtering && all_seqs.size() < ALL_READS_FAIL_SAFE && qcpass && !r.NumHardClip() && !blacklisted) {
+    if (qcpass && do_kmer_filtering && countr < ALL_READS_FAIL_SAFE && qcpass && !r.NumHardClip() && !blacklisted) {
       std::string qq = r.QualitySequence();
       bool train = pass_all && qq.length() > 40;
       
@@ -405,4 +405,27 @@ void SnowmanBamWalker::realignDiscordants(SeqLib::BamRecordVector& reads) {
   for (auto& r : reads)
     if (r.GetIntTag("DD") >= 0 && bad_discordant.count(r.Qname()))
       r.AddIntTag("DD", DiscordantRealigner::MATE_BAD_DISC);
+}
+
+void SnowmanBamWalker::QualityTrimRead(SeqLib::BamRecord& r) const {
+
+  int32_t startpoint = 0, endpoint = 0;
+  r.QualityTrimmedSequence(5, startpoint, endpoint);
+  int32_t new_len = endpoint - startpoint;
+  if (endpoint != -1 && new_len < r.Length() && new_len > 0 && new_len - startpoint >= 0 && startpoint + new_len <= r.Length()) { 
+    try { 
+      r.AddZTag("GV", r.Sequence().substr(startpoint, new_len));
+      assert(r.GetZTag("GV").length());
+    } catch (...) {
+      std::cerr << "Subsequence failure with sequence of length "  
+		<< r.Sequence().length() << " and startpoint "
+		<< startpoint << " endpoint " << endpoint 
+		<< " newlen " << new_len << std::endl;
+    }
+    // read is fine
+  } else {
+    r.AddZTag("GV", r.Sequence());
+  }
+  
+
 }
