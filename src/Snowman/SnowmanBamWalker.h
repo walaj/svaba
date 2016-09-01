@@ -112,6 +112,9 @@ class SnowmanBamWalker: public SeqLib::BamReader {
 
   // seed for the kmer-learning subsampling
   uint32_t m_seed = 1337;
+
+  // quality trim the readd
+  void QualityTrimRead(SeqLib::BamRecord& r) const;
   
 };
 

@@ -516,7 +516,7 @@ void runSnowman(int argc, char** argv) {
   int num_jobs = SnowmanUtils::countJobs(opt::regionFile, file_regions, regions_torun,
 					 bwa_header, opt::chunk, WINDOW_PAD); 
   if (num_jobs) {
-    WRITELOG("...running on " + PRETTYFORM(num_jobs), opt::verbose, true);
+    WRITELOG("...running on " + PRETTYFORM(num_jobs) + " chunks", opt::verbose, true);
   } else {
     WRITELOG("Chunk was <= 0: READING IN WHOLE GENOME AT ONCE", opt::verbose, true);
   }
@@ -905,12 +905,15 @@ bool runBigChunk(const SeqLib::GenomicRegion& region)
     bfc->Train();
     bfc->clear();  // clear memory and reads
 
-    int kcov = bfc->GetKCov();
     // add the reads for correction
     bfc->ErrorCorrectToTag(bav_this, "KC");
 
-    WRITELOG("...BFC kmer corrected " + std::to_string(bav_this.size()) + " reads from train set of " + 
-	     std::to_string(learn_reads_count) + " with kmer cov of " + std::to_string(kcov), opt::verbose > 1, true);      
+    double kcov = bfc->GetKCov();
+    int kmer    = bfc->GetKMer();
+
+    WRITELOG("   BFC attempted correct " + std::to_string(bav_this.size()) + " train: " + 
+	     std::to_string(learn_reads_count) + " kcov: " + std::to_string(kcov) + 
+	     " kmer: " + std::to_string(kmer), opt::verbose > 1, true);      
     
     delete bfc;
     bfc = nullptr;
