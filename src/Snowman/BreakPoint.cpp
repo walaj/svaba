@@ -767,7 +767,7 @@ BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
       confidence = "LOWAS";
     else if ( (std::max(b1.nm, b2.nm) >= 3 || std::min(b1.as_frac, b2.as_frac) < 0.85) && getSpan() < 0 )
       confidence = "LOWAS";      
-    else if (seq.length() - aligned_covered > 10)
+    else if ((double)aligned_covered / (double)seq.length() < 0.80) // less than 80% of read is covered by some alignment
       confidence = "LOWAS";        
     else if ( (b1.matchlen < 50 && b1.mapq < 60) || (b2.matchlen < 50 && b2.mapq < 60) )
       confidence = "LOWMAPQ";
