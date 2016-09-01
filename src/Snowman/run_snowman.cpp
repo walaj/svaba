@@ -335,7 +335,7 @@ void runSnowman(int argc, char** argv) {
   //run_test_assembly();
 
   SnowmanUtils::fopen(opt::analysis_id + ".log", log_file);
-  SnowmanUtils::fopen(opt::analysis_id + ".bad_mate_regions.log", bad_bed);
+  SnowmanUtils::fopen(opt::analysis_id + ".bad_mate_regions.bed", bad_bed);
 
   if (opt::refilter) {
     // read in all of the breakpoints
@@ -828,7 +828,8 @@ bool runBigChunk(const SeqLib::GenomicRegion& region)
   SeqLib::BamRecordVector bav_this;
 
   // collect and clear reads from main round
-  collect_and_clear_reads(walkers, bav_this, all_seqs);
+  std::unordered_set<std::string> dedupe;
+  collect_and_clear_reads(walkers, bav_this, all_seqs, dedupe);
 
   // adjust counts and timer
   st.stop("r");
@@ -838,7 +839,7 @@ bool runBigChunk(const SeqLib::GenomicRegion& region)
   WRITELOG("...looked up <case, control> mate reads: <" + SeqLib::AddCommas(mate_counts.first) + "," + 
 	   SeqLib::AddCommas(mate_counts.second) + ">", opt::verbose > 1, true);
   // collect the reads together from the mate walkers
-  collect_and_clear_reads(walkers, bav_this, all_seqs);
+  collect_and_clear_reads(walkers, bav_this, all_seqs, dedupe);
 
   st.stop("m");
   
@@ -916,7 +917,6 @@ bool runBigChunk(const SeqLib::GenomicRegion& region)
   }
   st.stop("k");
   
-  std::cerr << " RUNNING ASSEMBLYIES " << std::endl;
   // do the assembly, contig realignment, contig local realignment, and read realignment
   // modifes bav_this, alc, all_contigs and all_microbial_contigs
   run_assembly(region, bav_this, alc, all_contigs, all_microbial_contigs, dmap, cigmap);
@@ -1082,8 +1082,12 @@ afterassembly:
   
   // write the raw error corrected reads to a fasta
   if (opt::write_extracted_reads) 
-    for (auto& r : bav_this)
-      r2c_c << ">" << r.GetZTag("SR") << std::endl << r.QualitySequence() << std::endl;
+    for (auto& r : bav_this) {
+      std::string seq = r.GetZTag("KC");
+      if (seq.empty())
+	seq = r.QualitySequence();
+      r2c_c << ">" << r.GetZTag("SR") << std::endl << seq << std::endl;
+    }
   
   // send breakpoints to file
   for (auto& i : bp_glob) 
@@ -1143,7 +1147,8 @@ SeqLib::GRC makeAssemblyRegions(const SeqLib::GenomicRegion& region) {
   SeqLib::GRC grv_small;
   if (region.IsEmpty()) {  // whole genome, so divide up the whole thing
     for (size_t c = 0; c < 23; ++c)
-      grv_small.Concat(SeqLib::GRC(opt::chunk, WINDOW_PAD, SeqLib::GenomicRegion(c, WINDOW_PAD + 1, SeqLib::CHR_LEN[c] - WINDOW_PAD - 1)));
+      grv_small.Concat(SeqLib::GRC(opt::chunk, WINDOW_PAD, SeqLib::GenomicRegion(c, WINDOW_PAD + 1, b_reader.Header().GetSequenceLength(c) - WINDOW_PAD - 1)));
+    //grv_small.Concat(SeqLib::GRC(opt::chunk, WINDOW_PAD, SeqLib::GenomicRegion(c, WINDOW_PAD + 1, SeqLib::CHR_LEN[c] - WINDOW_PAD - 1)));
   }
   else if (region.Width() >= opt::chunk) // divide into smaller chunks
     grv_small = SeqLib::GRC(opt::chunk, WINDOW_PAD, region);
@@ -1687,18 +1692,17 @@ CountPair collect_mate_reads(WalkerMap& walkers, const MateRegionVector& mrv, in
     
     // update the counts
     if (w.first == "t") 
-      counts.first += (oreads - w.second.reads.size());
+      counts.first += (w.second.reads.size() - oreads);
     else
-      counts.second += (oreads - w.second.reads.size());
+      counts.second += (w.second.reads.size() - oreads);
   }
   
   return counts;
 }
 
-void collect_and_clear_reads(WalkerMap& walkers, SeqLib::BamRecordVector& brv, std::vector<char*>& learn_seqs) {
+void collect_and_clear_reads(WalkerMap& walkers, SeqLib::BamRecordVector& brv, std::vector<char*>& learn_seqs, std::unordered_set<std::string>& dedupe) {
 
   // concatenate together all the reads from the different walkers
-  std::unordered_set<std::string> dedupe;
   for (auto& w : walkers) {
     for (auto& r : w.second.reads) {
       std::string sr = r.GetZTag("SR");

@@ -3,7 +3,7 @@
 #include <unordered_map>
 
 #define MAX_CONTIG_SIZE 5000000
-#define MIN_INDEL_MATCH_BRACKET 1
+#define MIN_INDEL_MATCH_BRACKET 6
 #define MAX_INDELS 10000
 #define MAX_INDEL_PER_CONTIG 6 
 

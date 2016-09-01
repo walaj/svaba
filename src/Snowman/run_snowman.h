@@ -7,6 +7,7 @@
 #include <vector>
 #include <ostream>
 #include <unordered_map>
+#include <unordered_set>
 #include <map>
 
 #include "SeqLib/BamReader.h"
@@ -52,7 +53,7 @@ void run_assembly(const SeqLib::GenomicRegion& region, SeqLib::BamRecordVector& 
 void remove_hardclips(SeqLib::BamRecordVector& brv);
 CountPair collect_mate_reads(WalkerMap& walkers, const MateRegionVector& mrv, int round, SeqLib::GRC& badd);
 CountPair run_mate_collection_loop(const SeqLib::GenomicRegion& region, WalkerMap& wmap, SeqLib::GRC& badd);
-void collect_and_clear_reads(WalkerMap& walkers, SeqLib::BamRecordVector& brv, std::vector<char*>& learn_seqs);
+void collect_and_clear_reads(WalkerMap& walkers, SeqLib::BamRecordVector& brv, std::vector<char*>& learn_seqs, std::unordered_set<std::string>& dedupe);
 
 void run_test_assembly();
 /** @brief p-thread work item that calls Snowman on a small region
