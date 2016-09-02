@@ -98,6 +98,7 @@ namespace opt {
     static bool writeASQG = false;
   }
 
+
   static int sample_number = 0;
 
   static std::string args = "snowman ";
@@ -354,7 +355,7 @@ void runSnowman(int argc, char** argv) {
     "***************************** PARAMS ****************************" << std::endl << 
     "    DBSNP Database file: " << opt::dbsnp << std::endl << 
     "    Max cov to assemble: " << opt::max_cov << std::endl <<
-    "    Error correction mode: " << (opt::kmer_correction == "s" ? "SGA" : "BFC" << std::endl << 
+    "    Error correction mode: " << (opt::kmer_correction == "s" ? "SGA" : "BFC") << std::endl << 
     "    Subsample-rate for correction learning: " + std::to_string(opt::kmer_subsample) << std::endl;
     ss << 
       "    ErrorRate: " << (opt::assemb::error_rate < 0.001f ? "EXACT (0)" : std::to_string(opt::assemb::error_rate)) << std::endl << 
@@ -767,7 +768,7 @@ void parseRunOptions(int argc, char** argv) {
     }
   }
 
-  if (!(opt::kmer_correction == "s" || opt::kmer_correction == "f" || opt::kmer_correction = "0")) {
+  if (!(opt::kmer_correction == "s" || opt::kmer_correction == "f" || opt::kmer_correction == "0")) {
     WRITELOG("ERROR: Error correction type must be one of s, f, or 0", true, true);
     exit(EXIT_FAILURE);
   }
