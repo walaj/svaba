@@ -24,7 +24,7 @@ snowman_LDADD = \
 	$(top_builddir)/SeqLib/htslib/libhts.a \
 	$(top_builddir)/SeqLib/fermi-lite/libfml.a
 
-snowman_LDFLAGS = -pthread -std=c++11
+##snowman_LDFLAGS = -pthread -std=c++11
 
 snowman_SOURCES = run_snowman.cpp BreakPoint.cpp AlignedContig.cpp \
 		DiscordantCluster.cpp DBSnpFilter.cpp PONFilter.cpp \
