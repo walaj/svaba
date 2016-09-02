@@ -70,8 +70,6 @@ snowman_DEPENDENCIES = $(top_builddir)/src/SGA/SGA/libsga.a \
 	$(top_builddir)/SeqLib/bwa/libbwa.a \
 	$(top_builddir)/SeqLib/htslib/libhts.a \
 	$(top_builddir)/SeqLib/fermi-lite/libfml.a
-snowman_LINK = $(CXXLD) $(AM_CXXFLAGS) $(CXXFLAGS) $(snowman_LDFLAGS) \
-	$(LDFLAGS) -o $@
 DEFAULT_INCLUDES = -I.@am__isrc@ -I$(top_builddir)
 depcomp = $(SHELL) $(top_srcdir)/depcomp
 am__depfiles_maybe = depfiles
@@ -202,7 +200,6 @@ snowman_LDADD = \
 	$(top_builddir)/SeqLib/htslib/libhts.a \
 	$(top_builddir)/SeqLib/fermi-lite/libfml.a
 
-snowman_LDFLAGS = -pthread -std=c++11
 snowman_SOURCES = run_snowman.cpp BreakPoint.cpp AlignedContig.cpp \
 		DiscordantCluster.cpp DBSnpFilter.cpp PONFilter.cpp \
 		SnowmanUtils.cpp snowman.cpp SnowmanAssemblerEngine.cpp vcf.cpp \
@@ -284,7 +281,7 @@ clean-binPROGRAMS:
 	-test -z "$(bin_PROGRAMS)" || rm -f $(bin_PROGRAMS)
 snowman$(EXEEXT): $(snowman_OBJECTS) $(snowman_DEPENDENCIES) 
 	@rm -f snowman$(EXEEXT)
-	$(snowman_LINK) $(snowman_OBJECTS) $(snowman_LDADD) $(LIBS)
+	$(CXXLINK) $(snowman_OBJECTS) $(snowman_LDADD) $(LIBS)
 
 mostlyclean-compile:
 	-rm -f *.$(OBJEXT)
