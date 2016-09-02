@@ -55,11 +55,8 @@ g.add(SeqLib::GenomicRegion(i.chr, i.pos1, i.pos2, i.strand));
 // NM, then dont' consider it a strong local match
 #define MAX_NM_FOR_LOCAL 10 
 
-
 static SeqLib::RefGenome * ref_genome, * ref_genome_viral;
-
 static std::unordered_map<std::string, BamParamsMap> params_map; // key is bam id (t000), value is map with read group as key
-
 static SeqLib::BamHeader bwa_header, viral_header;
 
 static std::set<std::string> prefixes;
@@ -105,7 +102,7 @@ namespace opt {
 
   static std::string args = "snowman ";
 
-  static std::string kmer_correction = "s";
+  static std::string kmer_correction = "f";
 
   static std::string simple_file;
 
@@ -237,7 +234,7 @@ static const struct option longopts[] = {
   { "no-interchrom-lookup",    no_argument, NULL, 'I' },
   { "read-tracking",           no_argument, NULL, OPT_READ_TRACK },
   { "gap-open-penalty",        required_argument, NULL, OPT_GAP_OPEN },
-  { "kmer-subsample",          required_argument, NULL, OPT_KMER_SUBSAMPLE },
+  { "ec-subsample",          required_argument, NULL, OPT_KMER_SUBSAMPLE },
   { "bwa-match-score",         required_argument, NULL, OPT_MATCH_SCORE },
   { "gap-extension-penalty",   required_argument, NULL, OPT_GAP_EXTENSION },
   { "mismatch-penalty",        required_argument, NULL, OPT_MISMATCH },
@@ -257,7 +254,7 @@ static const struct option longopts[] = {
   { "refilter",              no_argument, NULL, OPT_REFILTER },
   { "r2c-bam",               no_argument, NULL, 'x' },
   { "write-asqg",            no_argument, NULL, OPT_ASQG   },
-  { "kmer-correct-type",     required_argument, NULL, 'K'},
+  { "ec-correct-type",     required_argument, NULL, 'K'},
   { "error-rate",            required_argument, NULL, 'e'},
   { "verbose",               required_argument, NULL, 'v' },
   { "blacklist",             required_argument, NULL, 'B' },
@@ -299,22 +296,22 @@ static const char *RUN_USAGE_MESSAGE =
 "  -L, --min-lookup-min                 Minimum number of somatic reads required to attempt mate-region lookup [3]\n"
 "  -s, --disc-sd-cutoff                 Number of standard deviations of calculated insert-size distribution to consider discordant. [1.96]\n"
 "      --no-interchrom-lookup           Don't do mate lookup for inter-chromosomal translocations. This increased run time at cost of power for translocations.\n"
-"      --r2c-bam                        Output a BAM of reads that aligned to a contig, and fasta of kmer corrected sequences\n"
+"      --r2c-bam                        Output a BAM of reads that aligned to a contig, and fasta of error corrected sequences\n"
 "      --discordant-only                Only run the discordant read clustering module, skip assembly. Default: off\n"
 "      --read-tracking                  Track supporting reads. Increases file sizes.\n"
 "      --max-coverage                   Maximum weird read coverage to send to assembler (per BAM). Subsample reads to achieve max if overflow. [500]\n"
 "      --write-extracted-reads          For the tumor BAM, write the extracted reads (those sent to assembly) to a BAM file. Good for debugging.\n"
 "      --assemble-by-tag                Separate the assemblies and read-to-contig mapping by the given read tag. Useful for 10X Genomics data (e.g. --aseembly-by-tag BX).\n"
-"      --no-assemble-normal             Don't kmer correct or assembly normal reads. Still maps normal reads to contigs. Increases speed for somatic-only queries.\n"
+"      --no-assemble-normal             Don't error correct or assembly normal reads. Still maps normal reads to contigs. Increases speed for somatic-only queries.\n"
 "      --num-assembly-rounds            Number of times to run the assembler per window. > 1 will bootstrap the assembly with error rate = 0.05. [1]\n"
 "      --num-to-sample                  When learning about BAM, number of reads to sample. Default 1,000,000.\n"
 "      --motif-filter                   Add a motif file to exclude reads that contain this motif (e.g. illumina adapters).\n"
 "  Assembly params\n"
 "      --write-asqg                     Output an ASQG graph file for each assembly window.\n"
-"  -e, --error-rate                     Fractional difference two reads can have to overlap. See SGA param. 0 is fast, but requires exact matches and error correcting. [0.02]\n"
+"  -e, --error-rate                     Fractional difference two reads can have to overlap. See SGA param. 0 is fast, but requires exact matches and error correcting. [0]\n"
 "  -c, --chunk-size                     Size of a local assembly window (in bp). [25000]\n"
-"      --kmer-correct-type              (s) SGA k-mer correction (default), (f) Fermi-kit correction, (0) no correction. For SGA assembly, need to balance with error rate (w/kmer can have lower error rate). [off]\n"
-"      --kmer-subsample                 Learn from only a fraction of the reads during kmer-correction. Reduces memory and increases speed, especially for high-coverage samples [0.5]\n"
+"      --ec-correct-type                (f) Fermi-kit BFC correction (default), (s) Kmer-correction implemented in SGA, (0) no correction. Need to balance with error rate (w/EC can have lower error rate -e)\n"
+"      --ec-subsample                   Learn from only a fraction of the reads during error-correction. Reduces memory and increases speed, especially for high-coverage samples [0.24]\n"
 "  Alignment params\n"
 "      --bwa-match-score                Set the BWA-MEM match score. BWA-MEM -A [1]\n"
 "      --gap-open-penalty               Set the BWA-MEM gap open penalty for contig to genome alignments. BWA-MEM -O [6]\n"
@@ -357,7 +354,8 @@ void runSnowman(int argc, char** argv) {
     "***************************** PARAMS ****************************" << std::endl << 
     "    DBSNP Database file: " << opt::dbsnp << std::endl << 
     "    Max cov to assemble: " << opt::max_cov << std::endl <<
-    "    Kmer-based error correction: " << (opt::kmer_correction == "s" ? ("SGA -- subsample rate: " + std::to_string(opt::kmer_subsample)) : (opt::kmer_correction == "f" ? "Fermi-kit" : "OFF")) << std::endl;
+    "    Error correction mode: " << (opt::kmer_correction == "s" ? "SGA" : "BFC" << std::endl << 
+    "    Subsample-rate for correction learning: " + std::to_string(opt::kmer_subsample) << std::endl;
     ss << 
       "    ErrorRate: " << (opt::assemb::error_rate < 0.001f ? "EXACT (0)" : std::to_string(opt::assemb::error_rate)) << std::endl << 
       "    Num assembly rounds: " << opt::num_assembly_rounds << std::endl;
@@ -384,7 +382,7 @@ void runSnowman(int argc, char** argv) {
   if (opt::assemb::writeASQG)
     ss << "    Writing ASQG files. Suggest running R/snow-asqg2pdf.R -i <my.asqg> -o graph.pdf" << std::endl;
   if (opt::write_extracted_reads)
-    ss << "    Writing extracted reads and fasta of kmer-corrected reads." << std::endl;
+    ss << "    Writing extracted reads and fasta of error-corrected reads." << std::endl;
   if (opt::r2c)
     ss << "    Writing read-to-contig files." << std::endl;
   if (opt::disc_cluster_only)
@@ -767,6 +765,11 @@ void parseRunOptions(int argc, char** argv) {
     case 'K': arg >> opt::kmer_correction; break;
       default: die= true; 
     }
+  }
+
+  if (!(opt::kmer_correction == "s" || opt::kmer_correction == "f" || opt::kmer_correction = "0")) {
+    WRITELOG("ERROR: Error correction type must be one of s, f, or 0", true, true);
+    exit(EXIT_FAILURE);
   }
 
   // check that BAM files exist
