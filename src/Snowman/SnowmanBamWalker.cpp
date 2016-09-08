@@ -113,11 +113,12 @@ SeqLib::GRC SnowmanBamWalker::readBam(std::ofstream * log)
       if (log)
 	(*log) << "...breaking at " << r.Brief() << 
 	  (get_mate_regions ? " in main window " : " in mate window " ) 
-	       << m_region[tb->m_region_idx]
+	       << (m_region.size() ? m_region[tb->m_region_idx].ToString() : " whole BAM")
 	       << " with " << SeqLib::AddCommas(reads.size()) 
 	       << " weird reads. Limit: " << SeqLib::AddCommas(m_limit) << std::endl;
       
-      bad_regions.add(m_region[tb->m_region_idx]);
+      if (m_region.size())
+	bad_regions.add(m_region[tb->m_region_idx]);
       
       // force it to try the next region, or return if none left
       ++tb->m_region_idx; // increment to next region

@@ -1,4 +1,4 @@
-[![Build Status](https://magnum.travis-ci.com/broadinstitute/SnowmanSV.svg?token=QTnp48gNXtKQKRDpquf3&branch=master)](https://magnum.travis-ci.com/broadinstitute/SnowmanSV)
+[![Build Status](https://travis-ci.org/broadinstitute/SnowmanSV.svg?branch=master)](https://travis-ci.org/broadinstitute/SnowmanSV)
 
 Snowman - Structural Variation Detection by Rolling Local Assembly
 ==================================================================
@@ -10,11 +10,8 @@ Installation
 We recommend compiling with GCC-4.8 or greater. We have successfully compiled on RHEL6, CentOS with GCC-4.8, 4.9 and 5.1, and MacOSX with Clang (Apple LLVM version 7.0.2 (clang-700.1.81))
 
 ```
-############### DOWNLOAD SNOWMAN ############### 
 git clone --recursive https://github.com/broadinstitute/SnowmanSVgit
 cd SnowmanSV
-
-############### COMPILE AND INSTALL ###############
 ./configure
 make
 
@@ -37,22 +34,16 @@ unmapped and indel reads, although this can be customized to any set of reads at
 These contigs are then immediately aligned to the reference with BWA-MEM and parsed to identify variants. Sequencing reads are likewise 
 realigned to the contigs with BWA-MEM, and variants are scored 
 
-Scope
------
+Scope and Inputs
+----------------
 
-Snowman is currently configured to provide indel and rearrangement calls (and anything "in between"). It has been most widely tested
-as a somatic variant caller, and outputs separate VCFs for somatic and germline. If only a single BAM is present, input with the ``-t`` flag. 
+Snowman is currently configured to provide indel and rearrangement calls (and anything "in between"). It is setup to handle single BAM/CRAM/SAM files,
+as well as case-control experiments (e.g. tumor/normal, or trios or quads). In case/control mode, any number of cases and controls can be input, and asseembly
+will jointly assemble them all. If both a case and control are present, variants are output separately in "somatic" and "germline" VCFs. 
+If only a single BAM is present, input with the ``-t`` flag. 
 In this case, the results will contain all calls, with no germline/somatic designation.
 
-Required Inputs
----------------
-
-Any number of BAM/SAM/CRAM files can be supplied at once. Snowman uses random access of the BAMs to obtain pair-mate reads,
-and so requires the files to be indexed (``samtools index``). Tumor BAMs are input with ``-t`` and normal with ``-n``. The order
-does not matter. At least one "tumor" BAM is required, although this could be just a single germline sample, or paired with a set of parents input
-with ``-n`` to search for de novo alterations. All assemblies are done
-jointly, combining reads across all of the BAM files. The source of the variant support reads is then tracked during realignment of reads to 
-assembly contigs. A BWA indexed reference genome must be supplied as well (``-G``). 
+A BWA-MEM index reference genome must also be supplied with ``-G``.
 
 Output file description
 -----------------------
@@ -79,8 +70,9 @@ is typically quite large. The recommended usage is to identify the contig name o
 (SCTG=contig_name). Then do ``gunzip -c id.alignment.txt.gz | grep contig_name > plot.txt``. It is highly recommended that you 
 view in a text editor with line truncation turned OFF, so as to not jumble the alignments.
 
-##### ``*.cigarmap.txt.gz``
-Information on clusters of indel alignments as identified from the original BAMs.
+##### ``*.bad_mate_regions.bed``
+A BED file of regions that were suspected of having poor alignment quality. When encountered, these regions are excluded from future
+mate-lookups. This prevents excessive mate-lookups to centromeres, etc.
 
 ##### ``*.vcf``
 VCF of rearrangements and indels parsed from bps.txt.gz and with a somatic_score == 1 (somatic) or 0 (germline) and quality == PASS. *NOTE* that 
@@ -101,51 +93,7 @@ Snowman can refilter the bps.txt.gz file to produce new VCFs with different stri
 * ``-b`` - a BAM from the original run, which is used just for its header
 * ``-i`` - input bps.txt.gz file
 
-Auxillary Tools
----------------
-
-# ``snowman benchmark``
-
-Snowman ships with tools for testing the assemblies and for generating in-silico tumor genomes for testing.
-
-##### ``--sim-breaks-power``
-Simulates contigs containing structural variants.
-
-```
-### Simulate SVs and indels from the reference.
--R <num_rearrangements> -X <num_indels> --add-scrambled-inserts
-
-```
-
-
-##### ``--split-bam``
-Simple tool for splitting a BAM file randomly into smaller fragments. This is useful for generating a sub-sampled BAM, 
-and ensuring that each of the subsampled BAMs have different reads in them. ``split-bam`` will use the read name (and a seed 
-provied with ``-s``) to generate the random numbers, which ensures that read-pairs are always sent to the same BAM.
-
-```
-### split BAM into 25% and 50% pieces at certain regions
-snowman benchmark --split-bam -b <in.bam> -f 0.2,0.5 -k <regions.bed>
-### split the entire BAM
-snowman benchmark --split-bam -b <in.bam> -f 0.2,0.5 
-```
-
-##### --realign-test
-Test the abiltiy of BWA-MEM to realign contigs of different lengths, with errors. Useful for gauging how often true indels will be missed 
-during the BWA-MEM realignment phase.
-```
-#### 
-snowman benchmark --realign-test
-```
-
-##### --realign-sv-test
-Test the abiltiy of BWA-MEM to realign SV contigs of different lengths, with errors. Useful for gauging how often true rearrangements will be missed 
-during the BWA-MEM realignment phase.
-```
-#### 
-snowman benchmark --realign-sv-test
-```
 
 [vbam]: https://github.com/jwalabroad/VariantBam
 
-[license]: https://github.com/broadinstitute/variant-bam/blob/master/LICENSE
+[license]: https://github.com/broadinstitute/SnowmanSV/blob/master/LICENSE

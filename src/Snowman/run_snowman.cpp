@@ -10,29 +10,29 @@
 
 #include "SeqLib/ReadFilter.h"
 #include "KmerFilter.h"
-
 #include "vcf.h"
 #include "DBSnpFilter.h"
 #include "SnowmanUtils.h"
 #include "LearnBamParams.h"
-
 #include "SeqLib/BFC.h"
 
-// output files
-static ogzstream all_align, os_allbps, all_disc_stream, os_cigmap, r2c_c;
-static std::ofstream log_file, bad_bed;
-static std::stringstream ss;
+// useful replace function
+std::string myreplace(std::string &s,
+                      std::string toReplace,
+                      std::string replaceWith)
+{
+  return(s.replace(s.find(toReplace), toReplace.length(), replaceWith));
+}
 
-#define PRETTYFORM(num) SeqLib::AddCommas(num)
-#define MATETOGRC(m, g)				\
-for (auto& i : (m))\
-g.add(SeqLib::GenomicRegion(i.chr, i.pos1, i.pos2, i.strand));
+// output files
+static ogzstream all_align, os_allbps, os_discordant, os_corrected;
+static std::ofstream log_file, bad_bed;
+static std::stringstream ss; // initalize a string stream once
 
 #define WRITELOG(msg, toerr, tolog)   \
   { if (tolog) log_file  << (msg) << std::endl;	\
     if (toerr) std::cerr << (msg) << std::endl; };
 
-#define READ_LOOKUP_MAIN_REGION_LIMIT 10000
 #define MIN_CONTIG_MATCH 35
 #define MATE_LOOKUP_MIN 3
 #define SECONDARY_CAP 200
@@ -68,116 +68,97 @@ static int min_dscrd_size_for_variant = 0; // set a min size for what we can cal
 
 static std::unordered_map<std::string, int> min_isize_for_disc;
 
-static SeqLib::BamReader b_reader;
-static SeqLib::BamWriter r2c_writer, er_writer, b_microbe_writer, b_allwriter;
+static SeqLib::BamHeader b_header; // header for main bam
+static SeqLib::BamReader b_reader; // reader for the main bam
+static SeqLib::BamWriter er_writer, b_microbe_writer, b_contig_writer;
 static SeqLib::BWAWrapper * microbe_bwa = nullptr;
 static SeqLib::BWAWrapper * main_bwa = nullptr;
 static SeqLib::Filter::ReadFilterCollection * mr;
-static SeqLib::GRC blacklist, indel_blacklist_mask, germline_svs, simple_seq, bad_mate_regions;
+static SeqLib::GRC blacklist, germline_svs, simple_seq, bad_mate_regions;
 static DBSnpFilter * dbsnp_filter;
-
-
 static SeqLib::GRC file_regions, regions_torun;
 
+// mutex and time
 static pthread_mutex_t snow_lock;
 static struct timespec start;
 
-// replace function
-std::string myreplace(std::string &s,
-                      std::string toReplace,
-                      std::string replaceWith)
-{
-  return(s.replace(s.find(toReplace), toReplace.length(), replaceWith));
-}
+// learned value 
+static int max_mapq_possible;
+static std::string args = "snowman "; // hold string of what the input args were
+static int32_t readlen;
 
 namespace opt {
 
-  namespace assemb {
+  // SGA options
+  namespace sga {
     static int minOverlap = -1;
     static float error_rate = 0; 
     static bool writeASQG = false;
+    static int num_assembly_rounds = 2;
   }
 
+  // error correction options
+  static std::string ec_correct_type = "f";
+  static double ec_subsample = 0.25;
 
-  static int sample_number = 0;
-
-  static std::string args = "snowman ";
-
-  static std::string kmer_correction = "f";
-
-  static std::string simple_file;
-
-  static int num_assembly_rounds = 2;
+  // output options
   static bool write_extracted_reads = false;
-
-  static bool no_assemble_normal = false;
-
-  static bool no_reads = true;
-  static int32_t readlen;
-  static bool r2c = false;
+  static bool write_corrected_reads = false;
   static bool zip = false;
-  static int max_mapq_possible;
+  static bool read_tracking = true; // turn on output of qnames
 
-  static double sd_disc_cutoff = 4;
+  // discordant clustering params
+  static double sd_disc_cutoff = 3.92;
+  static bool disc_cluster_only = false;
 
-  static int gap_open_penalty = 32; //16; //6;
-  static int gap_extension_penalty = 1;
-  static int mismatch_penalty = 18; //9; //4;
-  static int sequence_match_score = 2;
-  static int zdrop = 100;
-  static int bandwidth = 1000;//100
-  static float reseed_trigger = 1.5;
-  static int clip3_pen = 5;
-  static int clip5_pen = 5;
+  // BWA MEM params
+  namespace bwa {
+    static int gap_open_penalty = 32;
+    static int gap_extension_penalty = 1;
+    static int mismatch_penalty = 18;
+    static int sequence_match_score = 2;
+    static int zdrop = 100;
+    static int bandwidth = 1000;
+    static float reseed_trigger = 1.5;
+    static int clip3_pen = 5;
+    static int clip5_pen = 5;
+  }
 
-  // parameters for filtering reads
+  // parameters for filtering / getting reads
   static std::string rules = "{\"global\" : {\"duplicate\" : false, \"qcfail\" : false}, \"\" : { \"rules\" : [FRRULES,{\"rr\" : true},{\"ff\" : true}, {\"rf\" : true}, {\"ic\" : true}, {\"clip\" : 5, \"length\" : READLENLIM}, {\"ins\" : true}, {\"del\" : true}, {\"mapped\": true , \"mate_mapped\" : false}, {\"mate_mapped\" : true, \"mapped\" : false}]}}";  
-  static int num_to_sample = 2000000;
-  
   static int max_cov = 100;
-  static int chunk = LITTLECHUNK; // 1000000;
+  static size_t mate_lookup_min = 3;
+  static bool interchrom_lookup = true;
+  static int32_t max_reads_per_assembly = 10000;
+
+  // additional optional params
+  static int chunk = LITTLECHUNK;
+  static std::string regionFile;  // region to run on
+  static std::string analysis_id = "no_id";
+  static int num_to_sample = 2000000;  // num to learn from (eg isize distribution)
 
   // runtime parameters
-  static int verbose = 1;
+  static int verbose = 0;
   static int numThreads = 1;
 
   // data
   static BamMap bam;
   static std::string refgenome = "/seq/references/Homo_sapiens_assembly19/v1/Homo_sapiens_assembly19.fasta";
   static std::string microbegenome; //"/xchip/gistic/Jeremiah/Projects/SnowmanFilters/viral.1.1.genomic_ns.fna";  
-  static std::string analysis_id = "no_id";
-
-  //subsample
-  float subsample = 1.0;
-
-  static std::string regionFile;
+  static std::string simple_file; //  file of simple repeats as a filter
   static std::string blacklist; // = "/xchip/gistic/Jeremiah/Projects/HengLiMask/um75-hs37d5.bed.gz";
   static std::string germline_sv_file;
-
   static std::string dbsnp; // = "/xchip/gistic/Jeremiah/SnowmanFilters/dbsnp_138.b37_indel.vcf";
+  static std::string main_bam = "-"; // the main bam
 
-  // filters on when / how to assemble
-  static bool disc_cluster_only = false;
-
-  static bool refilter = false;
-
-  static std::string gemcode;
-
-  static std::string normal_bam;
-  static std::string tumor_bam;
-
-  static double kmer_subsample = 0.25;
-
-  static bool germline = false; // optimize defaults for single sample mode
+  // optimize defaults for single sample mode
+  static bool germline = false; 
   
-  static size_t mate_lookup_min = 3;
-
+  // indel probability cutoffs
   static double lod = 8;
   static double lod_db = 7;
   static double lod_no_db = 2.5;
   static double lod_germ = 3;
-
-  static bool interchrom_lookup = true;
 
 }
 
@@ -189,11 +170,8 @@ enum {
   OPT_LODGERM,
   OPT_DISC_CLUSTER_ONLY,
   OPT_READ_TRACK,
-  OPT_KMER_SUBSAMPLE,
-  OPT_NO_ASSEMBLE_NORMAL,
-  OPT_MAX_COV,
+  OPT_EC_SUBSAMPLE,
   OPT_DISCORDANT_ONLY,
-  OPT_REFILTER,
   OPT_WRITE_EXTRACTED_READS,
   OPT_NUM_ASSEMBLY_ROUNDS,
   OPT_NUM_TO_SAMPLE,
@@ -209,12 +187,11 @@ enum {
   OPT_GERMLINE
 };
 
-static const char* shortopts = "hzxt:n:p:v:r:G:r:e:g:k:c:a:m:B:D:Y:S:P:L:O:Is:V:R:K:";
+static const char* shortopts = "hzIt:n:p:v:r:G:e:k:c:a:m:B:D:Y:S:L:s:V:R:K:E:C:x:";
 static const struct option longopts[] = {
   { "help",                    no_argument, NULL, 'h' },
   { "tumor-bam",               required_argument, NULL, 't' },
   { "germline",               no_argument, NULL, OPT_GERMLINE },  
-  //  { "indel-mask",          required_argument, NULL, 'M' },
   { "panel-of-normals",        required_argument, NULL, 'P' },
   { "id-string",               required_argument, NULL, 'a' },
   { "normal-bam",              required_argument, NULL, 'n' },
@@ -226,7 +203,6 @@ static const struct option longopts[] = {
   { "microbial-genome",        required_argument, NULL, 'Y' },
   { "min-overlap",             required_argument, NULL, 'm' },
   { "dbsnp-vcf",               required_argument, NULL, 'D' },
-  { "motif-filter",            required_argument, NULL, 'S' },
   { "disc-sd-cutoff",          required_argument, NULL, 's' },
   { "mate-lookup-min",         required_argument, NULL, 'L' },
   { "germline-sv-database",    required_argument, NULL, 'V' },
@@ -235,7 +211,7 @@ static const struct option longopts[] = {
   { "no-interchrom-lookup",    no_argument, NULL, 'I' },
   { "read-tracking",           no_argument, NULL, OPT_READ_TRACK },
   { "gap-open-penalty",        required_argument, NULL, OPT_GAP_OPEN },
-  { "ec-subsample",          required_argument, NULL, OPT_KMER_SUBSAMPLE },
+  { "ec-subsample",          required_argument, NULL, 'E' },
   { "bwa-match-score",         required_argument, NULL, OPT_MATCH_SCORE },
   { "gap-extension-penalty",   required_argument, NULL, OPT_GAP_EXTENSION },
   { "mismatch-penalty",        required_argument, NULL, OPT_MISMATCH },
@@ -245,121 +221,113 @@ static const struct option longopts[] = {
   { "penalty-clip-5",          required_argument, NULL, OPT_CLIP5 },
   { "bandwidth",               required_argument, NULL, OPT_BANDWIDTH },
   { "write-extracted-reads", no_argument, NULL, OPT_WRITE_EXTRACTED_READS },
-  { "no-assemble-normal",    no_argument, NULL, OPT_NO_ASSEMBLE_NORMAL },
   { "lod",                   required_argument, NULL, OPT_LOD },
   { "lod-dbsnp",             required_argument, NULL, OPT_DLOD },
   { "lod-no-dbsnp",          required_argument, NULL, OPT_NDLOD },
   { "lod-germ",              required_argument, NULL, OPT_LODGERM },
   { "discordant-only",       no_argument, NULL, OPT_DISCORDANT_ONLY },
   { "num-to-sample",         required_argument, NULL, OPT_NUM_TO_SAMPLE },
-  { "refilter",              no_argument, NULL, OPT_REFILTER },
-  { "r2c-bam",               no_argument, NULL, 'x' },
   { "write-asqg",            no_argument, NULL, OPT_ASQG   },
   { "ec-correct-type",     required_argument, NULL, 'K'},
   { "error-rate",            required_argument, NULL, 'e'},
   { "verbose",               required_argument, NULL, 'v' },
   { "blacklist",             required_argument, NULL, 'B' },
-  { "max-coverage",          required_argument, NULL, OPT_MAX_COV },
+  { "max-coverage",          required_argument, NULL, 'C' },
+  { "max-reads",          required_argument, NULL, 'x' },
   { "num-assembly-rounds",   required_argument, NULL, OPT_NUM_ASSEMBLY_ROUNDS },
   { NULL, 0, NULL, 0 }
 };
 
 static const char *RUN_USAGE_MESSAGE =
-"Usage: snowman run [OPTION] -t Tumor BAM\n\n"
-"  Description: Grab weird reads from the BAM and perform assembly with SGA\n"
+"Usage: snowman run -t <BAM/SAM/CRAM> -G <reference> -a myid [OPTIONS]\n\n"
+"  Description: SV and indel detection using rolling SGA assembly and BWA-MEM realignment\n"
 "\n"
 "  General options\n"
-"  -v, --verbose                        Select verbosity level (0-4). Default: 1 \n"
+"  -v, --verbose                        Select verbosity level (0-4). Default: 0 \n"
 "  -h, --help                           Display this help and exit\n"
 "  -p, --threads                        Use NUM threads to run snowman. Default: 1\n"
 "  -a, --id-string                      String specifying the analysis ID to be used as part of ID common.\n"
-"      --refilter                       Recreate the VCF files from the bps.txt.gz file. Need to supply correct id-string.\n"
-"  Required input\n"
-"  -G, --reference-genome               Path to indexed reference genome to be used by BWA-MEM. Default is Broad hg19 (/seq/reference/...)\n"
-"  -t, --tumor-bam                      Tumor BAM file\n"
+"  Main input\n"
+"  -G, --reference-genome               Path to indexed reference genome to be used by BWA-MEM.\n"
+"  -t, --case-bam                       Case BAM/CRAM/SAM file (eg tumor). Can input multiple.\n"
+"  -n, --control-bam                    (optional) Control BAM/CRAM/SAM file (eg normal). Can input multiple.\n"
+"  -k, --region                         Run on targeted intervals. Accepts BED file or Samtools-style stringn"
+"      --germline                       Sets recommended settings for case-only analysis (eg germline). (-I, -L5, assembles NM >= 3 reads)"
 "  Variant filtering and classification\n"
-"      --lod                            LOD cutoff to classify somatic indel as real / artifact (tests AF=0 vs AF=MaxLikelihood(AF)) [8]\n"
+"      --lod                            LOD cutoff to classify indel as real / artifact (tests AF=0 vs AF=MaxLikelihood(AF)) [8]\n"
 "      --lod-dbsnp                      LOD cutoff to classify indel as somatic (at DBsnp site) [7]\n"
 "      --lod-no-dbsnp                   LOD cutoff to classify indel as somatic (not at DBsnp site) [2.5]\n"
 "      --lod-germ                       LOD cutoff for germline indels that variant is real (tests AF=0 vs AF=0.5)[3]\n"
-"  Optional input\n"                       
-"  -n, --normal-bam                     Normal BAM file\n"
-"  -r, --rules                          VariantBam style rules string to determine which reads to do assembly on. See documentation for default.\n"
-"  -m, --min-overlap                    Minimum read overlap, an SGA parameter. Default: 0.4* readlength\n"
-"  -k, --region-file                    Set a region txt file. Format: one region per line, Ex: 1,10000000,11000000\n"
-  //"  -M, --indel-mask                     BED-file with graylisted regions for stricter indel calling.\n"
+"  Additional options\n"                       
+"  -L, --mate-lookup-min                Minimum number of somatic reads required to attempt mate-region lookup [3]\n"
+"  -s, --disc-sd-cutoff                 Number of standard deviations of calculated insert-size distribution to consider discordant. [3.92]\n"
+"  -c, --chunk-size                     Size of a local assembly window (in bp). Set 0 for whole-BAM in one assembly. [25000]\n"
+"  -x, --max-reads                      Max total read count to read in from assembly region. Set 0 to turn off. [10000]\n"
+"  -C, --max-coverage                   Max read coverage to send to assembler (per BAM). Subsample reads if exceeded. [500]\n"
+"      --no-interchrom-lookup           Skip mate lookup for inter-chr candidate events. Reduces power for translocations but less I/O.\n"
+"      --discordant-only                Only run the discordant read clustering module, skip assembly. Default: off\n"
+"      --num-assembly-rounds            Run assembler multiple times. > 1 will bootstrap the assembly. [2]\n"
+"      --num-to-sample                  When learning about inputs, number of reads to sample. [1000000]\n"
+"  Output options\n"
+"  -z, --g-zip                          Gzip and tabix the output VCF files. [off]\n"
+"      --read-tracking                  Track supporting reads by qname. Increases file sizes. [off]\n"
+"      --write-extracted-reads          For the case BAM, write reads sent to assembly to a BAM file. [off]\n"
+"  Optional external database\n"
 "  -D, --dbsnp-vcf                      DBsnp database (VCF) to compare indels against\n"
 "  -B, --blacklist                      BED-file with blacklisted regions to not extract any reads from.\n"
 "  -Y, --microbial-genome               Path to indexed reference genome of microbial sequences to be used by BWA-MEM to filter reads.\n"
 "  -V, --germline-sv-database           BED file containing sites of known germline SVs. Used as additional filter for somatic SV detection\n"
 "  -R, --simple-seq-database            BED file containing sites of simple DNA that can confuse the contig re-alignment.\n"
-"  -z, --g-zip                          Gzip and tabix the output VCF files. Default: off\n"
-"  -L, --min-lookup-min                 Minimum number of somatic reads required to attempt mate-region lookup [3]\n"
-"  -s, --disc-sd-cutoff                 Number of standard deviations of calculated insert-size distribution to consider discordant. [1.96]\n"
-"      --no-interchrom-lookup           Don't do mate lookup for inter-chromosomal translocations. This increased run time at cost of power for translocations.\n"
-"      --r2c-bam                        Output a BAM of reads that aligned to a contig, and fasta of error corrected sequences\n"
-"      --discordant-only                Only run the discordant read clustering module, skip assembly. Default: off\n"
-"      --read-tracking                  Track supporting reads. Increases file sizes.\n"
-"      --max-coverage                   Maximum weird read coverage to send to assembler (per BAM). Subsample reads to achieve max if overflow. [500]\n"
-"      --write-extracted-reads          For the tumor BAM, write the extracted reads (those sent to assembly) to a BAM file. Good for debugging.\n"
-"      --assemble-by-tag                Separate the assemblies and read-to-contig mapping by the given read tag. Useful for 10X Genomics data (e.g. --aseembly-by-tag BX).\n"
-"      --no-assemble-normal             Don't error correct or assembly normal reads. Still maps normal reads to contigs. Increases speed for somatic-only queries.\n"
-"      --num-assembly-rounds            Number of times to run the assembler per window. > 1 will bootstrap the assembly with error rate = 0.05. [1]\n"
-"      --num-to-sample                  When learning about BAM, number of reads to sample. Default 1,000,000.\n"
-"      --motif-filter                   Add a motif file to exclude reads that contain this motif (e.g. illumina adapters).\n"
-"  Assembly params\n"
+"  Assembly and EC params\n"
+"  -m, --min-overlap                    Minimum read overlap, an SGA parameter. Default: 0.4* readlength\n"
+"  -e, --error-rate                     Fractional difference two reads can have to overlap. See SGA. 0 is fast, but requires error correcting. [0]\n"
+"  -K, --ec-correct-type                (f) Fermi-kit BFC correction, (s) Kmer-correction from SGA, (0) no correction (then suggest non-zero -e) [f]\n"
+"  -E, --ec-subsample                   Learn from fraction of non-weird reads during error-correction. Lower number = faster compute [0.25]\n"
 "      --write-asqg                     Output an ASQG graph file for each assembly window.\n"
-"  -e, --error-rate                     Fractional difference two reads can have to overlap. See SGA param. 0 is fast, but requires exact matches and error correcting. [0]\n"
-"  -c, --chunk-size                     Size of a local assembly window (in bp). [25000]\n"
-"      --ec-correct-type                (f) Fermi-kit BFC correction (default), (s) Kmer-correction implemented in SGA, (0) no correction. Need to balance with error rate (w/EC can have lower error rate -e)\n"
-"      --ec-subsample                   Learn from only a fraction of the reads during error-correction. Reduces memory and increases speed, especially for high-coverage samples [0.24]\n"
-"  Alignment params\n"
-"      --bwa-match-score                Set the BWA-MEM match score. BWA-MEM -A [1]\n"
-"      --gap-open-penalty               Set the BWA-MEM gap open penalty for contig to genome alignments. BWA-MEM -O [6]\n"
+"  BWA-MEM alignment params\n"
+"      --bwa-match-score                Set the BWA-MEM match score. BWA-MEM -A [2]\n"
+"      --gap-open-penalty               Set the BWA-MEM gap open penalty for contig to genome alignments. BWA-MEM -O [32]\n"
 "      --gap-extension-penalty          Set the BWA-MEM gap extension penalty for contig to genome alignments. BWA-MEM -E [1]\n"
-"      --mismatch-penalty               Set the BWA-MEM mismatch penalty for contig to genome alignments. BWA-MEM -b [4]\n"
-"      --bandwidth                      Set the BWA-MEM SW alignment bandwidth for contig to genome alignments. BWA-MEM -w [100]\n"
+"      --mismatch-penalty               Set the BWA-MEM mismatch penalty for contig to genome alignments. BWA-MEM -b [18]\n"
+"      --bandwidth                      Set the BWA-MEM SW alignment bandwidth for contig to genome alignments. BWA-MEM -w [1000]\n"
 "      --z-dropoff                      Set the BWA-MEM SW alignment Z-dropoff for contig to genome alignments. BWA-MEM -d [100]\n"
 "      --reseed-trigger                 Set the BWA-MEM reseed trigger for reseeding mems for contig to genome alignments. BWA-MEM -r [1.5]\n"
-"      --penalty-clip-3\n"
-"      --penalty-clip-5\n"
+"      --penalty-clip-3                 Set the BWA-MEM penalty for 3' clipping. [5]\n"
+"      --penalty-clip-5                 Set the BWA-MEM penalty for 5' clipping. [5]\n"
 "\n";
 
 void runSnowman(int argc, char** argv) {
 
   parseRunOptions(argc, argv);
 
-  // test
-  //run_test_assembly();
-
+  // open the output streams
   SnowmanUtils::fopen(opt::analysis_id + ".log", log_file);
   SnowmanUtils::fopen(opt::analysis_id + ".bad_mate_regions.bed", bad_bed);
 
-  if (opt::refilter) {
-    // read in all of the breakpoints
-    makeVCFs();
-    return;
-  }
-
   // set the germline parameters 
   if (opt::germline) {
-    std::string rules = "{\"global\" : {\"duplicate\" : false, \"qcfail\" : false}, \"\" : { \"rules\" : [FRRULES,{\"rr\" : true},{\"ff\" : true}, {\"rf\" : true}, {\"ic\" : true}, {\"clip\" : 5, \"length\" : READLENLIM}, {\"ins\" : true}, {\"del\" : true}, {\"mapped\": true , \"mate_mapped\" : false}, {\"mate_mapped\" : true, \"mapped\" : false}, {\"nm\" : [3,0]}]}}";
+    if (!opt::rules.empty())
+      opt::rules = "{\"global\" : {\"duplicate\" : false, \"qcfail\" : false}, \"\" : { \"rules\" : [FRRULES,{\"rr\" : true},{\"ff\" : true}, {\"rf\" : true}, {\"ic\" : true}, {\"clip\" : 5, \"length\" : READLENLIM}, {\"ins\" : true}, {\"del\" : true}, {\"mapped\": true , \"mate_mapped\" : false}, {\"mate_mapped\" : true, \"mapped\" : false}, {\"nm\" : [3,0]}]}}";
     opt::interchrom_lookup = false;
+    opt::mate_lookup_min = 5;
   }
   
-  ss << 
-    "-----------------------------------------------------------------" << std::endl << 
-    "--- Running Snowman somatic indel and rearrangement detection ---" << std::endl <<
-    "-----------------------------------------------------------------" << std::endl;
+  std::cerr << 
+    "-----------------------------------------------------------" << std::endl << 
+    "--- Running Snowman SV and indel detection on " << SeqLib::AddCommas(opt::numThreads) << 
+    " threads --" <<(opt::numThreads >= 10 ? "" : "-") << std::endl <<
+    "---    (inspect *.log for real-time progress updates)   ---" << std::endl << 
+    "-----------------------------------------------------------" << std::endl;
+  
   ss << 
     "***************************** PARAMS ****************************" << std::endl << 
     "    DBSNP Database file: " << opt::dbsnp << std::endl << 
     "    Max cov to assemble: " << opt::max_cov << std::endl <<
-    "    Error correction mode: " << (opt::kmer_correction == "s" ? "SGA" : "BFC") << std::endl << 
-    "    Subsample-rate for correction learning: " + std::to_string(opt::kmer_subsample) << std::endl;
+    "    Error correction mode: " << (opt::ec_correct_type == "s" ? "SGA" : "BFC") << std::endl << 
+    "    Subsample-rate for correction learning: " + std::to_string(opt::ec_subsample) << std::endl;
     ss << 
-      "    ErrorRate: " << (opt::assemb::error_rate < 0.001f ? "EXACT (0)" : std::to_string(opt::assemb::error_rate)) << std::endl << 
-      "    Num assembly rounds: " << opt::num_assembly_rounds << std::endl;
+      "    ErrorRate: " << (opt::sga::error_rate < 0.001f ? "EXACT (0)" : std::to_string(opt::sga::error_rate)) << std::endl << 
+      "    Num assembly rounds: " << opt::sga::num_assembly_rounds << std::endl;
   ss << 
     "    Num reads to sample: " << opt::num_to_sample << std::endl << 
     "    Discordant read extract SD cutoff:  " << opt::sd_disc_cutoff << std::endl << 
@@ -370,31 +338,29 @@ void runSnowman(int argc, char** argv) {
     "    LOD cutoff (somatic vs germlin, no DBSNP):  " << opt::lod_no_db << std::endl << 
     "    LOD cutoff (germline, AF>=0.5 vs AF=0):  " << opt::lod_germ << std::endl <<
     "    BWA-MEM params:" << std::endl <<
-    "      Gap open penalty: " << opt::gap_open_penalty << std::endl << 
-    "      Gap extension penalty: " << opt::gap_extension_penalty << std::endl <<
-    "      Mismatch penalty: " << opt::mismatch_penalty << std::endl <<
-    "      Aligment bandwidth: " << opt::bandwidth << std::endl <<
-    "      Z-dropoff: " << opt::zdrop << std::endl <<
-    "      Clip 3 penalty: " << opt::clip3_pen << std::endl <<
-    "      Clip 5 penalty: " << opt::clip5_pen << std::endl <<
-    "      Reseed trigger: " << opt::reseed_trigger << std::endl <<
-    "      Sequence match score: " << opt::sequence_match_score << std::endl;
+    "      Gap open penalty: " << opt::bwa::gap_open_penalty << std::endl << 
+    "      Gap extension penalty: " << opt::bwa::gap_extension_penalty << std::endl <<
+    "      Mismatch penalty: " << opt::bwa::mismatch_penalty << std::endl <<
+    "      Aligment bandwidth: " << opt::bwa::bandwidth << std::endl <<
+    "      Z-dropoff: " << opt::bwa::zdrop << std::endl <<
+    "      Clip 3 penalty: " << opt::bwa::clip3_pen << std::endl <<
+    "      Clip 5 penalty: " << opt::bwa::clip5_pen << std::endl <<
+    "      Reseed trigger: " << opt::bwa::reseed_trigger << std::endl <<
+    "      Sequence match score: " << opt::bwa::sequence_match_score << std::endl;
 
-  if (opt::assemb::writeASQG)
+  if (opt::sga::writeASQG)
     ss << "    Writing ASQG files. Suggest running R/snow-asqg2pdf.R -i <my.asqg> -o graph.pdf" << std::endl;
   if (opt::write_extracted_reads)
-    ss << "    Writing extracted reads and fasta of error-corrected reads." << std::endl;
-  if (opt::r2c)
-    ss << "    Writing read-to-contig files." << std::endl;
+    ss << "    Writing fasta of error-corrected reads." << std::endl;
   if (opt::disc_cluster_only)
     ss << "    ######## ONLY DISCORDANT READ CLUSTERING. NO ASSEMBLY ##############" << std::endl;
   if (!opt::interchrom_lookup)
     ss << "    ######## NOT LOOKING UP MATES FOR INTERCHROMOSOMAL #################" << std::endl;
   ss <<
     "*****************************************************************" << std::endl;	  
-
-  SnowmanUtils::print(ss, log_file, opt::verbose > 0);
-
+  WRITELOG(ss.str(), opt::verbose >= 1, true);
+  ss.str(std::string());
+  
   // make one anyways, we check if its empty later
   ref_genome_viral = new SeqLib::RefGenome;
   microbe_bwa = nullptr;
@@ -407,34 +373,45 @@ void runSnowman(int argc, char** argv) {
     SnowmanUtils::__open_index_and_writer(opt::microbegenome, microbe_bwa, opt::analysis_id + ".microbe.bam", b_microbe_writer, ref_genome_viral, viral_header);  
   }
 
-  // open the tumor bam to get header info
-  b_reader.Open(opt::tumor_bam);
+  // open the main bam to get header info
+  if (!b_reader.Open(opt::main_bam)) {
+    if (opt::main_bam == "-")
+      std::cerr << "ERROR: Cannot read from stdin" << std::endl;
+    else
+      std::cerr << "ERROR: Cannot open main bam file: " << opt::main_bam << std::endl;
+    exit(EXIT_FAILURE);
+  }
 
+  // then open the main header
+  b_header = b_reader.Header();
+  if (b_header.isEmpty()) {
+    std::cerr << "ERROR: empty header in main bam file" << std::endl;
+    exit(EXIT_FAILURE);
+  }
+  
   // open some writer bams
-  if (opt::r2c) // open the r2c writer
-    SnowmanUtils::__openWriterBam(b_reader.Header(), opt::analysis_id + ".r2c.bam", r2c_writer);
   if (opt::write_extracted_reads) // open the extracted reads writer
-    SnowmanUtils::__openWriterBam(b_reader.Header(), opt::analysis_id + ".extracted.reads.bam", er_writer);    
+    SnowmanUtils::__openWriterBam(b_header, opt::analysis_id + ".extracted.reads.bam", er_writer);    
 
   // open the blacklists
-  SnowmanUtils::__open_bed(opt::blacklist, blacklist, b_reader.Header());
+  SnowmanUtils::__open_bed(opt::blacklist, blacklist, b_header);
   if (blacklist.size())
     ss << "...loaded " << blacklist.size() << " blacklist regions from " << opt::blacklist << std::endl;
 
   // open the germline sv database
-  SnowmanUtils::__open_bed(opt::germline_sv_file, germline_svs, b_reader.Header());
+  SnowmanUtils::__open_bed(opt::germline_sv_file, germline_svs, b_header);
   if (germline_svs.size())
     ss << "...loaded " << germline_svs.size() << " germline SVs from " << opt::germline_sv_file << std::endl;
 
   // open the simple seq database
-  SnowmanUtils::__open_bed(opt::simple_file, simple_seq, b_reader.Header());
+  SnowmanUtils::__open_bed(opt::simple_file, simple_seq, b_header);
   if (simple_seq.size())
     ss << "...loaded " << simple_seq.size() << " simple sequence regions from " << opt::simple_file << std::endl;
 
   // open the DBSnpFilter
   if (opt::dbsnp.length()) {
     WRITELOG("...loading the DBsnp database", opt::verbose > 0, true)
-      dbsnp_filter = new DBSnpFilter(opt::dbsnp, b_reader.Header());
+      dbsnp_filter = new DBSnpFilter(opt::dbsnp, b_header);
     WRITELOG("...loaded DBsnp database", opt::verbose > 0, true)
   }
 
@@ -454,8 +431,8 @@ void runSnowman(int argc, char** argv) {
     params_map[b.first] = BamParamsMap();
     parm.learnParams(params_map[b.first], opt::num_to_sample);
     for (auto& i : params_map[b.first]) {
-      opt::readlen = std::max(opt::readlen, i.second.readlen);
-      opt::max_mapq_possible = std::max(opt::max_mapq_possible, i.second.max_mapq);
+      readlen = std::max(readlen, i.second.readlen);
+      max_mapq_possible = std::max(max_mapq_possible, i.second.max_mapq);
       min_dscrd_size_for_variant = std::max(min_dscrd_size_for_variant, (int)std::floor(i.second.mean_isize + i.second.sd_isize * opt::sd_disc_cutoff * 1.5)); 
     }
 
@@ -468,54 +445,53 @@ void runSnowman(int argc, char** argv) {
   // check if differing read lengths or max mapq
   for (auto& a : params_map) {
     for (auto& i : a.second) {
-      if (i.second.readlen != opt::readlen)
+      if (i.second.readlen != readlen)
 	std::cerr << "!!!! WARNING. Multiple readlengths mixed: " << i.first << "--" << i.second.readlen << std::endl;
-      if (i.second.max_mapq != opt::max_mapq_possible)
+      if (i.second.max_mapq != max_mapq_possible)
 	std::cerr << "!!!! WARNING. Multiple max mapq mixed: " << i.first << "--" << i.second.max_mapq << std::endl;
     }
   }
-
   ss << "...min discordant-only variant size " << min_dscrd_size_for_variant << std::endl;
 
   // set the min overlap
-  if (opt::assemb::minOverlap < 0) 
-    opt::assemb::minOverlap = (0.6 * opt::readlen) < 30 ? 30 : 0.5 * opt::readlen;
+  if (opt::sga::minOverlap < 0) 
+    opt::sga::minOverlap = (0.6 * readlen) < 30 ? 30 : 0.5 * readlen;
 
-  ss << "...found read length of " << opt::readlen << ". Min Overlap is " << opt::assemb::minOverlap << std::endl;
-  ss << "...max read MAPQ detected: " << opt::max_mapq_possible << std::endl;
-  SnowmanUtils::print(ss, log_file, opt::verbose);
+  ss << "...found read length of " << readlen << ". Min Overlap is " << opt::sga::minOverlap << std::endl;
+  ss << "...max read MAPQ detected: " << max_mapq_possible << std::endl;
+  WRITELOG(ss.str(), opt::verbose > 1, true);
+  ss.str(std::string());
   
   // get the seed length for printing
   int seedLength, seedStride;
-  SnowmanAssemblerEngine enginetest("test", opt::assemb::error_rate, opt::assemb::minOverlap, opt::readlen);
-  enginetest.calculateSeedParameters(opt::readlen, opt::assemb::minOverlap, seedLength, seedStride);
-  WRITELOG("...calculated seed size for error rate of " + std::to_string(opt::assemb::error_rate) + " and read length " +
-	   std::to_string(opt::readlen) + " is " + std::to_string(seedLength), opt::verbose, true);
+  SnowmanAssemblerEngine enginetest("test", opt::sga::error_rate, opt::sga::minOverlap, readlen);
+  enginetest.calculateSeedParameters(readlen, opt::sga::minOverlap, seedLength, seedStride);
+  WRITELOG("...calculated seed size for error rate of " + std::to_string(opt::sga::error_rate) + " and read length " +
+	   std::to_string(readlen) + " is " + std::to_string(seedLength), opt::verbose, true);
 
   // open the human reference
   WRITELOG("...loading the human reference sequence for BWA", opt::verbose, true);
-  SnowmanUtils::print(ss, log_file, opt::verbose > 0);
   main_bwa = new SeqLib::BWAWrapper();
-  main_bwa->SetAScore(opt::sequence_match_score);
-  main_bwa->SetGapOpen(opt::gap_open_penalty);
-  main_bwa->SetGapExtension(opt::gap_extension_penalty);
-  main_bwa->SetMismatchPenalty(opt::mismatch_penalty);
-  main_bwa->SetZDropoff(opt::zdrop);
-  main_bwa->SetBandwidth(opt::bandwidth);
-  main_bwa->SetReseedTrigger(opt::reseed_trigger);
-  main_bwa->Set3primeClippingPenalty(opt::clip3_pen);
-  main_bwa->Set5primeClippingPenalty(opt::clip5_pen);
+  main_bwa->SetAScore(opt::bwa::sequence_match_score);
+  main_bwa->SetGapOpen(opt::bwa::gap_open_penalty);
+  main_bwa->SetGapExtension(opt::bwa::gap_extension_penalty);
+  main_bwa->SetMismatchPenalty(opt::bwa::mismatch_penalty);
+  main_bwa->SetZDropoff(opt::bwa::zdrop);
+  main_bwa->SetBandwidth(opt::bwa::bandwidth);
+  main_bwa->SetReseedTrigger(opt::bwa::reseed_trigger);
+  main_bwa->Set3primeClippingPenalty(opt::bwa::clip3_pen);
+  main_bwa->Set5primeClippingPenalty(opt::bwa::clip5_pen);
 
   // open the reference for reading seqeuence
   ref_genome = new SeqLib::RefGenome;
-  SnowmanUtils::__open_index_and_writer(opt::refgenome, main_bwa, opt::analysis_id + ".contigs.bam", b_allwriter, ref_genome, bwa_header);
+  SnowmanUtils::__open_index_and_writer(opt::refgenome, main_bwa, opt::analysis_id + ".contigs.bam", b_contig_writer, ref_genome, bwa_header);
   assert(!ref_genome->IsEmpty());
   
   // parse the region file, count number of jobs
   int num_jobs = SnowmanUtils::countJobs(opt::regionFile, file_regions, regions_torun,
 					 bwa_header, opt::chunk, WINDOW_PAD); 
   if (num_jobs) {
-    WRITELOG("...running on " + PRETTYFORM(num_jobs) + " chunks", opt::verbose, true);
+    WRITELOG("...running on " + SeqLib::AddCommas(num_jobs) + " chunks", opt::verbose, true);
   } else {
     WRITELOG("Chunk was <= 0: READING IN WHOLE GENOME AT ONCE", opt::verbose, true);
   }
@@ -546,7 +522,7 @@ void runSnowman(int argc, char** argv) {
 
   // set min length for clips
   if (opt::rules.find("READLENLIM") != std::string::npos) {
-    opt::rules = myreplace(opt::rules, "READLENLIM", std::to_string((int) (opt::readlen * 0.4)));
+    opt::rules = myreplace(opt::rules, "READLENLIM", std::to_string((int) (readlen * 0.4)));
   }
 
   // set the ReadFilterCollection to be applied to each region
@@ -560,27 +536,27 @@ void runSnowman(int argc, char** argv) {
 
   // open the mutex
   if (pthread_mutex_init(&snow_lock, NULL) != 0) {
-      printf("\n mutex init failed\n");
-      return;
+    std::cerr << "\n mutex init failed\n";
+    exit(EXIT_FAILURE);
   }
 
   // open the text files
   SnowmanUtils::fopen(opt::analysis_id + ".alignments.txt.gz", all_align);
   SnowmanUtils::fopen(opt::analysis_id + ".bps.txt.gz", os_allbps);
-  SnowmanUtils::fopen(opt::analysis_id + ".discordant.txt.gz", all_disc_stream);
+  SnowmanUtils::fopen(opt::analysis_id + ".discordant.txt.gz", os_discordant);
   if (opt::write_extracted_reads) 
-    SnowmanUtils::fopen(opt::analysis_id + ".corrected.fa.gz", r2c_c); 
+    SnowmanUtils::fopen(opt::analysis_id + ".corrected.fa.gz", os_corrected); 
   
   // write the headers to the text files
   os_allbps << BreakPoint::header();
   for (auto& b : opt::bam) 
     os_allbps << "\t" << b.first << "_" << b.second;
   os_allbps << std::endl;
-  all_disc_stream << DiscordantCluster::header() << std::endl;
+  os_discordant << DiscordantCluster::header() << std::endl;
 
   // put args into string for VCF later
   for (int i = 0; i < argc; ++i)
-    opt::args += std::string(argv[i]) + " ";
+    args += std::string(argv[i]) + " ";
 
   // start the timer
 #ifndef __APPLE__
@@ -588,10 +564,9 @@ void runSnowman(int argc, char** argv) {
 #endif
 
   // send the jobs to the queue
-  WRITELOG("--- Starting detection pipeline --- on " + PRETTYFORM(opt::numThreads) + " thread" + (opt::numThreads > 1 ? "s" : ""), opt::verbose, true);
+  WRITELOG("--- Loaded non-read data. Starting detection pipeline", true, true);
   sendThreads(regions_torun);
 
-  // clean up everything
   if (microbe_bwa)
     delete microbe_bwa;
 
@@ -599,7 +574,7 @@ void runSnowman(int argc, char** argv) {
   bad_mate_regions.CoordinateSort();
   for (auto& i : bad_mate_regions)
     try { // throws out of range if there is mismatch between main header and other headers. just be graceful here
-      bad_bed << i.ChrName(b_reader.Header()) << "\t" << i.pos1 << "\t" << i.pos2 << "\t" << i.strand << std::endl;
+      bad_bed << i.ChrName(b_header) << "\t" << i.pos1 << "\t" << i.pos2 << "\t" << i.strand << std::endl;
     } catch (...) {
     }
   bad_bed.close();
@@ -607,8 +582,9 @@ void runSnowman(int argc, char** argv) {
   // close the files
   all_align.close();
   os_allbps.close();
-  all_disc_stream.close();
-  if (opt::r2c) r2c_c.close();
+  os_discordant.close();
+  if (opt::write_corrected_reads) 
+    os_corrected.close();
   log_file.close();
 
   // make the VCF file
@@ -646,7 +622,7 @@ void makeVCFs() {
   // make the header
   VCFHeader header;
   header.filedate = SnowmanUtils::fileDateString();
-  header.source = opt::args;
+  header.source = args;
   header.reference = opt::refgenome;
 
   if (main_bwa)
@@ -664,7 +640,7 @@ void makeVCFs() {
   // primary VCFs
   if (SeqLib::read_access_test(file)) {
     WRITELOG("...making the primary VCFs (unfiltered and filtered) from file " + file, opt::verbose, true);
-    VCFFile snowvcf(file, opt::analysis_id, b_reader.Header(), header);
+    VCFFile snowvcf(file, opt::analysis_id, b_header, header);
     std::string basename = opt::analysis_id + ".snowman.unfiltered.";
 
     WRITELOG("...writing unfiltered VCFs", opt::verbose, true);
@@ -694,34 +670,35 @@ void parseRunOptions(int argc, char** argv) {
   bool help = false;
   std::stringstream ss;
 
+  int sample_number = 0;
+
   std::string tmp;
   for (char c; (c = getopt_long(argc, argv, shortopts, longopts, NULL)) != -1;) {
     std::istringstream arg(optarg != NULL ? optarg : "");
     switch (c) {
-    case OPT_REFILTER : opt::refilter = true; break;
-    case OPT_KMER_SUBSAMPLE : arg >> opt::kmer_subsample; break;
-      case 'p': arg >> opt::numThreads; break;
-      case 'm': arg >> opt::assemb::minOverlap; break;
-      case 'a': arg >> opt::analysis_id; break;
-      case 'B': arg >> opt::blacklist; break;
+    case 'E' : arg >> opt::ec_subsample; break;
+    case 'p': arg >> opt::numThreads; break;
+    case 'm': arg >> opt::sga::minOverlap; break;
+    case 'a': arg >> opt::analysis_id; break;
+    case 'B': arg >> opt::blacklist; break;
     case 'V': arg >> opt::germline_sv_file; break;
     case 'R': arg >> opt::simple_file; break;
-      case 'L': arg >> opt::mate_lookup_min; break;
+    case 'L': arg >> opt::mate_lookup_min; break;
     case 'I': opt::interchrom_lookup = false; break;
-      case 'Y': arg >> opt::microbegenome; break;
-      case 'z': opt::zip = false; break;
-      case 'h': help = true; break;
-    case OPT_GAP_OPEN : arg >> opt::gap_open_penalty; break;
-    case OPT_MATCH_SCORE : arg >> opt::sequence_match_score; break;
-    case OPT_MISMATCH : arg >> opt::mismatch_penalty; break;
+    case 'Y': arg >> opt::microbegenome; break;
+    case 'z': opt::zip = true; break;
+    case 'h': help = true; break;
+    case OPT_GAP_OPEN : arg >> opt::bwa::gap_open_penalty; break;
+    case 'x' : arg >> opt::max_reads_per_assembly; break;
+    case OPT_MATCH_SCORE : arg >> opt::bwa::sequence_match_score; break;
+    case OPT_MISMATCH : arg >> opt::bwa::mismatch_penalty; break;
     case OPT_GERMLINE : opt::germline = true; break;
-    case OPT_GAP_EXTENSION : arg >> opt::gap_extension_penalty; break;
-    case OPT_ZDROP : arg >> opt::zdrop; break;
-    case OPT_BANDWIDTH : arg >> opt::bandwidth; break;
-    case OPT_RESEED_TRIGGER : arg >> opt::reseed_trigger; break;
-    case OPT_CLIP3 : arg >> opt::clip3_pen; break;
-    case OPT_CLIP5 : arg >> opt::clip5_pen; break;
-      case 'x': opt::r2c = true; break;
+    case OPT_GAP_EXTENSION : arg >> opt::bwa::gap_extension_penalty; break;
+    case OPT_ZDROP : arg >> opt::bwa::zdrop; break;
+    case OPT_BANDWIDTH : arg >> opt::bwa::bandwidth; break;
+    case OPT_RESEED_TRIGGER : arg >> opt::bwa::reseed_trigger; break;
+    case OPT_CLIP3 : arg >> opt::bwa::clip3_pen; break;
+    case OPT_CLIP5 : arg >> opt::bwa::clip5_pen; break;
       case 'c': 
 	tmp = "";
 	arg >> tmp;
@@ -730,28 +707,25 @@ void parseRunOptions(int argc, char** argv) {
 	} else {
 	  opt::chunk = stoi(tmp); break;
 	}
-    case OPT_ASQG: opt::assemb::writeASQG = true; break;
-    case OPT_NO_ASSEMBLE_NORMAL: opt::no_assemble_normal = true; break;
+    case OPT_ASQG: opt::sga::writeASQG = true; break;
     case OPT_LOD: arg >> opt::lod; break;
     case OPT_DLOD: arg >> opt::lod_db; break;
     case OPT_NDLOD: arg >> opt::lod_no_db; break;
     case OPT_LODGERM: arg >> opt::lod_germ; break;
-    case OPT_MAX_COV: arg >> opt::max_cov;  break;
+    case 'C': arg >> opt::max_cov;  break;
     case OPT_NUM_TO_SAMPLE: arg >> opt::num_to_sample;  break;
-    case OPT_READ_TRACK: opt::no_reads = false; break;
+    case OPT_READ_TRACK: opt::read_tracking = false; break;
 	case 't': 
-	  tmp = SnowmanUtils::__bamOptParse(opt::bam, arg, opt::sample_number++, "t");
-	  if (opt::tumor_bam.empty())
-	    opt::tumor_bam = tmp;
+	  tmp = SnowmanUtils::__bamOptParse(opt::bam, arg, sample_number++, "t");
+	  if (opt::main_bam == "-")
+	    opt::main_bam = tmp;
 	  break;
 	case 'n': 
-	  tmp = SnowmanUtils::__bamOptParse(opt::bam, arg, opt::sample_number++, "n");
-	  if (opt::normal_bam.empty())
-	    opt::normal_bam = tmp;
+	  tmp = SnowmanUtils::__bamOptParse(opt::bam, arg, sample_number++, "n");
 	  break;
       case 'v': arg >> opt::verbose; break;
       case 'k': arg >> opt::regionFile; break;
-      case 'e': arg >> opt::assemb::error_rate; break;
+      case 'e': arg >> opt::sga::error_rate; break;
       case 'G': arg >> opt::refgenome; break;
       case 'D': arg >> opt::dbsnp; break;
     case 's': arg >> opt::sd_disc_cutoff; break;
@@ -762,13 +736,13 @@ void parseRunOptions(int argc, char** argv) {
        	break;
       case OPT_DISCORDANT_ONLY: opt::disc_cluster_only = true; break;
       case OPT_WRITE_EXTRACTED_READS: opt::write_extracted_reads = true; break;
-    case OPT_NUM_ASSEMBLY_ROUNDS: arg >> opt::num_assembly_rounds; break;
-    case 'K': arg >> opt::kmer_correction; break;
+    case OPT_NUM_ASSEMBLY_ROUNDS: arg >> opt::sga::num_assembly_rounds; break;
+    case 'K': arg >> opt::ec_correct_type; break;
       default: die= true; 
     }
   }
 
-  if (!(opt::kmer_correction == "s" || opt::kmer_correction == "f" || opt::kmer_correction == "0")) {
+  if (!(opt::ec_correct_type == "s" || opt::ec_correct_type == "f" || opt::ec_correct_type == "0")) {
     WRITELOG("ERROR: Error correction type must be one of s, f, or 0", true, true);
     exit(EXIT_FAILURE);
   }
@@ -778,16 +752,16 @@ void parseRunOptions(int argc, char** argv) {
     if (!SeqLib::read_access_test(b.second)) {
       WRITELOG("ERROR: BAM file" + b.second + " is not readable / existant", true, true);
       exit(EXIT_FAILURE);
-    }
-
-  // check that we input something
-  if (opt::bam.size() == 0 && !die && !opt::refilter) {
-    WRITELOG("Must add a bam file with -t flag", true, true);
-    exit(EXIT_FAILURE);
   }
 
+  // check that we input something
+  //if (opt::bam.size() == 0 && !die) {
+  //  WRITELOG("Must add a bam file with -t flag", true, true);
+  //  exit(EXIT_FAILURE);
+  //}
+
   if (opt::numThreads <= 0) {
-    WRITELOG("Invalid number of threads from -p flag: " + PRETTYFORM(opt::numThreads), true, true);
+    WRITELOG("Invalid number of threads from -p flag: " + SeqLib::AddCommas(opt::numThreads), true, true);
     die = true;
   }
 
@@ -839,17 +813,18 @@ bool runBigChunk(const SeqLib::GenomicRegion& region)
   st.stop("r");
 
   // get the mate reads
-  CountPair mate_counts = run_mate_collection_loop(region, walkers, badd);
-  WRITELOG("...looked up <case, control> mate reads: <" + SeqLib::AddCommas(mate_counts.first) + "," + 
-	   SeqLib::AddCommas(mate_counts.second) + ">", opt::verbose > 1, true);
-  // collect the reads together from the mate walkers
-  collect_and_clear_reads(walkers, bav_this, all_seqs, dedupe);
-
-  st.stop("m");
+  if (!region.IsEmpty()) {
+    CountPair mate_counts = run_mate_collection_loop(region, walkers, badd);
+    WRITELOG("...looked up <case, control> mate reads: <" + SeqLib::AddCommas(mate_counts.first) + "," + 
+	     SeqLib::AddCommas(mate_counts.second) + ">", opt::verbose > 1, true);
+    // collect the reads together from the mate walkers
+    collect_and_clear_reads(walkers, bav_this, all_seqs, dedupe);
+    st.stop("m");
+  }
   
   // do the discordant read clustering
   WRITELOG("...discordant read clustering", opt::verbose > 1, false);
-  DiscordantClusterMap dmap = DiscordantCluster::clusterReads(bav_this, region, opt::max_mapq_possible, &min_isize_for_disc);
+  DiscordantClusterMap dmap = DiscordantCluster::clusterReads(bav_this, region, max_mapq_possible, &min_isize_for_disc);
 
   // tag FR clusters that are below min_dscrd_size_for_variant AND low support
   DiscordantClusterMap dmap_tmp;
@@ -888,7 +863,7 @@ bool runBigChunk(const SeqLib::GenomicRegion& region)
   // check that we don't have too many reads
   if (bav_this.size() > (size_t)(region.Width() * 20) && region.Width() > 20000) {
     std::stringstream ssss;
-    WRITELOG("TOO MANY READS IN REGION " + PRETTYFORM(bav_this.size()) + "\t" + region.ToString(), opt::verbose, false);
+    WRITELOG("TOO MANY READS IN REGION " + SeqLib::AddCommas(bav_this.size()) + "\t" + region.ToString(), opt::verbose, false);
     goto afterassembly;
   }
 
@@ -901,9 +876,9 @@ bool runBigChunk(const SeqLib::GenomicRegion& region)
   }
 
   // do the kmer correction, in place
-  if (opt::kmer_correction == "s") {
+  if (opt::ec_correct_type == "s") {
     correct_reads(all_seqs, bav_this);
-  } else if (opt::kmer_correction == "f") {
+  } else if (opt::ec_correct_type == "f") {
     
     int learn_reads_count = bfc->NumSequences();
     bfc->Train();
@@ -1059,7 +1034,7 @@ afterassembly:
   // send the discordant to file
   for (auto& i : dmap)
     if (i.second.valid()) //std::max(i.second.mapq1, i.second.mapq2) >= 5)
-      all_disc_stream << i.second.toFileString(!opt::no_reads) << std::endl;
+      os_discordant << i.second.toFileString(opt::read_tracking) << std::endl;
   
   // write ALL contigs
   if (opt::verbose > 2)
@@ -1069,42 +1044,34 @@ afterassembly:
   if (!opt::disc_cluster_only) { 
     for (auto& i : all_contigs) {
       i.RemoveTag("MC");
-      b_allwriter.WriteRecord(i);
+      b_contig_writer.WriteRecord(i);
     }
   }
   
   // write extracted reads
   if (opt::write_extracted_reads) {
-    for (auto& r : bav_this) //walkers[opt::tumor_bam].reads) 
-      //if (!excluded_bad_reads.count(r.GetZTag("SR")))
+    for (auto& r : bav_this)
       er_writer.WriteRecord(r);
   }
   
-  // write all the extracted reads to output
-  if (!opt::disc_cluster_only && opt::r2c) {
-    for (auto& r : walkers[opt::tumor_bam].reads) {
-      r2c_writer.WriteRecord(r);
-    }
-  }
-  
   // write the raw error corrected reads to a fasta
-  if (opt::write_extracted_reads) 
+  if (opt::write_corrected_reads) 
     for (auto& r : bav_this) {
       std::string seq = r.GetZTag("KC");
       if (seq.empty())
 	seq = r.QualitySequence();
-      r2c_c << ">" << r.GetZTag("SR") << std::endl << seq << std::endl;
+      os_corrected << ">" << r.GetZTag("SR") << std::endl << seq << std::endl;
     }
   
   // send breakpoints to file
   for (auto& i : bp_glob) 
     if ( i.hasMinimal() && i.confidence != "NOLOCAL" ) 
-      os_allbps << i.toFileString(opt::no_reads) << std::endl;
+      os_allbps << i.toFileString(!opt::read_tracking) << std::endl;
 
   st.stop("pp");
   
   // display the run time
-  WRITELOG(SnowmanUtils::runTimeString(read_counts.first, read_counts.second, contig_counter, region, b_reader.Header(), st, start), opt::verbose > 1, true);
+  WRITELOG(SnowmanUtils::runTimeString(read_counts.first, read_counts.second, contig_counter, region, b_header, st, start), opt::verbose > 1, true);
 
   ////////////////////////////////////
   // MUTEX UNLOCKED
@@ -1131,11 +1098,10 @@ void sendThreads(SeqLib::GRC& regions_torun) {
     SnowmanWorkItem * item     = new SnowmanWorkItem(SeqLib::GenomicRegion(i.chr, i.pos1, i.pos2), ++count);
     queue.add(item);
   }
-  if (regions_torun.size() == 0) { // whole genome 
+  if (!regions_torun.size()) { // whole genome 
     SnowmanWorkItem * item     = new SnowmanWorkItem(SeqLib::GenomicRegion(), ++count);
     queue.add(item);
   }
-    
   
   // wait for the threads to finish
   for (int i = 0; i < opt::numThreads; i++) 
@@ -1154,7 +1120,7 @@ SeqLib::GRC makeAssemblyRegions(const SeqLib::GenomicRegion& region) {
   SeqLib::GRC grv_small;
   if (region.IsEmpty()) {  // whole genome, so divide up the whole thing
     for (size_t c = 0; c < 23; ++c)
-      grv_small.Concat(SeqLib::GRC(opt::chunk, WINDOW_PAD, SeqLib::GenomicRegion(c, WINDOW_PAD + 1, b_reader.Header().GetSequenceLength(c) - WINDOW_PAD - 1)));
+      grv_small.Concat(SeqLib::GRC(opt::chunk, WINDOW_PAD, SeqLib::GenomicRegion(c, WINDOW_PAD + 1, b_header.GetSequenceLength(c) - WINDOW_PAD - 1)));
     //grv_small.Concat(SeqLib::GRC(opt::chunk, WINDOW_PAD, SeqLib::GenomicRegion(c, WINDOW_PAD + 1, SeqLib::CHR_LEN[c] - WINDOW_PAD - 1)));
   }
   else if (region.Width() >= opt::chunk) // divide into smaller chunks
@@ -1306,26 +1272,27 @@ void alignReadsToContigs(SeqLib::BWAWrapper& bw, const SeqLib::UnalignedSequence
 
 SnowmanBamWalker make_walkers(const std::string& p, const std::string& b, const SeqLib::GenomicRegion& region, CountPair& counts, SeqLib::GRC& badd, SeqLib::BFC * bfc) {
 
-
   // setup the walker
   SnowmanBamWalker walk;
   walk.Open(b);
-  if (opt::kmer_correction == "f")
+  if (opt::ec_correct_type == "f")
     walk.bfc = bfc;
   walk.main_bwa = main_bwa;
   walk.prefix = p;
   walk.blacklist = blacklist;
-  walk.do_kmer_filtering = (opt::kmer_correction == "s" || opt::kmer_correction == "f");
+  walk.do_kmer_filtering = (opt::ec_correct_type == "s" || opt::ec_correct_type == "f");
   walk.simple_seq = &simple_seq;
-  walk.kmer_subsample = opt::kmer_subsample;
+  walk.kmer_subsample = opt::ec_subsample;
   walk.max_cov = opt::max_cov;
   walk.m_mr = mr; 
-  walk.m_limit = READ_LOOKUP_MAIN_REGION_LIMIT;
+  walk.m_limit = opt::max_reads_per_assembly;
 
   // set the loaded the index and jump to region
-  assert(walk.SetPreloadedIndex(bindices[p]));
-  if (!region.IsEmpty()) 
+  if (!region.IsEmpty()) {
+    assert(walk.SetPreloadedIndex(bindices[p]));
     walk.SetRegion(region);
+  }
+  
   badd.Concat(walk.readBam(&log_file)); 
 
   // adjust the counts
@@ -1438,10 +1405,10 @@ MateRegionVector __collect_somatic_mate_regions(WalkerMap& walkers, MateRegionVe
 
 void correct_reads(std::vector<char*>& learn_seqs, SeqLib::BamRecordVector brv) {
 
-  if (!learn_seqs.size()) // || opt::kmer_correction != "s")
+  if (!learn_seqs.size()) // || opt::ec_correct_type != "s")
     return;
 
-  if (opt::kmer_correction == "s") {
+  if (opt::ec_correct_type == "s") {
     
     KmerFilter kmer;
     int kmer_corrected = 0;
@@ -1459,7 +1426,7 @@ void correct_reads(std::vector<char*>& learn_seqs, SeqLib::BamRecordVector brv) 
     kmer_corrected = kmer.correctReads(brv);
 
     WRITELOG("...SGA kmer corrected " + std::to_string(kmer_corrected) + " reads of " + std::to_string(brv.size()), opt::verbose > 1, true);  
-  } //else if (opt::kmer_correction == "f") {
+  } //else if (opt::ec_correct_type == "f") {
     
     //std::cerr << " LEARNING FROM " << learn_seqs.size() << " reads, to correct " << brv.size() << std::endl;
     //bfc.TrainCorrection(learn_seqs);
@@ -1481,15 +1448,17 @@ void run_assembly(const SeqLib::GenomicRegion& region, SeqLib::BamRecordVector& 
 		  std::unordered_map<std::string, SeqLib::CigarMap>& cigmap) {
 
   // get the local region
-  pthread_mutex_lock(&snow_lock);  
   std::string lregion;
-  try {
-    lregion = ref_genome->QueryRegion(bwa_header.IDtoName(region.chr), region.pos1, region.pos2);
-  } catch (...) {
-    WRITELOG(" Caught exception for lregion with reg " + region.ToString(), true, true);
-    lregion = "";
+  if (!region.IsEmpty()) {
+    pthread_mutex_lock(&snow_lock);  
+    try {
+      lregion = ref_genome->QueryRegion(bwa_header.IDtoName(region.chr), region.pos1, region.pos2);
+    } catch (...) {
+      WRITELOG(" Caught exception for lregion with reg " + region.ToString(), true, true);
+      lregion = "";
+    }
+    pthread_mutex_unlock(&snow_lock);
   }
-  pthread_mutex_unlock(&snow_lock);
 
   // make a BWA wrapper from the locally retrieved sequence
   SeqLib::UnalignedSequenceVector local_usv = {{"local", lregion, std::string()}};
@@ -1508,14 +1477,13 @@ void run_assembly(const SeqLib::GenomicRegion& region, SeqLib::BamRecordVector& 
   SeqLib::UnalignedSequenceVector all_contigs_this;
   
   // setup the engine
-  SnowmanAssemblerEngine engine(name, opt::assemb::error_rate, opt::assemb::minOverlap, opt::readlen);
-  if (opt::assemb::writeASQG)
+  SnowmanAssemblerEngine engine(name, opt::sga::error_rate, opt::sga::minOverlap, readlen);
+  if (opt::sga::writeASQG)
     engine.setToWriteASQG();
-  if (!opt::no_assemble_normal)
-    engine.fillReadTable(bav_this);
+  engine.fillReadTable(bav_this);
 
   // do the actual assembly
-  engine.performAssembly(opt::num_assembly_rounds);
+  engine.performAssembly(opt::sga::num_assembly_rounds);
   
   // retrieve contigs
   all_contigs_this = engine.getContigs();
@@ -1532,7 +1500,7 @@ void run_assembly(const SeqLib::GenomicRegion& region, SeqLib::BamRecordVector& 
   for (auto& i : all_contigs_this) {
     
     // if too short, skip
-    if ((int)i.Seq.length() < (opt::readlen * 1.15))
+    if ((int)i.Seq.length() < (readlen * 1.15))
       continue;
     
     bool hardclip = false;	
@@ -1667,10 +1635,6 @@ void run_assembly(const SeqLib::GenomicRegion& region, SeqLib::BamRecordVector& 
     a.addDiscordantCluster(dmap);
     // add in the cigar matches
     a.checkAgainstCigarMatches(cigmap);
-    // check the indel breakpoints against the indel blacklist. 
-    // simply set the blacklist flag for these breaks if they hit
-    a.blacklist(indel_blacklist_mask);
-
     // add to the final structure
     master_alc.push_back(a);
     
