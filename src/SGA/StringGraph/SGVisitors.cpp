@@ -28,7 +28,7 @@ bool SGFastaVisitor::visit(StringGraph* /*pGraph*/, Vertex* pVertex)
 // jwala added
 bool SGVisitorContig::visit(StringGraph* /*pGraph*/, Vertex* pVertex)
 {
-  m_ct.push_back({pVertex->getID(), pVertex->getSeq().toString()});
+  m_ct.push_back(SeqLib::UnalignedSequence(pVertex->getID(), pVertex->getSeq().toString(),std::string()));
   return false;
 }
 
