@@ -85,13 +85,13 @@ static struct timespec start;
 // learned value 
 static int max_mapq_possible;
 static std::string args = "snowman "; // hold string of what the input args were
-static int32_t readlen;
+static int32_t readlen = 0;
 
 namespace opt {
 
   // SGA options
   namespace sga {
-    static int minOverlap = -1;
+    static int minOverlap = 0;
     static float error_rate = 0; 
     static bool writeASQG = false;
     static int num_assembly_rounds = 2;
@@ -106,6 +106,7 @@ namespace opt {
   static bool write_corrected_reads = false;
   static bool zip = false;
   static bool read_tracking = true; // turn on output of qnames
+  static bool all_contigs = false;  // output all contigs
 
   // discordant clustering params
   static double sd_disc_cutoff = 3.92;
@@ -187,11 +188,12 @@ enum {
   OPT_GERMLINE
 };
 
-static const char* shortopts = "hzIt:n:p:v:r:G:e:k:c:a:m:B:D:Y:S:L:s:V:R:K:E:C:x:";
+static const char* shortopts = "hzIAt:n:p:v:r:G:e:k:c:a:m:B:D:Y:S:L:s:V:R:K:E:C:x:";
 static const struct option longopts[] = {
   { "help",                    no_argument, NULL, 'h' },
   { "tumor-bam",               required_argument, NULL, 't' },
-  { "germline",               no_argument, NULL, OPT_GERMLINE },  
+  { "germline",                no_argument, NULL, OPT_GERMLINE },  
+  { "all-contigs",             no_argument, NULL, 'A' },  
   { "panel-of-normals",        required_argument, NULL, 'P' },
   { "id-string",               required_argument, NULL, 'a' },
   { "normal-bam",              required_argument, NULL, 'n' },
@@ -270,6 +272,7 @@ static const char *RUN_USAGE_MESSAGE =
 "      --num-to-sample                  When learning about inputs, number of reads to sample. [1000000]\n"
 "  Output options\n"
 "  -z, --g-zip                          Gzip and tabix the output VCF files. [off]\n"
+"  -A, --all-contigs                    Output all contigs that were assembled, regardless of mapping or length. [off]\n"
 "      --read-tracking                  Track supporting reads by qname. Increases file sizes. [off]\n"
 "      --write-extracted-reads          For the case BAM, write reads sent to assembly to a BAM file. [off]\n"
 "  Optional external database\n"
@@ -311,6 +314,10 @@ void runSnowman(int argc, char** argv) {
     opt::interchrom_lookup = false;
     opt::mate_lookup_min = 5;
   }
+
+  // set the rules to skip read learning if doing stdin
+  if (opt::main_bam == "-" && !opt::rules.empty()) 
+    opt::rules = "{\"global\" : {\"duplicate\" : false, \"qcfail\" : false}, \"\" : { \"rules\" : [{\"isize\" : 800}, {\"rr\" : true},{\"ff\" : true}, {\"rf\" : true}, {\"ic\" : true}, {\"clip\" : 5, \"length\" : 30}, {\"ins\" : true}, {\"del\" : true}, {\"mapped\": true , \"mate_mapped\" : false}, {\"mate_mapped\" : true, \"mapped\" : false}, {\"nm\" : [3,0]}]}}";
   
   std::cerr << 
     "-----------------------------------------------------------" << std::endl << 
@@ -418,13 +425,18 @@ void runSnowman(int argc, char** argv) {
   // open the Bam Headeres
   WRITELOG("...loading BAM indices", opt::verbose > 1, true);
   for (auto& b : opt::bam) 
-    bindices[b.first] = SeqLib::SharedIndex(hts_idx_load(b.second.c_str(), HTS_FMT_BAI), idx_delete());
+    if (b.second != "-") // dont load index for stdin
+      bindices[b.first] = SeqLib::SharedIndex(hts_idx_load(b.second.c_str(), HTS_FMT_BAI), idx_delete());
 
   // set the prefixes
   for (auto& b : opt::bam)
     prefixes.insert(b.first);
 
-  // learn the bam
+  // no learning for stdin
+  if (opt::main_bam == "-") 
+    goto afterlearn;
+
+  // learn bam
   min_dscrd_size_for_variant = 0; // set a min size for what we can call with discordant reads only. 
   for (auto& b : opt::bam) {
     LearnBamParams parm(b.second);
@@ -454,13 +466,21 @@ void runSnowman(int argc, char** argv) {
   ss << "...min discordant-only variant size " << min_dscrd_size_for_variant << std::endl;
 
   // set the min overlap
-  if (opt::sga::minOverlap < 0) 
+  if (!opt::sga::minOverlap) 
     opt::sga::minOverlap = (0.6 * readlen) < 30 ? 30 : 0.5 * readlen;
 
   ss << "...found read length of " << readlen << ". Min Overlap is " << opt::sga::minOverlap << std::endl;
   ss << "...max read MAPQ detected: " << max_mapq_possible << std::endl;
   WRITELOG(ss.str(), opt::verbose > 1, true);
   ss.str(std::string());
+
+afterlearn: 
+
+  // if didn't learn anything, then make sure we set an overlap
+  if (!readlen && !opt::sga::minOverlap) {
+    std::cerr << "ERROR: Didn't learn from reads (stdin assembly?). Need to explicitly set -m" << std::endl;
+    exit(EXIT_FAILURE);
+  }
   
   // get the seed length for printing
   int seedLength, seedStride;
@@ -690,6 +710,7 @@ void parseRunOptions(int argc, char** argv) {
     case 'h': help = true; break;
     case OPT_GAP_OPEN : arg >> opt::bwa::gap_open_penalty; break;
     case 'x' : arg >> opt::max_reads_per_assembly; break;
+    case 'A' : opt::all_contigs = true; break;
     case OPT_MATCH_SCORE : arg >> opt::bwa::sequence_match_score; break;
     case OPT_MISMATCH : arg >> opt::bwa::mismatch_penalty; break;
     case OPT_GERMLINE : opt::germline = true; break;
@@ -748,17 +769,19 @@ void parseRunOptions(int argc, char** argv) {
   }
 
   // check that BAM files exist
-  for (auto& b : opt::bam)
-    if (!SeqLib::read_access_test(b.second)) {
-      WRITELOG("ERROR: BAM file" + b.second + " is not readable / existant", true, true);
-      exit(EXIT_FAILURE);
+  for (auto& b : opt::bam) {
+    if (b.second != "-")
+      if (!SeqLib::read_access_test(b.second)) {
+	WRITELOG("ERROR: BAM file" + b.second + " is not readable / existant", true, true);
+	exit(EXIT_FAILURE);
+      }
   }
 
   // check that we input something
-  //if (opt::bam.size() == 0 && !die) {
-  //  WRITELOG("Must add a bam file with -t flag", true, true);
-  //  exit(EXIT_FAILURE);
-  //}
+  if (opt::bam.size() == 0 && !die) {
+    WRITELOG("Must add a bam file with -t flag. stdin with -t -", true, true);
+    exit(EXIT_FAILURE);
+  }
 
   if (opt::numThreads <= 0) {
     WRITELOG("Invalid number of threads from -p flag: " + SeqLib::AddCommas(opt::numThreads), true, true);
@@ -1274,7 +1297,11 @@ SnowmanBamWalker make_walkers(const std::string& p, const std::string& b, const 
 
   // setup the walker
   SnowmanBamWalker walk;
-  walk.Open(b);
+  if (!walk.Open(b)) {
+    std::cerr << "ERROR: Cannot read BAM: " << b << std::endl;
+    exit(EXIT_FAILURE);
+  }
+    
   if (opt::ec_correct_type == "f")
     walk.bfc = bfc;
   walk.main_bwa = main_bwa;
@@ -1291,9 +1318,18 @@ SnowmanBamWalker make_walkers(const std::string& p, const std::string& b, const 
   if (!region.IsEmpty()) {
     assert(walk.SetPreloadedIndex(bindices[p]));
     walk.SetRegion(region);
+  } else { // whole BAM analysis. If region file set, then set regions
+    if (file_regions.size()) {
+      assert(walk.SetPreloadedIndex(bindices[p]));
+      walk.SetMultipleRegions(file_regions);
+    } else { // no regions, literally take every read in bam
+      // default is walk all regions, so leave empty
+    }
   }
   
+  std::cerr << " READING BAM " << b << std::endl;
   badd.Concat(walk.readBam(&log_file)); 
+  std::cerr << " DONE READING BAM " << std::endl;
 
   // adjust the counts
   if (p.at(0) == 't') {
@@ -1500,7 +1536,7 @@ void run_assembly(const SeqLib::GenomicRegion& region, SeqLib::BamRecordVector& 
   for (auto& i : all_contigs_this) {
     
     // if too short, skip
-    if ((int)i.Seq.length() < (readlen * 1.15))
+    if ((int)i.Seq.length() < (readlen * 1.15) && !opt::all_contigs)
       continue;
     
     bool hardclip = false;	
@@ -1610,6 +1646,7 @@ void run_assembly(const SeqLib::GenomicRegion& region, SeqLib::BamRecordVector& 
   } // end loop through contigs
 
   assert(this_alc.size() == usv.size());
+
   // didnt get any contigs that made it all the way through
   if (!this_alc.size())
     return;

@@ -199,10 +199,10 @@ int overlapSize(const SeqLib::BamRecord& query, const SeqLib::BamRecordVector& s
 	file_regions.add(gr);
       }
     }
-    // add all chromosomes
-    else {
+    else { 
+      // add all chromosomes
       for (int i = 0; i < h.NumSequences(); i++) {
-	//int region_id = i; //bam_name2id(h, h.IDtoName(i)); //get()_->target_name[i]);
+	int region_id = i; //bam_name2id(h, h.IDtoName(i)); //get()_->target_name[i]);
 	if (i < 23) // don't add outsdie of 1-X
 	  file_regions.add(SeqLib::GenomicRegion(i, 1, h.GetSequenceLength(i))); //h.get()_->target_len[i]));
       }
@@ -215,15 +215,21 @@ int overlapSize(const SeqLib::BamRecord& query, const SeqLib::BamRecordVector& s
     }
     
     // divide it up
-    if (chunk > 0) // if <= 0, whole genome at once
+    if (chunk > 0) { // if <= 0, whole genome at once
       for (auto& r : file_regions) {
 	SeqLib::GRC test(chunk, window_pad, r);
 	run_regions.Concat(test);
       }
+    }
+
+    // now clear file regions, to signal that it was empty
+    if (regionFile.empty())
+      file_regions.clear(); 
+    
     return run_regions.size();
-    
+      
   }
-    
+  
 
   std::string __bamOptParse(std::map<std::string, std::string>& obam, std::istringstream& arg, int sample_number, const std::string& prefix) {
     std::stringstream ss;

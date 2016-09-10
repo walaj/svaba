@@ -189,8 +189,9 @@ void SnowmanAssemblerEngine::doAssembly(ReadTable *pRT, SeqLib::UnalignedSequenc
   pSAf_nd->writeIndex();
   pSAr_nd->writeIndex();
 
-  if (pass > 0)
-    cutoff = m_readlen * 1.10;
+  // do the cutoff later...
+  //if (pass > 0)
+  //  cutoff = m_readlen * 1.10;
 
   //int seedLength = min_overlap;
   //int seedStride = seedLength;
