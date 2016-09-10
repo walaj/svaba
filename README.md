@@ -10,7 +10,7 @@ Installation
 We recommend compiling with GCC-4.8 or greater. We have successfully compiled on RHEL6, CentOS with GCC-4.8, 4.9 and 5.1, and MacOSX with Clang (Apple LLVM version 7.0.2 (clang-700.1.81))
 
 ```
-git clone --recursive https://github.com/broadinstitute/SnowmanSVgit
+git clone --recursive https://github.com/broadinstitute/SnowmanSV
 cd SnowmanSV
 ./configure
 make
@@ -37,10 +37,11 @@ realigned to the contigs with BWA-MEM, and variants are scored
 Scope and Inputs
 ----------------
 
-Snowman is currently configured to provide indel and rearrangement calls (and anything "in between"). It is setup to handle single BAM/CRAM/SAM files,
-as well as case-control experiments (e.g. tumor/normal, or trios or quads). In case/control mode, any number of cases and controls can be input, and asseembly
+Snowman is currently configured to provide indel and rearrangement calls (and anything "in between"). It is setup to joint calling of any number of BAM/CRAM/SAM files,
+and with built-in support for case-control experiments (e.g. tumor/normal, or trios or quads). In case/control mode, 
+any number of cases and controls (but min of 1 case) can be input, and asseembly
 will jointly assemble them all. If both a case and control are present, variants are output separately in "somatic" and "germline" VCFs. 
-If only a single BAM is present, input with the ``-t`` flag. 
+If only a single BAM is present, input with the ``-t`` flag (case). 
 In this case, the results will contain all calls, with no germline/somatic designation.
 
 A BWA-MEM index reference genome must also be supplied with ``-G``.
