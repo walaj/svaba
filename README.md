@@ -53,7 +53,7 @@ Description
 
 Snowman is a method for detecting structural variants in sequencing data using genome-wide local assembly. Under the hood, 
 Snowman uses a custom implementation of SGA (String Graph Assembler) by Jared Simpson, and BWA-MEM by Heng Li. Contigs are assembled
-for every 10kb window (with some small overlap) for every region in the genome. The default is to use only clipped, discordant, 
+for every 25kb window (with some small overlap) for every region in the genome. The default is to use only clipped, discordant, 
 unmapped and indel reads, although this can be customized to any set of reads at the command line using [VariantBam][vbam] rules. 
 These contigs are then immediately aligned to the reference with BWA-MEM and parsed to identify variants. Sequencing reads are likewise 
 realigned to the contigs with BWA-MEM, and variants are scored 
@@ -66,6 +66,9 @@ If only a single BAM is present (input with the ``-t`` flag), a single SV and a 
 VCF will be emitted.
 
 A BWA-MEM index reference genome must also be supplied with ``-G``.
+
+<img src="https://github.com/broadinstitute/SnowmanSV/blob/master/Snowman_gitfig.png"
+width=500/>
 
 Output file description
 -----------------------
@@ -120,9 +123,9 @@ Examples and recipes
 
 #### Whole genome somatic sv and indel detection 
 ```
-wget "https://data.broadinstitute.org/snowman/dbsnp_indel.vcf"
+wget "https://data.broadinstitute.org/snowman/dbsnp_indel.vcf" ## get a DBSNP known indel file
 DBSNP=dbsnp_indel.vcf
-CORES=8
+CORES=8 ## set any number of cores
 REF=/seq/references/Homo_sapiens_assembly19/v1/Homo_sapiens_assembly19.fasta
 ## -a is any string you like, which gives the run a unique ID
 snowman run -t $TUM_BAM -n $NORM_BAM -p $CORES -D $DBSNP -a somatic_run -G $REF
@@ -215,7 +218,7 @@ This project was developed in collaboration with the Cancer Genome Analysis team
 * Cheng-Zhong Zhang (Matthew Meyerson Lab)
 * Marcin Imielinski (http://vivo.med.cornell.edu/display/cwid-mai9037)
 
-Particular thanks to Jared Simpson for SGA, Heng Li for htslib and BWA, and for the other developers whose  
+Additional thanks to Jared Simpson for SGA, Heng Li for htslib and BWA, and for the other developers whose  
 code contributed to [SeqLib](seqlib).
 
 [vbam]: https://github.com/jwalabroad/VariantBam
