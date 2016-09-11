@@ -10,7 +10,6 @@ Table of contents
 
   * [Installation](#gh-md-toc)
   * [Description](#description)
-  * [Scope and inputs](#scope-and-inputs)
   * [Output file description](#output-file-description)
   * [Filtering and refiltering](#filtering-and-refiltering)
   * [Recipes and examples](#recipes-and-examples)
@@ -20,7 +19,7 @@ Table of contents
     * [Targeted local assembly](#targeted-local-assembly)
     * [Assemble all reads](#assemble-all-reads)
     * [Runtime snapshot](#snapshot-of-where-snowman-run-is-currently-operating)
-    * [Debug a local assembly and produce assembly graph](#debug-local-assembly-and-produce-the-assembly-graph)
+    * [Debug a local assembly and produce assembly graph](#debug-a-local-assembly-and-produce-the-assembly-graph)
     * [View all of the ASCII alignments](#view-all-of-the-ascii-alignments)
     * [View a particular contig with read-to-contig alignments](#view-a-particular-contig-with-read-to-contig-alignments)
     * [Make a function to sort and index the contigs](#make-a-function-to-sort-and-index-contigs)
@@ -36,10 +35,10 @@ git clone --recursive https://github.com/broadinstitute/SnowmanSV
 cd SnowmanSV
 ./configure
 make
+make install
 
-############### QUICK START ############### 
-# run tumor / normal on Chr22, with 4 cores
-SnowmanSV/src/Snowman/snowman -t tumor.bam -n normal.bam -k 22 -G ref.fa -a test_id -p -4
+## QUICK START (eg run tumor / normal on Chr22, with 4 cores)
+bin/snowman -t tumor.bam -n normal.bam -k 22 -G ref.fa -a test_id -p -4
 
 ## get help
 snowman --help
@@ -59,15 +58,12 @@ unmapped and indel reads, although this can be customized to any set of reads at
 These contigs are then immediately aligned to the reference with BWA-MEM and parsed to identify variants. Sequencing reads are likewise 
 realigned to the contigs with BWA-MEM, and variants are scored 
 
-Scope and Inputs
-----------------
-
-Snowman is currently configured to provide indel and rearrangement calls (and anything "in between"). It is setup to joint calling of any number of BAM/CRAM/SAM files,
-and with built-in support for case-control experiments (e.g. tumor/normal, or trios or quads). In case/control mode, 
+Snowman is currently configured to provide indel and rearrangement calls (and anything "in between"). It can jointly call any number of BAM/CRAM/SAM files,
+and has built-in support for case-control experiments (e.g. tumor/normal, or trios or quads). In case/control mode, 
 any number of cases and controls (but min of 1 case) can be input, and asseembly
-will jointly assemble them all. If both a case and control are present, variants are output separately in "somatic" and "germline" VCFs. 
-If only a single BAM is present, input with the ``-t`` flag (case). 
-In this case, the results will contain all calls, with no germline/somatic designation.
+will jointly assemble all reads together. If both a case and control are present, variants are output separately in "somatic" and "germline" VCFs. 
+If only a single BAM is present (input with the ``-t`` flag), a single SV and a single indel
+VCF will be emitted.
 
 A BWA-MEM index reference genome must also be supplied with ``-G``.
 
@@ -104,7 +100,7 @@ mate-lookups. This prevents excessive mate-lookups to centromeres, etc.
 VCF of rearrangements and indels parsed from bps.txt.gz and with a somatic_score == 1 (somatic) or 0 (germline) and quality == PASS. *NOTE* that 
 the cutoff for rearrangement vs indel is taken from BWA-MEM, whether it produces a single gapped-alignment 
 or two separate alignments. This is an arbitrary cutoff, just as there is no clear consensus distinction between what 
-constitutes an "indel" and a "structural variant". The unfiltered VCF files include non-pass variants. 
+constitutes an "indel" and a "structural variant". The unfiltered VCF files include non-PASS variants. 
 
 Filtering and Refiltering
 -----------------------
@@ -196,7 +192,7 @@ gunzip -c somatic_run.alignments.txt.gz | grep c_1_123456789_123476789 > c_1_123
 ev c_1_123456789_123476789.alignments.txt
 ```
 
-#### Make a function to sort and index the contigs
+#### Make a function to sort and index contigs
 ```
 function sai() {
   if [[ -f $1.contigs.bam ]]; then
