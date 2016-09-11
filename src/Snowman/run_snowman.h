@@ -29,6 +29,7 @@ typedef std::map<std::string, SnowmanBamWalker> WalkerMap;
 typedef std::map<std::string, SeqLib::SharedIndex> BamIndexMap;
 typedef std::map<std::string, std::string> BamMap;
 typedef std::pair<int, int> CountPair;
+typedef std::map<std::string, SeqLib::SharedHTSFile> HTSFileMap;
 
 void learnBamParams(SeqLib::BamReader& walk, std::string id);
 void makeVCFs();
@@ -42,7 +43,7 @@ void sendThreads(SeqLib::GRC& regions_torun);
 bool runBigChunk(const SeqLib::GenomicRegion& region); 
 SeqLib::GRC makeAssemblyRegions(const SeqLib::GenomicRegion& region);
 void alignReadsToContigs(SeqLib::BWAWrapper& bw, const SeqLib::UnalignedSequenceVector& usv, SeqLib::BamRecordVector& bav_this, std::vector<AlignedContig>& this_alc, SeqLib::RefGenome * rg);
-SnowmanBamWalker make_walkers(const std::string& p, const std::string& b, const SeqLib::GenomicRegion& region, CountPair& counts, SeqLib::GRC& badd, SeqLib::BFC * bfc);
+SnowmanBamWalker make_walkers(const std::string& p, const SeqLib::GenomicRegion& region, CountPair& counts, SeqLib::GRC& badd, SeqLib::BFC * bfc);
 MateRegionVector __collect_normal_mate_regions(WalkerMap& walkers);
 MateRegionVector __collect_somatic_mate_regions(WalkerMap& walkers, MateRegionVector& bl);
 SeqLib::GRC __get_exclude_on_badness(std::map<std::string, SnowmanBamWalker>& walkers, const SeqLib::GenomicRegion& region);

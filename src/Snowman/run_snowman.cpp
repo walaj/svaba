@@ -33,6 +33,8 @@ static std::stringstream ss; // initalize a string stream once
   { if (tolog) log_file  << (msg) << std::endl;	\
     if (toerr) std::cerr << (msg) << std::endl; };
 
+#define ERROR_EXIT(msg) { std::cerr << (msg) << std::endl; exit(EXIT_FAILURE); }
+
 #define MIN_CONTIG_MATCH 35
 #define MATE_LOOKUP_MIN 3
 #define SECONDARY_CAP 200
@@ -62,6 +64,7 @@ static SeqLib::BamHeader bwa_header, viral_header;
 static std::set<std::string> prefixes;
 
 static BamIndexMap bindices;
+static HTSFileMap bhtsfiles;
 
 static int min_dscrd_size_for_variant = 0; // set a min size for what we can call with discordant reads only. 
 // something like max(mean + 3*sd) for all read groups
@@ -427,6 +430,15 @@ void runSnowman(int argc, char** argv) {
   for (auto& b : opt::bam) 
     if (b.second != "-") // dont load index for stdin
       bindices[b.first] = SeqLib::SharedIndex(hts_idx_load(b.second.c_str(), HTS_FMT_BAI), idx_delete());
+
+  // open the BAMs
+  for (auto& b : opt::bam) {
+    SeqLib::BamReader t_br;
+    if (!t_br.Open(b.second))
+      ERROR_EXIT("Failed to open file: " + b.second);
+    bhtsfiles[b.first] = t_br.GetHTSFile();
+  }
+
 
   // set the prefixes
   for (auto& b : opt::bam)
@@ -817,7 +829,7 @@ bool runBigChunk(const SeqLib::GenomicRegion& region)
 
   // loop through the input BAMs and get reads
   for (auto& b : opt::bam)
-    walkers[b.first] = make_walkers(b.first, b.second, region, read_counts, badd, bfc);
+    walkers[b.first] = make_walkers(b.first, region, read_counts, badd, bfc);
 
   // collect all of the cigar strings in a hash
   std::unordered_map<std::string, SeqLib::CigarMap> cigmap;
@@ -1293,14 +1305,12 @@ void alignReadsToContigs(SeqLib::BWAWrapper& bw, const SeqLib::UnalignedSequence
   } // end main read loop
 }
 
-SnowmanBamWalker make_walkers(const std::string& p, const std::string& b, const SeqLib::GenomicRegion& region, CountPair& counts, SeqLib::GRC& badd, SeqLib::BFC * bfc) {
+SnowmanBamWalker make_walkers(const std::string& p, const SeqLib::GenomicRegion& region, CountPair& counts, SeqLib::GRC& badd, SeqLib::BFC * bfc) {
 
   // setup the walker
   SnowmanBamWalker walk;
-  if (!walk.Open(b)) {
-    std::cerr << "ERROR: Cannot read BAM: " << b << std::endl;
-    exit(EXIT_FAILURE);
-  }
+  //assert(walk.SetPreloadedHTSFile(bhtsfiles[p]));
+  walk.Open(opt::bam[p]);
     
   if (opt::ec_correct_type == "f")
     walk.bfc = bfc;
@@ -1327,9 +1337,7 @@ SnowmanBamWalker make_walkers(const std::string& p, const std::string& b, const 
     }
   }
   
-  std::cerr << " READING BAM " << b << std::endl;
   badd.Concat(walk.readBam(&log_file)); 
-  std::cerr << " DONE READING BAM " << std::endl;
 
   // adjust the counts
   if (p.at(0) == 't') {

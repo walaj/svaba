@@ -5,6 +5,28 @@ Snowman - Structural Variation Detection by Rolling Local Assembly
 
 **License:** [GNU GPLv3][license] 
 
+Table of contents
+=================
+
+  * [Installation](#gh-md-toc)
+  * [Description](#description)
+  * [Scope and inputs](#scope-and-inputs)
+  * [Output file description](#output-file-description)
+  * [Filtering and refiltering](#filtering-and-refiltering)
+  * [Recipes and examples](#recipes-and-examples)
+    * [Whole genome somatic SV and indel detection](#whole-genome-somatic-sv-and-indel-detection)
+    * [Whole genome germline SV and indel detection](#whole-genome-germline-sv-and-indel-detection)
+    * [Targeted (exome) detection](#targeted-detection)
+    * [Targeted local assembly](#targeted-local-assembly)
+    * [Assemble all reads](#assemble-all-reads)
+    * [Runtime snapshot](#snapshot-of-where-snowman-run-is-currently-operating)
+    * [Debug a local assembly and produce assembly graph](#debug-local-assembly-and-produce-the-assembly-graph)
+    * [View all of the ASCII alignments](#view-all-of-the-ascii-alignments)
+    * [View a particular contig with read-to-contig alignments](#view-a-particular-contig-with-read-to-contig-alignments)
+    * [Make a function to sort and index the contigs](#make-a-function-to-sort-and-index-contigs)
+  * [Attributions](#attributions)
+
+
 Installation
 ------------
 We recommend compiling with GCC-4.8 or greater. We have successfully compiled on RHEL6, CentOS with GCC-4.8, 4.9 and 5.1, and MacOSX with Clang (Apple LLVM version 7.0.2 (clang-700.1.81))
@@ -23,6 +45,9 @@ SnowmanSV/src/Snowman/snowman -t tumor.bam -n normal.bam -k 22 -G ref.fa -a test
 snowman --help
 snowman run --help
 ```
+
+Snowman uses the [SeqLib](seqlib) API for BAM access, BWA-MEM alignments, interval trees and operations,
+and several other auxillary operations.
 
 Description
 -----------
@@ -81,7 +106,7 @@ the cutoff for rearrangement vs indel is taken from BWA-MEM, whether it produces
 or two separate alignments. This is an arbitrary cutoff, just as there is no clear consensus distinction between what 
 constitutes an "indel" and a "structural variant". The unfiltered VCF files include non-pass variants. 
 
-Filtering / Refiltering
+Filtering and Refiltering
 -----------------------
 
 Snowman performs a series of log-likelihood calculations for each variant. The purpose is to first classify a variant as real vs artifact, 
@@ -94,7 +119,111 @@ Snowman can refilter the bps.txt.gz file to produce new VCFs with different stri
 * ``-b`` - a BAM from the original run, which is used just for its header
 * ``-i`` - input bps.txt.gz file
 
+Examples and recipes
+--------------------
+
+#### Whole genome somatic sv and indel detection 
+```
+wget "https://data.broadinstitute.org/snowman/dbsnp_indel.vcf"
+DBSNP=dbsnp_indel.vcf
+CORES=8
+REF=/seq/references/Homo_sapiens_assembly19/v1/Homo_sapiens_assembly19.fasta
+## -a is any string you like, which gives the run a unique ID
+snowman run -t $TUM_BAM -n $NORM_BAM -p $CORES -D $DBSNP -a somatic_run -G $REF
+```
+
+#### Whole genome germline sv and indel detection
+```
+## Set -I to not do mate-region lookup if mates are mapped to different chromosome.
+##   This is appropriate for germline-analysis, where we don't have a built-in control
+##   and this will bog down the mate-lookup in spurious mapping artifacts
+## 
+## Set -L to 6 which means that 6 or more mate reads must be clustered to 
+##   trigger a mate lookup. This also reduces spurious lookups, and is more 
+##   appropriate the expected ALT counts found in a germline sample 
+##   (as opposed to impure, subclonal events in cancer).
+snowman run -t $GERMLINE_BAM -p $CORES -L 6 -I -a germline_run -G $REF
+```
+
+#### Targeted detection
+```
+## eg targets.bed is a set of exome capture regions
+snowman run -t $BAM -k targets.bed -a exome_cap -G $REF
+```
+
+#### Targeted local assembly
+```
+## -k can be a chromosome, a samtools/IGV style string 
+##     (e.g. 1:1,000,000-2,000,000), or a BED file
+k=chr17:7,541,145-7,621,399
+snowman run -t $TUM_BAM -n $NORM_BAM -p $CORES -k $k  -a TP53 -G $REF
+```
+
+#### Assemble all reads
+```
+## default behavior is just assemble clipped/discordant/unmapped/gapped reads
+## This can be overridden with -r all flag
+snowman run -t $BAM -r all -g $REF
+```
+
+#### Snapshot of where snowman run is currently operating
+```
+tail somatic_run.log
+```
+
+#### Debug a local assembly and produce the assembly graph
+```
+k=chr17:7,541,145-7,621,399
+snowman run -t $BAM -a local_test -k $k --write-asqg
+
+## plot the graph
+$GIT/SnowmanSV/R/snow-asqg.R
+```
+
+#### View all of the ASCII alignments 
+```
+## Make a read-only and no-line-wrapping version of emacs.
+## Very useful for *.alignments.txt.gz files
+function ev { 
+  emacs $1 --eval '(setq buffer-read-only t)' -nw --eval '(setq truncate-lines t)';
+  }
+ev somatic_run.alignments.txt.gz 
+```
+
+#### View a particular contig with read to contig alignments
+```
+gunzip -c somatic_run.alignments.txt.gz | grep c_1_123456789_123476789 > c_1_123456789_123476789.alignments.txt
+ev c_1_123456789_123476789.alignments.txt
+```
+
+#### Make a function to sort and index the contigs
+```
+function sai() {
+  if [[ -f $1.contigs.bam ]]; then
+     samtools sort -m 4G $1.contigs.bam -o $1.contigs.sort.bam
+     mv $1.contigs.sort.bam $1.contigs.bam
+     samtools index $1.contigs.bam
+  fi
+}
+## for example, for somatic_run.contigs.bam:
+sai somatic_run
+```
+
+
+Attributions
+============
+
+Snowman is developed and maintained by Jeremiah Wala (jwala@broadinstitute.org) --  Rameen Berkoukhim lab -- Dana Farber Cancer Institute, Boston, MA. 
+
+This project was developed in collaboration with the Cancer Genome Analysis team at the Broad Institute. Particular thanks to:
+* Cheng-Zhong Zhang (Matthew Meyerson Lab)
+* Marcin Imielinski (http://vivo.med.cornell.edu/display/cwid-mai9037)
+
+Particular thanks to Jared Simpson for SGA, Heng Li for htslib and BWA, and for the other developers whose  
+code contributed to [SeqLib](seqlib).
 
 [vbam]: https://github.com/jwalabroad/VariantBam
 
 [license]: https://github.com/broadinstitute/SnowmanSV/blob/master/LICENSE
+
+[seqlib]: https://github.com/jwalabroad/SeqLib

@@ -202,7 +202,6 @@ int overlapSize(const SeqLib::BamRecord& query, const SeqLib::BamRecordVector& s
     else { 
       // add all chromosomes
       for (int i = 0; i < h.NumSequences(); i++) {
-	int region_id = i; //bam_name2id(h, h.IDtoName(i)); //get()_->target_name[i]);
 	if (i < 23) // don't add outsdie of 1-X
 	  file_regions.add(SeqLib::GenomicRegion(i, 1, h.GetSequenceLength(i))); //h.get()_->target_len[i]));
       }
