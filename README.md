@@ -95,6 +95,9 @@ is typically quite large. The recommended usage is to identify the contig name o
 (SCTG=contig_name). Then do ``gunzip -c id.alignment.txt.gz | grep contig_name > plot.txt``. It is highly recommended that you 
 view in a text editor with line truncation turned OFF, so as to not jumble the alignments.
 
+<img src="https://github.com/broadinstitute/SnowmanSV/blob/master/gitfig_ascii.png"
+width=650/>
+
 ##### ``*.bad_mate_regions.bed``
 A BED file of regions that were suspected of having poor alignment quality. When encountered, these regions are excluded from future
 mate-lookups. This prevents excessive mate-lookups to centromeres, etc.
