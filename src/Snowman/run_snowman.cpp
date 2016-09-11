@@ -64,7 +64,7 @@ static SeqLib::BamHeader bwa_header, viral_header;
 static std::set<std::string> prefixes;
 
 static BamIndexMap bindices;
-static HTSFileMap bhtsfiles;
+//static HTSFileMap bhtsfiles;
 
 static int min_dscrd_size_for_variant = 0; // set a min size for what we can call with discordant reads only. 
 // something like max(mean + 3*sd) for all read groups
@@ -432,13 +432,12 @@ void runSnowman(int argc, char** argv) {
       bindices[b.first] = SeqLib::SharedIndex(hts_idx_load(b.second.c_str(), HTS_FMT_BAI), idx_delete());
 
   // open the BAMs
-  for (auto& b : opt::bam) {
-    SeqLib::BamReader t_br;
-    if (!t_br.Open(b.second))
-      ERROR_EXIT("Failed to open file: " + b.second);
-    bhtsfiles[b.first] = t_br.GetHTSFile();
-  }
-
+  //for (auto& b : opt::bam) {
+  //  SeqLib::BamReader t_br;
+  //  if (!t_br.Open(b.second))
+  //    ERROR_EXIT("Failed to open file: " + b.second);
+  //  bhtsfiles[b.first] = t_br.GetHTSFile();
+  //}
 
   // set the prefixes
   for (auto& b : opt::bam)
