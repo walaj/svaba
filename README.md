@@ -67,7 +67,7 @@ VCF will be emitted.
 
 A BWA-MEM index reference genome must also be supplied with ``-G``.
 
-<img src="https://github.com/broadinstitute/SnowmanSV/blob/master/gitfig_schemtic.png"
+<img src="https://github.com/broadinstitute/SnowmanSV/blob/master/gitfig_schematic.png"
 width=800/>
 
 Output file description
