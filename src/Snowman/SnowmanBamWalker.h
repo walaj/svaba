@@ -45,6 +45,21 @@ class SnowmanBamWalker: public SeqLib::BamReader {
   // read in the reads
   SeqLib::GRC readBam(std::ofstream* log = nullptr);
 
+  // clear it out
+  void clear() { 
+    cov.clear();
+    cigmap.clear();
+    weird_cov.clear();
+    mate_regions.clear();
+    bad_discordant.clear();
+    reads.clear();
+    get_coverage = true;
+    get_mate_regions = true;
+    all_seqs.clear();
+    seq_set.clear();
+    bad_discordant.clear();
+  }
+
   void realignDiscordants(SeqLib::BamRecordVector& reads);
   
   bool hasAdapter(const SeqLib::BamRecord& r) const;
@@ -84,7 +99,7 @@ class SnowmanBamWalker: public SeqLib::BamReader {
   
   // maximum coverage of accepted reads, before subsampling
   size_t max_cov = 100;
-  
+
   // should we keep reads for learning correction 
   double kmer_subsample = 0.5;
   // should we subsample the learning reads?

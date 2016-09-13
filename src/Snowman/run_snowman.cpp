@@ -16,6 +16,8 @@
 #include "LearnBamParams.h"
 #include "SeqLib/BFC.h"
 
+//#define MUTEX_FAST 1
+
 // useful replace function
 std::string myreplace(std::string &s,
                       std::string toReplace,
@@ -47,7 +49,7 @@ static std::stringstream ss; // initalize a string stream once
 #define MICROBE_MATCH_MIN 50
 #define GET_MATES 1
 #define MICROBE 1
-#define LARGE_INTRA_LOOKUP_LIMIT 1000000
+#define LARGE_INTRA_LOOKUP_LIMIT 50000
 #define SECONDARY_FRAC 0.90
 
 // if a local alignment has < MIN_CLIP_FOR_LOCAL clips
@@ -63,8 +65,16 @@ static SeqLib::BamHeader bwa_header, viral_header;
 
 static std::set<std::string> prefixes;
 
-static BamIndexMap bindices;
-//static HTSFileMap bhtsfiles;
+// make a unique set of walkers for each file, and for each thread
+std::map<long unsigned int, WalkerMap> thread_walkers;
+// each thread keeps track of its own bad regions. Better would
+// be to have them share this information, but that requires
+// to many mutex locks. This just helps with run-time anyway, 
+// ok if it looks up bad regions twice
+std::map<long unsigned int, SeqLib::GRC> thread_bad_mate_regions; 
+
+std::map<long unsigned int, SeqLib::RefGenome*> thread_genomes;
+std::map<long unsigned int, SeqLib::RefGenome*> thread_viral_genomes;
 
 static int min_dscrd_size_for_variant = 0; // set a min size for what we can call with discordant reads only. 
 // something like max(mean + 3*sd) for all read groups
@@ -77,7 +87,7 @@ static SeqLib::BamWriter er_writer, b_microbe_writer, b_contig_writer;
 static SeqLib::BWAWrapper * microbe_bwa = nullptr;
 static SeqLib::BWAWrapper * main_bwa = nullptr;
 static SeqLib::Filter::ReadFilterCollection * mr;
-static SeqLib::GRC blacklist, germline_svs, simple_seq, bad_mate_regions;
+static SeqLib::GRC blacklist, germline_svs, simple_seq;
 static DBSnpFilter * dbsnp_filter;
 static SeqLib::GRC file_regions, regions_torun;
 
@@ -102,7 +112,7 @@ namespace opt {
 
   // error correction options
   static std::string ec_correct_type = "f";
-  static double ec_subsample = 0.25;
+  static double ec_subsample = 0.15;
 
   // output options
   static bool write_extracted_reads = false;
@@ -333,7 +343,7 @@ void runSnowman(int argc, char** argv) {
     "***************************** PARAMS ****************************" << std::endl << 
     "    DBSNP Database file: " << opt::dbsnp << std::endl << 
     "    Max cov to assemble: " << opt::max_cov << std::endl <<
-    "    Error correction mode: " << (opt::ec_correct_type == "s" ? "SGA" : "BFC") << std::endl << 
+    "    Error correction mode: " << opt::ec_correct_type << std::endl << 
     "    Subsample-rate for correction learning: " + std::to_string(opt::ec_subsample) << std::endl;
     ss << 
       "    ErrorRate: " << (opt::sga::error_rate < 0.001f ? "EXACT (0)" : std::to_string(opt::sga::error_rate)) << std::endl << 
@@ -425,21 +435,7 @@ void runSnowman(int argc, char** argv) {
     WRITELOG("...loaded DBsnp database", opt::verbose > 0, true)
   }
 
-  // open the Bam Headeres
-  WRITELOG("...loading BAM indices", opt::verbose > 1, true);
-  for (auto& b : opt::bam) 
-    if (b.second != "-") // dont load index for stdin
-      bindices[b.first] = SeqLib::SharedIndex(hts_idx_load(b.second.c_str(), HTS_FMT_BAI), idx_delete());
-
-  // open the BAMs
-  //for (auto& b : opt::bam) {
-  //  SeqLib::BamReader t_br;
-  //  if (!t_br.Open(b.second))
-  //    ERROR_EXIT("Failed to open file: " + b.second);
-  //  bhtsfiles[b.first] = t_br.GetHTSFile();
-  //}
-
-  // set the prefixes
+  // needed for aligned contig
   for (auto& b : opt::bam)
     prefixes.insert(b.first);
 
@@ -602,6 +598,10 @@ afterlearn:
     delete microbe_bwa;
 
   // dump the bad bed regions
+  SeqLib::GRC bad_mate_regions;
+  for (const auto& i : thread_bad_mate_regions)
+    bad_mate_regions.Concat(i.second);
+  bad_mate_regions.MergeOverlappingIntervals();
   bad_mate_regions.CoordinateSort();
   for (auto& i : bad_mate_regions)
     try { // throws out of range if there is mismatch between main header and other headers. just be graceful here
@@ -809,30 +809,95 @@ void parseRunOptions(int argc, char** argv) {
     }
 }
 
-bool runBigChunk(const SeqLib::GenomicRegion& region)
+bool runBigChunk(const SeqLib::GenomicRegion& region, long unsigned int thread_id)
 {
+  
+  WRITELOG("Running region " + region.ToString() + " on thread " + std::to_string(thread_id), opt::verbose > 1, true);
+
+  SeqLib::GRC& badd = thread_bad_mate_regions[thread_id]; // bad mate regions for this thread
+
+  // open the reference for this 
+  if (!thread_genomes.count(thread_id)) {
+    WRITELOG("Loading new ref genome for thread " + std::to_string(thread_id), opt::verbose > 1, true);
+    thread_genomes[thread_id] = new SeqLib::RefGenome();
+    SeqLib::RefGenome * r = thread_genomes[thread_id];
+    r->LoadIndex(opt::refgenome);
+  }
+  SeqLib::RefGenome * this_ref_genome = thread_genomes[thread_id];
+
+  // open the viral reference for this 
+  if (!thread_viral_genomes.count(thread_id)) {
+    WRITELOG("Loading new viral ref genome for thread " + std::to_string(thread_id), opt::verbose > 1, true);
+    thread_viral_genomes[thread_id] = new SeqLib::RefGenome();
+    SeqLib::RefGenome * r = thread_viral_genomes[thread_id];
+    r->LoadIndex(opt::microbegenome);
+  }
+  SeqLib::RefGenome * this_viral_genome = thread_viral_genomes[thread_id];
+
+  // open a SnowmanBamWalker for each thread
+  if (!thread_walkers.count(thread_id)) { 
+    WRITELOG("Making walker for thread " + std::to_string(thread_id), opt::verbose > 1, true);
+    WalkerMap new_walkers;
+    for (auto& b : opt::bam) 
+      new_walkers[b.first] = make_walker(b.first);
+    thread_walkers[thread_id] = new_walkers;
+  }
+  assert(thread_walkers.size() <= (size_t)opt::numThreads);
+  
+  // set the new walkers
+  WalkerMap& walkers = thread_walkers[thread_id];
+  assert(walkers.size());
+  
+  // create a new BFC read error corrector for this
+  SeqLib::BFC * bfc = nullptr;
+  if (opt::ec_correct_type == "f") {
+    bfc = new SeqLib::BFC();
+    for (auto& w : walkers)
+      w.second.bfc = bfc;
+  }
+  
   // setup structures to store the final data for this region
   std::vector<AlignedContig> alc;
   SeqLib::BamRecordVector all_contigs, all_microbial_contigs;
-  SeqLib::GRC badd; // bad mate regions for this
 
   // start a timer
   SnowmanUtils::SnowTimer st;
   st.start();
 
-  SeqLib::BFC * bfc = new SeqLib::BFC();
-
   // setup for the BAM walkers
-  WalkerMap walkers;
   CountPair read_counts = {0,0};
 
-  // loop through the input BAMs and get reads
-  for (auto& b : opt::bam)
-    walkers[b.first] = make_walkers(b.first, region, read_counts, badd, bfc);
+  // read in alignments from the main region
+  for (auto& w : walkers) {
+
+    // set the region to jump to
+    if (!region.IsEmpty()) {
+      w.second.SetRegion(region);
+    } else { // whole BAM analysis. If region file set, then set regions
+      if (file_regions.size()) {
+	w.second.SetMultipleRegions(file_regions);
+      } else { // no regions, literally take every read in bam
+	// default is walk all regions, so leave empty
+      }
+    }
+
+    // do the reading, and store the bad mate regions
+    badd.Concat(w.second.readBam(&log_file));
+    badd.MergeOverlappingIntervals();
+    badd.CreateTreeMap();
+    
+    // adjust the counts
+    if (w.first.at(0) == 't') {
+      read_counts.first += w.second.reads.size();
+    } else {
+      read_counts.second += w.second.reads.size();
+    }
+
+  }
 
   // collect all of the cigar strings in a hash
   std::unordered_map<std::string, SeqLib::CigarMap> cigmap;
-  for (auto& w : walkers) 
+  for (const auto& w : walkers) 
     cigmap[w.first] = w.second.cigmap;
 
   // setup read collectors
@@ -848,9 +913,7 @@ bool runBigChunk(const SeqLib::GenomicRegion& region)
 
   // get the mate reads
   if (!region.IsEmpty()) {
-    CountPair mate_counts = run_mate_collection_loop(region, walkers, badd);
-    WRITELOG("...looked up <case, control> mate reads: <" + SeqLib::AddCommas(mate_counts.first) + "," + 
-	     SeqLib::AddCommas(mate_counts.second) + ">", opt::verbose > 1, true);
+    run_mate_collection_loop(region, walkers, badd);
     // collect the reads together from the mate walkers
     collect_and_clear_reads(walkers, bav_this, all_seqs, dedupe);
     st.stop("m");
@@ -914,7 +977,9 @@ bool runBigChunk(const SeqLib::GenomicRegion& region)
     correct_reads(all_seqs, bav_this);
   } else if (opt::ec_correct_type == "f") {
     
+    assert(bfc);
     int learn_reads_count = bfc->NumSequences();
+    
     bfc->Train();
     bfc->clear();  // clear memory and reads
 
@@ -927,7 +992,7 @@ bool runBigChunk(const SeqLib::GenomicRegion& region)
     WRITELOG("   BFC attempted correct " + std::to_string(bav_this.size()) + " train: " + 
 	     std::to_string(learn_reads_count) + " kcov: " + std::to_string(kcov) + 
 	     " kmer: " + std::to_string(kmer), opt::verbose > 1, true);      
-    
+
     delete bfc;
     bfc = nullptr;
   }
@@ -935,7 +1000,7 @@ bool runBigChunk(const SeqLib::GenomicRegion& region)
   
   // do the assembly, contig realignment, contig local realignment, and read realignment
   // modifes bav_this, alc, all_contigs and all_microbial_contigs
-  run_assembly(region, bav_this, alc, all_contigs, all_microbial_contigs, dmap, cigmap);
+  run_assembly(region, bav_this, alc, all_contigs, all_microbial_contigs, dmap, cigmap, this_ref_genome);
 
 afterassembly:
   
@@ -1033,27 +1098,20 @@ afterassembly:
       
   }
 
+  // add the ref and alt tags
+  // WHY IS THIS NOT THREAD SAFE?
+  for (auto& i : bp_glob)
+    i.setRefAlt(this_ref_genome, this_viral_genome);
+
   ////////////////////////////////////
   // MUTEX LOCKED
   ////////////////////////////////////
   // write to the global contig out
-  pthread_mutex_lock(&snow_lock);  
-  
-  // add the ref and alt tags
-  // WHY IS THIS NOT THREAD SAFE?
-  for (auto& i : bp_glob)
-    i.setRefAlt(ref_genome, ref_genome_viral);
-
-  // update the bad mate regions
-  badd.MergeOverlappingIntervals();
-  bad_mate_regions.Concat(badd);
-  for (auto& r : badd) 
-    WRITELOG("...added bad mate region " + r.ToString(), opt::verbose > 1, true);
-  bad_mate_regions.MergeOverlappingIntervals();
-  bad_mate_regions.CreateTreeMap();
-  
-  // print the alignment plots
   size_t contig_counter = 0;
+#ifndef MUTEX_FAST
+  pthread_mutex_lock(&snow_lock);    
+
+  // print the alignment plots
   for (auto& i : alc) {
     if (i.hasVariant()) {
       all_align << i << std::endl;
@@ -1096,7 +1154,8 @@ afterassembly:
 	seq = r.QualitySequence();
       os_corrected << ">" << r.GetZTag("SR") << std::endl << seq << std::endl;
     }
-  
+
+
   // send breakpoints to file
   for (auto& i : bp_glob) 
     if ( i.hasMinimal() && i.confidence != "NOLOCAL" ) 
@@ -1111,7 +1170,14 @@ afterassembly:
   // MUTEX UNLOCKED
   ////////////////////////////////////
   pthread_mutex_unlock(&snow_lock);
-  
+#endif  
+
+  // clear out the reads and reset the walkers
+  for (auto& w : walkers) {
+    w.second.clear();
+    w.second.m_limit = opt::max_reads_per_assembly;
+  }
+
   return true;
 }
 
@@ -1166,7 +1232,7 @@ SeqLib::GRC makeAssemblyRegions(const SeqLib::GenomicRegion& region) {
 
 }
 
-void alignReadsToContigs(SeqLib::BWAWrapper& bw, const SeqLib::UnalignedSequenceVector& usv, SeqLib::BamRecordVector& bav_this, std::vector<AlignedContig>& this_alc, SeqLib::RefGenome *  rg) {
+void alignReadsToContigs(SeqLib::BWAWrapper& bw, const SeqLib::UnalignedSequenceVector& usv, SeqLib::BamRecordVector& bav_this, std::vector<AlignedContig>& this_alc, const SeqLib::RefGenome *  rg) {
   
   if (!usv.size())
     return;
@@ -1182,7 +1248,6 @@ void alignReadsToContigs(SeqLib::BWAWrapper& bw, const SeqLib::UnalignedSequence
   
   // get the reference sequence
   std::vector<std::string> ref_alleles;
-  pthread_mutex_lock(&snow_lock);  
   for (auto& i : g)
     if (i.chr < 24) //1-Y
       try {
@@ -1191,7 +1256,6 @@ void alignReadsToContigs(SeqLib::BWAWrapper& bw, const SeqLib::UnalignedSequence
       } catch (...) {
 	std::cerr << "Caught exception for ref_allele on " << i << std::endl;
       }
-  pthread_mutex_unlock(&snow_lock);
   
   // make the reference allele BWAWrapper
   SeqLib::BWAWrapper bw_ref;
@@ -1304,15 +1368,12 @@ void alignReadsToContigs(SeqLib::BWAWrapper& bw, const SeqLib::UnalignedSequence
   } // end main read loop
 }
 
-SnowmanBamWalker make_walkers(const std::string& p, const SeqLib::GenomicRegion& region, CountPair& counts, SeqLib::GRC& badd, SeqLib::BFC * bfc) {
+SnowmanBamWalker make_walker(const std::string& p) {
 
   // setup the walker
   SnowmanBamWalker walk;
-  //assert(walk.SetPreloadedHTSFile(bhtsfiles[p]));
   walk.Open(opt::bam[p]);
     
-  if (opt::ec_correct_type == "f")
-    walk.bfc = bfc;
   walk.main_bwa = main_bwa;
   walk.prefix = p;
   walk.blacklist = blacklist;
@@ -1323,35 +1384,13 @@ SnowmanBamWalker make_walkers(const std::string& p, const SeqLib::GenomicRegion&
   walk.m_mr = mr; 
   walk.m_limit = opt::max_reads_per_assembly;
 
-  // set the loaded the index and jump to region
-  if (!region.IsEmpty()) {
-    assert(walk.SetPreloadedIndex(bindices[p]));
-    walk.SetRegion(region);
-  } else { // whole BAM analysis. If region file set, then set regions
-    if (file_regions.size()) {
-      assert(walk.SetPreloadedIndex(bindices[p]));
-      walk.SetMultipleRegions(file_regions);
-    } else { // no regions, literally take every read in bam
-      // default is walk all regions, so leave empty
-    }
-  }
-  
-  badd.Concat(walk.readBam(&log_file)); 
-
-  // adjust the counts
-  if (p.at(0) == 't') {
-    counts.first += walk.reads.size();
-  } else {
-    counts.second += walk.reads.size();
-  }
-
-  WRITELOG("...read in " + std::to_string(walk.reads.size()) + " reads from region " + p, opt::verbose > 1, true);
-  
   return walk;
 
 }
 
 CountPair run_mate_collection_loop(const SeqLib::GenomicRegion& region, WalkerMap& wmap, SeqLib::GRC& badd) {
+
+  SeqLib::GRC this_bad_mate_regions; // store the newly found bad mate regions
   
   CountPair counts = {0,0};
 
@@ -1361,7 +1400,7 @@ CountPair run_mate_collection_loop(const SeqLib::GenomicRegion& region, WalkerMa
   for (int jjj = 0; jjj <  MAX_MATE_ROUNDS; ++jjj) {
     
     MateRegionVector normal_mate_regions;
-    if (wmap.size() == 1) // only a case BAM
+    if (wmap.size() > 1) // have at least one control bam
       normal_mate_regions = __collect_normal_mate_regions(wmap);
     
     // get the mates from somatic 3+ mate regions
@@ -1377,8 +1416,8 @@ CountPair run_mate_collection_loop(const SeqLib::GenomicRegion& region, WalkerMa
     for (auto& s : tmp_somatic_mate_regions) {
       
       // check if its not bad from mate region
-      if (bad_mate_regions.size())
-	if (bad_mate_regions.CountOverlaps(s))
+      if (badd.size())
+	if (badd.CountOverlaps(s))
 	  continue;
 
       // check if we are allowed to lookup interchromosomal
@@ -1398,16 +1437,29 @@ CountPair run_mate_collection_loop(const SeqLib::GenomicRegion& region, WalkerMa
     
     // print out to log
     for (auto& i : somatic_mate_regions) 
-      WRITELOG("...mate region " + i.ToString() + " case read count " + std::to_string(i.count) + " on round " + std::to_string(jjj+1), opt::verbose > 1, true);
+      WRITELOG("...mate region " + i.ToString() + " case read count that triggered lookup: " + 
+	       std::to_string(i.count) + " on mate-lookup round " + std::to_string(jjj+1), opt::verbose > 1, true);
     
     // collect the reads for this round
-    std::pair<int,int> mate_read_counts = collect_mate_reads(wmap, somatic_mate_regions, jjj, badd);
+    std::pair<int,int> mate_read_counts = collect_mate_reads(wmap, somatic_mate_regions, jjj, this_bad_mate_regions);
 
     // update the counts
     counts.first += mate_read_counts.first;
     counts.second += mate_read_counts.second;
+
+    WRITELOG("\t<case found, control found>: <" + SeqLib::AddCommas(counts.first) +
+	     "," + SeqLib::AddCommas(counts.second) + "> on round " + std::to_string(jjj+1) , opt::verbose > 2, true);
     
+    if (counts.first + counts.second == 0) // didn't get anything on first round, so quit
+      break; 
+
   } // mate collection round loop
+
+  // update this threads tally of bad mate regions
+  badd.Concat(this_bad_mate_regions);
+  badd.MergeOverlappingIntervals();
+  badd.CreateTreeMap();
+  WRITELOG("\tTotal of " + SeqLib::AddCommas(badd.size()) + " bad mate regions for this thread", opt::verbose > 1, true);
 
   return counts;
 }
@@ -1448,7 +1500,7 @@ MateRegionVector __collect_somatic_mate_regions(WalkerMap& walkers, MateRegionVe
 
 void correct_reads(std::vector<char*>& learn_seqs, SeqLib::BamRecordVector brv) {
 
-  if (!learn_seqs.size()) // || opt::ec_correct_type != "s")
+  if (!learn_seqs.size())
     return;
 
   if (opt::ec_correct_type == "s") {
@@ -1488,19 +1540,17 @@ void remove_hardclips(SeqLib::BamRecordVector& brv) {
 
 void run_assembly(const SeqLib::GenomicRegion& region, SeqLib::BamRecordVector& bav_this, std::vector<AlignedContig>& master_alc, 
 		  SeqLib::BamRecordVector& master_contigs, SeqLib::BamRecordVector& master_microbial_contigs, DiscordantClusterMap& dmap,
-		  std::unordered_map<std::string, SeqLib::CigarMap>& cigmap) {
+		  std::unordered_map<std::string, SeqLib::CigarMap>& cigmap, SeqLib::RefGenome* refg) {
 
   // get the local region
   std::string lregion;
   if (!region.IsEmpty()) {
-    pthread_mutex_lock(&snow_lock);  
     try {
-      lregion = ref_genome->QueryRegion(bwa_header.IDtoName(region.chr), region.pos1, region.pos2);
+      lregion = refg->QueryRegion(bwa_header.IDtoName(region.chr), region.pos1, region.pos2);
     } catch (...) {
       WRITELOG(" Caught exception for lregion with reg " + region.ToString(), true, true);
       lregion = "";
     }
-    pthread_mutex_unlock(&snow_lock);
   }
 
   // make a BWA wrapper from the locally retrieved sequence
@@ -1664,7 +1714,7 @@ void run_assembly(const SeqLib::GenomicRegion& region, SeqLib::BamRecordVector& 
   
   if (opt::verbose > 3)
     std::cerr << "...aligning " << bav_this.size() << " reads to " << this_alc.size() << " contigs " << std::endl;
-  alignReadsToContigs(bw, usv, bav_this, this_alc, ref_genome);
+  alignReadsToContigs(bw, usv, bav_this, this_alc, refg);
   
   // Get contig coverage, discordant matching to contigs, etc
   for (auto& a : this_alc) {
@@ -1687,7 +1737,7 @@ void run_assembly(const SeqLib::GenomicRegion& region, SeqLib::BamRecordVector& 
 
 }
 
-CountPair collect_mate_reads(WalkerMap& walkers, const MateRegionVector& mrv, int round, SeqLib::GRC& badd) {
+CountPair collect_mate_reads(WalkerMap& walkers, const MateRegionVector& mrv, int round, SeqLib::GRC& this_bad_mate_regions) {
 
   CountPair counts = {0,0};  
 
@@ -1695,21 +1745,31 @@ CountPair collect_mate_reads(WalkerMap& walkers, const MateRegionVector& mrv, in
     return counts;
   
   for (auto& w : walkers) {
+
     int oreads = w.second.reads.size();
     w.second.m_limit = MATE_REGION_LOOKUP_LIMIT;
+
+    // convert MateRegionVector to GRC
     SeqLib::GRC gg;
     for (auto& s : mrv)
       gg.add(SeqLib::GenomicRegion(s.chr, s.pos1, s.pos2, s.strand));
+
     assert(w.second.SetMultipleRegions(gg));
     w.second.get_coverage = false;
     w.second.get_mate_regions = (round != MAX_MATE_ROUNDS);
-    badd.Concat(w.second.readBam(&log_file));
+
+    // clear out the current store of mate regions, since we 
+    // already added these to the to-do pile
+    w.second.mate_regions.clear();
+
+    this_bad_mate_regions.Concat(w.second.readBam(&log_file)); 
     
     // update the counts
-    if (w.first == "t") 
+    if (w.first.at(0) == 't') 
       counts.first += (w.second.reads.size() - oreads);
     else
       counts.second += (w.second.reads.size() - oreads);
+
   }
   
   return counts;
@@ -1728,6 +1788,8 @@ void collect_and_clear_reads(WalkerMap& walkers, SeqLib::BamRecordVector& brv, s
     }
     
     // concat together all of the learning sequences
+    if (opt::ec_correct_type != "s")
+      assert(!w.second.all_seqs.size());
     for (auto& r : w.second.all_seqs) {
       learn_seqs.push_back(strdup(r));
       free(r); // free what was alloced in snowmanbamwalker

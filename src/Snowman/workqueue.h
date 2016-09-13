@@ -129,7 +129,7 @@ public:
 	//printf("thread %lu, loop %d - waiting for item...\n", 
 	//     (long unsigned int)self(), i);
       T* item = (T*)m_queue.remove();
-      item->run();
+      item->run(self());
       //m_output->push_back(item->output());
       delete item;
       if (m_queue.size() == 0)
