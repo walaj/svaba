@@ -16,6 +16,7 @@
 #define MIN_ISIZE_FOR_DISCORDANT_REALIGNMENT 1000
 #define DISC_REALIGN_MATE_PAD 100
 #define MAX_SECONDARY_HIT_DISC 10
+#define MATE_REGION_PAD 250
 
 // trim this many bases from front and back of read when determining coverage
 // this should be synced with the split-read buffer in BreakPoint2 for more accurate 
@@ -39,7 +40,7 @@ void SnowmanBamWalker::addCigar(SeqLib::BamRecord &r) {
   
   for (auto& i : r.GetCigar()) {
 
-      // if it's a D or I, add it to the list
+       // if it's a D or I, add it to the list
       if (i.Type() == 'D' || i.Type() == 'I') {	
 
 	cigar_ss << r.ChrID() << "_" << pos << "_" << i.Length() << i.Type();
@@ -70,7 +71,7 @@ bool SnowmanBamWalker::isDuplicate(const SeqLib::BamRecord &r) {
 
 SeqLib::GRC SnowmanBamWalker::readBam(std::ofstream * log)
 {
-  
+
   // these are setup to only use one bam, so just shortcut it
   SeqLib::_Bam * tb = &m_bams.begin()->second;
 
@@ -108,17 +109,20 @@ SeqLib::GRC SnowmanBamWalker::readBam(std::ofstream * log)
     DEBUG("SBW read seen", r);
     
     // if hit the limit of reads, log it and try next region
-    if (reads.size() > m_limit && m_limit > 0) {
-
-      if (log)
-	(*log) << "...breaking at " << r.Brief() << 
-	  (get_mate_regions ? " in main window " : " in mate window " ) 
-	       << (m_region.size() ? m_region[tb->m_region_idx].ToString() : " whole BAM")
-	       << " with " << SeqLib::AddCommas(reads.size()) 
-	       << " weird reads. Limit: " << SeqLib::AddCommas(m_limit) << std::endl;
+     if (countr > m_limit && m_limit > 0) {
       
-      if (m_region.size())
+      if (log)
+	(*log) << "\tbreaking at " << r.Brief() << " in window " 
+	       << (m_region.size() ? m_region[tb->m_region_idx].ToString() : " whole BAM")
+	       << " with " << SeqLib::AddCommas(countr) 
+	       << " weird reads. Limit: " << SeqLib::AddCommas(m_limit) << std::endl;
+
+      if (m_region.size()) 
 	bad_regions.add(m_region[tb->m_region_idx]);
+
+      // clear these reads out
+      if ((int)reads.size() - countr > 0)
+	reads.erase(reads.begin(), reads.begin() + countr);
       
       // force it to try the next region, or return if none left
       ++tb->m_region_idx; // increment to next region
@@ -184,7 +188,6 @@ SeqLib::GRC SnowmanBamWalker::readBam(std::ofstream * log)
     if (qcpass && do_kmer_filtering && countr < ALL_READS_FAIL_SAFE && qcpass && !r.NumHardClip() && !blacklisted) {
       std::string qq = r.QualitySequence();
       bool train = pass_all && qq.length() > 40;
-      
       // if not 
       if (!pass_all) {
 	uint32_t k = __ac_Wang_hash(__ac_X31_hash_string(r.Qname().c_str()) ^ m_seed);
@@ -315,7 +318,7 @@ void SnowmanBamWalker::calculateMateRegions() {
       continue;
     
     MateRegion mate(r.MateChrID(), r.MatePosition(), r.MatePosition());
-    mate.Pad(500);
+    mate.Pad(MATE_REGION_PAD);
     mate.partner = main_region;
     
     // if mate not in main interval, add a padded version
