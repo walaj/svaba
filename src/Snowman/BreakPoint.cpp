@@ -7,8 +7,9 @@
 #include "gzstream.h"
 #include "SnowmanUtils.h"
 
-//#define T_SPLIT_BUFF 15
-//#define N_SPLIT_BUFF 8
+#define MAX_ERROR 0.04
+#define MIN_ERROR 0.0005
+
 #define T_SPLIT_BUFF 8
 #define N_SPLIT_BUFF 8
 // if the insertion is this big or larger, don't require splits to span both sides
@@ -621,6 +622,7 @@ std::ostream& operator<<(std::ostream& out, const BreakPoint& b) {
   }
   
 BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
+    sub_n = b.GetIntTag("SQ");
     gr.chr = b.ChrID(); 
     gr.pos1 = -1;
     gr.pos2 = -1;
@@ -818,6 +820,8 @@ BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
   
   if (evidence == "INDEL") {
     
+    // this is LOD of normal being REF vs AF = 0.5+
+    // We want this to be high for a somatic call
     somatic_lod = n.LO_n;
 
     if (rs.empty())
@@ -852,8 +856,6 @@ BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
   double r = n.alt > 0 ? (double)t.alt / (double)n.alt : 100;
   if (r < 10)
     somatic_score = 0;
-
-  //std::cout << " n.alt " << n.alt << " n.disc " << n.disc << " n.split " << n.split << " somatic_score " << somatic_score << " cname " << cname << " somatic ratio " << somatic_ratio << " ncount " << ncount << " r artio " r << std::endl;
 
 }
 
@@ -986,16 +988,23 @@ BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
     assert(confidence.length());
   }
 
-  void BreakPoint::__score_indel(double LOD_CUTOFF) {
+void BreakPoint::__score_indel(double LOD_CUTOFF, double LOD_CUTOFF_DBSNP) {
 
     assert(b1.mapq == b2.mapq);
+
+    bool is_refilter = !confidence.empty(); // act differently if this is refilter runx
     
+    // for refilter, only consider ones that were low lod or PASS
+    // ie ones that with a different lod threshold may be changed
+    // if confidence is empty, this is original run so keep going
+    if (confidence != "LOWLOD" && confidence != "PASS" && is_refilter)
+      return;
+
     //double ratio = n.alt > 0 ? t.alt / n.alt : 100;
 
     double max_lod = 0;
-    for (auto& s : allele) {
+    for (auto& s : allele) 
       max_lod = std::max(max_lod, s.second.LO);
-    }
 
     double af_t = t.cov > 0 ? (double)t.alt / (double)t.cov : 0;
     double af_n = n.cov > 0 ? (double)n.alt / (double)n.cov : 0;
@@ -1003,31 +1012,39 @@ BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
 
     if (b1.mapq < 10) // || std::max(b1.nm, b2.nm) > 6)
       confidence="LOWMAPQ";
-    else if (max_lod < LOD_CUTOFF) 
+    else if (!is_refilter && (double)aligned_covered / (double)seq.length() < 0.80) // less than 80% of read is covered by some alignment
+      confidence = "LOWAS";  
+    else if ((b1.sub_n && b1.mapq < 50) || (b2.sub_n && b2.mapq < 50)) 
+      confidence = "MULTIMATCH";      
+    else if (max_lod < LOD_CUTOFF && rs.empty()) // non db snp site
+      confidence = "LOWLOD";
+    else if (max_lod < LOD_CUTOFF_DBSNP && !rs.empty()) // be more permissive for dbsnp site
       confidence = "LOWLOD";
     else if (af < 0.05) // if really low AF, get rid of 
       confidence = "VLOWAF";
-    else if (std::min(left_match, right_match) < 20) 
+    else if (!is_refilter && std::min(left_match, right_match) < 20) 
       confidence = "SHORTALIGNMENT"; // no conf in indel if match on either side is too small
     else
       confidence="PASS";
     
   }
 
-  void BreakPoint::scoreBreakpoint(double LOD_CUTOFF, double DBCUTOFF, double NODBCUTOFF, double LRCUTOFF, int min_dscrd_size) {
+  // LOD cutoff is just whether this is ref / alt
+  // LOD cutoff dbsnp is same, but at DBSNP site (should be lower threshold since we have prior)
+  // LOD SOM cutoff is cutoff for whether NORMAL BAM(s) are AF = 0
+  // LOD SOM DBSNP cutoff same as above, but at DBSNP site (should be HIGHER threshold,
+  //   since we have prior that it's NOT somatic
+void BreakPoint::scoreBreakpoint(double LOD_CUTOFF, double LOD_CUTOFF_DBSNP, double LOD_CUTOFF_SOMATIC, double LOD_CUTOFF_SOMATIC_DBSNP, double scale_errors, int min_dscrd_size) {
     
     // set the evidence (INDEL, DSCRD, etc)
     __set_evidence();
     
-    // ensure that breakpoint is oriented
-    assert(valid()); 
-
     // 
-    double er = repeat_seq.length() > 10 ? 0.04 : ERROR_RATES[repeat_seq.length()];
-    if (evidence == "INDEL" || true)
-      for (auto& i : allele) {
-	i.second.modelSelection(er);
-      }
+    double er = repeat_seq.length() > 10 ? MAX_ERROR : ERROR_RATES[repeat_seq.length()];
+    er *= scale_errors;
+    er = er == 0 ? MIN_ERROR : er; // enforce a minimum error
+    for (auto& i : allele) 
+      i.second.modelSelection(er);
     __combine_alleles();
 
     // kludge. make sure we have included the DC counts (should have done this arleady...)
@@ -1048,13 +1065,9 @@ BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
    
     // sanity check
     int split =0;
-    for (auto& i : allele) {
+    for (auto& i : allele) 
       split += i.second.split;
-    }
     assert( (split == 0 && t.split == 0 && n.split==0) || (split > 0 && (t.split + n.split > 0)));
-
-
-    //__set_total_reads();
 
     // do the scoring
     if (evidence == "ASSMB" || (evidence == "COMPL" && (dc.ncount + dc.tcount)==0))
@@ -1066,17 +1079,11 @@ BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
     if (evidence == "ASDIS" && confidence != "PASS") {
       evidence = "DSCRD";
       __score_dscrd(min_dscrd_size);
-    }
+    } else if (evidence == "INDEL") 
+      __score_indel(LOD_CUTOFF, LOD_CUTOFF_DBSNP);
 
-    if (evidence == "INDEL") 
-      __score_indel(LOD_CUTOFF);
-    // else {
-    //   std::cerr << "evidence " << evidence << std::endl;
-    //   std::cerr << "BreakPoint not classified. Exiting" << std::endl;
-    //   exit(EXIT_FAILURE);
-    // }
-
-    __score_somatic(NODBCUTOFF, DBCUTOFF);
+    // 
+    __score_somatic(LOD_CUTOFF_SOMATIC, LOD_CUTOFF_SOMATIC_DBSNP);
 
     if (confidence == "PASS")
       quality = 99;
@@ -1089,12 +1096,6 @@ BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
       // neg because want to evaluate likelihood that is ALT in normal 
       // the original use was to get LL that is REF in normal (in order to call somatic)
       // but for next filter, we want to see if we are confident in the germline call
-    }
-
-    // for the germline hits, check now that they have a high LR score (that they are AF of 0.5+, as expected for germline)
-    if (!somatic_score && num_align == 1) {
-      if (LR < LRCUTOFF)
-	confidence = "GERMLOWAF";
     }
 
     assert(getSpan() > -2);
@@ -1441,6 +1442,16 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
 
   double SampleInfo::__log_likelihood(int ref, int alt, double f, double e) {
     
+    // less negative log-likelihoods means more likely
+    // eg for low error rate, odds that you see 5 ALT and 5 REF
+    // if you are testing for AF = 0 is going to be very low (eg -40)
+    // To test if something is true, we want to test the log-likelihood that
+    // it's AF is != 0, so we test LL(ref, alt, AF=0, er). If this is 
+    // a large negative number, it means that AF = 0 is very unlikely.
+    // If we use a larger error rate, then it is more likely that we will
+    // see ALT reads even if true AF = 0, so as ER goes up, then 
+    // LL(ref, alt, AF=0, er) becomes less negative.
+
     // mutect log liklihood against error
     double ll = 0;
     const double back_mutate_chance = 0; // this should be zero? assume indel never accidentally back mutates
@@ -1478,21 +1489,34 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
     af = af > 1 ? 1 : af;
 
     // mutect log liklihood against error
-    double ll_alt = __log_likelihood(cov - alt, alt, af    , er);
-    double ll_err = __log_likelihood(cov - alt, alt, 0, er);
-    LO = ll_alt - ll_err;
+    // how likely to see these ALT counts if true AF is af
+    // vs how likely to see these ALT counts if true AF is 0
+    // and all the ALTs are just errors. 
+    // The higher the error rate, the more negative ll_alt will go,
+    // which will drive LO lower and decrease our confidence.
+    // A high er will also drive ll_err up (or less negative), since
+    // it will be more likely to see ALT reads generated by errors
+    // As ALT and COV go higher, we should see LO go higher because
+    // the indiviual calcs will have more confidence. Ultimately,
+    // LO will represent the log likeihood that the variant is AF = af
+    // vs AF = 0 
+    double ll_alt = __log_likelihood(cov - alt, alt, af, er);
+    double ll_err = __log_likelihood(cov - alt, alt, 0 , er);
+    LO = ll_alt - ll_err; 
 
     //mutetct log likelihood normal
     //er = 0.0005; // make this low, so that ALT in REF is rare and NORM in TUM gives low somatic prob
     // actually, dont' worry about it too much. 3+ alt in ref excludes somatic anyways.
-    double ll_alt_norm = __log_likelihood(cov - alt, alt, std::max(0.5, af), er); // likelihood that variant is 0.5 or above
-    double ll_ref_norm = __log_likelihood(cov - alt, alt, 0  , er);
-    LO_n = ll_ref_norm - ll_alt_norm; // higher number means more likely to be REF than ALT
-
-    //std::cerr << LO_n << " ll_ref_norm " << ll_ref_norm << " ll_alt_norm " << ll_alt_norm << 
-    //  " cov-al " << (cov-alt) << " alt " << alt << " er " << er << " test 100 " << 
-    //  __log_likelihood(100, 100, 0, 0) << " " << __log_likelihood(100, 100, 0.5, 0) << std::endl;
-
+    // so a high LO_n for the normal means that we are very confident that site is REF only in 
+    // normal sample. This is why LO_n from the normal can be used as a discriminant for 
+    // germline vs somatic. eg if somatic_lod = normal.LO_n is above a threshold X
+    // or above a larger threshold XX if at DBSNP site, then we accept as somatic
+    // LO_n should not be used for setting the confidence that something is real, just the 
+    // confidence that it is somatic
+    double ll_alt_norm = __log_likelihood(cov - alt, alt, std::max(0.5, af), er); // likelihood that variant is 0.5
+    double ll_ref_norm = __log_likelihood(cov - alt, alt, 0                , er); // likelihood that varaint is actually true REF
+    LO_n = ll_ref_norm - ll_alt_norm; // higher number means more likely to be AF = 0 (ref) than AF = 0.5 (alt). 
+    
     // genotype calculation as provided in 
     // http://bioinformatics.oxfordjournals.org/content/early/2011/09/08/bioinformatics.btr509.full.pdf+html
     int scaled_cov = std::floor((double)cov * 0.90);
@@ -1579,7 +1603,6 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
     a = t + n;
     
     double er = repeat_seq.length() > 10 ? 0.04 : ERROR_RATES[repeat_seq.length()];
-    //a.modelSelection(er);
     t.modelSelection(er);
     n.modelSelection(er);
     

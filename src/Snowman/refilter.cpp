@@ -1,4 +1,5 @@
 #include "refilter.h"
+#include "DBSnpFilter.h"
 
 #include <getopt.h>
 #include <sstream>
@@ -12,6 +13,7 @@
 #include "SnowmanUtils.h"
 
 
+static DBSnpFilter * dbsnp_filter;
 static ogzstream os_allbps_r;
 
 namespace opt {
@@ -20,7 +22,7 @@ namespace opt {
   static std::string output_file;
   static std::string pon = "";
   static std::string analysis_id = "refilter";
-  static bool noreads = false;
+  static bool read_tracking = false;
   static std::string indel_mask;
 
   static std::string ref_index = "/seq/references/Homo_sapiens_assembly19/v1/Homo_sapiens_assembly19.fasta";
@@ -30,40 +32,45 @@ namespace opt {
 
   static std::string bam;
 
+  static std::string dbsnp; // = "/xchip/gistic/Jeremiah/SnowmanFilters/dbsnp_138.b37_indel.vcf";
+
   static int verbose = 1;
 
-  static double lod = 8;
-  static double lod_db = 7;
-  static double lod_no_db = 2.5;
-  static double lod_germ = 3;
+  // indel probability cutoffs
+  static double lod = 8; // LOD that variant is not ref
+  static double lod_db = 6; // same, but at DB snp site (want lower bc we have prior)
+  static double lod_somatic = 2.5; // LOD that normal is REF
+  static double lod_somatic_db = 4; // same, but at DBSNP (want higher bc we have prior that its germline)
+  static double scale_error = 1; 
 }
 
 enum { 
   OPT_LOD,
-  OPT_DLOD,
-  OPT_NDLOD,
-  OPT_LODGERM
+  OPT_LOD_DB,
+  OPT_LOD_SOMATIC,
+  OPT_LOD_SOMATIC_DB,
+  OPT_READ_TRACK,
+  OPT_SCALE_ERRORS
 };
 
 
-static const char* shortopts = "hxi:a:v:q:g:m:b:";
+static const char* shortopts = "hi:a:v:g:D:b:";
 static const struct option longopts[] = {
   { "help",                    no_argument, NULL, 'h' },
   { "input-bps",               required_argument, NULL, 'i'},
   { "bam",                     required_argument, NULL, 'b'},
-  { "panel-of-normals",        required_argument, NULL, 'q'},
-  { "tumor-bam",               required_argument, NULL, 't' },
-  { "normal-bam",               required_argument, NULL, 'n' },
-  { "indel-mask",              required_argument, NULL, 'm'},
+  { "case-bam",                required_argument, NULL, 't' },
+  { "control-bam",             required_argument, NULL, 'n' },
   { "reference-genome",        required_argument, NULL, 'g'},
   { "analysis-id",             required_argument, NULL, 'a'},
-  { "no-reads",                no_argument, NULL, 'x'},
   { "verbose",                 required_argument, NULL, 'v' },
-  { "lod",                   required_argument, NULL, OPT_LOD },
-  { "lod-dbsnp",             required_argument, NULL, OPT_DLOD },
-  { "lod-no-dbsnp",          required_argument, NULL, OPT_NDLOD },
-  { "lod-germ",          required_argument, NULL, OPT_LODGERM },
-
+  { "lod",                     required_argument, NULL, OPT_LOD },
+  { "lod-dbsnp",               required_argument, NULL, OPT_LOD_DB },
+  { "lod-somatic",             required_argument, NULL, OPT_LOD_SOMATIC },
+  { "lod-somatic-dbsnp",       required_argument, NULL, OPT_LOD_SOMATIC_DB },
+  { "scale-errors",            required_argument, NULL, OPT_SCALE_ERRORS },
+  { "read-tracking",           no_argument, NULL, OPT_READ_TRACK },
+  { "dbsnp-vcf",               required_argument, NULL, 'D' },
   { NULL, 0, NULL, 0 }
 };
 
@@ -77,18 +84,24 @@ static const char *BP_USAGE_MESSAGE =
 "  -h, --help                           Display this help and exit\n"
 "  -g, --reference-genome               Path to indexed reference genome to be used by BWA-MEM. Default is Broad hg19 (/seq/reference/...)\n"
 "  -b, --opt-bam                        Input BAM file to get header from\n"
+"  -a, --id-string                      String specifying the analysis ID to be used as part of ID common.\n"
 "  Required input\n"
 "  -i, --input-bps                      Original bps.txt.gz file\n"
 "  -b, --bam                            BAM file used to grab header from\n"
+"  Optional external database\n"
+"  -D, --dbsnp-vcf                      DBsnp database (VCF) to compare indels against\n"
+"  -B, --blacklist                      BED-file with blacklisted regions to not extract any reads from.\n"
+"  -Y, --microbial-genome               Path to indexed reference genome of microbial sequences to be used by BWA-MEM to filter reads.\n"
+"  -V, --germline-sv-database           BED file containing sites of known germline SVs. Used as additional filter for somatic SV detection\n"
+"  -R, --simple-seq-database            BED file containing sites of simple DNA that can confuse the contig re-alignment.\n"
 "  Variant filtering and classification\n"
-"      --lod                            LOD cutoff to classify indel as real / artifact [8]\n"
-"      --lod-dbsnp                      LOD cutoff to classify indel as somatic (at DBsnp site) [7]\n"
-"      --lod-no-dbsnp                   LOD cutoff to classify indel as somatic (not at DBsnp site) [2.5]\n"
+"      --lod                            LOD cutoff to classify indel as non-REF (tests AF=0 vs AF=MaxLikelihood(AF)) [8]\n"
+"      --lod-dbsnp                      LOD cutoff to classify indel as non-REF (tests AF=0 vs AF=MaxLikelihood(AF)) at DBSnp indel site [5]\n"
+"      --lod-somatic                    LOD cutoff to classify indel as somatic (tests AF=0 in normal vs AF=ML(0.5)) [2.5]\n"
+"      --lod-somatic-dbsnp              LOD cutoff to classify indel as somatic (tests AF=0 in normal vs AF=ML(0.5)) at DBSnp indel site [4]\n"
+"      --scale-errors                   Scale the priors that a site is artifact at given repeat count. 0 means assume low (const) error rate [1]\n"
 "  Optional input\n"                       
-"  -q, --panel-of-normals               Panel of normals files generated from snowman pon\n"                       
-"  -a, --id-string                      String specifying the analysis ID to be used as part of ID common.\n"
-"  -x, --no-reads                       Flag to turn off recording of supporting reads. Setting this flag greatly reduces file size.\n"
-"  -m, --indel-mask                     BED-file with blacklisted regions for indel calling. Default none\n"
+"      --read-tracking                  Track supporting reads by qname. Increases file sizes. [off]\n"
 "\n";
 
 // parse the command line options
@@ -104,16 +117,16 @@ void parseBreakOptions(int argc, char** argv) {
     switch (c) {
     case 'h': die = true; break;
     case 'g': arg >> opt::ref_index; break;
-    case 'm': arg >> opt::indel_mask; break;
     case 'i': arg >> opt::input_file; break;
     case 'v': arg >> opt::verbose; break;
-    case 'q': arg >> opt::pon; break;
     case 'a': arg >> opt::analysis_id; break;
-    case 'x': opt::noreads = true; break;
+    case 'D': arg >> opt::dbsnp; break;
     case OPT_LOD: arg >> opt::lod; break;
-    case OPT_DLOD: arg >> opt::lod_db; break;
-    case OPT_NDLOD: arg >> opt::lod_no_db; break;
-    case OPT_LODGERM: arg >> opt::lod_germ; break;
+    case OPT_LOD_DB: arg >> opt::lod_db; break;
+    case OPT_LOD_SOMATIC: arg >> opt::lod_somatic; break;
+    case OPT_LOD_SOMATIC_DB: arg >> opt::lod_somatic_db; break;
+    case OPT_READ_TRACK: opt::read_tracking = false; break;
+    case OPT_SCALE_ERRORS: arg >> opt::scale_error; break;
     case 'b': arg >> opt::bam; break; 
     }
   }
@@ -138,16 +151,17 @@ void runRefilterBreakpoints(int argc, char** argv) {
   
   opt::output_file = opt::analysis_id + ".filtered.bps.txt.gz";
   if (opt::verbose > 0) {
+
     std::cerr << "Input bps file:  " << opt::input_file << std::endl;
     std::cerr << "Output bps file: " << opt::output_file << std::endl;
     std::cerr << "Panel of normals file: " << opt::pon << std::endl;
     std::cerr << "Indel mask BED:      " << opt::indel_mask << std::endl;
-    std::cerr << "Analysis id: " << opt::analysis_id << std::endl;
-    std::cerr << "    LOD cutoff (artifact vs real) :  " << opt::lod << std::endl << 
-    "    LOD cutoff (somatic, at DBSNP):  " << opt::lod_db << std::endl << 
-    "    LOD cutoff (somatic, no DBSNP):  " << opt::lod_no_db << std::endl <<
-    "    LOD cutoff (germline, AF>=0.5 vs AF=0):  " << opt::lod_germ << std::endl;
-
+    std::cerr << "Analysis id: " << opt::analysis_id << std::endl << 
+      "    LOD cutoff (non-REF):            " << opt::lod << std::endl << 
+      "    LOD cutoff (non-REF, at DBSNP):  " << opt::lod_db << std::endl << 
+      "    LOD somatic cutoff:              " << opt::lod_somatic << std::endl << 
+      "    LOD somatic cutoff (at DBSNP):   " << opt::lod_somatic_db << std::endl << 
+      "    DBSNP Database file: " << opt::dbsnp << std::endl;
   }
 
     
@@ -159,34 +173,13 @@ void runRefilterBreakpoints(int argc, char** argv) {
   SeqLib::BamReader bwalker;
   assert(bwalker.Open(opt::bam));
 
-  // load the reference index
-  //if (opt::verbose > 0)
-  //  std::cerr << "attempting to load: " << opt::ref_index << std::endl;
-  //faidx_t * findex = fai_load(opt::ref_index.c_str());  // load the reference
-  
-  // open the output file
-  /*igzstream iz(opt::input_file.c_str());
-  if (!iz) {
-    std::cerr << "Can't read file " << opt::input_file << std::endl;
-    exit(EXIT_FAILURE);
+  // open the DBSnpFilter
+  if (opt::dbsnp.length()) {
+    std::cerr << "...loading the DBsnp database" << std::endl;
+    dbsnp_filter = new DBSnpFilter(opt::dbsnp, bwalker.Header());
+    std::cerr << "...loaded DBsnp database" << std::endl;
   }
-  */
-  // read in the PON
-  //std::unique_ptr<SnowTools::PON> pmap;
-  //SnowTools::BreakPoint::readPON(opt::pon, pmap);
-  
-  // read the indel mask
-  //GenomicIntervalTreeMap grm_mask;
-  if (!SeqLib::read_access_test(opt::indel_mask) && opt::indel_mask.length()) {
-    std::cerr << "indel mask " << opt::indel_mask << " does not exist / is not readable. Skipping indel masking."  << std::endl;
-    opt::indel_mask = "";
-  }
-  
-  SeqLib::GRC grv_mask;
-  if (opt::indel_mask.length()) 
-    grv_mask = SeqLib::GRC(opt::indel_mask, bwalker.Header());
-  //grv_mask.regionFileToGRV(opt::indel_mask, 0, NULL);
- 
+
   VCFHeader header;
   header.filedate = SnowmanUtils::fileDateString();
   header.source = "";//opt::args;
@@ -203,7 +196,7 @@ void runRefilterBreakpoints(int argc, char** argv) {
   igzstream infile(opt::input_file.c_str(), std::ios::in);
   size_t line_count = 0;
   while (getline(infile, line, '\n')) {
-    if (line_count == 0) {
+    if (line_count == 0) { // read the header
       os_allbps_r << line << std::endl;
       std::istringstream f(line);
       size_t scount = 0;
@@ -234,9 +227,13 @@ void runRefilterBreakpoints(int argc, char** argv) {
 	    bp->dc.tcount += i.second.disc;
 	}
 
+	// match against DBsnp database. Modify bp in place
+	if (dbsnp_filter && opt::dbsnp.length()) 
+	  dbsnp_filter->queryBreakpoint(*bp);
+
 	// score them
-	bp->scoreBreakpoint(opt::lod, opt::lod_db, opt::lod_no_db, opt::lod_germ, 0);
-	os_allbps_r << bp->toFileString(/*opt::no_reads*/false) << std::endl;
+	bp->scoreBreakpoint(opt::lod, opt::lod_db, opt::lod_somatic, opt::lod_somatic_db, opt::scale_error, 0);
+	os_allbps_r << bp->toFileString(!opt::read_tracking) << std::endl;
 	delete bp;
       }
     ++line_count;
@@ -250,89 +247,18 @@ void runRefilterBreakpoints(int argc, char** argv) {
     if (opt::verbose)
       std::cerr << "...making the primary VCFs (unfiltered and filtered) from file " << new_bps_file << std::endl;
     VCFFile snowvcf(new_bps_file, opt::analysis_id, bwalker.Header(), header);
+ 
     std::string basename = opt::analysis_id + ".snowman.unfiltered.";
     snowvcf.include_nonpass = true;
-    snowvcf.writeIndels(basename, false, false);
-    snowvcf.writeSVs(basename, false, false);
+    snowvcf.writeIndels(basename, false, allele_names.size() == 1);
+    snowvcf.writeSVs(basename, false, allele_names.size() == 1);
 
     basename = opt::analysis_id + ".snowman.";
     snowvcf.include_nonpass = false;
-    snowvcf.writeIndels(basename, false, false);
-    snowvcf.writeSVs(basename, false, false);
+    snowvcf.writeIndels(basename, false, allele_names.size() == 1);
+    snowvcf.writeSVs(basename, false, allele_names.size() == 1);
 
   } else {
     std::cerr << "Failed to make VCF. Could not file bps file " << opt::input_file << std::endl;
   }
-
-
-  /*
- 
-  ogzstream oz(opt::output_file.c_str(), std::ios::out);
-  if (!oz) {
-    std::cerr << "Can't write to output file " << opt::output_file << std::endl;
-    exit(EXIT_FAILURE);
-  }
-  
-  if (opt::verbose)
-    std::cerr << "...refiltering variants" << std::endl;
-  
-  // set the header
-  oz << SnowTools::BreakPoint::header() << std::endl;
-  
-  std::string line;
-
-  //skip the header
-  std::getline(iz, line, '\n');
-  
-  size_t count = 0;
-  while (std::getline(iz, line, '\n')) {
-    
-    if (++count % 10000 == 1 && opt::verbose > 0)
-      std::cerr << "filtering breakpoint " << SnowTools::AddCommas(count) << std::endl;
-    
-    SnowTools::BreakPoint bp(line, bwalker.header());
-    
-    // check if in panel of normals
-    //bp.checkPon(pmap);
-    
-    // check for blacklist
-    bp.checkBlacklist(grv_mask);
-    
-    // check for repeat sequence
-    if (bp.b1.gr.chr < 24) {
-      SnowTools::GenomicRegion gr = bp.b1.gr;
-      gr.pad(20);
-      
-      // get the reference seqeuence for this piece
-      //int len;
-      //std::string chrstring = SnowTools::GenomicRegion::chrToString(gr.chr);
-      //char * seq = faidx_fetch_seq(findex, const_cast<char*>(chrstring.c_str()), gr.pos1-1, gr.pos2-1, &len);
-      //if (!seq) {
-      //std::cerr <<  "faidx_fetch_seq fail" << std::endl;
-      //}
-      //std::string seqr = std::string(seq);
-
-      //for (auto& i : repr)
-      //if (seqr.find(i) != std::string::npos)
-      //	  bp.repeat_seq = i;
-      
-    }
-    
-    //if (bp.hasMinimal() && bp.b1.gr.chr < 24 && bp.gr2.chr < 24)
-    oz << bp.toFileString(opt::noreads) << std::endl;
-  }
-  
-  oz.close();
-  */
-  // make the VCF files
-  /*
-    if (opt::verbose)
-    std::cerr << "...converting filtered.bps.txt.gz to vcf files" << std::endl;
-    VCFFile filtered_vcf(opt::output_file, opt::ref_index.c_str(), '\t', opt::analysis_id);
-    
-    // output the vcfs
-      string basename = opt::analysis_id + ".broad-snowman.DATECODE.filtered.";
-      filtered_vcf.writeIndels(basename, true); // zip them -> true
-      filtered_vcf.writeSVs(basename, true);
-  */
 }

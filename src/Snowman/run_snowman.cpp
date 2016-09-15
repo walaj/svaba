@@ -118,7 +118,7 @@ namespace opt {
   static bool write_extracted_reads = false;
   static bool write_corrected_reads = false;
   static bool zip = false;
-  static bool read_tracking = true; // turn on output of qnames
+  static bool read_tracking = false; // turn on output of qnames
   static bool all_contigs = false;  // output all contigs
 
   // discordant clustering params
@@ -158,7 +158,7 @@ namespace opt {
   // data
   static BamMap bam;
   static std::string refgenome = "/seq/references/Homo_sapiens_assembly19/v1/Homo_sapiens_assembly19.fasta";
-  static std::string microbegenome; //"/xchip/gistic/Jeremiah/Projects/SnowmanFilters/viral.1.1.genomic_ns.fna";  
+  static std::string microbegenome = "/xchip/gistic/Jeremiah/Projects/SnowmanFilters/viral.1.1.genomic_ns.fna";
   static std::string simple_file; //  file of simple repeats as a filter
   static std::string blacklist; // = "/xchip/gistic/Jeremiah/Projects/HengLiMask/um75-hs37d5.bed.gz";
   static std::string germline_sv_file;
@@ -169,19 +169,20 @@ namespace opt {
   static bool germline = false; 
   
   // indel probability cutoffs
-  static double lod = 8;
-  static double lod_db = 7;
-  static double lod_no_db = 2.5;
-  static double lod_germ = 3;
+  static double lod = 8; // LOD that variant is not ref
+  static double lod_db = 6; // same, but at DB snp site (want lower bc we have prior)
+  static double lod_somatic = 2.5; // LOD that normal is REF
+  static double lod_somatic_db = 4; // same, but at DBSNP (want higher bc we have prior that its germline)
+  static double scale_error = 1; // how much to emphasize erorrs. 1 is standard. 0 is assume no errors
 
 }
 
 enum { 
   OPT_ASQG,
   OPT_LOD,
-  OPT_DLOD,
-  OPT_NDLOD,
-  OPT_LODGERM,
+  OPT_LOD_DB,
+  OPT_LOD_SOMATIC,
+  OPT_LOD_SOMATIC_DB,
   OPT_DISC_CLUSTER_ONLY,
   OPT_READ_TRACK,
   OPT_EC_SUBSAMPLE,
@@ -198,7 +199,8 @@ enum {
   OPT_RESEED_TRIGGER,
   OPT_CLIP5,
   OPT_CLIP3,
-  OPT_GERMLINE
+  OPT_GERMLINE,
+  OPT_SCALE_ERRORS
 };
 
 static const char* shortopts = "hzIAt:n:p:v:r:G:e:k:c:a:m:B:D:Y:S:L:s:V:R:K:E:C:x:";
@@ -226,7 +228,7 @@ static const struct option longopts[] = {
   { "no-interchrom-lookup",    no_argument, NULL, 'I' },
   { "read-tracking",           no_argument, NULL, OPT_READ_TRACK },
   { "gap-open-penalty",        required_argument, NULL, OPT_GAP_OPEN },
-  { "ec-subsample",          required_argument, NULL, 'E' },
+  { "ec-subsample",            required_argument, NULL, 'E' },
   { "bwa-match-score",         required_argument, NULL, OPT_MATCH_SCORE },
   { "gap-extension-penalty",   required_argument, NULL, OPT_GAP_EXTENSION },
   { "mismatch-penalty",        required_argument, NULL, OPT_MISMATCH },
@@ -235,21 +237,22 @@ static const struct option longopts[] = {
   { "penalty-clip-3",          required_argument, NULL, OPT_CLIP3 },
   { "penalty-clip-5",          required_argument, NULL, OPT_CLIP5 },
   { "bandwidth",               required_argument, NULL, OPT_BANDWIDTH },
-  { "write-extracted-reads", no_argument, NULL, OPT_WRITE_EXTRACTED_READS },
-  { "lod",                   required_argument, NULL, OPT_LOD },
-  { "lod-dbsnp",             required_argument, NULL, OPT_DLOD },
-  { "lod-no-dbsnp",          required_argument, NULL, OPT_NDLOD },
-  { "lod-germ",              required_argument, NULL, OPT_LODGERM },
-  { "discordant-only",       no_argument, NULL, OPT_DISCORDANT_ONLY },
-  { "num-to-sample",         required_argument, NULL, OPT_NUM_TO_SAMPLE },
-  { "write-asqg",            no_argument, NULL, OPT_ASQG   },
-  { "ec-correct-type",     required_argument, NULL, 'K'},
-  { "error-rate",            required_argument, NULL, 'e'},
-  { "verbose",               required_argument, NULL, 'v' },
-  { "blacklist",             required_argument, NULL, 'B' },
-  { "max-coverage",          required_argument, NULL, 'C' },
-  { "max-reads",          required_argument, NULL, 'x' },
-  { "num-assembly-rounds",   required_argument, NULL, OPT_NUM_ASSEMBLY_ROUNDS },
+  { "write-extracted-reads",   no_argument, NULL, OPT_WRITE_EXTRACTED_READS },
+  { "lod",                     required_argument, NULL, OPT_LOD },
+  { "lod-dbsnp",               required_argument, NULL, OPT_LOD_DB },
+  { "lod-somatic",             required_argument, NULL, OPT_LOD_SOMATIC },
+  { "lod-somatic-dbsnp",       required_argument, NULL, OPT_LOD_SOMATIC_DB },
+  { "scale-errors",            required_argument, NULL, OPT_SCALE_ERRORS },
+  { "discordant-only",         no_argument, NULL, OPT_DISCORDANT_ONLY },
+  { "num-to-sample",           required_argument, NULL, OPT_NUM_TO_SAMPLE },
+  { "write-asqg",              no_argument, NULL, OPT_ASQG   },
+  { "ec-correct-type",         required_argument, NULL, 'K'},
+  { "error-rate",              required_argument, NULL, 'e'},
+  { "verbose",                 required_argument, NULL, 'v' },
+  { "blacklist",               required_argument, NULL, 'B' },
+  { "max-coverage",            required_argument, NULL, 'C' },
+  { "max-reads",               required_argument, NULL, 'x' },
+  { "num-assembly-rounds",     required_argument, NULL, OPT_NUM_ASSEMBLY_ROUNDS },
   { NULL, 0, NULL, 0 }
 };
 
@@ -269,10 +272,11 @@ static const char *RUN_USAGE_MESSAGE =
 "  -k, --region                         Run on targeted intervals. Accepts BED file or Samtools-style stringn"
 "      --germline                       Sets recommended settings for case-only analysis (eg germline). (-I, -L5, assembles NM >= 3 reads)"
 "  Variant filtering and classification\n"
-"      --lod                            LOD cutoff to classify indel as real / artifact (tests AF=0 vs AF=MaxLikelihood(AF)) [8]\n"
-"      --lod-dbsnp                      LOD cutoff to classify indel as somatic (at DBsnp site) [7]\n"
-"      --lod-no-dbsnp                   LOD cutoff to classify indel as somatic (not at DBsnp site) [2.5]\n"
-"      --lod-germ                       LOD cutoff for germline indels that variant is real (tests AF=0 vs AF=0.5)[3]\n"
+"      --lod                            LOD cutoff to classify indel as non-REF (tests AF=0 vs AF=MaxLikelihood(AF)) [8]\n"
+"      --lod-dbsnp                      LOD cutoff to classify indel as non-REF (tests AF=0 vs AF=MaxLikelihood(AF)) at DBSnp indel site [5]\n"
+"      --lod-somatic                    LOD cutoff to classify indel as somatic (tests AF=0 in normal vs AF=ML(0.5)) [2.5]\n"
+"      --lod-somatic-dbsnp              LOD cutoff to classify indel as somatic (tests AF=0 in normal vs AF=ML(0.5)) at DBSnp indel site [4]\n"
+"      --scale-errors                   Scale the priors that a site is artifact at given repeat count. 0 means assume low (const) error rate [1]\n"
 "  Additional options\n"                       
 "  -L, --mate-lookup-min                Minimum number of somatic reads required to attempt mate-region lookup [3]\n"
 "  -s, --disc-sd-cutoff                 Number of standard deviations of calculated insert-size distribution to consider discordant. [3.92]\n"
@@ -353,10 +357,10 @@ void runSnowman(int argc, char** argv) {
     "    Discordant read extract SD cutoff:  " << opt::sd_disc_cutoff << std::endl << 
     "    Discordant cluster std-dev cutoff:  " << (opt::sd_disc_cutoff * 1.5) << std::endl << 
     "    Minimum number of reads for mate lookup " << opt::mate_lookup_min << std::endl <<
-    "    LOD cutoff (artifact vs real) :  " << opt::lod << std::endl << 
-    "    LOD cutoff (somatic vs germline, at DBSNP):  " << opt::lod_db << std::endl << 
-    "    LOD cutoff (somatic vs germlin, no DBSNP):  " << opt::lod_no_db << std::endl << 
-    "    LOD cutoff (germline, AF>=0.5 vs AF=0):  " << opt::lod_germ << std::endl <<
+    "    LOD cutoff (non-REF):            " << opt::lod << std::endl << 
+    "    LOD cutoff (non-REF, at DBSNP):  " << opt::lod_db << std::endl << 
+    "    LOD somatic cutoff:              " << opt::lod_somatic << std::endl << 
+    "    LOD somatic cutoff (at DBSNP):   " << opt::lod_somatic_db << std::endl <<
     "    BWA-MEM params:" << std::endl <<
     "      Gap open penalty: " << opt::bwa::gap_open_penalty << std::endl << 
     "      Gap extension penalty: " << opt::bwa::gap_extension_penalty << std::endl <<
@@ -741,9 +745,10 @@ void parseRunOptions(int argc, char** argv) {
 	}
     case OPT_ASQG: opt::sga::writeASQG = true; break;
     case OPT_LOD: arg >> opt::lod; break;
-    case OPT_DLOD: arg >> opt::lod_db; break;
-    case OPT_NDLOD: arg >> opt::lod_no_db; break;
-    case OPT_LODGERM: arg >> opt::lod_germ; break;
+    case OPT_LOD_DB: arg >> opt::lod_db; break;
+    case OPT_LOD_SOMATIC: arg >> opt::lod_somatic; break;
+    case OPT_LOD_SOMATIC_DB: arg >> opt::lod_somatic_db; break;
+    case OPT_SCALE_ERRORS: arg >> opt::scale_error; break;
     case 'C': arg >> opt::max_cov;  break;
     case OPT_NUM_TO_SAMPLE: arg >> opt::num_to_sample;  break;
     case OPT_READ_TRACK: opt::read_tracking = false; break;
@@ -1051,7 +1056,7 @@ afterassembly:
     i.addCovs(covs);
 
   for (auto& i : bp_glob) 
-    i.scoreBreakpoint(opt::lod, opt::lod_db, opt::lod_no_db, opt::lod_germ, min_dscrd_size_for_variant);
+    i.scoreBreakpoint(opt::lod, opt::lod_db, opt::lod_somatic, opt::lod_somatic_db, opt::scale_error, min_dscrd_size_for_variant);
 
   // label somatic breakpoints that intersect directly with normal as NOT somatic
   std::unordered_set<std::string> norm_hash;

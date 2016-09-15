@@ -294,7 +294,7 @@
    
    /*! Score a breakpoint with a QUAL score, and as somatic or germline
     */
-   void scoreBreakpoint(double LOD_CUTOFF, double DBCUTOFF, double NODBCUTOFF, double LRCUTOFF, int min_dscrd_size);
+   void scoreBreakpoint(double LOD_CUTOFF, double LOD_CUTOFF_DBSNP, double LOD_CUTOFF_SOMATIC, double LOD_CUTOFF_SOMATIC_DBSNP, double scale_errors, int min_dscrd_size);
    
    /*! Compute the allelic fraction (tumor and normal) for this BreakPoint.
     *
@@ -386,7 +386,7 @@
    void __score_dscrd(int min_dscrd_size);
    void __score_assembly_only();
    void __score_assembly_dscrd();
-   void __score_indel(double LOD_CUTOFF);
+   void __score_indel(double LOD_CUTOFF, double LOD_CUTOFF_DBSNP);
    std::string __format_readname_string();
    void __set_homologies_insertions();
    void __set_evidence();
