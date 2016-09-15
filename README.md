@@ -223,8 +223,8 @@ This project was developed in collaboration with the Cancer Genome Analysis team
 Additional thanks to Jared Simpson for SGA, Heng Li for htslib and BWA, and for the other developers whose  
 code contributed to [SeqLib](seqlib).
 
-[vbam]: https://github.com/jwalabroad/VariantBam
+[vbam]: https://github.com/walaj/VariantBam
 
-[license]: https://github.com/broadinstitute/SnowmanSV/blob/master/LICENSE
+[license]: https://github.com/walaj/snowman/blob/master/LICENSE
 
-[seqlib]: https://github.com/jwalabroad/SeqLib
+[seqlib]: https://github.com/walaj/SeqLib
