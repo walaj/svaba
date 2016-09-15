@@ -9,7 +9,7 @@ snowman_CPPFLAGS = \
 	-I$(top_srcdir)/src/SGA/SQG \
 	-I$(top_srcdir)/src/SGA/SGA \
 	-I$(top_srcdir)/SeqLib \
-	-I$(top_srcdir)/SeqLib/htslib
+	-I$(top_srcdir)/SeqLib/htslib -Wno-sign-compare
 
 snowman_LDADD = \
 	$(top_builddir)/src/SGA/SGA/libsga.a \
