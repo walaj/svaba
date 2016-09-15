@@ -1,7 +1,8 @@
 [![Build Status](https://travis-ci.org/broadinstitute/SnowmanSV.svg?branch=master)](https://travis-ci.org/broadinstitute/SnowmanSV)
 
-Snowman - Structural Variation Detection by Rolling Local Assembly
-==================================================================
+## Snowman - Structural Variation Detection by Rolling Local Assembly
+
+# The official version is now located at https://github.com/walaj/snowman
 
 **License:** [GNU GPLv3][license] 
 
