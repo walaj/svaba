@@ -4,6 +4,11 @@
 #include <pthread.h>
 #include <list>
 
+#include "SnowmanWorkUnit.h"
+#include "SeqLib/RefGenome.h"
+
+typedef std::map<std::string, SnowmanBamWalker> WalkerMap;
+
 template <typename T> class wqueue
 { 
 
@@ -119,7 +124,35 @@ template <class T>
  
 public:
 
-  ConsumerThread(wqueue<T*>& queue, bool verbose) : m_queue(queue), m_verbose(verbose) {}
+ ConsumerThread(wqueue<T*>& queue, bool verbose, 
+		const std::string& ref, const std::string& vir,
+		const std::map<std::string, std::string>& bams) : m_queue(queue), m_verbose(verbose) {
+
+    // load the reference genomce
+    if (m_verbose)
+      std::cerr << "\tOpening ref genome for thread " << self() << std::endl;
+    wu.ref_genome = new SeqLib::RefGenome();
+    wu.ref_genome->LoadIndex(ref);
+
+    // load the viral genome
+    if (!vir.empty()) {
+      if (m_verbose)
+	std::cerr << "\tOpening vir genome for thread " << self() << std::endl;
+      wu.vir_genome = new SeqLib::RefGenome();
+      wu.vir_genome->LoadIndex(vir);
+    } 
+
+    // open the bams for this thread
+    if (m_verbose)
+      std::cerr << "\tOpening BAMs for thread " << self() << std::endl;
+    for (auto& b : bams) {
+      wu.walkers[b.first] = SnowmanBamWalker();
+      wu.walkers[b.first].Open(b.second);
+      wu.walkers[b.first].prefix = b.first;
+    }
+    
+
+  }
  
   void* run() {
     // Remove 1 item at a time and process it. Blocks if no items are 
@@ -129,8 +162,7 @@ public:
 	//printf("thread %lu, loop %d - waiting for item...\n", 
 	//     (long unsigned int)self(), i);
       T* item = (T*)m_queue.remove();
-      item->run(self());
-      //m_output->push_back(item->output());
+      item->run(wu, self()); 
       delete item;
       if (m_queue.size() == 0)
         return NULL;
@@ -138,7 +170,7 @@ public:
     return NULL;
   }
 
-  //std::vector<O*> getThreadOutput() {return m_output;}
+  SnowmanWorkUnit wu;
 
  private: 
   wqueue<T*>& m_queue;

@@ -83,6 +83,11 @@ class SnowmanBamWalker: public SeqLib::BamReader {
 
   // cov is the all-read coverage tracker
   // weird-cov just tracks coverage of accepted (clip, disc, etc reads)
+  // buffered cov is coverage minus first 8 and last 8 bp. Why?
+  //    because when looking for variant-supporting reads, we require
+  //    alignment of a read to the variant to overlap it by 8 bp
+  //    to reduce false-positive alt reads. So we use the buffered
+  //    coverage to compare against this buffered alt cov.
   STCoverage cov, weird_cov;
 
   // hash of cigars for indels

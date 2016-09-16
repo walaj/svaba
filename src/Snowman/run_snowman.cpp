@@ -16,7 +16,8 @@
 #include "LearnBamParams.h"
 #include "SeqLib/BFC.h"
 
-//#define MUTEX_FAST 1
+// how many contigs to store before dumping file
+#define THREAD_STORE_LIMIT 10000
 
 // useful replace function
 std::string myreplace(std::string &s,
@@ -65,17 +66,6 @@ static SeqLib::BamHeader bwa_header, viral_header;
 
 static std::set<std::string> prefixes;
 
-// make a unique set of walkers for each file, and for each thread
-std::map<long unsigned int, WalkerMap> thread_walkers;
-// each thread keeps track of its own bad regions. Better would
-// be to have them share this information, but that requires
-// to many mutex locks. This just helps with run-time anyway, 
-// ok if it looks up bad regions twice
-std::map<long unsigned int, SeqLib::GRC> thread_bad_mate_regions; 
-
-std::map<long unsigned int, SeqLib::RefGenome*> thread_genomes;
-std::map<long unsigned int, SeqLib::RefGenome*> thread_viral_genomes;
-
 static int min_dscrd_size_for_variant = 0; // set a min size for what we can call with discordant reads only. 
 // something like max(mean + 3*sd) for all read groups
 
@@ -114,6 +104,9 @@ namespace opt {
   static std::string ec_correct_type = "f";
   static double ec_subsample = 0.15;
 
+  // run in single end mode?
+  bool single_end = false;
+
   // output options
   static bool write_extracted_reads = false;
   static bool write_corrected_reads = false;
@@ -143,13 +136,13 @@ namespace opt {
   static int max_cov = 100;
   static size_t mate_lookup_min = 3;
   static bool interchrom_lookup = true;
-  static int32_t max_reads_per_assembly = 10000;
+  static int32_t max_reads_per_assembly = -1; // set default of 10000 in parseRunOptions
 
   // additional optional params
   static int chunk = LITTLECHUNK;
   static std::string regionFile;  // region to run on
   static std::string analysis_id = "no_id";
-  static int num_to_sample = 2000000;  // num to learn from (eg isize distribution)
+  static int num_to_sample = 5000000;  // num to learn from (eg isize distribution)
 
   // runtime parameters
   static int verbose = 0;
@@ -179,6 +172,7 @@ namespace opt {
 
 enum { 
   OPT_ASQG,
+  OPT_READLEN,
   OPT_LOD,
   OPT_LOD_DB,
   OPT_LOD_SOMATIC,
@@ -228,6 +222,7 @@ static const struct option longopts[] = {
   { "no-interchrom-lookup",    no_argument, NULL, 'I' },
   { "read-tracking",           no_argument, NULL, OPT_READ_TRACK },
   { "gap-open-penalty",        required_argument, NULL, OPT_GAP_OPEN },
+  { "readlen",                 required_argument, NULL, OPT_READLEN },
   { "ec-subsample",            required_argument, NULL, 'E' },
   { "bwa-match-score",         required_argument, NULL, OPT_MATCH_SCORE },
   { "gap-extension-penalty",   required_argument, NULL, OPT_GAP_EXTENSION },
@@ -269,8 +264,8 @@ static const char *RUN_USAGE_MESSAGE =
 "  -G, --reference-genome               Path to indexed reference genome to be used by BWA-MEM.\n"
 "  -t, --case-bam                       Case BAM/CRAM/SAM file (eg tumor). Can input multiple.\n"
 "  -n, --control-bam                    (optional) Control BAM/CRAM/SAM file (eg normal). Can input multiple.\n"
-"  -k, --region                         Run on targeted intervals. Accepts BED file or Samtools-style stringn"
-"      --germline                       Sets recommended settings for case-only analysis (eg germline). (-I, -L5, assembles NM >= 3 reads)"
+"  -k, --region                         Run on targeted intervals. Accepts BED file or Samtools-style string\n"
+"      --germline                       Sets recommended settings for case-only analysis (eg germline). (-I, -L5, assembles NM >= 3 reads)\n"
 "  Variant filtering and classification\n"
 "      --lod                            LOD cutoff to classify indel as non-REF (tests AF=0 vs AF=MaxLikelihood(AF)) [8]\n"
 "      --lod-dbsnp                      LOD cutoff to classify indel as non-REF (tests AF=0 vs AF=MaxLikelihood(AF)) at DBSnp indel site [5]\n"
@@ -322,7 +317,7 @@ void runSnowman(int argc, char** argv) {
 
   // open the output streams
   SnowmanUtils::fopen(opt::analysis_id + ".log", log_file);
-  SnowmanUtils::fopen(opt::analysis_id + ".bad_mate_regions.bed", bad_bed);
+  //  SnowmanUtils::fopen(opt::analysis_id + ".bad_mate_regions.bed", bad_bed);
 
   // set the germline parameters 
   if (opt::germline) {
@@ -443,8 +438,11 @@ void runSnowman(int argc, char** argv) {
   for (auto& b : opt::bam)
     prefixes.insert(b.first);
 
-  // no learning for stdin
-  if (opt::main_bam == "-") 
+  if (opt::main_bam == "-")
+    opt::single_end = true;
+
+  // no learning for stdin or single-end mode
+  if (opt::single_end) 
     goto afterlearn;
 
   // learn bam
@@ -489,7 +487,7 @@ afterlearn:
 
   // if didn't learn anything, then make sure we set an overlap
   if (!readlen && !opt::sga::minOverlap) {
-    std::cerr << "ERROR: Didn't learn from reads (stdin assembly?). Need to explicitly set -m" << std::endl;
+    std::cerr << "ERROR: Didn't learn from reads (stdin assembly?). Need to explicitly set readlen with --readlen" << std::endl;
     exit(EXIT_FAILURE);
   }
   
@@ -548,11 +546,15 @@ afterlearn:
     std::string string_rules = ss_rules.str();
     if (!string_rules.empty()) // cut last comma
       string_rules = string_rules.substr(0, string_rules.length() - 1);
+    else
+      string_rules = "[0,0]";
     opt::rules = myreplace(opt::rules, "FRRULES", string_rules);
   }
 
   // set min length for clips
   if (opt::rules.find("READLENLIM") != std::string::npos) {
+    if (readlen == 0)
+      readlen = 30; // set some small default, in case we didn't learn the bam
     opt::rules = myreplace(opt::rules, "READLENLIM", std::to_string((int) (readlen * 0.4)));
   }
 
@@ -602,8 +604,8 @@ afterlearn:
     delete microbe_bwa;
 
   // dump the bad bed regions
-  SeqLib::GRC bad_mate_regions;
-  for (const auto& i : thread_bad_mate_regions)
+  /*SeqLib::GRC bad_mate_regions;
+  for (const auto& i : )
     bad_mate_regions.Concat(i.second);
   bad_mate_regions.MergeOverlappingIntervals();
   bad_mate_regions.CoordinateSort();
@@ -613,6 +615,7 @@ afterlearn:
     } catch (...) {
     }
   bad_bed.close();
+  */
 
   // close the files
   all_align.close();
@@ -727,6 +730,7 @@ void parseRunOptions(int argc, char** argv) {
     case 'x' : arg >> opt::max_reads_per_assembly; break;
     case 'A' : opt::all_contigs = true; break;
     case OPT_MATCH_SCORE : arg >> opt::bwa::sequence_match_score; break;
+    case OPT_READLEN : arg >> readlen; break;
     case OPT_MISMATCH : arg >> opt::bwa::mismatch_penalty; break;
     case OPT_GERMLINE : opt::germline = true; break;
     case OPT_GAP_EXTENSION : arg >> opt::bwa::gap_extension_penalty; break;
@@ -779,6 +783,13 @@ void parseRunOptions(int argc, char** argv) {
     }
   }
 
+  if (opt::chunk <= 0 || opt::main_bam == "-")
+    opt::max_reads_per_assembly = INT_MAX;
+  else if (opt::max_reads_per_assembly < 0) 
+    opt::max_reads_per_assembly = 10000; //set a default
+
+      
+
   if (!(opt::ec_correct_type == "s" || opt::ec_correct_type == "f" || opt::ec_correct_type == "0")) {
     WRITELOG("ERROR: Error correction type must be one of s, f, or 0", true, true);
     exit(EXIT_FAILURE);
@@ -814,50 +825,18 @@ void parseRunOptions(int argc, char** argv) {
     }
 }
 
-bool runBigChunk(const SeqLib::GenomicRegion& region, long unsigned int thread_id)
-{
+bool runWorkUnit(const SeqLib::GenomicRegion& region, SnowmanWorkUnit& wu, long unsigned int thread_id) {
   
   WRITELOG("Running region " + region.ToString() + " on thread " + std::to_string(thread_id), opt::verbose > 1, true);
 
-  SeqLib::GRC& badd = thread_bad_mate_regions[thread_id]; // bad mate regions for this thread
+  for (auto& w : wu.walkers)
+    set_walker_params(w.second);
 
-  // open the reference for this 
-  if (!thread_genomes.count(thread_id)) {
-    WRITELOG("Loading new ref genome for thread " + std::to_string(thread_id), opt::verbose > 1, true);
-    thread_genomes[thread_id] = new SeqLib::RefGenome();
-    SeqLib::RefGenome * r = thread_genomes[thread_id];
-    r->LoadIndex(opt::refgenome);
-  }
-  SeqLib::RefGenome * this_ref_genome = thread_genomes[thread_id];
-
-  // open the viral reference for this 
-  if (!thread_viral_genomes.count(thread_id)) {
-    WRITELOG("Loading new viral ref genome for thread " + std::to_string(thread_id), opt::verbose > 1, true);
-    thread_viral_genomes[thread_id] = new SeqLib::RefGenome();
-    SeqLib::RefGenome * r = thread_viral_genomes[thread_id];
-    r->LoadIndex(opt::microbegenome);
-  }
-  SeqLib::RefGenome * this_viral_genome = thread_viral_genomes[thread_id];
-
-  // open a SnowmanBamWalker for each thread
-  if (!thread_walkers.count(thread_id)) { 
-    WRITELOG("Making walker for thread " + std::to_string(thread_id), opt::verbose > 1, true);
-    WalkerMap new_walkers;
-    for (auto& b : opt::bam) 
-      new_walkers[b.first] = make_walker(b.first);
-    thread_walkers[thread_id] = new_walkers;
-  }
-  assert(thread_walkers.size() <= (size_t)opt::numThreads);
-  
-  // set the new walkers
-  WalkerMap& walkers = thread_walkers[thread_id];
-  assert(walkers.size());
-  
   // create a new BFC read error corrector for this
   SeqLib::BFC * bfc = nullptr;
   if (opt::ec_correct_type == "f") {
     bfc = new SeqLib::BFC();
-    for (auto& w : walkers)
+    for (auto& w : wu.walkers)
       w.second.bfc = bfc;
   }
   
@@ -873,7 +852,7 @@ bool runBigChunk(const SeqLib::GenomicRegion& region, long unsigned int thread_i
   CountPair read_counts = {0,0};
 
   // read in alignments from the main region
-  for (auto& w : walkers) {
+  for (auto& w : wu.walkers) {
 
     // set the region to jump to
     if (!region.IsEmpty()) {
@@ -887,9 +866,9 @@ bool runBigChunk(const SeqLib::GenomicRegion& region, long unsigned int thread_i
     }
 
     // do the reading, and store the bad mate regions
-    badd.Concat(w.second.readBam(&log_file));
-    badd.MergeOverlappingIntervals();
-    badd.CreateTreeMap();
+    wu.badd.Concat(w.second.readBam(&log_file));
+    wu.badd.MergeOverlappingIntervals();
+    wu.badd.CreateTreeMap();
     
     // adjust the counts
     if (w.first.at(0) == 't') {
@@ -902,7 +881,7 @@ bool runBigChunk(const SeqLib::GenomicRegion& region, long unsigned int thread_i
 
   // collect all of the cigar strings in a hash
   std::unordered_map<std::string, SeqLib::CigarMap> cigmap;
-  for (const auto& w : walkers) 
+  for (const auto& w : wu.walkers) 
     cigmap[w.first] = w.second.cigmap;
 
   // setup read collectors
@@ -911,25 +890,30 @@ bool runBigChunk(const SeqLib::GenomicRegion& region, long unsigned int thread_i
 
   // collect and clear reads from main round
   std::unordered_set<std::string> dedupe;
-  collect_and_clear_reads(walkers, bav_this, all_seqs, dedupe);
+  collect_and_clear_reads(wu.walkers, bav_this, all_seqs, dedupe);
 
   // adjust counts and timer
   st.stop("r");
 
-  // get the mate reads
-  if (!region.IsEmpty()) {
-    run_mate_collection_loop(region, walkers, badd);
+  // get the mate reads, if this is local assembly and has insert-size distro
+  if (!region.IsEmpty() && !opt::single_end && min_dscrd_size_for_variant) {
+    run_mate_collection_loop(region, wu.walkers, wu.badd);
     // collect the reads together from the mate walkers
-    collect_and_clear_reads(walkers, bav_this, all_seqs, dedupe);
+    collect_and_clear_reads(wu.walkers, bav_this, all_seqs, dedupe);
     st.stop("m");
   }
   
   // do the discordant read clustering
+  DiscordantClusterMap dmap, dmap_tmp;
+  
+  // if couldn't get insert size stats, skip discordant clustering
+  if (!min_dscrd_size_for_variant || opt::single_end)
+    goto afterdiscclustering;
+
   WRITELOG("...discordant read clustering", opt::verbose > 1, false);
-  DiscordantClusterMap dmap = DiscordantCluster::clusterReads(bav_this, region, max_mapq_possible, &min_isize_for_disc);
+  dmap = DiscordantCluster::clusterReads(bav_this, region, max_mapq_possible, &min_isize_for_disc);
 
   // tag FR clusters that are below min_dscrd_size_for_variant AND low support
-  DiscordantClusterMap dmap_tmp;
   for (auto& d : dmap) {
     bool below_size = 	d.second.m_reg1.strand == '+' && d.second.m_reg2.strand == '-' && 
       (d.second.m_reg2.pos1 - d.second.m_reg1.pos2) < min_dscrd_size_for_variant && 
@@ -947,9 +931,11 @@ bool runBigChunk(const SeqLib::GenomicRegion& region, long unsigned int thread_i
   if (opt::verbose > 3)
     for (auto& i : dmap) 
       WRITELOG(i.first + " " + i.second.toFileString(false), true, false);
+
+ afterdiscclustering:
   
   // skip all the assembly stuff?
-  if (opt::disc_cluster_only) 
+  if (opt::disc_cluster_only)
     goto afterassembly;
   
   /////////////////////
@@ -980,7 +966,7 @@ bool runBigChunk(const SeqLib::GenomicRegion& region, long unsigned int thread_i
   // do the kmer correction, in place
   if (opt::ec_correct_type == "s") {
     correct_reads(all_seqs, bav_this);
-  } else if (opt::ec_correct_type == "f") {
+  } else if (opt::ec_correct_type == "f" && bav_this.size() >= 8) {
     
     assert(bfc);
     int learn_reads_count = bfc->NumSequences();
@@ -1005,7 +991,7 @@ bool runBigChunk(const SeqLib::GenomicRegion& region, long unsigned int thread_i
   
   // do the assembly, contig realignment, contig local realignment, and read realignment
   // modifes bav_this, alc, all_contigs and all_microbial_contigs
-  run_assembly(region, bav_this, alc, all_contigs, all_microbial_contigs, dmap, cigmap, this_ref_genome);
+  run_assembly(region, bav_this, alc, all_contigs, all_microbial_contigs, dmap, cigmap, wu.ref_genome);
 
 afterassembly:
   
@@ -1050,13 +1036,15 @@ afterassembly:
   // add the coverage data to breaks for allelic fraction computation
   std::unordered_map<std::string, STCoverage*> covs;
   for (auto& i : opt::bam) 
-    covs[i.first] = &walkers[i.first].cov;
+    covs[i.first] = &wu.walkers[i.first].cov;
 
   for (auto& i : bp_glob)
     i.addCovs(covs);
 
-  for (auto& i : bp_glob) 
+  for (auto& i : bp_glob) {
+    i.readlen = readlen; // set the readlength
     i.scoreBreakpoint(opt::lod, opt::lod_db, opt::lod_somatic, opt::lod_somatic_db, opt::scale_error, min_dscrd_size_for_variant);
+  }
 
   // label somatic breakpoints that intersect directly with normal as NOT somatic
   std::unordered_set<std::string> norm_hash;
@@ -1106,79 +1094,61 @@ afterassembly:
   // add the ref and alt tags
   // WHY IS THIS NOT THREAD SAFE?
   for (auto& i : bp_glob)
-    i.setRefAlt(this_ref_genome, this_viral_genome);
+    i.setRefAlt(wu.ref_genome, wu.vir_genome);
 
-  ////////////////////////////////////
-  // MUTEX LOCKED
-  ////////////////////////////////////
-  // write to the global contig out
-  size_t contig_counter = 0;
-#ifndef MUTEX_FAST
-  pthread_mutex_lock(&snow_lock);    
-
-  // print the alignment plots
-  for (auto& i : alc) {
-    if (i.hasVariant()) {
-      all_align << i << std::endl;
-      ++contig_counter;
+  // transfer local versions to thread store
+  for (const auto& a : alc)
+    if (a.hasVariant()) {
+      wu.m_alc.push_back(a);
+      wu.m_bamreads_count += a.NumBamReads();
     }
-  }
+  for (const auto& d : dmap)
+    wu.m_disc_reads += d.second.reads.size();
   
-  // send the microbe to file
-  for (auto& b : all_microbial_contigs)
-    b_microbe_writer.WriteRecord(b);
+  wu.m_contigs.insert(wu.m_contigs.end(), all_contigs.begin(), all_contigs.end());
+  wu.m_vir_contigs.insert(wu.m_vir_contigs.end(), all_microbial_contigs.begin(), all_microbial_contigs.end());
+  wu.m_disc.insert(dmap.begin(), dmap.end());
+  for (const auto& a : alc)
+    wu.m_bamreads_count += a.NumBamReads();
+  for (auto& i : bp_glob) 
+    if ( i.hasMinimal() && i.confidence != "NOLOCAL" ) 
+      wu.m_bps.push_back(i);
   
-  // send the discordant to file
-  for (auto& i : dmap)
-    if (i.second.valid()) //std::max(i.second.mapq1, i.second.mapq2) >= 5)
-      os_discordant << i.second.toFileString(opt::read_tracking) << std::endl;
-  
-  // write ALL contigs
-  if (opt::verbose > 2)
-    std::cerr << "...writing contigs" << std::endl;
-  
-  // write the contigs to a BAM
-  if (!opt::disc_cluster_only) { 
-    for (auto& i : all_contigs) {
-      i.RemoveTag("MC");
-      b_contig_writer.WriteRecord(i);
-    }
+  // dump if getting to much memory
+  if (wu.MemoryLimit()) {
+    WRITELOG("DUMPING CONTIGS ETC ON THREAD " + std::to_string(thread_id) + " with limit hit of " + std::to_string(wu.m_bamreads_count), opt::verbose > 1, true);
+    pthread_mutex_lock(&snow_lock);    
+    WriteFilesOut(wu); 
+    pthread_mutex_unlock(&snow_lock);
   }
   
   // write extracted reads
   if (opt::write_extracted_reads) {
+    pthread_mutex_lock(&snow_lock);    
     for (auto& r : bav_this)
       er_writer.WriteRecord(r);
+    pthread_mutex_unlock(&snow_lock);
   }
   
   // write the raw error corrected reads to a fasta
-  if (opt::write_corrected_reads) 
+  if (opt::write_corrected_reads) {
+    pthread_mutex_lock(&snow_lock);    
     for (auto& r : bav_this) {
       std::string seq = r.GetZTag("KC");
       if (seq.empty())
 	seq = r.QualitySequence();
       os_corrected << ">" << r.GetZTag("SR") << std::endl << seq << std::endl;
     }
-
-
-  // send breakpoints to file
-  for (auto& i : bp_glob) 
-    if ( i.hasMinimal() && i.confidence != "NOLOCAL" ) 
-      os_allbps << i.toFileString(!opt::read_tracking) << std::endl;
+    pthread_mutex_unlock(&snow_lock);
+  }
 
   st.stop("pp");
   
   // display the run time
-  WRITELOG(SnowmanUtils::runTimeString(read_counts.first, read_counts.second, contig_counter, region, b_header, st, start), opt::verbose > 1, true);
-
-  ////////////////////////////////////
-  // MUTEX UNLOCKED
-  ////////////////////////////////////
-  pthread_mutex_unlock(&snow_lock);
-#endif  
+  WRITELOG(SnowmanUtils::runTimeString(read_counts.first, read_counts.second, alc.size(), region, b_header, st, start), opt::verbose > 1, true);
 
   // clear out the reads and reset the walkers
-  for (auto& w : walkers) {
+  for (auto& w : wu.walkers) {
     w.second.clear();
     w.second.m_limit = opt::max_reads_per_assembly;
   }
@@ -1192,7 +1162,9 @@ void sendThreads(SeqLib::GRC& regions_torun) {
   wqueue<SnowmanWorkItem*>  queue;
   std::vector<ConsumerThread<SnowmanWorkItem>*> threadqueue;
   for (int i = 0; i < opt::numThreads; i++) {
-    ConsumerThread<SnowmanWorkItem>* threadr = new ConsumerThread<SnowmanWorkItem>(queue, opt::verbose > 0);
+    ConsumerThread<SnowmanWorkItem>* threadr = new ConsumerThread<SnowmanWorkItem>(queue, opt::verbose > 0,
+										   opt::refgenome, opt::microbegenome,
+										   opt::bam);
     threadr->start();
     threadqueue.push_back(threadr);
   }
@@ -1209,14 +1181,15 @@ void sendThreads(SeqLib::GRC& regions_torun) {
   }
   
   // wait for the threads to finish
-  for (int i = 0; i < opt::numThreads; i++) 
+  for (int i = 0; i < opt::numThreads; ++i) 
     threadqueue[i]->join();
 
-  // free the items
-  // warning: deleting object of polymorphic class type ‘ConsumerThread<SnowmanWorkItem>’
-  // which has non-virtual destructor might cause undefined behaviour
-  //for (size_t i = 0; i < threadqueue.size(); ++i)
-  //  delete threadqueue[i];
+  // write and free remaining items stored in the thread
+  pthread_mutex_lock(&snow_lock);
+  for (int i = 0; i < opt::numThreads; ++i) 
+    WriteFilesOut(threadqueue[i]->wu); 
+  pthread_mutex_unlock(&snow_lock);
+
 }
 
 SeqLib::GRC makeAssemblyRegions(const SeqLib::GenomicRegion& region) {
@@ -1283,7 +1256,10 @@ void alignReadsToContigs(SeqLib::BWAWrapper& bw, const SeqLib::UnalignedSequence
     
     SeqLib::BamRecordVector brv, brv_ref;
 
-    std::string seqr = i.QualitySequence();
+    // try the corrected seq first
+    std::string seqr = i.GetZTag("KC");
+      if (seqr.empty())
+	seqr = i.QualitySequence();
     
     bool hardclip = false;
     assert(seqr.length());
@@ -1347,49 +1323,25 @@ void alignReadsToContigs(SeqLib::BWAWrapper& bw, const SeqLib::UnalignedSequence
       i.SmartAddTag("CN", usv[r.ChrID()].Name);
 
       for (auto& a : this_alc) {
-	if (a.getContigName() == usv[r.ChrID()].Name) {
-	  a.m_bamreads.push_back(i);
-	  
-	  // add the coverage to the aligned contig
-	  int cc = r.Position();
-	  std::string srr = i.GetZTag("SR");
-	  if (srr.length()) {
-	    while (cc <= r.PositionEnd() && cc < (int)a.tum_cov.size()) 
-	      ++a.cov[srr.substr(0,4)][cc++];
-
-	    if (srr.at(0) == 't') 
-	      while (cc <= r.PositionEnd() && cc < (int)a.tum_cov.size()) 
-		++a.tum_cov[cc++];
-
-	    else 
-	      while (cc <= r.PositionEnd() && cc < (int)a.norm_cov.size())
-		++a.norm_cov[cc++];
-
-	  }
-	}
-      }	  
-
+	if (a.getContigName() != usv[r.ChrID()].Name)
+	  continue;
+	a.AddAlignedRead(i);
+      }
+      
     } // end passing bwa-aligned read loop 
   } // end main read loop
 }
 
-SnowmanBamWalker make_walker(const std::string& p) {
+void set_walker_params(SnowmanBamWalker& walk) {
 
-  // setup the walker
-  SnowmanBamWalker walk;
-  walk.Open(opt::bam[p]);
-    
-  walk.main_bwa = main_bwa;
-  walk.prefix = p;
+  walk.main_bwa = main_bwa; // set the pointer
   walk.blacklist = blacklist;
   walk.do_kmer_filtering = (opt::ec_correct_type == "s" || opt::ec_correct_type == "f");
   walk.simple_seq = &simple_seq;
   walk.kmer_subsample = opt::ec_subsample;
   walk.max_cov = opt::max_cov;
-  walk.m_mr = mr; 
+  walk.m_mr = mr;  // set the read filter pointer
   walk.m_limit = opt::max_reads_per_assembly;
-
-  return walk;
 
 }
 
@@ -1804,3 +1756,42 @@ void collect_and_clear_reads(WalkerMap& walkers, SeqLib::BamRecordVector& brv, s
     w.second.reads.clear();
   }
 }
+
+void WriteFilesOut(SnowmanWorkUnit& wu) {
+
+  // print the alignment plots
+  for (const auto& i : wu.m_alc) 
+    if (i.hasVariant()) 
+      all_align << i << std::endl;
+
+  // send the microbe to file
+  for (const auto& b : wu.m_vir_contigs)
+    b_microbe_writer.WriteRecord(b);
+  
+  // send the discordant to file
+  for (auto& i : wu.m_disc)
+    if (i.second.valid()) //std::max(i.second.mapq1, i.second.mapq2) >= 5)
+      os_discordant << i.second.toFileString(opt::read_tracking) << std::endl;
+  
+  // write ALL contigs
+  if (opt::verbose > 2)
+    std::cerr << "...writing contigs" << std::endl;
+  
+  // write the contigs to a BAM
+  if (!opt::disc_cluster_only) { 
+    for (auto& i : wu.m_contigs) {
+      i.RemoveTag("MC");
+      b_contig_writer.WriteRecord(i);
+    }
+  }
+
+  // send breakpoints to file
+  for (auto& i : wu.m_bps) 
+    if ( i.hasMinimal() && i.confidence != "NOLOCAL" ) 
+      os_allbps << i.toFileString(!opt::read_tracking) << std::endl;
+
+  // clear them out
+  wu.clear();
+
+}
+
