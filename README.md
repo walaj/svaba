@@ -30,8 +30,8 @@ Installation
 We recommend compiling with GCC-4.8 or greater. We have successfully compiled on RHEL6, CentOS with GCC-4.8, 4.9 and 5.1, and MacOSX with Clang (Apple LLVM version 7.0.2 (clang-700.1.81))
 
 ```
-git clone --recursive https://github.com/broadinstitute/SnowmanSV
-cd SnowmanSV
+git clone --recursive https://github.com/walaj/snowman
+cd Snowman
 ./configure
 make
 make install
