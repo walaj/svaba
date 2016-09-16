@@ -164,6 +164,8 @@
    std::string genotype;
    std::vector<double> genotype_likelihoods = {0,0,0};
 
+   int readlen = 0;
+
    double af = 0;
    double error_rate = 1e-4;
 
@@ -177,7 +179,7 @@
 
    friend SampleInfo operator+(const SampleInfo& a1, const SampleInfo& a2);
 
-   double __log_likelihood(int ref, int alt, double f, double e);
+   double __log_likelihood(double ref, double alt, double f, double e);
 
    void modelSelection(double err);
 
@@ -199,6 +201,8 @@
 
    double somatic_score = 0;
    double somatic_lod = 0; // LogOdds that variant not in normal
+
+   int readlen = 0;
 
    int aligned_covered = 0;
    

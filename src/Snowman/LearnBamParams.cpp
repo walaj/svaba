@@ -6,7 +6,10 @@
 
 std::ostream& operator<<(std::ostream& out, const BamParams& p) {
  
-  out << "@@@ READ GROUP " << p.read_group << " ISIZE " << p.mean_isize << "(" << p.sd_isize << ") [0.025%,97.5%] [" << p.lp << "," << p.hp << "], MEAN COV " << p.mean_cov << " READLEN " << p.readlen << " MAX MAPQ " << p.max_mapq;
+  out << "@@@ READ GROUP " << p.read_group << " Insert Size: " << p.mean_isize 
+      << "(" << p.sd_isize << ") [0.025%,97.5%] [" << p.lp << "," 
+      << p.hp << "], Mean Coverage: " << p.mean_cov << " Read Length: " 
+      << p.readlen << " Max MapQ:" << p.max_mapq;
   // out << "@@@ Estimated fraction of reads that are discordant: " << p.frac_disc << std::endl;
   // out << "@@@ Estimated fraction of reads that are clipped:    " << p.frac_clip << std::endl;
   // out << "@@@ Estimated fraction of low quality alignments:    " << p.frac_bad << std::endl;
@@ -19,11 +22,10 @@ std::ostream& operator<<(std::ostream& out, const BamParams& p) {
 void LearnBamParams::learnParams(BamParamsMap& p, int max_count) {
 
   SeqLib::GRC grv;
-  grv.add(SeqLib::GenomicRegion(0, 1000000,2000000));
-  grv.add(SeqLib::GenomicRegion(1,1000000,2000000));
+  //grv.add(SeqLib::GenomicRegion(0, 1000000,2000000));
+  //grv.add(SeqLib::GenomicRegion(1,1000000,2000000));
   SeqLib::BamReader bwalker;
   assert(bwalker.Open(bam));
-  bwalker.SetMultipleRegions(grv);
 
   SeqLib::BamRecord r;
 
@@ -31,61 +33,18 @@ void LearnBamParams::learnParams(BamParamsMap& p, int max_count) {
   double pos1 = 0, pos2 = 0, chr = -1;
 
   // loop through a bunch of reads
-  int count = 0;
-  while (bwalker.GetNextRecord(r) && ++count < max_count) {
-
-    bool qcpass = !r.DuplicateFlag() && !r.QCFailFlag() && !r.SecondaryFlag() && r.MappedFlag();
-    if (!qcpass)
-      continue;
-
-    //if (count % 500000 == 0)
-      //std::cerr << "...learning from read " << r.Brief() << " at count " << SeqLib::AddCommas(count) << " of " << SeqLib::AddCommas(max_count) << std::endl;
-
-    // get the first read position
-    if (count == 1 || r.ChrID() != chr) {
-      chr = r.ChrID();
-      if (count > 1)
-	wid += pos2 - pos1;
-      pos1 = r.Position();
-    }
-
-    // update last read position (stay on same chrom as first)
-    if (chr == r.ChrID())
-      pos2 = r.Position();
-    
-    std::string RG = r.GetZTag("RG");
-    // hack for simulated data
-    if (RG.find("tumor") != std::string::npos) {
-      std::string qn = r.Qname();
-      size_t posr = qn.find(":", 0);
-      RG = (posr != std::string::npos) ? qn.substr(0, posr) : RG;
-    } else {
-      // best practice without "tumor" hack
-      RG = r.ParseReadGroup();
-    }
-    
-    BamParamsMap::iterator ff = p.find(RG);
-
-    // new read group, make a new object here
-    if (ff == p.end()) {
-      p[RG] = BamParams(RG);
-      ff = p.find(RG);
-    }
-    
-    // max readlen and mapq
-    ff->second.readlen = std::max(r.Length(), ff->second.readlen);
-    ff->second.max_mapq = std::max(r.MapQuality(), ff->second.max_mapq);
-
-    // count number of clips
-    if (r.NumClip() >= 5) ff->second.num_clip++;
-
-    // collect all of the insert sizes
-    if (r.InsertSize() > 0 && r.ProperOrientation())
-      ff->second.isize_vec.push_back(r.FullInsertSize());
-
-    ff->second.visited++;
-
-  }
+  // first, try some predefined regions in middle of BAM
+  //int count = 0;
+  //while (bwalker.GetNextRecord(r) && ++count < max_count) {
+  //  process_read(r, count, pos1, pos2, chr, wid);
+  //}
+  
+  // read from the beginning until hit max_count
+  size_t count = 0;
+  pos1 = 0; pos2 = 0; chr = -1; wid = 0;
+  bwalker.Reset();
+  while (bwalker.GetNextRecord(r) && ++count < max_count) 
+    process_read(r, count, p, pos1, pos2, chr, wid);
 
   wid += pos2 - pos1;
   // get the summary stats
@@ -93,14 +52,15 @@ void LearnBamParams::learnParams(BamParamsMap& p, int max_count) {
     i.second.collectStats();
     i.second.mean_cov = (wid > 0) ? i.second.visited * i.second.readlen / wid : 0;
   }
-
+  
 }
 
 void BamParams::collectStats() {
 
   if (isize_vec.size() < 100) {
-    std::cerr << "!!!! NOT ENOUGH READS TO GET STATS !!!!" << std::endl;
-    std::cerr << "!!!! " << read_group << " " << isize_vec.size() << " visited " << visited << std::endl;
+    std::cerr << "not enough paired-end reads to get insert-size distribution. skipping discordant analysis" << std::endl;
+    std::cerr << "\ttead group: " << read_group << " Insert-sizes sampled: " << isize_vec.size() << " visited " << visited << std::endl;
+    return;
   }
     
   // sort the isize vec
@@ -135,6 +95,58 @@ void BamParams::collectStats() {
   //frac_clip = num_clip / (double)visited;
 
 
+}
+
+bool LearnBamParams::process_read(const SeqLib::BamRecord& r, size_t count, BamParamsMap& p,
+				  double& pos1, double& pos2, double& chr, int& wid) const {
+   
+   if (r.DuplicateFlag() || r.QCFailFlag() || r.SecondaryFlag() || !r.MappedFlag())
+     return false;
+   
+   // get the first read position
+   if (count == 1 || r.ChrID() != chr) {
+     chr = r.ChrID();
+     if (count > 1)
+       wid += pos2 - pos1;
+     pos1 = r.Position();
+   }
+   
+   // update last read position (stay on same chrom as first)
+   if (chr == r.ChrID())
+     pos2 = r.Position();
+   
+   std::string RG = r.GetZTag("RG");
+   // hack for simulated data
+   if (RG.find("tumor") != std::string::npos) {
+     std::string qn = r.Qname();
+     size_t posr = qn.find(":", 0);
+      RG = (posr != std::string::npos) ? qn.substr(0, posr) : RG;
+   } else {
+     // best practice without "tumor" hack
+     RG = r.ParseReadGroup();
+   }
+   
+   BamParamsMap::iterator ff = p.find(RG);
+   
+   // new read group, make a new object here
+   if (ff == p.end()) {
+     p[RG] = BamParams(RG);
+     ff = p.find(RG);
+    }
+   
+   // max readlen and mapq
+   ff->second.readlen = std::max(r.Length(), ff->second.readlen);
+   ff->second.max_mapq = std::max(r.MapQuality(), ff->second.max_mapq);
+   
+   // count number of clips
+   if (r.NumClip() >= 5) ff->second.num_clip++;
+   
+   // collect all of the insert sizes
+   if (r.InsertSize() > 0 && r.ProperOrientation())
+     ff->second.isize_vec.push_back(r.FullInsertSize());
+   
+   ff->second.visited++;
+   
 }
 
 /*void LearnBamParams::learnParams(BamParams& p, int max_count) {

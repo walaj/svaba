@@ -728,11 +728,6 @@ BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
 
   void BreakPoint::__score_assembly_only() {
 
-    // get read length
-    int readlen = 0;
-    if (reads.size())
-      for (auto& i : reads)
-	readlen = std::max(i.Length(), readlen);
 
     int span = getSpan();
     int num_split = t.split + n.split;
@@ -907,12 +902,6 @@ BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
 
     //int min_assm_mapq = std::min(this_mapq1, this_mapq2);
     //int max_assm_mapq = std::max(this_mapq1, this_mapq2);
-    
-    // get read length
-    int readlen = 0;
-    if (reads.size())
-      for (auto& i : reads)
-	readlen = std::max(i.Length(), readlen);
 
     // how much of contig is covered by split reads
     int cov_span = split_cov_bounds.second - split_cov_bounds.first ;
@@ -989,7 +978,7 @@ BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
   }
 
 void BreakPoint::__score_indel(double LOD_CUTOFF, double LOD_CUTOFF_DBSNP) {
-
+  
     assert(b1.mapq == b2.mapq);
 
     bool is_refilter = !confidence.empty(); // act differently if this is refilter runx
@@ -1043,9 +1032,11 @@ void BreakPoint::scoreBreakpoint(double LOD_CUTOFF, double LOD_CUTOFF_DBSNP, dou
     double er = repeat_seq.length() > 10 ? MAX_ERROR : ERROR_RATES[repeat_seq.length()];
     er *= scale_errors;
     er = er == 0 ? MIN_ERROR : er; // enforce a minimum error
-    for (auto& i : allele) 
+    for (auto& i : allele) {
+      i.second.readlen = readlen;
       i.second.modelSelection(er);
     __combine_alleles();
+    }
 
     // kludge. make sure we have included the DC counts (should have done this arleady...)
     if (evidence == "DSCRD" || evidence == "ASDIS") {
@@ -1440,7 +1431,7 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
 
   }
 
-  double SampleInfo::__log_likelihood(int ref, int alt, double f, double e) {
+  double SampleInfo::__log_likelihood(double ref, double alt, double f, double e) {
     
     // less negative log-likelihoods means more likely
     // eg for low error rate, odds that you see 5 ALT and 5 REF
@@ -1481,11 +1472,22 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
       cov = alt;
     }
 
+    // adjust the coverage to be more in line with restrictions on ALT.
+    // namely that ALT reads must overlap the variant site by more than T_SPLIT_BUFF
+    // bases, but the raw cov calc does not take this into account. Therefore, adjust here
+    double a_cov;
+    if (readlen) {
+      a_cov = (double)cov * (double)(readlen - 2 * T_SPLIT_BUFF)/readlen;
+      a_cov = a_cov < 0 ? 0 : a_cov;
+    } else {
+      a_cov = cov;
+    }
+
     // make sure we get correct alt
     //__adjust_alt_counts();
     //alt = std::max(alt, std::max((int)supporting_reads.size(), cigar));
 
-    af = cov > 0 ? (double)alt / (double)cov : 1;
+    af = a_cov > 0 ? (double)alt / (double)a_cov : 1;
     af = af > 1 ? 1 : af;
 
     // mutect log liklihood against error
@@ -1500,8 +1502,8 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
     // the indiviual calcs will have more confidence. Ultimately,
     // LO will represent the log likeihood that the variant is AF = af
     // vs AF = 0 
-    double ll_alt = __log_likelihood(cov - alt, alt, af, er);
-    double ll_err = __log_likelihood(cov - alt, alt, 0 , er);
+    double ll_alt = __log_likelihood(a_cov - alt, alt, af, er);
+    double ll_err = __log_likelihood(a_cov - alt, alt, 0 , er);
     LO = ll_alt - ll_err; 
 
     //mutetct log likelihood normal
@@ -1601,7 +1603,10 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
     }
 
     a = t + n;
-    
+
+    a.readlen = readlen;
+    t.readlen = readlen;
+    n.readlen = readlen;
     double er = repeat_seq.length() > 10 ? 0.04 : ERROR_RATES[repeat_seq.length()];
     t.modelSelection(er);
     n.modelSelection(er);

@@ -47,6 +47,7 @@ am__installdirs = "$(DESTDIR)$(bindir)"
 PROGRAMS = $(bin_PROGRAMS)
 am_snowman_OBJECTS = snowman-run_snowman.$(OBJEXT) \
 	snowman-BreakPoint.$(OBJEXT) snowman-AlignedContig.$(OBJEXT) \
+	snowman-AlignmentFragment.$(OBJEXT) \
 	snowman-DiscordantCluster.$(OBJEXT) \
 	snowman-DBSnpFilter.$(OBJEXT) snowman-PONFilter.$(OBJEXT) \
 	snowman-SnowmanUtils.$(OBJEXT) snowman-snowman.$(OBJEXT) \
@@ -200,7 +201,7 @@ snowman_LDADD = \
 	$(top_builddir)/SeqLib/htslib/libhts.a \
 	$(top_builddir)/SeqLib/fermi-lite/libfml.a
 
-snowman_SOURCES = run_snowman.cpp BreakPoint.cpp AlignedContig.cpp \
+snowman_SOURCES = run_snowman.cpp BreakPoint.cpp AlignedContig.cpp AlignmentFragment.cpp \
 		DiscordantCluster.cpp DBSnpFilter.cpp PONFilter.cpp \
 		SnowmanUtils.cpp snowman.cpp SnowmanAssemblerEngine.cpp vcf.cpp \
 		DiscordantRealigner.cpp SnowmanOverlapAlgorithm.cpp SnowmanASQG.cpp \
@@ -290,6 +291,7 @@ distclean-compile:
 	-rm -f *.tab.c
 
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-AlignedContig.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-AlignmentFragment.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-BamStats.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-BreakPoint.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/snowman-DBSnpFilter.Po@am__quote@
@@ -366,6 +368,20 @@ snowman-AlignedContig.obj: AlignedContig.cpp
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='AlignedContig.cpp' object='snowman-AlignedContig.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-AlignedContig.obj `if test -f 'AlignedContig.cpp'; then $(CYGPATH_W) 'AlignedContig.cpp'; else $(CYGPATH_W) '$(srcdir)/AlignedContig.cpp'; fi`
+
+snowman-AlignmentFragment.o: AlignmentFragment.cpp
+@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-AlignmentFragment.o -MD -MP -MF $(DEPDIR)/snowman-AlignmentFragment.Tpo -c -o snowman-AlignmentFragment.o `test -f 'AlignmentFragment.cpp' || echo '$(srcdir)/'`AlignmentFragment.cpp
+@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/snowman-AlignmentFragment.Tpo $(DEPDIR)/snowman-AlignmentFragment.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='AlignmentFragment.cpp' object='snowman-AlignmentFragment.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-AlignmentFragment.o `test -f 'AlignmentFragment.cpp' || echo '$(srcdir)/'`AlignmentFragment.cpp
+
+snowman-AlignmentFragment.obj: AlignmentFragment.cpp
+@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-AlignmentFragment.obj -MD -MP -MF $(DEPDIR)/snowman-AlignmentFragment.Tpo -c -o snowman-AlignmentFragment.obj `if test -f 'AlignmentFragment.cpp'; then $(CYGPATH_W) 'AlignmentFragment.cpp'; else $(CYGPATH_W) '$(srcdir)/AlignmentFragment.cpp'; fi`
+@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/snowman-AlignmentFragment.Tpo $(DEPDIR)/snowman-AlignmentFragment.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='AlignmentFragment.cpp' object='snowman-AlignmentFragment.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o snowman-AlignmentFragment.obj `if test -f 'AlignmentFragment.cpp'; then $(CYGPATH_W) 'AlignmentFragment.cpp'; else $(CYGPATH_W) '$(srcdir)/AlignmentFragment.cpp'; fi`
 
 snowman-DiscordantCluster.o: DiscordantCluster.cpp
 @am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(snowman_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT snowman-DiscordantCluster.o -MD -MP -MF $(DEPDIR)/snowman-DiscordantCluster.Tpo -c -o snowman-DiscordantCluster.o `test -f 'DiscordantCluster.cpp' || echo '$(srcdir)/'`DiscordantCluster.cpp
