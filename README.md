@@ -31,7 +31,7 @@ We recommend compiling with GCC-4.8 or greater. We have successfully compiled on
 
 ```
 git clone --recursive https://github.com/walaj/snowman
-cd Snowman
+cd snowman
 ./configure
 make
 make install
