@@ -277,3 +277,7 @@ NODBCUTOFF 8 -> 2.5
 	-- fixed bug in this implementation from 109 that was causing
 	assert fail
 	
+
+	## snowman 115
+	-- fixed bug introdued in 114 that didn't correctly parse contigs
+	-- added BX tag tracking

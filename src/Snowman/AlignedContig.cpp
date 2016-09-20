@@ -70,7 +70,7 @@ AlignedContig::AlignedContig(const SeqLib::BamRecordVector& bav, const std::set<
       f.SetIndels(this);
    
     // sort fragments by order on fwd-strand contig
-    if (m_frag_v.size() > 1)
+    if (m_frag_v.size() > 1) 
       std::sort(m_frag_v.begin(), m_frag_v.end());
 
     if (!m_frag_v.size())
@@ -215,7 +215,7 @@ void AlignedContig::blacklist(SeqLib::GRC &grv) {
       }
     }
     
-
+    out << ac.getSequence() << "    " << ac.getContigName() << std::endl; 
     PlottedReadVector plot_vec;
     
     // print out the individual reads
@@ -354,7 +354,7 @@ void AlignedContig::blacklist(SeqLib::GRC &grv) {
 	  
 	  bp.b1 = a.makeBreakEnd(true);
 	  bp.b2 = b.makeBreakEnd(false); 
-	  
+
 	  // set the insertion / homology
 	  bp.__set_homologies_insertions();
 	  

@@ -42,7 +42,7 @@ AlignmentFragment::AlignmentFragment(const SeqLib::BamRecord &talign, bool flip)
     }
 
     // find the start position of alignment ON CONTIG
-    int start = 0; 
+    start = 0; 
     for (auto& i : /*m_align.GetCigar()*/ m_cigar) {
       if (i.Type() != 'M')
 	start += i.Length();

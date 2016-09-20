@@ -122,7 +122,8 @@
    char * homology;
    char * repeat;
    //char * read_names;
-   std::string read_names;
+
+   std::string read_names, bxtable;
 
    std::vector<std::string> format_s;
 
@@ -196,7 +197,7 @@
  struct BreakPoint {
    
    static std::string header() { 
-     return "chr1\tpos1\tstrand1\tchr2\tpos2\tstrand2\tref\talt\tspan\tmapq1\tmapq2\tnm1\tnm2\tdisc_mapq1\tdisc_mapq2\tsub_n1\tsub_n2\thomology\tinsertion\tcontig\tnumalign\tconfidence\tevidence\tquality\tsecondary_alignment\tsomatic_score\tsomatic_lod\ttrue_lod\tpon_samples\trepeat_seq\tgraylist\tDBSNP\treads"; 
+     return "chr1\tpos1\tstrand1\tchr2\tpos2\tstrand2\tref\talt\tspan\tmapq1\tmapq2\tnm1\tnm2\tdisc_mapq1\tdisc_mapq2\tsub_n1\tsub_n2\thomology\tinsertion\tcontig\tnumalign\tconfidence\tevidence\tquality\tsecondary_alignment\tsomatic_score\tsomatic_lod\ttrue_lod\tpon_samples\trepeat_seq\tgraylist\tDBSNP\treads\tbxtags"; 
    }
 
    double somatic_score = 0;
@@ -206,7 +207,7 @@
 
    int aligned_covered = 0;
    
-   std::string seq, cname, rs, insertion, homology, repeat_seq, evidence, confidence, ref, alt, read_names;   
+   std::string seq, cname, rs, insertion, homology, repeat_seq, evidence, confidence, ref, alt, read_names, bxtable;   
 
    // the evidence per break-end
    BreakEnd b1, b2;
@@ -391,11 +392,12 @@
    void __score_assembly_only();
    void __score_assembly_dscrd();
    void __score_indel(double LOD_CUTOFF, double LOD_CUTOFF_DBSNP);
-   std::string __format_readname_string();
+   void __format_readname_string();
    void __set_homologies_insertions();
    void __set_evidence();
    bool valid() const;
-   
+   void  __format_bx_string();
+
    double __sv_is_somatic() const;
    double __indel_is_somatic() const;
 

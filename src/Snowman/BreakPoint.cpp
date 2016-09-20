@@ -62,13 +62,15 @@ using namespace SeqLib;
     std::stringstream ss;
     
     // put the read names into a string
-    if (!noreads)  {
+    if (!noreads)  
       __format_readname_string();
-    }
+    
+    // make the BX table
+    __format_bx_string();
+
     double max_lod = 0;
-    for (auto& s : allele) {
+    for (auto& s : allele) 
       max_lod = std::max(max_lod, s.second.LO);
-    }
 
     ss << b1.chr_name << sep << b1.gr.pos1 << sep << b1.gr.strand << sep 
        << b2.chr_name << sep << b2.gr.pos1 << sep << b2.gr.strand << sep 
@@ -89,7 +91,8 @@ using namespace SeqLib;
        << max_lod << sep 
        << pon << sep << (repeat_seq.length() ? repeat_seq : "x") << sep 
        << blacklist << sep << (rs.length() ? rs : "x") << sep 
-       << (read_names.length() ? read_names : "x");
+       << (read_names.length() ? read_names : "x") << sep
+       << (!bxtable.empty() ? bxtable : "x");
 
     for (auto& a : allele)
       ss << sep << a.second.toFileString();
@@ -286,6 +289,7 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h) {
 	case 31: blacklist = (val=="1"); break;
 	case 32: rs = val; break;
 	case 33: read_names = val; break;
+	case 34: bxtable = val; break;
         default: 
 	  aaa.indel = evidence == "INDEL";
 	  aaa.fromString(val);
@@ -643,8 +647,8 @@ BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
     bp1.Pad(PAD);
     bp2.Pad(PAD);
 
-    for (auto& d : dmap)
-      {
+    for (auto& d : dmap) {
+
 	if (!d.second.valid())
 	  continue;
 
@@ -1102,26 +1106,59 @@ void BreakPoint::scoreBreakpoint(double LOD_CUTOFF, double LOD_CUTOFF_DBSNP, dou
     
   }
 
-  std::string BreakPoint::__format_readname_string() {
-    
-    std::string supporting_reads = "";
-    std::unordered_map<std::string, bool> supp_reads;
-    
+// format the text BX tag table (for 10X reads)x
+void BreakPoint::__format_bx_string() {
+
+  // only make if alraedy empty
+  if (!bxtable.empty())
+    return;
+
+  std::unordered_set<std::string> qn; // only add tag once per qname
+    std::unordered_map<std::string, size_t> supp_tags;
+
     //add the discordant reads
-    for (auto& r : dc.reads) {
-      std::string tmp = r.second.GetZTag("SR");
-      supp_reads[tmp] = true;
+    for (const auto& r : dc.reads) {
+      std::string qname = r.second.Qname();
+      if (qn.count(qname))
+	continue;
+      std::string tmp = r.second.GetZTag("BX");
+      if (!tmp.empty()) 
+	++supp_tags[tmp];
+      qn.insert(qname);
     }
-    //for (auto& r : dc.mates) {
-    //  std::string tmp = r.second.GetZTag("SR");
-    //  supp_reads[tmp] = true;
-    //}
     
     //add the reads from the breakpoint
-    for (auto& r : reads) {
-      std::string tmp = r.GetZTag("SR");
-      supp_reads[tmp] = true;
+    for (const auto& r : reads) {
+      std::string qname = r.Qname();
+      if (qn.count(qname))
+	continue;
+      std::string tmp = r.GetZTag("BX");
+      if (!tmp.empty())
+	++supp_tags[tmp];
+      qn.insert(qname);
     }
+    
+    for (const auto& s : supp_tags)
+      bxtable = bxtable += s.first + "_" + std::to_string(s.second) + ",";
+    if (bxtable.length())
+      bxtable.pop_back(); // remove last comma
+}
+
+  void BreakPoint::__format_readname_string() {
+    
+    // only operate it not already formated
+    if (read_names.empty())
+      return;
+    
+    std::unordered_set<std::string> supp_reads;
+    
+    //add the discordant reads
+    for (auto& r : dc.reads) 
+      supp_reads.insert(r.second.GetZTag("SR"));
+
+    //add the reads from the breakpoint
+    for (auto& r : reads) 
+      supp_reads.insert(r.GetZTag("SR"));
     
     // print reads to a string, delimit with a ,
     size_t lim = 0;
@@ -1129,23 +1166,15 @@ void BreakPoint::scoreBreakpoint(double LOD_CUTOFF, double LOD_CUTOFF_DBSNP, dou
       if (++lim > 50)
 	break;
 
-      //boost::regex regr(".*?_[0-9]+_(.*)"); 
-      //boost::cmatch pmatch;
-      if (i.first.at(0) == 't') {
-	size_t posr = i.first.find("_", 5) + 1;
+      if (i.at(0) == 't') {
+	size_t posr = i.find("_", 5) + 1;
 	if (posr != std::string::npos)
-	  supporting_reads = supporting_reads + "," + i.first.substr(posr, i.first.length() - posr);
-	//if (boost::regex_match(i.first.c_str(), pmatch, regr))
-	//  supporting_reads = supporting_reads + "," + pmatch[1].str();
+	  read_names = read_names + "," + i.substr(posr, i.length() - posr);
       }
     }
-    if (supporting_reads.size() > 0)
-      supporting_reads = supporting_reads.substr(1, supporting_reads.size() - 1); // remove first _
+    if (!read_names.empty())
+      read_names = read_names.substr(1, read_names.size() - 1); // remove first _
     
-    if (read_names.length() == 0)
-      read_names = supporting_reads;
-    
-    return read_names;
   }
 
   bool BreakPoint::valid() const {
@@ -1347,7 +1376,7 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
     homology = nullptr;
 
     //float afn, aft;
-    std::string ref_s, alt_s, cname_s, insertion_s, homology_s, evidence_s, confidence_s, read_names_s;
+    std::string ref_s, alt_s, cname_s, insertion_s, homology_s, evidence_s, confidence_s, read_names_s, bxtable_s;
     
     std::string chr1, pos1, chr2, pos2, chr_name1, chr_name2, repeat_s; 
     char strand1 = '*', strand2 = '*';
@@ -1407,6 +1436,7 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
 	case 31: blacklist = (val=="1" ? 1 : 0); break;
 	case 32: dbsnp = val != "x"; break;
 	case 33: read_names_s = val; break; //reads
+	case 34: bxtable_s = val; break; //bx tags
 	default:
 	  format_s.push_back(val);
 	}
@@ -1427,7 +1457,8 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
     alt        = __string_alloc2char(alt_s, alt);
     repeat     = repeat_s.empty() ? nullptr : __string_alloc2char(repeat_s, repeat);
     if (somatic_score && confidence_s == "PASS")
-      read_names     = read_names_s;// == "x" ? nullptr : __string_alloc2char(read_names_s, read_names);
+      read_names     = read_names_s; // == "x" ? nullptr : __string_alloc2char(read_names_s, read_names);
+    bxtable = bxtable_s;
 
   }
 
@@ -1643,7 +1674,6 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
       if (val.find("nan") != std::string::npos)
 	val = "0";
 
-      //      std::cerr << val << std::endl;
       switch(++count) {
       case 6: split = std::stoi(val); break;
       case 8: LO_n =   std::stod(val); break;

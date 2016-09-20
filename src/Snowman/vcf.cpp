@@ -255,6 +255,7 @@ VCFFile::VCFFile(std::string file, std::string id, const SeqLib::BamHeader& h, c
   //add the SV info fields
   sv_header.addInfoField("REPSEQ","1","String","Repeat sequence near the event");
   sv_header.addInfoField("READNAMES",".","String","IDs of ALT reads");
+  sv_header.addInfoField("BX",".","String","Table of BX tag counts for supporting reads");
   sv_header.addInfoField("NM","1","Integer","Number of mismatches of this alignment fragment to reference");
   sv_header.addInfoField("MATENM","1","Integer","Number of mismatches of partner alignment fragment to reference");
   sv_header.addInfoField("SVTYPE","1","String","Type of structural variant");
@@ -318,6 +319,7 @@ VCFFile::VCFFile(std::string file, std::string id, const SeqLib::BamHeader& h, c
   indel_header.addInfoField("PON","1","Integer","Number of normal samples that have this indel present");
   indel_header.addInfoField("NM","1","Integer","Number of mismatches of this alignment fragment to reference");
   indel_header.addInfoField("READNAMES",".","String","IDs of ALT reads");
+  indel_header.addInfoField("BX",".","String","Table of BX tag counts for supporting reads");
   indel_header.addInfoField("LOD","1","Float","Log of the odds that variant is real vs artifact");
 
   // keep track of exact positions to keep from duplicating
@@ -768,6 +770,9 @@ std::unordered_map<std::string, std::string> VCFEntry::fillInfoFields() const {
 
   if (!bp->read_names.empty() && bp->read_names != "x")
     info_fields["READNAMES"] = bp->read_names;
+
+  if (!bp->bxtable.empty() && bp->bxtable != "x")
+    info_fields["BX"] = bp->bxtable;
 
   if (bp->repeat)
     info_fields["REPSEQ"] = std::string(bp->repeat);
