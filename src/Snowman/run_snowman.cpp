@@ -45,7 +45,6 @@ static std::stringstream ss; // initalize a string stream once
 #define MATE_REGION_LOOKUP_LIMIT 400
 
 #define GERMLINE_CNV_PAD 10
-#define LITTLECHUNK 25000 
 #define WINDOW_PAD 500
 #define MICROBE_MATCH_MIN 50
 #define GET_MATES 1
@@ -139,7 +138,7 @@ namespace opt {
   static int32_t max_reads_per_assembly = -1; // set default of 10000 in parseRunOptions
 
   // additional optional params
-  static int chunk = LITTLECHUNK;
+  static int chunk = 25000;
   static std::string regionFile;  // region to run on
   static std::string analysis_id = "no_id";
   static int num_to_sample = 5000000;  // num to learn from (eg isize distribution)
@@ -151,7 +150,7 @@ namespace opt {
   // data
   static BamMap bam;
   static std::string refgenome = "/seq/references/Homo_sapiens_assembly19/v1/Homo_sapiens_assembly19.fasta";
-  static std::string microbegenome = "/xchip/gistic/Jeremiah/Projects/SnowmanFilters/viral.1.1.genomic_ns.fna";
+  static std::string microbegenome; // = "/xchip/gistic/Jeremiah/Projects/SnowmanFilters/viral.1.1.genomic_ns.fna";
   static std::string simple_file; //  file of simple repeats as a filter
   static std::string blacklist; // = "/xchip/gistic/Jeremiah/Projects/HengLiMask/um75-hs37d5.bed.gz";
   static std::string germline_sv_file;

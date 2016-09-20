@@ -44,7 +44,7 @@ snowman --help
 snowman run --help
 ```
 
-Snowman uses the [SeqLib](seqlib) API for BAM access, BWA-MEM alignments, interval trees and operations,
+Snowman uses the [SeqLib][seqlib] API for BAM access, BWA-MEM alignments, interval trees and operations,
 and several other auxillary operations.
 
 Description
