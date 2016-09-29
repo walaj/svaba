@@ -122,7 +122,7 @@ AlignedContig::AlignedContig(const SeqLib::BamRecordVector& bav, const std::set<
   SeqLib::GenomicRegionVector AlignedContig::getAsGenomicRegionVector() const {
     SeqLib::GenomicRegionVector g;
     for (auto& i : m_frag_v)
-      g.push_back(i.m_align.asGenomicRegion());
+      g.push_back(i.m_align.AsGenomicRegion());
     return g;
   }
 

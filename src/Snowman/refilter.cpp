@@ -195,24 +195,28 @@ void runRefilterBreakpoints(int argc, char** argv) {
   std::string line, line2, val;
   igzstream infile(opt::input_file.c_str(), std::ios::in);
   size_t line_count = 0;
+  SeqLib::BamHeader hdr = bwalker.Header();
   while (getline(infile, line, '\n')) {
+    if (line_count % 100000 == 0) 
+      std::cerr << "...read bps file line " << SeqLib::AddCommas(line_count) << std::endl;
+      
     if (line_count == 0) { // read the header
       os_allbps_r << line << std::endl;
       std::istringstream f(line);
       size_t scount = 0;
       while (std::getline(f, val, '\t')) {
 	++scount;
-	if (scount > 33) { // 34th column should be first sample ID
+	if (scount > 34) { // 35th column should be first sample ID
 	  assert(val.at(0) == 't' || val.at(0) == 'n');
 	    allele_names.push_back(val);
 	}
       }
 
     } else {
-	BreakPoint * bp = new BreakPoint(line, bwalker.Header());
+	BreakPoint * bp = new BreakPoint(line, hdr);
 
 	// fill in with the correct names from the header of bps.txt
-	std::string id = "";
+	std::string id ;
 	for (auto& i : allele_names) {
 	  id += "A";
 	  tmp_alleles[i] = bp->allele[id];

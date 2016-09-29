@@ -9,7 +9,6 @@
 
 #include "BreakPoint.h"
 #include "DiscordantCluster.h"
-
 #include "AlignmentFragment.h"
 
 /*! Contains the mapping of an aligned contig to the reference genome,

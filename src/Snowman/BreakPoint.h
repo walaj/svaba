@@ -13,24 +13,22 @@
 #include "SeqLib/RefGenome.h"
 #include "DiscordantCluster.h"
 
-#include "PONFilter.h"
-
   // forward declares
   struct BreakPoint;
 
   typedef std::vector<BreakPoint> BPVec;
    
- struct ReducedBreakEnd {
-   
-   ReducedBreakEnd() {}
-
-   ReducedBreakEnd(const SeqLib::GenomicRegion& g, int mq, const std::string & chr_n);
-   
-   std::string chr_name;
-   SeqLib::GenomicRegion gr;
-   int32_t mapq:8, sub_n:8, nm:16;
-
- };
+struct ReducedBreakEnd {
+  
+  ReducedBreakEnd() {}
+  
+  ReducedBreakEnd(const SeqLib::GenomicRegion& g, int mq, const std::string & chr_n);
+  
+  std::string chr_name;
+  SeqLib::GenomicRegion gr;
+  int32_t mapq:8, sub_n:8, nm:16;
+  
+};
 
  struct BreakEnd {
    
@@ -275,8 +273,7 @@
     * it lands on a repeat */
    void repeatFilter();
 
-
-   int checkPon(const PONFilter * p);
+   //int checkPon(const PONFilter * p);
   
 
    void __combine_with_discordant_cluster(DiscordantClusterMap& dmap);

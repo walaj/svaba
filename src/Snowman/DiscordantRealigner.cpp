@@ -44,8 +44,8 @@ bool DiscordantRealigner::RealignRead(SeqLib::BamRecord& r, const SeqLib::BWAWra
   }
 
   // discordant alignments
-  SeqLib::GenomicRegion gr  = r.asGenomicRegion();
-  SeqLib::GenomicRegion grm = r.asGenomicRegionMate();
+  SeqLib::GenomicRegion gr  = r.AsGenomicRegion();
+  SeqLib::GenomicRegion grm = r.AsGenomicRegionMate();
   grm.Pad(discordant_realign_mate_pad);
   
   bool has_orig = false;
@@ -57,14 +57,14 @@ bool DiscordantRealigner::RealignRead(SeqLib::BamRecord& r, const SeqLib::BWAWra
     // if the realignment has a better mapq at differnt location
     // then take that, and say that it is too uncertain to be a 
     // reliable alignment
-    if (i.MapQuality() > r.MapQuality() && gr.GetOverlap(i.asGenomicRegion())) {
+    if (i.MapQuality() > r.MapQuality() && gr.GetOverlap(i.AsGenomicRegion())) {
       ;//ReassignRead(r, i); // to, from
       //continue;
     }
     
     // if there is another alignment that overlaps with the original
     // but has a lower MAPQ, take the new mapq
-    if (gr.GetOverlap(i.asGenomicRegion())) {
+    if (gr.GetOverlap(i.AsGenomicRegion())) {
       has_orig = true;
       r.SetMapQuality(std::min(i.MapQuality(), r.MapQuality()));
     }
@@ -72,7 +72,7 @@ bool DiscordantRealigner::RealignRead(SeqLib::BamRecord& r, const SeqLib::BWAWra
     DEBUG("   Realigned hit has overlap with mate of N bases: " + std::to_string(r.OverlappingCoverage), i);
     
     // if mate is mapped, and read maps to near mate region wo clips, it's not disc
-    if (grm.GetOverlap(i.asGenomicRegion())) {
+    if (grm.GetOverlap(i.AsGenomicRegion())) {
       // if not clipped or overlaps same covered region as original, 
       // then it has a secondary mapping
       if (r.NumClip() < 20 || r.OverlappingCoverage(i) >= 20) 

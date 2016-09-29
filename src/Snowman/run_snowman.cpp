@@ -113,6 +113,7 @@ namespace opt {
   static bool read_tracking = false; // turn on output of qnames
   static bool all_contigs = false;  // output all contigs
 
+
   // discordant clustering params
   static double sd_disc_cutoff = 3.92;
   static bool disc_cluster_only = false;
@@ -146,6 +147,7 @@ namespace opt {
   // runtime parameters
   static int verbose = 0;
   static int numThreads = 1;
+  static bool hp = false; // should run in highly-parallel mode? (no file dump til end)
 
   // data
   static BamMap bam;
@@ -171,6 +173,7 @@ namespace opt {
 
 enum { 
   OPT_ASQG,
+  OPT_HP,
   OPT_READLEN,
   OPT_LOD,
   OPT_LOD_DB,
@@ -204,6 +207,7 @@ static const struct option longopts[] = {
   { "all-contigs",             no_argument, NULL, 'A' },  
   { "panel-of-normals",        required_argument, NULL, 'P' },
   { "id-string",               required_argument, NULL, 'a' },
+  { "highly-parallel",         required_argument, NULL, OPT_HP },
   { "normal-bam",              required_argument, NULL, 'n' },
   { "threads",                 required_argument, NULL, 'p' },
   { "chunk-size",              required_argument, NULL, 'c' },
@@ -278,9 +282,10 @@ static const char *RUN_USAGE_MESSAGE =
 "  -x, --max-reads                      Max total read count to read in from assembly region. Set 0 to turn off. [10000]\n"
 "  -C, --max-coverage                   Max read coverage to send to assembler (per BAM). Subsample reads if exceeded. [500]\n"
 "      --no-interchrom-lookup           Skip mate lookup for inter-chr candidate events. Reduces power for translocations but less I/O.\n"
-"      --discordant-only                Only run the discordant read clustering module, skip assembly. Default: off\n"
+"      --discordant-only                Only run the discordant read clustering module, skip assembly. \n"
 "      --num-assembly-rounds            Run assembler multiple times. > 1 will bootstrap the assembly. [2]\n"
 "      --num-to-sample                  When learning about inputs, number of reads to sample. [1000000]\n"
+"      --highly-parallel                Don't write output until completely done. More memory, but avoids all thread-locks.\n"
 "  Output options\n"
 "  -z, --g-zip                          Gzip and tabix the output VCF files. [off]\n"
 "  -A, --all-contigs                    Output all contigs that were assembled, regardless of mapping or length. [off]\n"
@@ -680,10 +685,10 @@ void makeVCFs() {
     VCFFile snowvcf(file, opt::analysis_id, b_header, header);
     std::string basename = opt::analysis_id + ".snowman.unfiltered.";
 
-    WRITELOG("...writing unfiltered VCFs", opt::verbose, true);
-    snowvcf.include_nonpass = true;
-    snowvcf.writeIndels(basename, opt::zip, opt::bam.size() == 1);
-    snowvcf.writeSVs(basename, opt::zip, opt::bam.size() == 1);
+    //WRITELOG("...writing unfiltered VCFs", opt::verbose, true);
+    //snowvcf.include_nonpass = true;
+    //snowvcf.writeIndels(basename, opt::zip, opt::bam.size() == 1);
+    //snowvcf.writeSVs(basename, opt::zip, opt::bam.size() == 1);
 
     WRITELOG("...writing filtered VCFs", opt::verbose, true);
     basename = opt::analysis_id + ".snowman.";
@@ -751,6 +756,7 @@ void parseRunOptions(int argc, char** argv) {
     case OPT_LOD_DB: arg >> opt::lod_db; break;
     case OPT_LOD_SOMATIC: arg >> opt::lod_somatic; break;
     case OPT_LOD_SOMATIC_DB: arg >> opt::lod_somatic_db; break;
+    case OPT_HP: opt::hp = true; break;
     case OPT_SCALE_ERRORS: arg >> opt::scale_error; break;
     case 'C': arg >> opt::max_cov;  break;
     case OPT_NUM_TO_SAMPLE: arg >> opt::num_to_sample;  break;
@@ -1114,8 +1120,8 @@ afterassembly:
       wu.m_bps.push_back(i);
   
   // dump if getting to much memory
-  if (wu.MemoryLimit()) {
-    WRITELOG("DUMPING CONTIGS ETC ON THREAD " + std::to_string(thread_id) + " with limit hit of " + std::to_string(wu.m_bamreads_count), opt::verbose > 1, true);
+  if (wu.MemoryLimit() && !opt::hp) {
+    WRITELOG("writing contigs etc on thread " + std::to_string(thread_id) + " with limit hit of " + std::to_string(wu.m_bamreads_count), opt::verbose > 1, true);
     pthread_mutex_lock(&snow_lock);    
     WriteFilesOut(wu); 
     pthread_mutex_unlock(&snow_lock);
@@ -1638,7 +1644,7 @@ void run_assembly(const SeqLib::GenomicRegion& region, SeqLib::BamRecordVector& 
     // check simple sequence overlaps
     if (simple_seq.size())
       for (auto& k : human_alignments) {
-	SeqLib::GRC ovl = simple_seq.FindOverlaps(k.asGenomicRegion(), true);
+	SeqLib::GRC ovl = simple_seq.FindOverlaps(k.AsGenomicRegion(), true);
 	int msize = 0;
 	for (auto& j: ovl) {
 	  int nsize = j.Width() - k.MaxDeletionBases() - 1;
