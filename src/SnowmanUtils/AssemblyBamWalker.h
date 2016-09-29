@@ -9,19 +9,16 @@
 /** Walk along a BAM file generated from a de novo assembly,
  * realigned to the genome (preferably by BWA-MEM).
  */
-class AssemblyBamWalker: public SeqLib::BamReader 
-{
+class AssemblyBamWalker: public SeqLib::BamReader {
+
  public:
-  
-  //SnowTools::Bam5
-  
+
   /** Construct a new read-only walker to move along the assembly bam
    * @param in File path of the assembly BAM
    */
   AssemblyBamWalker() {}
 
-    /** Move along a BAM file generated from Discovar and make the AlignedContigs
-     */
+    /** Move along a BAM file generated from Discovar and make the AlignedContigs */
     void walkDiscovar();
       
     void sendThread();
@@ -30,24 +27,14 @@ class AssemblyBamWalker: public SeqLib::BamReader
 
     faidx_t * findex = nullptr;
 
-    SnowmanBamWalker twalk, nwalk;
-
-    std::string tbam, nbam;
-
-    std::shared_ptr<hts_idx_t> tindex, nindex;
-
-    std::string id = "assembly_noid";
-
-    std::string refGenome;
-
 };
 
 struct ContigElement {
 
-  SnowTools::BamReadVector brv;
-  SnowTools::GenomicRegionVector regions;
+  SeqLib::BamRecordVector brv;
+  SeqLib::GenomicRegionVector regions;
 
-  ContigElement(const SnowTools::BamReadVector& b, const SnowTools::GenomicRegionVector& r) : brv(b), regions(r) {}
+  ContigElement(const SeqLib::BamRecordVector& b, const SeqLib::GenomicRegionVector& r) : brv(b), regions(r) {}
 };
 
 

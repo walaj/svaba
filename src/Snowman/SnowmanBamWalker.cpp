@@ -141,14 +141,14 @@ SeqLib::GRC SnowmanBamWalker::readBam(std::ofstream * log)
       cov.addRead(r, INFORMATIVE_COVERAGE_BUFFER, false); 
     
     // check if it passed blacklist
-    if (blacklist.size() && blacklist.CountOverlaps(r.asGenomicRegion()))
+    if (blacklist.size() && blacklist.CountOverlaps(r.AsGenomicRegion()))
       blacklisted = true;
     
     // check if in simple-seq
     if (!blacklisted && simple_seq->size()) {
       
       // check simple sequence overlaps
-      SeqLib::GRC ovl = simple_seq->FindOverlaps(r.asGenomicRegion(), true);
+      SeqLib::GRC ovl = simple_seq->FindOverlaps(r.AsGenomicRegion(), true);
       
       int msize = 0;
       for (auto& j: ovl) {

@@ -550,7 +550,7 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h) {
     return st;
   }
   
-  int BreakPoint::checkPon(const PONFilter * p) {
+/*  int BreakPoint::checkPon(const PONFilter * p) {
     
     // only built for indels for now
     if (num_align != 1)
@@ -576,6 +576,7 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h) {
     return pon;
     
   }
+*/
 
 std::ostream& operator<<(std::ostream& out, const BreakPoint& b) {
   

@@ -373,7 +373,7 @@ using namespace SeqLib;
       if (qnames.count(i.Qname())) {
 	  std::string tmp = i.GetZTag("SR");
 	  if (reads.count(tmp) == 0)  {// only add if this is a mate read
-	    if (i.ReverseFlag() == st && g.GetOverlap(i.asGenomicRegion()) > 0) // agrees with intiial mate orientation and position
+	    if (i.ReverseFlag() == st && g.GetOverlap(i.AsGenomicRegion()) > 0) // agrees with intiial mate orientation and position
 	      mates[tmp] = i;
 	  }
 	}
