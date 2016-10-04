@@ -344,6 +344,10 @@ VCFFile::VCFFile(std::string file, std::string id, const SeqLib::BamHeader& h, c
     ++line_count;
     std::shared_ptr<VCFEntryPair> vpair(new VCFEntryPair(bp));
     
+    // skip non pass if not emitting unfiltered
+    if (!include_nonpass && !bp->pass)
+      continue;
+
     ++cname_count[std::string(bp->cname)];
     if (cname_count[std::string(bp->cname)] >= VCF_SECONDARY_CAP)
       {
