@@ -281,3 +281,12 @@ NODBCUTOFF 8 -> 2.5
 	## snowman 115
 	-- fixed bug introdued in 114 that didn't correctly parse contigs
 	-- added BX tag tracking
+
+	## snowman 116
+	-- turned off unfiltered VCF generation (memory nightmare for BX
+	tags)
+	-- added highly-parallel option
+	-- moved to light-weight seqlib (no functional changes)
+
+	## snowman 117
+	-- actually fixed the unfiltered memory issue....

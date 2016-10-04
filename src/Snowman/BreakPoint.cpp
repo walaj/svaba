@@ -801,7 +801,6 @@ BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
       confidence = "SIMPLESEQUENCE";
     else if ((int)homology.length() * HOMOLOGY_FACTOR > readlen) // if homology is too high, tough to tell from mis-assemly
       confidence = "HIGHHOMOLOGY";
-	      
     else
       confidence = "PASS";
 
