@@ -1057,7 +1057,7 @@ void BreakPoint::scoreBreakpoint(double LOD_CUTOFF, double LOD_CUTOFF_DBSNP, dou
     t.LO = t.SLO * scale;
     n.LO = n.SLO * scale;
     a.LO = a.SLO * scale;
-   
+    
     // sanity check
     int split =0;
     for (auto& i : allele) 
@@ -1084,7 +1084,8 @@ void BreakPoint::scoreBreakpoint(double LOD_CUTOFF, double LOD_CUTOFF_DBSNP, dou
       quality = 99;
     else
       quality = 0;
-    
+    quality = t.GQ; // a.SLO;   
+
     double LR = -1000000;
     for (auto& i : allele) {
       LR = std::max(-i.second.LO_n, LR); 
@@ -1426,7 +1427,7 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
 	  indel = val == "INDEL"; 
 	  imprecise = val == "DSCRD"; 
 	  break; 
-	case 24: quality = std::min((int)255,std::stoi(val)); break;
+	case 24: quality = std::stod(val); break; //std::min((int)255,std::stoi(val)); break;
 	case 25: secondary = val == "1" ? 1 : 0;
 	case 26: somatic_score = std::stod(val); break;
 	case 27: somatic_lod = std::stod(val); break;

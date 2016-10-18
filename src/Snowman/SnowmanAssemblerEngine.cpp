@@ -110,7 +110,7 @@ bool SnowmanAssemblerEngine::hasRepeat(const std::string& seq) {
 
 bool SnowmanAssemblerEngine::performAssembly(int num_assembly_rounds) 
 {
-  if (m_pRT.getCount() < 3)
+  if (m_pRT.getCount() < 2)
     return false;
 
 #ifdef DEBUG_ENGINE
@@ -251,8 +251,7 @@ void SnowmanAssemblerEngine::doAssembly(ReadTable *pRT, SeqLib::UnalignedSequenc
     OverlapVector ov;
     OverlapCommon::parseHitsString(line, pQueryRIT, pQueryRIT, pSAf_nd, pSAr_nd, bIsSelfCompare, readIdx, totalEntries, ov, isSubstring);
 
-    for(OverlapVector::iterator iter = ov.begin(); iter != ov.end(); ++iter)
-    {
+    for(OverlapVector::iterator iter = ov.begin(); iter != ov.end(); ++iter) {
        SnowmanASQG::EdgeRecord edgeRecord(*iter);
        edgeRecord.write(asqg_stream);
     }
@@ -293,6 +292,7 @@ void SnowmanAssemblerEngine::doAssembly(ReadTable *pRT, SeqLib::UnalignedSequenc
   
   // print out some results
 #ifdef DEBUG_ENGINE
+  std::cerr << " PASS " << pass << std::endl;
   print_results(contigs);
 #endif
   

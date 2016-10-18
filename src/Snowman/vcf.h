@@ -130,7 +130,7 @@ struct VCFFile {
   VCFFile(std::string file, std::string tmethod);
 
   // create a VCFFile from a csv
-  VCFFile(std::string file, std::string id, const SeqLib::BamHeader& h, const VCFHeader& vheader);
+  VCFFile(std::string file, std::string id, const SeqLib::BamHeader& h, const VCFHeader& vheader, bool nopass);
 
   std::string filename;
   std::string method;
