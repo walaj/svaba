@@ -187,7 +187,7 @@ bool VCFEntry::operator<(const VCFEntry &v) const {
 }
 
 // create a VCFFile from a snowman breakpoints file
-VCFFile::VCFFile(std::string file, std::string id, const SeqLib::BamHeader& h, const VCFHeader& vheader) {
+VCFFile::VCFFile(std::string file, std::string id, const SeqLib::BamHeader& h, const VCFHeader& vheader, bool nopass) {
 
   analysis_id = id;
 
@@ -325,6 +325,8 @@ VCFFile::VCFFile(std::string file, std::string id, const SeqLib::BamHeader& h, c
   // keep track of exact positions to keep from duplicating
   // read the reference if not open
   cerr << "...vcf - reading in the breakpoints file" << endl;
+  
+  include_nonpass = nopass;
 
   // read it in line by line
   getline(infile, line, '\n'); // skip first line
@@ -343,7 +345,7 @@ VCFFile::VCFFile(std::string file, std::string id, const SeqLib::BamHeader& h, c
     // add the VCFentry Pair
     ++line_count;
     std::shared_ptr<VCFEntryPair> vpair(new VCFEntryPair(bp));
-    
+
     // skip non pass if not emitting unfiltered
     if (!include_nonpass && !bp->pass)
       continue;

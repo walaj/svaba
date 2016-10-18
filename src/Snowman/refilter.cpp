@@ -250,7 +250,7 @@ void runRefilterBreakpoints(int argc, char** argv) {
   if (SeqLib::read_access_test(new_bps_file)) {
     if (opt::verbose)
       std::cerr << "...making the primary VCFs (unfiltered and filtered) from file " << new_bps_file << std::endl;
-    VCFFile snowvcf(new_bps_file, opt::analysis_id, bwalker.Header(), header);
+    VCFFile snowvcf(new_bps_file, opt::analysis_id, bwalker.Header(), header, true);
  
     std::string basename = opt::analysis_id + ".snowman.unfiltered.";
     snowvcf.include_nonpass = true;

@@ -112,7 +112,7 @@ namespace opt {
   static bool zip = false;
   static bool read_tracking = false; // turn on output of qnames
   static bool all_contigs = false;  // output all contigs
-
+  static bool no_unfiltered = false; // don't output unfiltered variants
 
   // discordant clustering params
   static double sd_disc_cutoff = 3.92;
@@ -196,7 +196,8 @@ enum {
   OPT_CLIP5,
   OPT_CLIP3,
   OPT_GERMLINE,
-  OPT_SCALE_ERRORS
+  OPT_SCALE_ERRORS,
+  OPT_NO_UNFILTERED
 };
 
 static const char* shortopts = "hzIAt:n:p:v:r:G:e:k:c:a:m:B:D:Y:S:L:s:V:R:K:E:C:x:";
@@ -210,6 +211,7 @@ static const struct option longopts[] = {
   { "highly-parallel",         required_argument, NULL, OPT_HP },
   { "normal-bam",              required_argument, NULL, 'n' },
   { "threads",                 required_argument, NULL, 'p' },
+  { "no-unfiltered",           no_argument, NULL, OPT_NO_UNFILTERED },
   { "chunk-size",              required_argument, NULL, 'c' },
   { "region-file",             required_argument, NULL, 'k' },
   { "rules",                   required_argument, NULL, 'r' },
@@ -682,16 +684,18 @@ void makeVCFs() {
   // primary VCFs
   if (SeqLib::read_access_test(file)) {
     WRITELOG("...making the primary VCFs (unfiltered and filtered) from file " + file, opt::verbose, true);
-    VCFFile snowvcf(file, opt::analysis_id, b_header, header);
-    std::string basename = opt::analysis_id + ".snowman.unfiltered.";
+    VCFFile snowvcf(file, opt::analysis_id, b_header, header, !opt::no_unfiltered);
 
-    //WRITELOG("...writing unfiltered VCFs", opt::verbose, true);
-    //snowvcf.include_nonpass = true;
-    //snowvcf.writeIndels(basename, opt::zip, opt::bam.size() == 1);
-    //snowvcf.writeSVs(basename, opt::zip, opt::bam.size() == 1);
+    if (!opt::no_unfiltered) {
+      std::string basename = opt::analysis_id + ".snowman.unfiltered.";
+      snowvcf.include_nonpass = true;
+      WRITELOG("...writing unfiltered VCFs", opt::verbose, true);
+      snowvcf.writeIndels(basename, opt::zip, opt::bam.size() == 1);
+      snowvcf.writeSVs(basename, opt::zip, opt::bam.size() == 1);
+    }
 
     WRITELOG("...writing filtered VCFs", opt::verbose, true);
-    basename = opt::analysis_id + ".snowman.";
+    std::string basename = opt::analysis_id + ".snowman.";
     snowvcf.include_nonpass = false;
     snowvcf.writeIndels(basename, opt::zip, opt::bam.size() == 1);
     snowvcf.writeSVs(basename, opt::zip, opt::bam.size() == 1);
@@ -753,6 +757,7 @@ void parseRunOptions(int argc, char** argv) {
 	}
     case OPT_ASQG: opt::sga::writeASQG = true; break;
     case OPT_LOD: arg >> opt::lod; break;
+    case OPT_NO_UNFILTERED: opt::no_unfiltered = true; break;
     case OPT_LOD_DB: arg >> opt::lod_db; break;
     case OPT_LOD_SOMATIC: arg >> opt::lod_somatic; break;
     case OPT_LOD_SOMATIC_DB: arg >> opt::lod_somatic_db; break;
@@ -1115,9 +1120,10 @@ afterassembly:
   wu.m_disc.insert(dmap.begin(), dmap.end());
   for (const auto& a : alc)
     wu.m_bamreads_count += a.NumBamReads();
-  for (auto& i : bp_glob) 
+  for (auto& i : bp_glob) {
     if ( i.hasMinimal() && i.confidence != "NOLOCAL" ) 
       wu.m_bps.push_back(i);
+  }
   
   // dump if getting to much memory
   if (wu.MemoryLimit() && !opt::hp) {
@@ -1791,9 +1797,10 @@ void WriteFilesOut(SnowmanWorkUnit& wu) {
   }
 
   // send breakpoints to file
-  for (auto& i : wu.m_bps) 
+  for (auto& i : wu.m_bps) {
     if ( i.hasMinimal() && i.confidence != "NOLOCAL" ) 
       os_allbps << i.toFileString(!opt::read_tracking) << std::endl;
+  }
 
   // clear them out
   wu.clear();

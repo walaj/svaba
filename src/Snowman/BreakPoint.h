@@ -140,7 +140,8 @@ struct ReducedBreakEnd {
 
    uint32_t nsplit:8, tsplit:8, af_n:7, num_align:5, secondary:1, dbsnp:1, pass:1, blacklist:1, indel:1, imprecise:1;
    uint32_t tcov_support:8, ncov_support:8, tcov:8, ncov:8;
-   uint32_t tcigar:8, ncigar:8, quality:8, af_t:8; 
+   uint32_t tcigar:8, ncigar:8, dummy:8, af_t:8; 
+   float quality;
    uint8_t pon;
 
    ReducedDiscordantCluster dc;
