@@ -17,7 +17,7 @@
  */
 class AlignedContig {
   
-  friend struct AlignmentFragment;
+  friend class AlignmentFragment;
   
  public:  
   
