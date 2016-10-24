@@ -97,11 +97,11 @@ void BamParams::collectStats() {
 
 }
 
-bool LearnBamParams::process_read(const SeqLib::BamRecord& r, size_t count, BamParamsMap& p,
+void LearnBamParams::process_read(const SeqLib::BamRecord& r, size_t count, BamParamsMap& p,
 				  double& pos1, double& pos2, double& chr, int& wid) const {
    
    if (r.DuplicateFlag() || r.QCFailFlag() || r.SecondaryFlag() || !r.MappedFlag())
-     return false;
+     return;
    
    // get the first read position
    if (count == 1 || r.ChrID() != chr) {

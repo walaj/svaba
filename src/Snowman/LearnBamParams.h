@@ -59,7 +59,7 @@ class LearnBamParams {
  private:
   std::string bam;
 
-  bool process_read(const SeqLib::BamRecord& r, size_t count, 
+  void process_read(const SeqLib::BamRecord& r, size_t count, 
 		    BamParamsMap& p, double& pos1, double& pos2, double& chr, int& wid) const;
 
 };

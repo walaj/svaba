@@ -524,7 +524,7 @@ afterlearn:
   
   // parse the region file, count number of jobs
   int num_jobs = SnowmanUtils::countJobs(opt::regionFile, file_regions, regions_torun,
-					 bwa_header, opt::chunk, WINDOW_PAD); 
+					 b_header, opt::chunk, WINDOW_PAD); 
   if (num_jobs) {
     WRITELOG("...running on " + SeqLib::AddCommas(num_jobs) + " chunks", opt::verbose, true);
   } else {

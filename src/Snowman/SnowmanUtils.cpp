@@ -209,7 +209,8 @@ int overlapSize(const SeqLib::BamRecord& query, const SeqLib::BamRecordVector& s
     
     // check if the mask was successful
     if (file_regions.size() == 0) {
-      std::cerr << "ERROR: Cannot read region file: " << regionFile << " or something wrong with tumor bam header" << std::endl;
+      std::cerr << "ERROR: Cannot read region file: " << regionFile << 
+	" or something wrong with bam header ('chr' prefix mismatch?)" << std::endl;
       exit(EXIT_FAILURE);
     }
     

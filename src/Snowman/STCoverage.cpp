@@ -16,7 +16,7 @@ using namespace SeqLib;
   }
   
   STCoverage::STCoverage(const SeqLib::GenomicRegion& gr) {
-    //m_gr = gr;
+    m_gr = gr;
     //v = uint16_sp(new std::vector<uint16_t>(gr.Width(),0));
   }
 

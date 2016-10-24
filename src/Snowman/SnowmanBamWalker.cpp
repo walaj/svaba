@@ -112,11 +112,6 @@ SeqLib::GRC SnowmanBamWalker::readBam(std::ofstream * log)
       
     DEBUG("SBW read seen", r);
 
-    if (countr > 100 && countr % 50 == 0)
-      std::cerr << " COUNTR " << countr << std::endl;
-    if (reads.size() > 100 && reads.size() % 50 == 0)
-      std::cerr << " READS.SIZE() " << reads.size() << std::endl;
-
     // if hit the limit of reads, log it and try next region
     if (countr > m_limit && m_limit > 0) {
       
@@ -191,7 +186,6 @@ SeqLib::GRC SnowmanBamWalker::readBam(std::ofstream * log)
     // add all the reads for kmer correction
     if (qcpass && do_kmer_filtering && all_seqs.size() < TRAIN_READS_FAIL_SAFE && qcpass && !r.NumHardClip()) {
       std::string qq = r.QualitySequence();
-      assert(false); //debug
       bool train = pass_all && qq.length() > 40;
       // if not 
       if (!pass_all) {
