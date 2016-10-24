@@ -12,7 +12,7 @@
 
 //#define DEBUG_SNOWMAN_BAMWALKER 1
 #define MIN_MAPQ_FOR_MATE_LOOKUP 0
-#define ALL_READS_FAIL_SAFE 50000
+#define TRAIN_READS_FAIL_SAFE 50000
 #define MIN_ISIZE_FOR_DISCORDANT_REALIGNMENT 1000
 #define DISC_REALIGN_MATE_PAD 100
 #define MAX_SECONDARY_HIT_DISC 10
@@ -86,6 +86,11 @@ SeqLib::GRC SnowmanBamWalker::readBam(std::ofstream * log)
   // loop the reads
   while (GetNextRecord(r)) {
 
+    // check if it passed blacklist
+    if (blacklist.size() && blacklist.CountOverlaps(r.AsGenomicRegion())) {
+      continue;
+    }
+
     // dont even mess with them
     if (r.CountNBases())
       continue;
@@ -93,13 +98,12 @@ SeqLib::GRC SnowmanBamWalker::readBam(std::ofstream * log)
     // set some things to check later
     bool is_dup = false;
     bool rule_pass = false;
-    bool blacklisted = false;
     bool qcpass = !r.DuplicateFlag() && !r.QCFailFlag();
     bool pass_all = true;
-    
+
     // quality score trim read. Stores in GV tag
     QualityTrimRead(r);
-
+    
     // if its less than 20, dont even mess with it
     if (r.QualitySequence().length() < 20)
       continue;
@@ -107,9 +111,14 @@ SeqLib::GRC SnowmanBamWalker::readBam(std::ofstream * log)
     rule_pass = m_mr->isValid(r);
       
     DEBUG("SBW read seen", r);
-    
+
+    if (countr > 100 && countr % 50 == 0)
+      std::cerr << " COUNTR " << countr << std::endl;
+    if (reads.size() > 100 && reads.size() % 50 == 0)
+      std::cerr << " READS.SIZE() " << reads.size() << std::endl;
+
     // if hit the limit of reads, log it and try next region
-     if (countr > m_limit && m_limit > 0) {
+    if (countr > m_limit && m_limit > 0) {
       
       if (log)
 	(*log) << "\tbreaking at " << r.Brief() << " in window " 
@@ -140,12 +149,8 @@ SeqLib::GRC SnowmanBamWalker::readBam(std::ofstream * log)
     if (qcpass && get_coverage) 
       cov.addRead(r, INFORMATIVE_COVERAGE_BUFFER, false); 
     
-    // check if it passed blacklist
-    if (blacklist.size() && blacklist.CountOverlaps(r.AsGenomicRegion()))
-      blacklisted = true;
-    
     // check if in simple-seq
-    if (!blacklisted && simple_seq->size()) {
+    if (simple_seq->size()) {
       
       // check simple sequence overlaps
       SeqLib::GRC ovl = simple_seq->FindOverlaps(r.AsGenomicRegion(), true);
@@ -158,10 +163,10 @@ SeqLib::GRC SnowmanBamWalker::readBam(std::ofstream * log)
       }
       
       if (msize > 30)
-	blacklisted = true;
+        qcpass = false;
     }
     
-    pass_all = pass_all && !blacklisted && qcpass && rule_pass;
+    pass_all = pass_all && qcpass && rule_pass;
     
     // check if has adapter
     pass_all = pass_all && !hasAdapter(r);
@@ -177,16 +182,16 @@ SeqLib::GRC SnowmanBamWalker::readBam(std::ofstream * log)
     // add to the cigar map for all non-duplicate reads
     if (pass_all && get_mate_regions) // only add cigar for non-mate regions
       addCigar(r);
-    
+
     DEBUG("SBW read has qcpass?: " + std::to_string(qcpass), r);
-    DEBUG("SBW blacklisted? " + std::to_string(blacklisted), r);
     DEBUG("SBW duplicated? " + std::to_string(is_dup), r);
     DEBUG("SBW rule pass? " + std::to_string(rule_pass), r); 
     DEBUG("SBW pass all? " + std::to_string(pass_all), r);
    
     // add all the reads for kmer correction
-    if (qcpass && do_kmer_filtering && countr < ALL_READS_FAIL_SAFE && qcpass && !r.NumHardClip() && !blacklisted) {
+    if (qcpass && do_kmer_filtering && all_seqs.size() < TRAIN_READS_FAIL_SAFE && qcpass && !r.NumHardClip()) {
       std::string qq = r.QualitySequence();
+      assert(false); //debug
       bool train = pass_all && qq.length() > 40;
       // if not 
       if (!pass_all) {

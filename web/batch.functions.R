@@ -863,7 +863,7 @@ dump.to.bed <- function(gr, file='foo.bed') {
                    starts=start(gr)-1,
                    ends=end(gr),
                    #names=c(rep(".", length(gr))),
-                   scores=gr$score,
+#                   scores=gr$score,
                    #scores=c(rep(".", length(gr))),
                    strands=strand(gr))
   df <- cbind(df, mcols(gr))

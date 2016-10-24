@@ -1197,8 +1197,6 @@ void BreakPoint::__format_bx_string() {
   }
 
   void BreakPoint::setRefAlt(const RefGenome * main_rg, const RefGenome * viral) {
-    
-    //int len;
 
     assert(!main_rg->IsEmpty());
     assert(ref.empty());
@@ -1208,7 +1206,11 @@ void BreakPoint::__format_bx_string() {
 
       try {
 	// get the reference for BP1
-	ref = main_rg->QueryRegion(b1.chr_name, b1.gr.pos1-1, b1.gr.pos1-1);
+	if (b1.chr_name.find("gi|") == std::string::npos) {
+	  ref = main_rg->QueryRegion(b1.chr_name, b1.gr.pos1-1, b1.gr.pos1-1);
+	} else {
+	  throw std::invalid_argument("dummy to get to viral");
+	}
       } catch (const std::invalid_argument& ia) {}
       
       // try viral approach
@@ -1221,7 +1223,10 @@ void BreakPoint::__format_bx_string() {
 	}
       
       try {
-	alt = main_rg->QueryRegion(b2.chr_name, b2.gr.pos1-1, b2.gr.pos1-1);
+	if (b2.chr_name.find("gi|") == std::string::npos)
+	  alt = main_rg->QueryRegion(b2.chr_name, b2.gr.pos1-1, b2.gr.pos1-1);
+	else
+	  throw std::invalid_argument("dummy to get to viral");
       } catch (const std::invalid_argument& ia) {}
 
       // try viral alt

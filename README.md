@@ -59,8 +59,8 @@ realigned to the contigs with BWA-MEM, and variants are scored
 
 Snowman is currently configured to provide indel and rearrangement calls (and anything "in between"). It can jointly call any number of BAM/CRAM/SAM files,
 and has built-in support for case-control experiments (e.g. tumor/normal, or trios or quads). In case/control mode, 
-any number of cases and controls (but min of 1 case) can be input, and asseembly
-will jointly assemble all reads together. If both a case and control are present, variants are output separately in "somatic" and "germline" VCFs. 
+any number of cases and controls (but min of 1 case) can be input, and 
+will jointly assemble all sequences together. If both a case and control are present, variants are output separately in "somatic" and "germline" VCFs. 
 If only a single BAM is present (input with the ``-t`` flag), a single SV and a single indel
 VCF will be emitted.
 
@@ -137,12 +137,12 @@ snowman run -t $TUM_BAM -n $NORM_BAM -p $CORES -D $DBSNP -a somatic_run -G $REF
 ```
 ## Set -I to not do mate-region lookup if mates are mapped to different chromosome.
 ##   This is appropriate for germline-analysis, where we don't have a built-in control
-##   and this will bog down the mate-lookup in spurious mapping artifacts
-## 
+##   to against mapping artifacts, and we don't want to get bogged down with mate-pair
+##   lookups.
 ## Set -L to 6 which means that 6 or more mate reads must be clustered to 
-##   trigger a mate lookup. This also reduces spurious lookups, and is more 
+##   trigger a mate lookup. This also reduces spurious lookups as above, and is more 
 ##   appropriate the expected ALT counts found in a germline sample 
-##   (as opposed to impure, subclonal events in cancer).
+##   (as opposed to impure, subclonal events in cancer that may have few discordant reads).
 snowman run -t $GERMLINE_BAM -p $CORES -L 6 -I -a germline_run -G $REF
 ```
 

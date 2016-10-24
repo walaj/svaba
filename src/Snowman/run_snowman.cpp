@@ -17,7 +17,7 @@
 #include "SeqLib/BFC.h"
 
 // how many contigs to store before dumping file
-#define THREAD_STORE_LIMIT 10000
+#define THREAD_STORE_LIMIT 2000
 
 // useful replace function
 std::string myreplace(std::string &s,
@@ -805,15 +805,6 @@ void parseRunOptions(int argc, char** argv) {
     exit(EXIT_FAILURE);
   }
 
-  // check that BAM files exist
-  for (auto& b : opt::bam) {
-    if (b.second != "-")
-      if (!SeqLib::read_access_test(b.second)) {
-	WRITELOG("ERROR: BAM file" + b.second + " is not readable / existant", true, true);
-	exit(EXIT_FAILURE);
-      }
-  }
-
   // check that we input something
   if (opt::bam.size() == 0 && !die) {
     WRITELOG("Must add a bam file with -t flag. stdin with -t -", true, true);
@@ -904,6 +895,8 @@ bool runWorkUnit(const SeqLib::GenomicRegion& region, SnowmanWorkUnit& wu, long 
 
   // adjust counts and timer
   st.stop("r");
+
+
 
   // get the mate reads, if this is local assembly and has insert-size distro
   if (!region.IsEmpty() && !opt::single_end && min_dscrd_size_for_variant) {
@@ -1007,7 +1000,7 @@ afterassembly:
   
   st.stop("as");
   WRITELOG("...done assembling, post processing", opt::verbose > 1, false);
-  
+
   // get the breakpoints
   std::vector<BreakPoint> bp_glob;
   
@@ -1234,7 +1227,7 @@ void alignReadsToContigs(SeqLib::BWAWrapper& bw, const SeqLib::UnalignedSequence
       g.add(i);
     }
   g.MergeOverlappingIntervals();
-  
+
   // get the reference sequence
   std::vector<std::string> ref_alleles;
   for (auto& i : g)
@@ -1245,7 +1238,6 @@ void alignReadsToContigs(SeqLib::BWAWrapper& bw, const SeqLib::UnalignedSequence
       } catch (...) {
 	std::cerr << "Caught exception for ref_allele on " << i << std::endl;
       }
-  
   // make the reference allele BWAWrapper
   SeqLib::BWAWrapper bw_ref;
   SeqLib::UnalignedSequenceVector usv_ref;
@@ -1750,11 +1742,11 @@ void collect_and_clear_reads(WalkerMap& walkers, SeqLib::BamRecordVector& brv, s
     for (auto& r : w.second.reads) {
       std::string sr = r.GetZTag("SR");
       if (!dedupe.count(sr)) {
-	brv.push_back(r);
-	dedupe.insert(sr);
+	brv.push_back(r); 
+        dedupe.insert(sr);
       }
     }
-    
+
     // concat together all of the learning sequences
     if (opt::ec_correct_type != "s")
       assert(!w.second.all_seqs.size());
