@@ -325,6 +325,10 @@ void runSnowman(int argc, char** argv) {
   SnowmanUtils::fopen(opt::analysis_id + ".log", log_file);
   //  SnowmanUtils::fopen(opt::analysis_id + ".bad_mate_regions.bed", bad_bed);
 
+  // will check later if reads have different max mapq or readlen
+  bool diff_read_len = false;
+  bool diff_mapq = false;
+
   // set the germline parameters 
   if (opt::germline) {
     if (!opt::rules.empty())
@@ -473,9 +477,17 @@ void runSnowman(int argc, char** argv) {
   for (auto& a : params_map) {
     for (auto& i : a.second) {
       if (i.second.readlen != readlen)
-	std::cerr << "!!!! WARNING. Multiple readlengths mixed: " << i.first << "--" << i.second.readlen << std::endl;
+	diff_read_len = true;
       if (i.second.max_mapq != max_mapq_possible)
-	std::cerr << "!!!! WARNING. Multiple max mapq mixed: " << i.first << "--" << i.second.max_mapq << std::endl;
+	diff_mapq = true;
+    } 
+  }
+  for (auto& a : params_map) {
+    for (auto& i : a.second) {
+      if (diff_read_len)
+	std::cerr << "!!!! WARNING. Multiple readlengths mixed: " << i.first << "--" << i.second.readlen << " max readlen " << readlen << std::endl;
+      if (diff_mapq)
+	std::cerr << "!!!! WARNING. Multiple max mapq mixed: " << i.first << "--" << i.second.max_mapq << " max possible " << max_mapq_possible << std::endl;
     }
   }
   ss << "...min discordant-only variant size " << min_dscrd_size_for_variant << std::endl;
@@ -1711,7 +1723,7 @@ CountPair collect_mate_reads(WalkerMap& walkers, const MateRegionVector& mrv, in
 
     // convert MateRegionVector to GRC
     SeqLib::GRC gg;
-    for (auto& s : mrv)
+    for (auto& s : mrv) 
       gg.add(SeqLib::GenomicRegion(s.chr, s.pos1, s.pos2, s.strand));
 
     assert(w.second.SetMultipleRegions(gg));

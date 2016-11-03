@@ -263,7 +263,7 @@ void AlignmentFragment::indelCigarMatches(const std::unordered_map<std::string, 
 	    bp.b2.gr.pos1 = bp.b1.gr.pos1 + 1;	
 	  } else {
 	    // GetEndPosition is 1 too high
-	    bp.b2.gr.pos1 = (m_align.PositionEnd()-1) - gcurrlen; //gcurrlen + align.Position;
+	    bp.b2.gr.pos1 = (m_align.PositionEnd()+1) - gcurrlen; //v121 -1 to +1
 	    bp.b1.gr.pos1 = bp.b2.gr.pos1 - 1;	
 	  }
 	}

@@ -312,10 +312,10 @@ void SnowmanBamWalker::calculateMateRegions() {
     int dd = r.GetIntTag("DD");
     // throw away reads that have too many different discordant mappings, or 
     // are otherwise bad (dd < 0)
-    if (r.MateChrID() > 22 || r.ChrID() > 22 || !r.MappedFlag() 
+    if (!r.PairedFlag() || r.MateChrID() > 22 || r.ChrID() > 22 || !r.MappedFlag() 
 	|| !r.MateMappedFlag() || dd < 0 || dd > MAX_SECONDARY_HIT_DISC) // no Y or M, no bad discordants
       continue;
-    
+
     MateRegion mate(r.MateChrID(), r.MatePosition(), r.MatePosition());
     mate.Pad(MATE_REGION_PAD);
     mate.partner = main_region;

@@ -20,13 +20,14 @@
 #define MIN_SOMATIC_RATIO 15
 
 // define repeats
-static std::vector<std::string> repr = {"AAAAAAAA", "TTTTTTTT", "CCCCCCCC", "GGGGGGGG",
-				 "TATATATATATATA", "ATATATATATATAT", 
-				 "GCGCGCGCGCGCGC", "CGCGCGCGCGCGCG", 
-				 "TGTGTGTGTGTGTG", "GTGTGTGTGTGTGT", 
-				 "TCTCTCTCTCTCTC", "CTCTCTCTCTCTCT", 
-				 "CACACACACACACA", "ACACACACACACAC", 
-				 "GAGAGAGAGAGAGA", "AGAGAGAGAGAGAG"};
+static std::vector<std::string> repr = {"AAAAAAAAAAAAAAAA", "TTTTTTTTTTTTTTTT", 
+					"CCCCCCCCCCCCCCCC", "GGGGGGGGGGGGGGGG",
+				        "TATATATATATATATA", "ATATATATATATATAT", 
+				        "GCGCGCGCGCGCGCGC", "CGCGCGCGCGCGCGCG", 
+				        "TGTGTGTGTGTGTGTG", "GTGTGTGTGTGTGTGT", 
+				        "TCTCTCTCTCTCTCTC", "CTCTCTCTCTCTCTCT", 
+				        "CACACACACACACACA", "ACACACACACACACAC", 
+				        "GAGAGAGAGAGAGAGA", "AGAGAGAGAGAGAGAG"};
 
 // define large repeats
 static std::vector<std::string> hirepr = {"AAAAAAAAAAAAAAA", "TTTTTTTTTTTTTTT", "CCCCCCCCCCCCCCCC", "GGGGGGGGGGGGGGG"};
@@ -354,7 +355,8 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h) {
 	    int pos = 0;
 	    
 	    // if this is a nasty repeat, don't trust non-perfect alignmentx on r2c alignment
-	    if ( (repeat_seq.length() > 6 || __check_homopolymer(j.Sequence())) && tcig.size() > 1) 
+	    //if ( (repeat_seq.length() > 6 || __check_homopolymer(j.Sequence())) && tcig.size() > 1) 
+	    if (__check_homopolymer(j.Sequence())) 
 	      read_should_be_skipped = true;
 	    
 	    // loop through r2c cigar and see positions
@@ -394,10 +396,15 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h) {
       bool tumor_read = sr.at(0) == 't';
       std::string sample_id = sr.substr(0,4);
 
-      int rightbreak1 = b1.cpos + (tumor_read ? T_SPLIT_BUFF : N_SPLIT_BUFF); // read must extend this far right of break1
-      int leftbreak1  = b1.cpos - (tumor_read ? T_SPLIT_BUFF : N_SPLIT_BUFF); // read must extend this far left of break1
-      int rightbreak2 = b2.cpos + (tumor_read ? T_SPLIT_BUFF : N_SPLIT_BUFF);
-      int leftbreak2  = b2.cpos - (tumor_read ? T_SPLIT_BUFF : N_SPLIT_BUFF);
+      // need read to cover past variant by some buffer. If there is a repeat,
+      // then this needs to be even longer to avoid ambiguity
+      int this_tbuff = T_SPLIT_BUFF + repeat_seq.length();
+      int this_nbuff = N_SPLIT_BUFF + repeat_seq.length();      
+
+      int rightbreak1 = b1.cpos + (tumor_read ? this_tbuff : this_nbuff); // read must extend this far right of break1
+      int leftbreak1  = b1.cpos - (tumor_read ? this_tbuff : this_nbuff); // read must extend this far left of break1
+      int rightbreak2 = b2.cpos + (tumor_read ? this_tbuff : this_nbuff);
+      int leftbreak2  = b2.cpos - (tumor_read ? this_tbuff : this_nbuff);
 
       std::string contig_qname; // for sanity checking
       // get the alignment position on contig
