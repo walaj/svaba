@@ -39,9 +39,9 @@ struct SnowmanWorkUnit {
     m_bamreads_count = 0;
   }
   
-  bool MemoryLimit() const {
-    const size_t readlim = 500000;
-    const size_t contlim = 8000;
+  bool MemoryLimit(size_t read, size_t cont) const {
+    const size_t readlim = read;
+    const size_t contlim = cont;
     return m_bamreads_count > readlim || m_contigs.size() > contlim || m_vir_contigs.size() > contlim || m_disc_reads > readlim;
   }
   

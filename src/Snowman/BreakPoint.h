@@ -160,6 +160,7 @@ struct ReducedBreakEnd {
    
    // genotype info
    double GQ = 0;
+   double NH_GQ = 0; // GQ of 0/0. Higher is more likely to be not hom ref
    std::string PL;
    std::string genotype;
    std::vector<double> genotype_likelihoods = {0,0,0};

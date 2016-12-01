@@ -16,8 +16,8 @@
 #include "LearnBamParams.h"
 #include "SeqLib/BFC.h"
 
-// how many contigs to store before dumping file
-#define THREAD_STORE_LIMIT 2000
+#define THREAD_READ_LIMIT 2000
+#define THREAD_CONTIG_LIMIT 200
 
 // useful replace function
 std::string myreplace(std::string &s,
@@ -208,7 +208,7 @@ static const struct option longopts[] = {
   { "all-contigs",             no_argument, NULL, 'A' },  
   { "panel-of-normals",        required_argument, NULL, 'P' },
   { "id-string",               required_argument, NULL, 'a' },
-  { "highly-parallel",         required_argument, NULL, OPT_HP },
+  { "hp",                      no_argument, NULL, OPT_HP },
   { "normal-bam",              required_argument, NULL, 'n' },
   { "threads",                 required_argument, NULL, 'p' },
   { "no-unfiltered",           no_argument, NULL, OPT_NO_UNFILTERED },
@@ -287,7 +287,7 @@ static const char *RUN_USAGE_MESSAGE =
 "      --discordant-only                Only run the discordant read clustering module, skip assembly. \n"
 "      --num-assembly-rounds            Run assembler multiple times. > 1 will bootstrap the assembly. [2]\n"
 "      --num-to-sample                  When learning about inputs, number of reads to sample. [1000000]\n"
-"      --highly-parallel                Don't write output until completely done. More memory, but avoids all thread-locks.\n"
+"      --hp                             Highly parallel. Don't write output until completely done. More memory, but avoids all thread-locks.\n"
 "  Output options\n"
 "  -z, --g-zip                          Gzip and tabix the output VCF files. [off]\n"
 "  -A, --all-contigs                    Output all contigs that were assembled, regardless of mapping or length. [off]\n"
@@ -532,7 +532,10 @@ afterlearn:
   // open the reference for reading seqeuence
   ref_genome = new SeqLib::RefGenome;
   SnowmanUtils::__open_index_and_writer(opt::refgenome, main_bwa, opt::analysis_id + ".contigs.bam", b_contig_writer, ref_genome, bwa_header);
-  assert(!ref_genome->IsEmpty());
+  if (ref_genome->IsEmpty()) {
+    std::cerr << "ERROR: Unable to open index file: " << opt::refgenome << std::endl;
+    exit(EXIT_FAILURE);
+  }
   
   // parse the region file, count number of jobs
   int num_jobs = SnowmanUtils::countJobs(opt::regionFile, file_regions, regions_torun,
@@ -1077,6 +1080,18 @@ afterassembly:
       i.somatic_score = -3;
     }
 
+  // remove indels at repeats that have multiple variants
+  std::unordered_map<std::string, size_t> ccc;
+  for (auto& i : bp_glob) {
+    if (i.evidence == "INDEL" && i.repeat_seq.length() > 6) {
+      ++ccc[i.b1.hash()];
+    }
+  }
+  for (auto& i : bp_glob) {
+    if (ccc[i.b1.hash()] > 1)
+      i.confidence = "REPSEQ";
+  }
+
   // remove somatic calls if they have a germline normal SV in them or indels with 
   // 2+germline normal in same contig
   std::unordered_set<std::string> bp_hash;
@@ -1131,7 +1146,7 @@ afterassembly:
   }
   
   // dump if getting to much memory
-  if (wu.MemoryLimit() && !opt::hp) {
+  if (wu.MemoryLimit(THREAD_READ_LIMIT, THREAD_CONTIG_LIMIT) && !opt::hp) {
     WRITELOG("writing contigs etc on thread " + std::to_string(thread_id) + " with limit hit of " + std::to_string(wu.m_bamreads_count), opt::verbose > 1, true);
     pthread_mutex_lock(&snow_lock);    
     WriteFilesOut(wu); 

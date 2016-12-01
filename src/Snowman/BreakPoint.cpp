@@ -373,16 +373,16 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h) {
 
 	    }
 	    
-	    if (insertion.length()) { // for insertions, skip reads that have del to insertion at same pos
+	    size_t buff = std::max((size_t)3, repeat_seq.length() + 3);
+	    //if (insertion.length()) { // for insertions, skip reads that have del to insertion at same pos
 	      for (auto& i : del_breaks)
-		if (i > b1.cpos - 2 || i < b1.cpos + 2) // if start of insertion is at start of a del of r2c
+		if (i > b1.cpos - buff || i < b1.cpos + buff) // if start of insertion is at start of a del of r2c
 		  read_should_be_skipped = true;
-	    } else { // for del, skip reads that have ins r2c to deletion at sam pos
+	      //} else { // for del, skip reads that have ins r2c to deletion at sam pos
 	      for (auto& i : ins_breaks)
-		if (i > b1.cpos - 2 || i < b1.cpos + 2) // if start of insertion is at start of a del of r2c
+		if (i > b1.cpos - buff || i < b1.cpos + buff) // if start of insertion is at start of a del of r2c
 		  read_should_be_skipped = true;
-	    }
-	       
+	      //}
 	  }
       }
       
@@ -483,13 +483,12 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h) {
 	  if (valid)
 	    valid_reads.insert(sr);
 	  
+
 	  // how much of the contig do these span
 	  // for a given read QNAME, get the coverage that 
 	  split_cov_bounds.first = std::min(split_cov_bounds.first, pos);
 	  split_cov_bounds.second = std::max(split_cov_bounds.second, te);
-	  
 	}
-
       }
 
       // update the counters for each break end
@@ -989,7 +988,7 @@ BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
   }
 
 void BreakPoint::__score_indel(double LOD_CUTOFF, double LOD_CUTOFF_DBSNP) {
-  
+
     assert(b1.mapq == b2.mapq);
 
     bool is_refilter = !confidence.empty(); // act differently if this is refilter runx
@@ -1006,6 +1005,13 @@ void BreakPoint::__score_indel(double LOD_CUTOFF, double LOD_CUTOFF_DBSNP) {
     for (auto& s : allele) 
       max_lod = std::max(max_lod, s.second.LO);
 
+    bool homozygous_ref = false;
+    for (auto& s : allele) {
+      if (s.second.genotype_likelihoods[0] < s.second.genotype_likelihoods[1]  && 
+	  s.second.genotype_likelihoods[0] < s.second.genotype_likelihoods[2])
+	homozygous_ref = true;
+    }
+    
     double af_t = t.cov > 0 ? (double)t.alt / (double)t.cov : 0;
     double af_n = n.cov > 0 ? (double)n.alt / (double)n.cov : 0;
     double af = std::max(af_t, af_n);
@@ -1024,9 +1030,11 @@ void BreakPoint::__score_indel(double LOD_CUTOFF, double LOD_CUTOFF_DBSNP) {
       confidence = "VLOWAF";
     else if (!is_refilter && std::min(left_match, right_match) < 20) 
       confidence = "SHORTALIGNMENT"; // no conf in indel if match on either side is too small
+    else if (homozygous_ref)
+      confidence = "NONVAR";
     else
       confidence="PASS";
-    
+
   }
 
   // LOD cutoff is just whether this is ref / alt
@@ -1087,11 +1095,11 @@ void BreakPoint::scoreBreakpoint(double LOD_CUTOFF, double LOD_CUTOFF_DBSNP, dou
     // 
     __score_somatic(LOD_CUTOFF_SOMATIC, LOD_CUTOFF_SOMATIC_DBSNP);
 
-    if (confidence == "PASS")
-      quality = 99;
-    else
-      quality = 0;
-    quality = t.GQ; // a.SLO;   
+    //if (confidence == "PASS")
+    //  quality = 99;
+    //else
+    //  quality = 0;
+    quality = t.NH_GQ; // a.SLO;   
 
     double LR = -1000000;
     for (auto& i : allele) {
@@ -1221,7 +1229,7 @@ void BreakPoint::__format_bx_string() {
       } catch (const std::invalid_argument& ia) {}
       
       // try viral approach
-      if (ref.empty() && !viral->IsEmpty())
+      if (viral && ref.empty() && !viral->IsEmpty())
 	try {
 	  ref = viral->QueryRegion(b1.chr_name, b1.gr.pos1-1, b1.gr.pos1-1); 
 	} catch (const std::invalid_argument& ia) {
@@ -1237,7 +1245,7 @@ void BreakPoint::__format_bx_string() {
       } catch (const std::invalid_argument& ia) {}
 
       // try viral alt
-      if (alt.empty() && !viral->IsEmpty())
+      if (viral && alt.empty() && !viral->IsEmpty())
 	try {
 	  alt = viral->QueryRegion(b2.chr_name, b2.gr.pos1-1, b2.gr.pos1-1);
 	} catch (const std::invalid_argument& ia) {
@@ -1345,11 +1353,11 @@ void BreakPoint::__format_bx_string() {
     }
 
     if (ref.empty()) {
-      std::cerr << " REF empty " << (*this) << " " << b1.chr_name << " b1.gr " << b1.gr << std::endl;
+      //std::cerr << " REF empty " << (*this) << " " << b1.chr_name << " b1.gr " << b1.gr << std::endl;
       ref = "N";
     }
     if (alt.empty()) {
-      std::cerr << " ALT empty " << (*this) << " " << b1.chr_name << " b1.gr " << b1.gr << std::endl;
+      //std::cerr << " ALT empty " << (*this) << " " << b1.chr_name << " b1.gr " << b1.gr << std::endl;
       alt = "N";
     }
 	
@@ -1510,7 +1518,7 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
 
   void SampleInfo::modelSelection(double er) {
 
-    alt = std::max(alt, cigar);
+    //alt = std::max(alt, cigar);
 
     if (alt >= cov) {
       cov = alt;
@@ -1590,6 +1598,9 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
     for (auto& g : genotype_likelihoods)
       if (g != 0)
 	GQ = std::min(GQ, __myround(g));
+
+    // get the genotype quality that it is not hom ref
+    NH_GQ = std::min((double)99, __myround(genotype_likelihoods[0]));
 
     // set the PL string
     std::stringstream sss;

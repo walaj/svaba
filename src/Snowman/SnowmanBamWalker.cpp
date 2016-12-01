@@ -45,6 +45,7 @@ void SnowmanBamWalker::addCigar(SeqLib::BamRecord &r) {
 
 	cigar_ss << r.ChrID() << "_" << pos << "_" << i.Length() << i.Type();
 	++cigmap[cigar_ss.str()];
+
 	cigar_ss.str(std::string());
       }
       

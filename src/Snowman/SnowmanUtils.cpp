@@ -260,6 +260,7 @@ int overlapSize(const SeqLib::BamRecord& query, const SeqLib::BamRecordVector& s
     return false;
   }
   */
+
   void __open_bed(const std::string& f, SeqLib::GRC& b, const SeqLib::BamHeader& h) {
     if (f.empty())
       return;
