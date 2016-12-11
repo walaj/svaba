@@ -68,14 +68,16 @@ gr.introns <- sort(gr.fix(GRanges(intrChr, IRanges(intrStarts, intrEnds), strand
 
 
 #### genes
-gr.genes <- readRDS("/xchip/gistic/Jeremiah/tracks/gr.allgenes.rds")
-gr.genes <- gr.genes[width(gr.genes) < 2e6 & !grepl("^PRAMEF|^SNO|^NBPF", gr.genes$gene)]
-gg <- reduce(gr.genes)
-gg <- gr.val(gg, gr.genes, 'gene', sep="_")
-gg$gene[nchar(gg$gene) > 50] <- "MANYGENES"
+gr.genes = sort(gr.fix(gr.nochr(with(fread("/xchip/gistic/Jeremiah/tracks/genes.hg19.ucsc.txt", sep="\t"), GRanges(chr, IRanges(beg, end), gene=symbol))), si))
+gr.genes <- gr.genes[!grepl("^ULK|^NBPF|^MIR|^LOC|^OR|^SNO|^FAM|^ZNF|^SMN|^NF1P2|^POTEB|^RNF|^RGPD5|^RGPD2|^SNAR|^NBPF", gr.genes$gene) & width(gr.genes) < 3e6]
+gr.genes$gene <- as.character(gr.genes$gene)
+gg <- grbind(gr.exons, gr.introns)
+#gg <- gr.val(gg, gr.genes, 'gene', sep="_")
+#gg$gene[nchar(gg$gene) > 50] <- "MANYGENES"
 
 ## get complement
-gg <- gr.fix(gg, si)
+gg <- gr.stripstrand(gr.fix(gg, si))
+gg$gene <- as.character(gg$gene)
 gene.comp <- setdiff(gr.stripstrand(si2gr(si)), gg) + 1
 fo <- gr2dt(gr.findoverlaps(gene.comp, gg))
 fo <- fo[query.id %in% as.numeric(names(table(fo$query.id)[table(fo$query.id) == 2]))] ## now each intergenic region has front/back overlap
@@ -85,7 +87,6 @@ gene.comp$left <- gene.comp$right <- ""
 gene.comp$left[fo$query.id] <- fo$left
 gene.comp$right[fo$query.id] <- fo$right
 gene.comp <- gene.comp - 1
-
 
 ## tubio
 ff <- fread("/xchip/gistic/Jeremiah/tracks/master_db_29062016_ranges.txt")

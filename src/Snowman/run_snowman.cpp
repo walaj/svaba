@@ -335,6 +335,9 @@ void runSnowman(int argc, char** argv) {
       opt::rules = "{\"global\" : {\"duplicate\" : false, \"qcfail\" : false}, \"\" : { \"rules\" : [FRRULES,{\"rr\" : true},{\"ff\" : true}, {\"rf\" : true}, {\"ic\" : true}, {\"clip\" : 5, \"length\" : READLENLIM}, {\"ins\" : true}, {\"del\" : true}, {\"mapped\": true , \"mate_mapped\" : false}, {\"mate_mapped\" : true, \"mapped\" : false}, {\"nm\" : [3,0]}]}}";
     opt::interchrom_lookup = false;
     opt::mate_lookup_min = 5;
+  } else {
+    if (opt::sd_disc_cutoff==3.96)
+      opt::sd_disc_cutoff=6;
   }
 
   // set the rules to skip read learning if doing stdin
@@ -360,7 +363,7 @@ void runSnowman(int argc, char** argv) {
   ss << 
     "    Num reads to sample: " << opt::num_to_sample << std::endl << 
     "    Discordant read extract SD cutoff:  " << opt::sd_disc_cutoff << std::endl << 
-    "    Discordant cluster std-dev cutoff:  " << (opt::sd_disc_cutoff * 1.5) << std::endl << 
+    "    Discordant cluster std-dev cutoff:  " << (opt::sd_disc_cutoff ) << std::endl << 
     "    Minimum number of reads for mate lookup " << opt::mate_lookup_min << std::endl <<
     "    LOD cutoff (non-REF):            " << opt::lod << std::endl << 
     "    LOD cutoff (non-REF, at DBSNP):  " << opt::lod_db << std::endl << 
@@ -464,7 +467,7 @@ void runSnowman(int argc, char** argv) {
     for (auto& i : params_map[b.first]) {
       readlen = std::max(readlen, i.second.readlen);
       max_mapq_possible = std::max(max_mapq_possible, i.second.max_mapq);
-      min_dscrd_size_for_variant = std::max(min_dscrd_size_for_variant, (int)std::floor(i.second.mean_isize + i.second.sd_isize * opt::sd_disc_cutoff * 1.5)); 
+      min_dscrd_size_for_variant = std::max(min_dscrd_size_for_variant, (int)std::floor(i.second.mean_isize + i.second.sd_isize * opt::sd_disc_cutoff)); 
     }
 
     ss << "BAM PARAMS FOR: " << b.first << "--" << b.second << std::endl;

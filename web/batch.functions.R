@@ -132,7 +132,7 @@ load_lumpy <- function(files) {
     dt[, altchr := rev(chr), by=id]
     dt[, altpos := rev(start), by=id]
     dt[, altstarnd := rev(strand), by=id]
-    dt <- unique(dt)
+    dt <- dt[!duplicated(dt$id)]
     
     l <- split(l, l$id)
     mcols(l) <- dt[,.(id, PE, IMPRECISE, SECONDARY, SR, SPAN)]
@@ -416,7 +416,7 @@ load_delly <- function(files) {
     #                 SVTYPE=rep(mcols(d)$SVTYPE, 2), CT=rep(mcols(d)$CT, 2))
     
     delly <- delly[delly$filter == "PASS"]
-
+    
     if (ncol(geno(dvcf)$DV)==2) {
       dt <- data.table(id=delly$id, start=as.numeric(start(delly)), end=as.numeric(end(delly)), chr=as.character(seqnames(delly)),
                        SVTYPE=as.character(delly$SVTYPE), CT=as.character(delly$CT), TDISC=as.numeric(delly$TDISC), NDISC=as.numeric(delly$NDISC),
@@ -430,7 +430,7 @@ load_delly <- function(files) {
     
     dt[, span := ifelse(chr[1] != chr[2], 1e9, abs(start[1] - end[2])), by=id]
     setkey(dt, id)
-    dt <- unique(dt)
+    dt <- dt[!duplicated(id)]
     
     del <- split(delly, delly$id)
     mcols(del)$id <- unique(grl.unlist(del)$id)
@@ -457,6 +457,7 @@ load_delly <- function(files) {
     strand(gg)[ix] <- rep(c("+", "+"), sum(ix)/2)
     gix <- gg$grl.ix
     mcols(gg) <- NULL
+    strand(gg) <- ifelse(as.character(strand(gg)) == "+", "-", "+")
     gg <- split(gg, gix)
     
     ## assign the orientaitons
