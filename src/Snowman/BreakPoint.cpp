@@ -963,26 +963,20 @@ BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
     n.alt = dc.ncount;
 
     int disc_count = dc.ncount + dc.tcount;
-    int hq_disc_count = dc.ncount_hq+ dc.tcount_hq;
-    int disc_cutoff = 6;
+    int hq_disc_count = dc.ncount_hq + dc.tcount_hq;
+    int disc_cutoff = 8;
     int hq_disc_cutoff = disc_count >= 10 ? 3 : 5; // reads with both pair-mates have high MAPQ
 
-    if (getSpan() >0 &&  (getSpan() < min_dscrd_size && b1.gr.strand == '+' && b2.gr.strand == '-')) // restrict span for del (FR) type 
+    if (getSpan() > 0 && (getSpan() < min_dscrd_size && b1.gr.strand == '+' && b2.gr.strand == '-')) // restrict span for del (FR) type 
       confidence = "LOWSPANDSCRD";
-    else if (hq_disc_count < hq_disc_cutoff) // && getSpan() > 1e5 && (std::min(dc.mapq1, dc.mapq2) < 30 || std::max(dc.mapq1, dc.mapq2) <= 30)) // mapq here is READ mapq (37 std::max)
-      confidence = "LOWMAPQDISC";
-    else if (getSpan() <= 1e4 && (std::min(dc.mapq1, dc.mapq2) < 25))
+    else if (hq_disc_count < hq_disc_cutoff && (disc_count < disc_cutoff || std::min(dc.mapq1, dc.mapq2) < 15))
       confidence = "LOWMAPQDISC";
     else if (!dc.m_id_competing.empty())
       confidence = "COMPETEDISC";
-    else if (disc_count >= disc_cutoff || hq_disc_count >= hq_disc_cutoff) // && n.cov >= 10 && n.cov <= 200 && t.cov >= 10 && t.cov <= 1000)
-      confidence = "PASS";
     else if ( disc_count < disc_cutoff) // || (dc.ncount > 0 && disc_count < 15) )  // be stricter about germline disc only
       confidence = "WEAKDISC";
-    //else if ( getSpan() < min_span && disc_count < 12)
-    //  confidence = "LOWSPAN";
-    //else 
-    //  confidence = "PASS";
+    else 
+      confidence = "PASS";
     
     assert(confidence.length());
   }

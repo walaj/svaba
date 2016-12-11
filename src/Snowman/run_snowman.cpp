@@ -101,7 +101,7 @@ namespace opt {
 
   // error correction options
   static std::string ec_correct_type = "f";
-  static double ec_subsample = 0.15;
+  static double ec_subsample = 0.50;
 
   // run in single end mode?
   bool single_end = false;
@@ -1597,8 +1597,7 @@ void run_assembly(const SeqLib::GenomicRegion& region, SeqLib::BamRecordVector& 
     // check if it has a non-local alignment
     bool valid_sv = true;
     for (auto& aa : local_ct_alignments) {
-      //std::cout << aa << std::endl;
-      if (aa.NumClip() < MIN_CLIP_FOR_LOCAL && aa.GetIntTag("NM") < MAX_NM_FOR_LOCAL)
+      if (aa.NumClip() < MIN_CLIP_FOR_LOCAL) // || aa.GetIntTag("NM") < MAX_NM_FOR_LOCAL)
 	valid_sv = false; // has a non-clipped local alignment. can't be SV. Indel only
     }
     ////////////
