@@ -1,7 +1,7 @@
 #include "SnowmanBamWalker.h"
 
-#define QNAME "H01PEALXX140819:3:2218:11657:19504"
-#define QFLAG -1
+//#define QNAME "H01PEALXX140819:3:2218:11657:19504"
+//#define QFLAG -1
 
 #ifdef QNAME
 #define DEBUG(msg, read)				\
