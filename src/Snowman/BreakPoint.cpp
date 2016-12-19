@@ -10,8 +10,8 @@
 #define MAX_ERROR 0.04
 #define MIN_ERROR 0.0005
 
-#define T_SPLIT_BUFF 8
-#define N_SPLIT_BUFF 8
+#define T_SPLIT_BUFF 5
+#define N_SPLIT_BUFF 5
 // if the insertion is this big or larger, don't require splits to span both sides
 #define INSERT_SIZE_TOO_BIG_SPAN_READS 16
 
@@ -737,7 +737,7 @@ BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
 
   }
 
-  void BreakPoint::__score_assembly_only() {
+  void BreakPoint::score_assembly_only() {
 
 
     int span = getSpan();
@@ -814,93 +814,39 @@ BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
 
   }
   
-  void BreakPoint::__score_somatic(double NODBCUTOFF, double DBCUTOFF) {
-    
-    double ratio = n.alt > 0 ? (double)t.alt / (double)n.alt : 100;
-    //double taf = t.cov > 0 ? (double)t.alt / (double)t.cov : 0;
-    bool immediate_reject = (ratio <= 12 && n.cov > 10) || n.alt >= 2; // can't call somatic with 3+ normal reads or <5x more tum than norm ALT
+  void BreakPoint::score_somatic(double NODBCUTOFF, double DBCUTOFF) {
 
-    double somatic_ratio = 0;
-    size_t ncount = 0;
-  
-  if (evidence == "INDEL") {
-    
     // this is LOD of normal being REF vs AF = 0.5+
     // We want this to be high for a somatic call
     somatic_lod = n.LO_n;
+    
+    // can't call somatic with 3+ normal reads or <5x more tum than norm ALT
+    double ratio = n.alt > 0 ? (double)t.alt / (double)n.alt : 100;
+    if (( ratio <= MIN_SOMATIC_RATIO && n.cov > 10) || n.alt > 2) {
+      somatic_score = 0;
+      return;
+    }
+    
+  if (evidence == "INDEL") {
+    
+    // somatic score is just true or false for now
+    // use the specified cutoff for indels, taking into account whether at dbsnp site
+    somatic_score = somatic_lod > (rs.empty() ? NODBCUTOFF : DBCUTOFF);
 
-    if (rs.empty())
-      somatic_score = somatic_lod > NODBCUTOFF && !immediate_reject;
-    else
-      somatic_score = somatic_lod > DBCUTOFF && !immediate_reject;	
-
-    // reject if reall low AF and at DBSNP
-    //if (taf < 0.2 && !rs.empty())
-    //  somatic_score = 0;
-
+  // for SVs, just use a hard cutoff for gauging somatic vs germline
   } else {
-    
-    somatic_lod = n.LO_n;
-
-    // old model
-    ncount = std::max(n.split, dc.ncount);
-    somatic_ratio = ncount > 0 ? std::max(t.split,dc.tcount)/ncount : 100;
-    
+    double ncount = std::max(n.split, dc.ncount);
+    double somatic_ratio = ncount > 0 ? (double)std::max(t.split,dc.tcount)/ncount : 100;
     somatic_score = somatic_ratio >= MIN_SOMATIC_RATIO && n.split < 2;
   }
-  
-  // kill all if too many normal support
-  if (n.alt > 2)
-    somatic_score = 0;
-  
-  // kill if single normal read in discordant clsuter
+    
+  // set germline if single normal read in discordant clsuter
   if (evidence == "DSCRD" && n.alt > 0)
     somatic_score = 0;
-
-  // kill if bad ratio
-  double r = n.alt > 0 ? (double)t.alt / (double)n.alt : 100;
-  if (r < 10)
-    somatic_score = 0;
-
-}
-
-  /*  void BreakPoint::__set_total_reads() {
-
-    // total unique read support
-
-    t_reads = 0;
-    n_reads = 0;
-
-    for (auto& a : allele) {
-      if (a.first.at(0) == 't')
-	t_reads += a.alt;
-      else
-	n_reads += a.alt;
-    }
-
-    //if (evidence == "ASDIS") {
-      std::unordered_set<std::string> this_reads_t;
-      std::unordered_set<std::string> this_reads_n;
-      for (auto& i : split_reads) 
-	if (!this_reads_t.count(i) && i.at(0) == 't')
-	  this_reads_t.insert(i);
-      for (auto& i : dc.reads)
-	if (!this_reads_t.count(i.first) && i.first.at(0) == 't')
-	  this_reads_t.insert(i.first);
-      for (auto& i : split_reads)
-	if (!this_reads_n.count(i) && i.at(0) == 'n')
-	  this_reads_n.insert(i);
-      for (auto& i : dc.reads)
-	if (!this_reads_n.count(i.first) && i.first.at(0) == 'n')
-	  this_reads_n.insert(i.first);
-      
-      t_reads = this_reads_t.size();
-      n_reads = this_reads_n.size();
-
+  
   }
-  */
 
-  void BreakPoint::__score_assembly_dscrd() {
+  void BreakPoint::score_assembly_dscrd() {
 
     int this_mapq1 = b1.mapq;
     int this_mapq2 = b2.mapq;
@@ -909,9 +855,6 @@ BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
 
     int max_a_mapq = std::max(this_mapq1, dc.mapq1);
     int max_b_mapq = std::max(this_mapq2, dc.mapq2);
-
-    //int min_assm_mapq = std::min(this_mapq1, this_mapq2);
-    //int max_assm_mapq = std::max(this_mapq1, this_mapq2);
 
     // how much of contig is covered by split reads
     int cov_span = split_cov_bounds.second - split_cov_bounds.first ;
@@ -957,7 +900,7 @@ BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
       confidence = "PASS";
   }
 
-  void BreakPoint::__score_dscrd(int min_dscrd_size) {
+  void BreakPoint::score_dscrd(int min_dscrd_size) {
 
     t.alt = dc.tcount;
     n.alt = dc.ncount;
@@ -973,7 +916,7 @@ BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
       confidence = "LOWMAPQDISC";
     else if (!dc.m_id_competing.empty())
       confidence = "COMPETEDISC";
-    else if ( disc_count < disc_cutoff) // || (dc.ncount > 0 && disc_count < 15) )  // be stricter about germline disc only
+    else if ( disc_count < disc_cutoff)
       confidence = "WEAKDISC";
     else 
       confidence = "PASS";
@@ -981,42 +924,42 @@ BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
     assert(confidence.length());
   }
 
-void BreakPoint::__score_indel(double LOD_CUTOFF, double LOD_CUTOFF_DBSNP) {
+void BreakPoint::score_indel(double LOD_CUTOFF, double LOD_CUTOFF_DBSNP) {
 
     assert(b1.mapq == b2.mapq);
 
-    bool is_refilter = !confidence.empty(); // act differently if this is refilter runx
+    bool is_refilter = !confidence.empty(); // act differently if this is refilter run
     
     // for refilter, only consider ones that were low lod or PASS
     // ie ones that with a different lod threshold may be changed
     // if confidence is empty, this is original run so keep going
     if (confidence != "LOWLOD" && confidence != "PASS" && is_refilter)
       return;
-
-    //double ratio = n.alt > 0 ? t.alt / n.alt : 100;
-
+    
     double max_lod = 0;
     for (auto& s : allele) 
       max_lod = std::max(max_lod, s.second.LO);
 
-    bool homozygous_ref = false;
+    // check if homozygous reference is most likely GT
+    bool homozygous_ref = true;
     for (auto& s : allele) {
-      if (s.second.genotype_likelihoods[0] < s.second.genotype_likelihoods[1]  && 
-	  s.second.genotype_likelihoods[0] < s.second.genotype_likelihoods[2])
-	homozygous_ref = true;
+      if (s.second.genotype_likelihoods[0] > s.second.genotype_likelihoods[1] ||
+	  s.second.genotype_likelihoods[0] > s.second.genotype_likelihoods[2])
+	homozygous_ref = false;
     }
     
+    // get the allelic fractions, just for VLOWAF filter
     double af_t = t.cov > 0 ? (double)t.alt / (double)t.cov : 0;
     double af_n = n.cov > 0 ? (double)n.alt / (double)n.cov : 0;
     double af = std::max(af_t, af_n);
 
-    if (b1.mapq < 10) // || std::max(b1.nm, b2.nm) > 6)
+    if (b1.mapq < 10) 
       confidence="LOWMAPQ";
     else if (!is_refilter && (double)aligned_covered / (double)seq.length() < 0.80) // less than 80% of read is covered by some alignment
       confidence = "LOWAS";  
     else if ((b1.sub_n && b1.mapq < 50) || (b2.sub_n && b2.mapq < 50)) 
       confidence = "MULTIMATCH";      
-    else if (max_lod < LOD_CUTOFF && rs.empty()) // non db snp site
+    else if (max_lod < LOD_CUTOFF && rs.empty())        // non db snp site
       confidence = "LOWLOD";
     else if (max_lod < LOD_CUTOFF_DBSNP && !rs.empty()) // be more permissive for dbsnp site
       confidence = "LOWLOD";
@@ -1057,15 +1000,15 @@ void BreakPoint::scoreBreakpoint(double LOD_CUTOFF, double LOD_CUTOFF_DBSNP, dou
       n.disc = dc.ncount;
     }
 
-    // scale the LOD for MAPQ    
+    // provide a scaled LOD that accounts for MAPQ. Heuristic, not really used
     int mapqr1 = b1.local ? std::max(30, b1.mapq) : b1.mapq; // if local, don't drop below 30
     int mapqr2 = b2.local ? std::max(30, b2.mapq) : b2.mapq; // if local (aligns to within window), don't drop below 30
     double scale = (double)( std::min(mapqr1, mapqr2) - 2 * b1.nm) / (double)60;
     for (auto& i : allele) 
       i.second.SLO = i.second.LO * scale;
-    t.LO = t.SLO * scale;
-    n.LO = n.SLO * scale;
-    a.LO = a.SLO * scale;
+    t.SLO = t.LO * scale;
+    n.SLO = n.LO * scale;
+    a.SLO = a.LO * scale;
     
     // sanity check
     int split =0;
@@ -1075,36 +1018,26 @@ void BreakPoint::scoreBreakpoint(double LOD_CUTOFF, double LOD_CUTOFF_DBSNP, dou
 
     // do the scoring
     if (evidence == "ASSMB" || (evidence == "COMPL" && (dc.ncount + dc.tcount)==0))
-      __score_assembly_only();
+      score_assembly_only();
     if (evidence == "ASDIS" || (evidence == "COMPL" && (dc.ncount + dc.tcount))) 
-      __score_assembly_dscrd();
+      score_assembly_dscrd();
     if (evidence == "DSCRD")
-      __score_dscrd(min_dscrd_size);
-    if (evidence == "ASDIS" && confidence != "PASS") {
+      score_dscrd(min_dscrd_size);
+    // it failed assembly filters, but might pass discordant filters
+    if (evidence == "ASDIS" && confidence != "PASS") { 
       evidence = "DSCRD";
-      __score_dscrd(min_dscrd_size);
+      score_dscrd(min_dscrd_size);
     } else if (evidence == "INDEL") 
-      __score_indel(LOD_CUTOFF, LOD_CUTOFF_DBSNP);
+      score_indel(LOD_CUTOFF, LOD_CUTOFF_DBSNP);
 
-    // 
-    __score_somatic(LOD_CUTOFF_SOMATIC, LOD_CUTOFF_SOMATIC_DBSNP);
+    // set the somatic_score field to true or false
+    score_somatic(LOD_CUTOFF_SOMATIC, LOD_CUTOFF_SOMATIC_DBSNP);
 
-    //if (confidence == "PASS")
-    //  quality = 99;
-    //else
-    //  quality = 0;
-    quality = t.NH_GQ; // a.SLO;   
-
-    double LR = -1000000;
-    for (auto& i : allele) {
-      LR = std::max(-i.second.LO_n, LR); 
-      // neg because want to evaluate likelihood that is ALT in normal 
-      // the original use was to get LL that is REF in normal (in order to call somatic)
-      // but for next filter, we want to see if we are confident in the germline call
-    }
-
-    assert(getSpan() > -2);
-
+    // quality score is odds that read is non-homozygous reference (max 99)
+    quality = 0;
+    for (auto& a : allele)
+      quality = std::max(a.second.NH_GQ, (double)quality); 
+    
   }
 
   void BreakPoint::order() {
@@ -1187,24 +1120,6 @@ void BreakPoint::__format_bx_string() {
     
   }
 
-  bool BreakPoint::valid() const {
-
-    // debug
-    return true;
-    
-    if (!(b1.gr.strand == '+' || b1.gr.strand == '-') || !(b2.gr.strand == '+' || b2.gr.strand == '-')) {
-      std::cerr << "b1.strand " << b1.gr.strand << " b2.strand " << b2.gr.strand << std::endl;
-      return false;
-    }
-
-    // b1 is less than b2, or the same but signifies inverted connection
-    if ((b1.gr < b2.gr) || (b1.gr.chr == b2.gr.chr && b1.gr.pos1 == b2.gr.pos1)) 
-      return true;
-    
-    std::cerr << b1.gr << " " << b2.gr << std::endl;
-    return false;
-  }
-
   void BreakPoint::setRefAlt(const RefGenome * main_rg, const RefGenome * viral) {
 
     assert(!main_rg->IsEmpty());
@@ -1246,44 +1161,6 @@ void BreakPoint::__format_bx_string() {
 	  alt = "N";
 	  std::cerr << "Caught exception in BreakPoint:setRefAlt for SV Alt: " << ia.what() << std::endl;
 	}
-
-      /*char * ref1 = faidx_fetch_seq(main_findex, const_cast<char*>(b1.chr_name.c_str()), b1.gr.pos1-1, b1.gr.pos1-1, &len);
-      if (!ref1) {
-	if (viral_findex)
-	  ref1 = faidx_fetch_seq(viral_findex, const_cast<char*>(b1.chr_name.c_str()), b1.gr.pos1-1, b1.gr.pos1-1, &len);
-      }
-      if (!ref1) {
-	std::cerr << "couldn't find reference on BP1 for ref " << b1.chr_name << " in either viral or human" << std::endl;
-	}
-      
-      char * ref2 = faidx_fetch_seq(main_findex, const_cast<char*>(b2.chr_name.c_str()), b2.gr.pos1-1, b2.gr.pos1-1, &len);
-      if (!ref2) {
-	if (viral_findex)
-	  ref2 = faidx_fetch_seq(viral_findex, const_cast<char*>(b2.chr_name.c_str()), b2.gr.pos1-1, b2.gr.pos1-1, &len);
-      } 
-      if (!ref2) {
-	std::cerr << "couldn't find reference on BP2 for ref " << b2.chr_name << " in either viral or human" << std::endl;
-      }
-
-      // couldn't find something, so bail
-      if (!ref1 || !ref2)
-	return;
-
-      // by convention, set ref to 1 and alt to 2. Gets sorted in VCF creation
-      ref = std::string(ref1);
-      alt = std::string(ref2);
-
-      */
-      
-      //if (!ref.length())
-      //	ref = "N";
-      //if (!alt.length())
-      //	alt = "N";
-
-      //if (ref1)
-      //free(ref1);
-      //if (ref2)
-      //	free(ref2);
       
     } else {
 
@@ -1294,29 +1171,11 @@ void BreakPoint::__format_bx_string() {
 	} catch (const std::invalid_argument& ia) {
 	  ref = "N";
 	  std::cerr << "Caught exception in BreakPoint:setRefAlt for indel ref: " << ia.what() << std::endl;
-	  //std::cerr << "couldn't find reference sequence for ref " << b1.chr_name << " for indel, on human reference " << std::endl;
-	  //std::cerr << (*this) << std::endl;
-	  //exit(EXIT_FAILURE); //debug
-	  //return;
 	}
-	
-	// reference
-	//char * refi = faidx_fetch_seq(main_findex, const_cast<char*>(b1.chr_name.c_str()), b1.gr.pos1-1, b1.gr.pos1-1, &len);
-	//if (!refi) {
-	//  std::cerr << "couldn't find reference sequence for ref " << b1.chr_name << " for indel, on human reference " << std::endl;
-	//  return;
-	//}
-	//ref = std::string(refi);
-	//if (!ref.length()) {
-	//  ref = "N";
-	//}
 
 	// alt 
 	alt = ref + insertion;
       
-	//if (refi)
-	//  free(refi);
-
       // deletion
       } else {	
 
@@ -1327,36 +1186,18 @@ void BreakPoint::__format_bx_string() {
 	} catch (const std::invalid_argument& ia) {
 	  ref = std::string(std::abs(b1.gr.pos1 - b2.gr.pos1), 'N');
 	  std::cerr << "Caught exception in BreakPoint:setRefAlt for indel ref: " << ia.what() << std::endl;	  
-	  //std::cerr << "PIECE 2 couldn't find reference sequence for ref " << b1.chr_name << " for indel, on human reference " << std::endl;
-	  //std::cerr << (*this) << std::endl;
-	  //exit(EXIT_FAILURE); //debug
 	}
-	
-	//char * refi = faidx_fetch_seq(main_findex, const_cast<char*>(b1.chr_name.c_str()), b1.gr.pos1-1, b2.gr.pos1-2, &len);
-	//if (!refi) {
-	//  std::cerr << "couldn't find reference sequence for ref " << b1.chr_name << " for indel, on human reference " << std::endl;
-	//  return;
-	//}
-	//ref = std::string(refi);
-	//if (!ref.length())
-	//  ref = "N";
 	alt = ref.substr(0,1);
-	//if (refi)
-	//  free(refi);
       }
     }
 
     if (ref.empty()) {
-      //std::cerr << " REF empty " << (*this) << " " << b1.chr_name << " b1.gr " << b1.gr << std::endl;
       ref = "N";
     }
     if (alt.empty()) {
-      //std::cerr << " ALT empty " << (*this) << " " << b1.chr_name << " b1.gr " << b1.gr << std::endl;
       alt = "N";
     }
 	
-    //assert(!ref.empty());
-    //assert(!alt.empty());
   }
 
   int BreakPoint::getSpan() const { 
@@ -1427,7 +1268,6 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
 	  homology_s = val;
 	  break; 
 	case 19: 
-	  //insertion_size = (val == "x") ? 0 : val.length();
 	  insertion_s = val;
 	  break; 
 	case 20: cname_s = val; break;
@@ -1512,11 +1352,9 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
 
   void SampleInfo::modelSelection(double er) {
 
-    //alt = std::max(alt, cigar);
-
-    if (alt >= cov) {
+    // can't have more alt reads than total reads
+    if (alt >= cov) 
       cov = alt;
-    }
 
     // adjust the coverage to be more in line with restrictions on ALT.
     // namely that ALT reads must overlap the variant site by more than T_SPLIT_BUFF
@@ -1528,13 +1366,10 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
     } else {
       a_cov = cov;
     }
-
-    // make sure we get correct alt
-    //__adjust_alt_counts();
-    //alt = std::max(alt, std::max((int)supporting_reads.size(), cigar));
-
     af = a_cov > 0 ? (double)alt / (double)a_cov : 1;
     af = af > 1 ? 1 : af;
+
+    int scaled_alt = std::min(alt, (int)a_cov);
 
     // mutect log liklihood against error
     // how likely to see these ALT counts if true AF is af
@@ -1548,12 +1383,12 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
     // the indiviual calcs will have more confidence. Ultimately,
     // LO will represent the log likeihood that the variant is AF = af
     // vs AF = 0 
-    double ll_alt = __log_likelihood(a_cov - alt, alt, af, er);
-    double ll_err = __log_likelihood(a_cov - alt, alt, 0 , er);
+    double ll_alt = __log_likelihood(a_cov - scaled_alt, scaled_alt, af, er);
+    double ll_err = __log_likelihood(a_cov - scaled_alt, scaled_alt, 0 , er);
     LO = ll_alt - ll_err; 
 
     //mutetct log likelihood normal
-    //er = 0.0005; // make this low, so that ALT in REF is rare and NORM in TUM gives low somatic prob
+    // er = 0.0005; // make this low, so that ALT in REF is rare and NORM in TUM gives low somatic prob
     // actually, dont' worry about it too much. 3+ alt in ref excludes somatic anyways.
     // so a high LO_n for the normal means that we are very confident that site is REF only in 
     // normal sample. This is why LO_n from the normal can be used as a discriminant for 
@@ -1561,18 +1396,23 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
     // or above a larger threshold XX if at DBSNP site, then we accept as somatic
     // LO_n should not be used for setting the confidence that something is real, just the 
     // confidence that it is somatic
-    double ll_alt_norm = __log_likelihood(cov - alt, alt, std::max(0.5, af), er); // likelihood that variant is 0.5
-    double ll_ref_norm = __log_likelihood(cov - alt, alt, 0                , er); // likelihood that varaint is actually true REF
+    double ll_ref_norm = __log_likelihood(cov - scaled_alt, scaled_alt, 0                , er); // likelihood that varaint is actually true REF
+    double ll_alt_norm = __log_likelihood(cov - scaled_alt, scaled_alt, std::max(0.5, af), er); // likelihood that variant is 0.5
     LO_n = ll_ref_norm - ll_alt_norm; // higher number means more likely to be AF = 0 (ref) than AF = 0.5 (alt). 
     
     // genotype calculation as provided in 
     // http://bioinformatics.oxfordjournals.org/content/early/2011/09/08/bioinformatics.btr509.full.pdf+html
-    int scaled_cov = std::floor((double)cov * 0.90);
-    int this_alt = std::min(alt, scaled_cov);
+    //int scaled_cov = std::floor((double)cov * 0.90);
+    //int this_alt = std::min(alt, scaled_cov);
+    genotype_likelihoods[0] = __genotype_likelihoods(2, er, scaled_alt, a_cov); // 0/0
+    genotype_likelihoods[1] = __genotype_likelihoods(1, er, scaled_alt, a_cov); // 0/1
+    genotype_likelihoods[2] = __genotype_likelihoods(0, er, scaled_alt, a_cov); // 1/1
 
-    genotype_likelihoods[0] = __genotype_likelihoods(2, er, this_alt, scaled_cov); // ref/ref
-    genotype_likelihoods[1] = __genotype_likelihoods(1, er, this_alt, scaled_cov);
-    genotype_likelihoods[2] = __genotype_likelihoods(0, er, this_alt, scaled_cov);
+    //debug
+    //std::cerr << " ALT " << alt << " scaled alt " << scaled_alt << " ER " << er << " A_COV " << a_cov << 
+    //  " 0/0 " << genotype_likelihoods[0] << " 0/1 " << genotype_likelihoods[1] << 
+    //  " 1/1 " << genotype_likelihoods[2] << " LOD " << LO << " LO_n " << LO_n << 
+    //  " af " << af << std::endl;
 
     double max_likelihood = *std::max_element(genotype_likelihoods.begin(), genotype_likelihoods.end());
     if (max_likelihood == genotype_likelihoods[0])
@@ -1582,7 +1422,7 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
     else 
       genotype = "1/1";
 
-    // scale to max
+    // scale GT likelihoods to max
     genotype_likelihoods[0] = max_likelihood - genotype_likelihoods[0];
     genotype_likelihoods[1] = max_likelihood - genotype_likelihoods[1];
     genotype_likelihoods[2] = max_likelihood - genotype_likelihoods[2];
@@ -1807,6 +1647,7 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
 
   // g is the number of reference alleles (e.g. g = 2 is homozygous reference)
   // assumes biallelic model
+  // http://bioinformatics.oxfordjournals.org/content/early/2011/09/08/bioinformatics.btr509.full.pdf+html
   double SampleInfo::__genotype_likelihoods(int g, double er, int alt, int cov) {
     double val =  - cov * log10(2) + (cov - alt) * log10( (2 - g) * er + g  * (1 - er) ) + alt * log10( (2 - g) * (1 - er) + g * er);
     return val;

@@ -267,7 +267,7 @@ struct ReducedBreakEnd {
 
    void __set_total_reads();
    
-   void __score_somatic(double NODBCUTOFF, double DBCUTOFF);
+   void score_somatic(double NODBCUTOFF, double DBCUTOFF);
 
    void addCovs(const std::unordered_map<std::string, STCoverage*>& covs);
 
@@ -387,10 +387,10 @@ struct ReducedBreakEnd {
 
    friend std::ostream& operator<<(std::ostream& out, const BreakPoint& bp);
    
-   void __score_dscrd(int min_dscrd_size);
-   void __score_assembly_only();
-   void __score_assembly_dscrd();
-   void __score_indel(double LOD_CUTOFF, double LOD_CUTOFF_DBSNP);
+   void score_dscrd(int min_dscrd_size);
+   void score_assembly_only();
+   void score_assembly_dscrd();
+   void score_indel(double LOD_CUTOFF, double LOD_CUTOFF_DBSNP);
    void __format_readname_string();
    void __set_homologies_insertions();
    void __set_evidence();

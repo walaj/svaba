@@ -288,20 +288,22 @@ load_indel <- function(files, mc.cores=1) {
       print(paste("File does not exist",x))
       return (GRanges())
     }
-    if (exists('rowRanges'))
+    if (exists('rowRanges')) {
         fff <- rowRanges(rv <- VariantAnnotation::readVcf(x, "hg19"))
-    else
+    } else {
         fff <- rowData(rv <- VariantAnnotation::readVcf(x, "hg19"))
+      }
     
-
+    
     if (length(fff) == 0)
       return (GRanges())
 
     ### make sure we don't take germilne variants from strelka
-    if ("NT" %in% colnames(info(rv)))
+    if ("NT" %in% colnames(info(rv))) {
       non_norm_het = grepl("ref",info(rv)$NT)
-    else
+    } else {
       non_norm_het <- rep(TRUE, length(fff))
+    }
     
     fff <- fff[ix <- (fff$FILTER == "PASS" | fff$FILTER == "alleleBias" | fff$FILTER == "QSI_ref" | fff$FILTER == "LOWLOD") & non_norm_het]
     if (length(fff) == 0)
@@ -369,10 +371,10 @@ load_indel <- function(files, mc.cores=1) {
     if (sum(c("DP","AD") %in% colnames(mcols(fff)))==2) 
       fff$AF <- ifelse(fff$DP > 0, fff$AD/fff$DP, NA)
 
-    #mcols(fff)$SPAN <- pmax(width(fff), width(unlist(fff$ALT)))
-    mcols(fff)$CALC_SPAN <- pmax(width(fff), fff$ALTWIDTH - 1)
+    mcols(fff)$SPAN <- pmax(width(fff), width(unlist(fff$ALT)))
+    ###mcols(fff)$CALC_SPAN <- pmax(width(fff), fff$ALTWIDTH - 1)
     mcols(fff)$ETYPE <- ifelse(fff$REFWIDTH > 1, 'del', 'ins')
-    
+
     mcols(fff) <- cbind(VariantAnnotation::info(rv)[ix, ], mcols(fff))
     
     return (fff)
@@ -437,6 +439,7 @@ load_delly <- function(files) {
     mcols(del)$SPAN <- dt[mcols(del)$id]$span
     mcols(del)$SVTYPE <- dt[mcols(del)$id]$SVTYPE
     mcols(del)$CT <- dt[mcols(del)$id]$CT
+    mcols(del)$MAPQ <- dt[mcols(del)$id]$MAPQ
     if (ncol(geno(dvcf)$DV)==2) {
       mcols(del)$TDISC <- dt[mcols(del)$id]$TDISC
       mcols(del)$NDISC <- dt[mcols(del)$id]$NDISC
@@ -1150,3 +1153,29 @@ span.histogram <- function(span) {
   ppdf(print(g), width=5, height=3)  
   
 }
+
+load_svlib_sv <- function(x, black, mappability) {
+
+  ss2 <- .ann_delins(load_snowman2(x))
+  ss2 <- ss2[!grepl("N", mcols(ss2)$INSERTION)]
+  ss2 <- ss2[mcols(ss2)$MAPQ > 20]
+  fo <- grl.unlist(ss2) %**% black
+  ss2 <- ss2[setdiff(seq_along(ss2), ceiling(fo$query.id/2))]
+  mcols(ss2)$SPAN <- pmax(nchar(as.character(mcols(ss2)$INSERTION)), mcols(ss2)$SPAN)
+  ## adjust based on insertions
+  mcols(ss2)$deltype[nchar(mcols(ss2)$INSERTION) > mcols(ss2)$SPAN * 0.2] <- FALSE
+  return(ss2)
+  
+}
+
+load_svlib_indel <- function(x, black, mappability) {
+
+  ssi2 <- load_indel(x)[[1]]
+  fo <- ssi2 %**% black
+  ssi2 <- ssi2[setdiff(seq_along(ssi2), fo$query.id)]
+  fo <- (ssi2 %**% mappability)
+  ssi2$score <- NA
+  ssi2$score[fo$query.id] <- mappability$score[fo$subject.id]
+  return(ssi2)
+}
+                                       

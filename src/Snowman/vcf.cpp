@@ -263,7 +263,7 @@ VCFFile::VCFFile(std::string file, std::string id, const SeqLib::BamHeader& h, c
   sv_header.addInfoField("IMPRECISE","0","Flag", "Imprecise structural variation");
   sv_header.addInfoField("SECONDARY","0","Flag", "SV calls comes from a secondary alignment");
   sv_header.addInfoField("HOMLEN","1","Integer","Length of base pair identical micro-homology at event breakpoints");
-  sv_header.addInfoField("DBSNP","1","String","TRUE if variant overlaps a dbSNP site");
+  //sv_header.addInfoField("DBSNP","1","String","TRUE if variant overlaps a dbSNP site");
   //sv_header.addInfoField("BKDIST","1","Integer","Distance between breakpoints (-1 if difference chromosomes");
   sv_header.addInfoField("MAPQ","1","Integer","Mapping quality (BWA-MEM) of this fragement of the contig (-1 if discordant only)");
   sv_header.addInfoField("MATEMAPQ","1","Integer","Mapping quality of the partner fragment of the contig");
@@ -314,12 +314,13 @@ VCFFile::VCFFile(std::string file, std::string id, const SeqLib::BamHeader& h, c
   sv_header.addFormatField("SL","1","Float","Alignment-quality Scaled log-odds, where LO is LO * (MAPQ - 2*NM)/60");
 
   indel_header.addInfoField("REPSEQ","1","String","Repeat sequence near the event");
-  indel_header.addInfoField("GRAYLIST","0","Flag","Indel is low quality and cross a difficult region of genome");
+  //indel_header.addInfoField("GRAYLIST","0","Flag","Indel is low quality and cross a difficult region of genome");
   //indel_header.addInfoField("SOMATIC","0","Flag","Variant is somatic");
   indel_header.addInfoField("PON","1","Integer","Number of normal samples that have this indel present");
   indel_header.addInfoField("NM","1","Integer","Number of mismatches of this alignment fragment to reference");
   indel_header.addInfoField("READNAMES",".","String","IDs of ALT reads");
   indel_header.addInfoField("BX",".","String","Table of BX tag counts for supporting reads");
+  indel_header.addInfoField("DBSNP","0","Flag","Variant found in dbSNP");
   indel_header.addInfoField("LOD","1","Float","Log of the odds that variant is real vs artifact");
 
   // keep track of exact positions to keep from duplicating
@@ -841,10 +842,10 @@ std::unordered_map<std::string, std::string> VCFEntry::fillInfoFields() const {
     lod_ss << std::setprecision(4) << bp->true_lod;
     info_fields["LOD"] = lod_ss.str();
     lod_ss.str(std::string());
-    if (bp->blacklist)
-      info_fields["GRAYLIST"]  = "";
+    //if (bp->blacklist)
+    //  info_fields["GRAYLIST"]  = std::string();
     if (bp->dbsnp)
-      info_fields["DBSNP"] = "TRUE"; //bp->rs; 
+      info_fields["DBSNP"] = std::string(); 
   }
 
   return info_fields;

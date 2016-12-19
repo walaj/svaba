@@ -97,7 +97,6 @@ void AlignmentFragment::SetIndels(const AlignedContig * c) {
     while (parseIndelBreak(bp) && fail_safe_count++ < MAX_INDELS && !m_align.SecondaryFlag()) {
       bp.aligned_covered = c->aligned_covered;
       assert(bp.aligned_covered);
-      assert(bp.valid());
       for (auto& i : c->prefixes)
 	bp.allele[i].indel = true;
       m_indel_breaks.push_back(bp);
@@ -290,7 +289,6 @@ void AlignmentFragment::indelCigarMatches(const std::unordered_map<std::string, 
     bp.b1.gr.strand = '+';
     bp.b2.gr.strand = '-';
 
-    assert(bp.valid());
     return true;
   }
 

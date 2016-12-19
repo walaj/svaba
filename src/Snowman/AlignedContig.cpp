@@ -363,8 +363,6 @@ void AlignedContig::blacklist(SeqLib::GRC &grv) {
 
 	  bp.secondary = a.m_align.SecondaryFlag() || b.m_align.SecondaryFlag();
 
-	  assert(bp.valid());
-
 	  // add the the vector of breakpoints
 	  if (!bp.secondary) {
 	    m_local_breaks.push_back(bp);
@@ -434,7 +432,6 @@ void AlignedContig::blacklist(SeqLib::GRC &grv) {
     // order the breakpoint
     m_global_bp.order();
     
-    assert(m_global_bp.valid());
   }
   
   std::string AlignedContig::printDiscordantClusters() const {

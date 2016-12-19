@@ -111,7 +111,7 @@ namespace opt {
   static bool write_corrected_reads = false;
   static bool zip = false;
   static bool read_tracking = false; // turn on output of qnames
-  static bool all_contigs = false;  // output all contigs
+  static bool all_contigs = false;   // output all contigs
   static bool no_unfiltered = false; // don't output unfiltered variants
 
   // discordant clustering params
@@ -303,7 +303,7 @@ static const char *RUN_USAGE_MESSAGE =
 "  -m, --min-overlap                    Minimum read overlap, an SGA parameter. Default: 0.4* readlength\n"
 "  -e, --error-rate                     Fractional difference two reads can have to overlap. See SGA. 0 is fast, but requires error correcting. [0]\n"
 "  -K, --ec-correct-type                (f) Fermi-kit BFC correction, (s) Kmer-correction from SGA, (0) no correction (then suggest non-zero -e) [f]\n"
-"  -E, --ec-subsample                   Learn from fraction of non-weird reads during error-correction. Lower number = faster compute [0.25]\n"
+"  -E, --ec-subsample                   Learn from fraction of non-weird reads during error-correction. Lower number = faster compute [0.5]\n"
 "      --write-asqg                     Output an ASQG graph file for each assembly window.\n"
 "  BWA-MEM alignment params\n"
 "      --bwa-match-score                Set the BWA-MEM match score. BWA-MEM -A [2]\n"
@@ -783,7 +783,7 @@ void parseRunOptions(int argc, char** argv) {
     case OPT_SCALE_ERRORS: arg >> opt::scale_error; break;
     case 'C': arg >> opt::max_cov;  break;
     case OPT_NUM_TO_SAMPLE: arg >> opt::num_to_sample;  break;
-    case OPT_READ_TRACK: opt::read_tracking = false; break;
+    case OPT_READ_TRACK: opt::read_tracking = true; break;
 	case 't': 
 	  tmp = SnowmanUtils::__bamOptParse(opt::bam, arg, sample_number++, "t");
 	  if (opt::main_bam == "-")
