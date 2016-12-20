@@ -16,12 +16,12 @@
 
 #define VCF_SECONDARY_CAP 200
 #define SOMATIC_LOD 1
-
+#define DEDUPEPAD 200
 
 using namespace std;
 
-static std::string sv_format = "GT:AD:DP:GQ:PL:SR:DR:LR:LO:SL"; //"NALT:NALT_RP:NALT_SR:READ_ID";
-static std::string indel_format = "GT:AD:DP:GQ:PL:SR:CR:LR:LO:SL";
+static std::string sv_format = "GT:AD:DP:GQ:PL:SR:DR:LR:LO"; 
+static std::string indel_format = "GT:AD:DP:GQ:PL:SR:CR:LR:LO";
 static InfoMap flag_map;
 static int global_id = 0;
 static std::stringstream lod_ss;
@@ -240,17 +240,12 @@ VCFFile::VCFFile(std::string file, std::string id, const SeqLib::BamHeader& h, c
   indel_header.addFilterField("LOWMAPQ","Assembly contig has less than MAPQ 10");
   indel_header.addFilterField("SHORTALIGNMENT","Matched (M) contig frag to left or right of indel < 20 bp");
   indel_header.addFilterField("LOWLOD","LOD score is less than the cutoff");
-  //indel_header.addFilterField("WEAKASSEMBLY","4 or fewer split reads");
-  //indel_header.addFilterField("WEAKCIGARMATCH","For indels <= 5 bp, require 8+ split reads or 4+ and 3+ cigar matches");
+  indel_header.addFilterField("MULTIMATCH", "Low MAPQ and this contig fragment maps well to multiple locations");
+  indel_header.addFilterField("LOWAS","Less than 80% of contig length is covered by a supporting read");
+  indel_header.addFilterField("NONVAR","0/0 is the most likely genotype");
   indel_header.addFilterField("PASS", "LOD score pass");
-  //indel_header.addFilterField("GRAYLISTANDPON", "Indel overlaps with panel of normals, and has overlap with tricky genomic region");
   indel_header.addFilterField("VLOWAF", "allelic fraction < 0.05");
-  //indel_header.addFilterField("LOWNORMCOV", "Fewer than 5 normal reads at this site");
-  //indel_header.addFilterField("GERMLOWAF", "Germline variant with support for being AF of 0.5+ (LR) less than cutoff");
-
-  //indel_header.addSampleField(sample_id_norm);
-  //indel_header.addSampleField(sample_id_tum);
-  //indel_header.colnames = indel_header.colnames + "\t" + sample_id_norm + "\t" + sample_id_tum;
+  indel_header.addFilterField("REPVAR", "Multiple conflicting variants at a highly repetitive region");
 
   //add the SV info fields
   sv_header.addInfoField("REPSEQ","1","String","Repeat sequence near the event");
@@ -263,22 +258,10 @@ VCFFile::VCFFile(std::string file, std::string id, const SeqLib::BamHeader& h, c
   sv_header.addInfoField("IMPRECISE","0","Flag", "Imprecise structural variation");
   sv_header.addInfoField("SECONDARY","0","Flag", "SV calls comes from a secondary alignment");
   sv_header.addInfoField("HOMLEN","1","Integer","Length of base pair identical micro-homology at event breakpoints");
-  //sv_header.addInfoField("DBSNP","1","String","TRUE if variant overlaps a dbSNP site");
-  //sv_header.addInfoField("BKDIST","1","Integer","Distance between breakpoints (-1 if difference chromosomes");
   sv_header.addInfoField("MAPQ","1","Integer","Mapping quality (BWA-MEM) of this fragement of the contig (-1 if discordant only)");
   sv_header.addInfoField("MATEMAPQ","1","Integer","Mapping quality of the partner fragment of the contig");
-  //sv_header.addInfoField("NSPLIT","1","Integer","Number of split reads from the normal BAM");
-  //sv_header.addInfoField("TSPLIT","1","Integer","Number of split reads from the tumor BAM");
-  //sv_header.addInfoField("TDISC","1","Integer","Number of discordant read pairs from the tumor BAM");
-  //sv_header.addInfoField("NDISC","1","Integer","Number of discordant read pairs from the normal BAM");
   sv_header.addInfoField("MATEID","1","String","ID of mate breakends");
-  //sv_header.addInfoField("SOMATIC","0","Flag","Variant is somatic");
   sv_header.addInfoField("SUBN","1","Integer","Number of secondary alignments associated with this contig fragment");
-  //sv_header.addInfoField("TCOV","1","Integer","Max tumor coverage at break");
-  //sv_header.addInfoField("NCOV","1","Integer","Max normal coverage at break");
-  //sv_header.addInfoField("TFRAC","1","String","Tumor allelic fraction at break. -1 for undefined");
-  //sv_header.addInfoField("NFRAC","1","String","Normal allelic fraction at break. -1 for undefined");
-
   sv_header.addInfoField("NUMPARTS","1","Integer","If detected with assembly, number of parts the contig maps to. Otherwise 0");
   sv_header.addInfoField("EVDNC","1","String","Provides type of evidence for read. ASSMB is assembly only, ASDIS is assembly+discordant. DSCRD is discordant only.");
   sv_header.addInfoField("SCTG","1","String","Identifier for the contig assembled by SnowmanSV to make the SV call");
@@ -290,32 +273,29 @@ VCFFile::VCFFile(std::string file, std::string id, const SeqLib::BamHeader& h, c
   indel_header.addInfoField("SCTG","1","String","Identifier for the contig assembled by SnowmanSV to make the indel call");
   indel_header.addInfoField("MAPQ","1","Integer","Mapping quality (BWA-MEM) of the assembled contig");
   indel_header.addInfoField("SPAN","1","Integer","Size of the indel");
-
-  indel_header.addFormatField("GT", "1","String", "Genotype (currently not supported. Always 0/1)");
+  indel_header.addInfoField("REPSEQ","1","String","Repeat sequence near the variant");
+  indel_header.addFormatField("GT", "1","String", "Most likely genotype");
   indel_header.addFormatField("AD", "1","Integer", "Allele depth: Number of reads supporting the variant");
   indel_header.addFormatField("DP","1","Integer","Depth of coverage: Number of reads covering site.");
   indel_header.addFormatField("GQ", "1","String", "Genotype quality (currently not supported. Always 0)");
-  indel_header.addFormatField("PL","1","Integer","Normalized likelihood of the current genotype (currently not supported, always 0)");
+  indel_header.addFormatField("PL",".","Float","Normalized likelihood of the current genotype");
   indel_header.addFormatField("SR","1","Integer","Number of spanning reads for this variants");
   indel_header.addFormatField("CR","1","Integer","Number of cigar-supported reads for this variant");
   indel_header.addFormatField("LR","1","Float","Log-odds that this variant is AF=0 vs AF>=0.5");
   indel_header.addFormatField("LO","1","Float","Log-odds that this variant is real vs artifact");
   indel_header.addFormatField("SL","1","Float","Alignment-quality Scaled log-odds, where LO is LO * (MAPQ - 2*NM)/60");
 
-  sv_header.addFormatField("GT", "1","String", "Genotype (currently not supported. Always 0/1)");
+  sv_header.addFormatField("GT", "1","String", "Most likely genotype");
   sv_header.addFormatField("AD", "1","Integer", "Allele depth: Number of reads supporting the variant");
   sv_header.addFormatField("DP","1","Integer","Depth of coverage: Number of reads covering site.");
   sv_header.addFormatField("GQ", "1","String", "Genotype quality (currently not supported. Always 0)");
-  sv_header.addFormatField("PL","1","Integer","Normalized likelihood of the current genotype (currently not supported, always 0)");
+  sv_header.addFormatField("PL",".","Float","Normalized likelihood of the current genotype");
   sv_header.addFormatField("SR","1","Integer","Number of spanning reads for this variants");
   sv_header.addFormatField("DR","1","Integer","Number of discordant-supported reads for this variant");
   sv_header.addFormatField("LR","1","Float","Log-odds that this variant is REF vs AF=0.5");
   sv_header.addFormatField("LO","1","Float","Log-odds that this variant is real vs artifact");
   sv_header.addFormatField("SL","1","Float","Alignment-quality Scaled log-odds, where LO is LO * (MAPQ - 2*NM)/60");
 
-  indel_header.addInfoField("REPSEQ","1","String","Repeat sequence near the event");
-  //indel_header.addInfoField("GRAYLIST","0","Flag","Indel is low quality and cross a difficult region of genome");
-  //indel_header.addInfoField("SOMATIC","0","Flag","Variant is somatic");
   indel_header.addInfoField("PON","1","Integer","Number of normal samples that have this indel present");
   indel_header.addInfoField("NM","1","Integer","Number of mismatches of this alignment fragment to reference");
   indel_header.addInfoField("READNAMES",".","String","IDs of ALT reads");
@@ -410,11 +390,11 @@ void VCFFile::deduplicate() {
   for (auto& i : entry_pairs) {
 
     // if it's already de-duped, dont do it again
-    if (dups.count(i.first))
-      continue;
+    //if (dups.count(i.first))
+    //  continue;
     
-    // if both ends are close (within 10) then they match
-    pad = (i.second->bp->b1.gr.chr != i.second->bp->b2.gr.chr) || std::abs(i.second->bp->b1.gr.pos1 - i.second->bp->b2.gr.pos1) > 100 ? 10 : 1;
+    // if both ends are close then they match
+    pad = (i.second->bp->b1.gr.chr != i.second->bp->b2.gr.chr) || std::abs(i.second->bp->b1.gr.pos1 - i.second->bp->b2.gr.pos1) > DEDUPEPAD*2 ? DEDUPEPAD : 10;
 
     ++count;
     SeqLib::GenomicIntervalVector giv1, giv2;
@@ -445,10 +425,11 @@ void VCFFile::deduplicate() {
       if (grv2.at(j.value).id != i.first && ( is_pass == (grv2.at(j.value).pass) )) //j is hit, grv2.at(j.value).id is key of hit
 	++key_count[grv2.at(j.value).id];
 
-    //loop through hit keys and if key is hit twice (1 left, 1 right), it is an overlap
+    // loop through hit keys and if key is hit twice (1 left, 1 right), it is an overlap
     for (auto& j : key_count) {
       if (j.second == 2) { // left and right hit for this key. add 
-	dups.insert(j.first); 
+ 	if (*i.second->bp < *entry_pairs[j.first]->bp) // this has worst read coverage that what it overlaps, so mark as dup
+	  dups.insert(j.first); 
       }
     }
   }

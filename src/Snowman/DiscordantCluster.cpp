@@ -610,7 +610,6 @@ using namespace SeqLib;
     for (auto& i : brv) {
 
       // only cluster FR reads together, RF reads together, FF together and RR together
-      std::cout << i.Qname() << "\t" << i.PairOrientation() << std::endl;
       if (i.PairOrientation() != orientation) {
 	continue;
       }

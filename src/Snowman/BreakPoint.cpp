@@ -119,7 +119,8 @@ using namespace SeqLib;
 
 
   // make a breakpoint from a discordant cluster 
-  BreakPoint::BreakPoint(DiscordantCluster& tdc, const BWAWrapper * bwa, DiscordantClusterMap& dmap) {
+BreakPoint::BreakPoint(DiscordantCluster& tdc, const BWAWrapper * bwa, DiscordantClusterMap& dmap, 
+		       const GenomicRegion& region) {
     
     num_align = 0;
     dc = tdc;
@@ -171,7 +172,8 @@ using namespace SeqLib;
     }
       
     // give a unique id
-    cname = dc.toRegionString();
+    cname = dc.toRegionString() + "__" + std::to_string(region.chr+1) + "_" + std::to_string(region.pos1) + 
+      "_" + std::to_string(region.pos2) + "D";
 
     // check if another cluster overlaps, but different strands
     if (getSpan() > 800 || getSpan() == -1) // only check for large events.
@@ -755,7 +757,7 @@ BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
       // aligned to way off region. Saw cases where this happend in tumor
       // and not normal, so false-called germline event as somatic.
       confidence = "NOLOCAL";
-    if (has_local_alignment)
+    else if (has_local_alignment)
       confidence = "LOCALMATCH";
     else if ( num_split > 1 && ( (cov_span <= (readlen + 5 ) && cov_span > 0) || cov_span < 0) )
       confidence = "DUPREADS"; // the same sequences keep covering the split
@@ -1001,14 +1003,14 @@ void BreakPoint::scoreBreakpoint(double LOD_CUTOFF, double LOD_CUTOFF_DBSNP, dou
     }
 
     // provide a scaled LOD that accounts for MAPQ. Heuristic, not really used
-    int mapqr1 = b1.local ? std::max(30, b1.mapq) : b1.mapq; // if local, don't drop below 30
-    int mapqr2 = b2.local ? std::max(30, b2.mapq) : b2.mapq; // if local (aligns to within window), don't drop below 30
-    double scale = (double)( std::min(mapqr1, mapqr2) - 2 * b1.nm) / (double)60;
-    for (auto& i : allele) 
-      i.second.SLO = i.second.LO * scale;
-    t.SLO = t.LO * scale;
-    n.SLO = n.LO * scale;
-    a.SLO = a.LO * scale;
+    //int mapqr1 = b1.local ? std::max(30, b1.mapq) : b1.mapq; // if local, don't drop below 30
+    //int mapqr2 = b2.local ? std::max(30, b2.mapq) : b2.mapq; // if local (aligns to within window), don't drop below 30
+    //double scale = (double)( std::min(mapqr1, mapqr2) - 2 * b1.nm) / (double)60;
+    //for (auto& i : allele) 
+    //  i.second.SLO = i.second.LO * scale;
+    //t.SLO = t.LO * scale;
+    //n.SLO = n.LO * scale;
+    //a.SLO = a.LO * scale;
     
     // sanity check
     int split =0;
@@ -1510,11 +1512,11 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
     if (indel)
       ss << std::setprecision(4) << genotype << ":" << 
 	std::max(alt, cigar) << ":" << cov << ":" << GQ << ":" << PL << ":" << split << ":" << cigar 
-	 << ":" << LO_n << ":" << LO << ":" << SLO;
+	 << ":" << LO_n << ":" << LO;// << ":" << SLO;
     else
       ss << std::setprecision(4) << genotype << ":" << 
 	alt << ":" << cov << ":" << GQ << ":" << PL << ":" << split
-	 << ":" << disc << ":" << LO_n << ":" << LO << ":" << SLO;
+	 << ":" << disc << ":" << LO_n << ":" << LO;// << ":" << SLO;
           
     return ss.str();
 
@@ -1653,3 +1655,33 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
     return val;
   }
 
+bool ReducedBreakPoint::operator<(const ReducedBreakPoint& bp) const { 
+
+  //ASDIS > ASSMB > COMP > DSCRD
+  if (std::strcmp(evidence,bp.evidence) < 0) // <
+    return true;
+  else if (std::strcmp(evidence, bp.evidence) > 0) // >
+    return false;
+  
+  if (nsplit > bp.nsplit) 
+    return true;
+  else if (nsplit < bp.nsplit)
+    return false;
+  
+  if (tsplit > bp.tsplit)
+    return true;
+  else if (tsplit < bp.tsplit)
+    return false;
+  
+  if (dc.ncount > bp.dc.ncount)
+    return true;
+  else if (dc.ncount < bp.dc.ncount)
+    return false;
+  
+  if (dc.tcount > bp.dc.tcount)
+    return true;
+  else if (dc.tcount < bp.dc.tcount)
+    return false;
+  
+  return false;
+}

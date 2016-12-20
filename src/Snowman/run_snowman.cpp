@@ -497,7 +497,7 @@ void runSnowman(int argc, char** argv) {
 
   // set the min overlap
   if (!opt::sga::minOverlap) 
-    opt::sga::minOverlap = (0.6 * readlen) < 30 ? 30 : 0.5 * readlen;
+    opt::sga::minOverlap = (0.6 * readlen) < 30 ? 30 : 0.6 * readlen;
 
   ss << "...found read length of " << readlen << ". Min Overlap is " << opt::sga::minOverlap << std::endl;
   ss << "...max read MAPQ detected: " << max_mapq_possible << std::endl;
@@ -1045,7 +1045,7 @@ afterassembly:
       i.second.m_reg1.chr == i.second.m_reg2.chr;
     // DiscordantCluster not associated with assembly BP and has 2+ read support
     if (!i.second.hasAssociatedAssemblyContig() && (i.second.tcount + i.second.ncount) > 1 && i.second.valid() && !below_size) {
-      BreakPoint tmpbp(i.second, main_bwa, dmap);
+      BreakPoint tmpbp(i.second, main_bwa, dmap, region);
       bp_glob.push_back(tmpbp);
     }
   }
@@ -1092,7 +1092,7 @@ afterassembly:
   }
   for (auto& i : bp_glob) {
     if (ccc[i.b1.hash()] > 1)
-      i.confidence = "REPSEQ";
+      i.confidence = "REPVAR";
   }
 
   // remove somatic calls if they have a germline normal SV in them or indels with 

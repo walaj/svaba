@@ -166,11 +166,12 @@ void SnowmanAssemblerEngine::doAssembly(ReadTable *pRT, SeqLib::UnalignedSequenc
   int cutoff = 0;
 
   if (pass > 0) {
-    errorRate = 0.015f; // up to one bp mismatch
+    //errorRate = 0.015f; // up to one bp mismatch
+    errorRate = 0;
     m_error_rate = errorRate;
-    min_overlap = 70;
+    min_overlap = m_min_overlap * 2;
   }
-      
+
   bool exact = errorRate < 0.001f;
 
   // remove duplicates if running in exact mode
@@ -189,12 +190,6 @@ void SnowmanAssemblerEngine::doAssembly(ReadTable *pRT, SeqLib::UnalignedSequenc
   pSAf_nd->writeIndex();
   pSAr_nd->writeIndex();
 
-  // do the cutoff later...
-  //if (pass > 0)
-  //  cutoff = m_readlen * 1.10;
-
-  //int seedLength = min_overlap;
-  //int seedStride = seedLength;
   bool bIrreducibleOnly = true; // default
   int seedLength = 0;
   int seedStride = 0;

@@ -97,6 +97,9 @@ struct ReducedBreakEnd {
 
    }
 
+   // define how to sort these  
+   bool operator<(const ReducedBreakPoint& bp) const;
+
    ReducedBreakPoint() {}
    ~ReducedBreakPoint() {
      __smart_check_free(ref);
@@ -257,7 +260,8 @@ struct ReducedBreakEnd {
    
    /** Construct a breakpoint from a cluster of discordant reads
     */
-   BreakPoint(DiscordantCluster& tdc, const SeqLib::BWAWrapper * bwa, DiscordantClusterMap& dmap);
+   BreakPoint(DiscordantCluster& tdc, const SeqLib::BWAWrapper * bwa, DiscordantClusterMap& dmap, 
+	      const SeqLib::GenomicRegion& region);
      
    BreakPoint() {}
    
