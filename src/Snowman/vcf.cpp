@@ -263,7 +263,7 @@ VCFFile::VCFFile(std::string file, std::string id, const SeqLib::BamHeader& h, c
   sv_header.addInfoField("MATEID","1","String","ID of mate breakends");
   sv_header.addInfoField("SUBN","1","Integer","Number of secondary alignments associated with this contig fragment");
   sv_header.addInfoField("NUMPARTS","1","Integer","If detected with assembly, number of parts the contig maps to. Otherwise 0");
-  sv_header.addInfoField("EVDNC","1","String","Provides type of evidence for read. ASSMB is assembly only, ASDIS is assembly+discordant. DSCRD is discordant only.");
+  sv_header.addInfoField("EVDNC","1","String","Evidence for variant. ASSMB assembly only, ASDIS assembly+discordant. DSCRD discordant only, TSI_L templated-sequence insertion (local, e.g. AB or BC of an ABC), TSI_G global (e.g. AC of ABC)");
   sv_header.addInfoField("SCTG","1","String","Identifier for the contig assembled by SnowmanSV to make the SV call");
   sv_header.addInfoField("INSERTION","1","String","Sequence insertion at the breakpoint.");
   sv_header.addInfoField("SPAN","1","Integer","Distance between the breakpoints. -1 for interchromosomal");
@@ -428,8 +428,15 @@ void VCFFile::deduplicate() {
     // loop through hit keys and if key is hit twice (1 left, 1 right), it is an overlap
     for (auto& j : key_count) {
       if (j.second == 2) { // left and right hit for this key. add 
- 	if (*i.second->bp < *entry_pairs[j.first]->bp) // this has worst read coverage that what it overlaps, so mark as dup
-	  dups.insert(j.first); 
+ 	if (*i.second->bp < *entry_pairs[j.first]->bp) { // this has worst read coverage that what it overlaps, so mark as dup
+	  // check that its not a local clashing with a global
+	  //std::cerr << i.second->bp->evidence << "  " << entry_pairs[j.first]->bp->evidence << " BP " << std::endl;//debug
+	  if ( (!strcmp(i.second->bp->evidence, "TSI_L") && !strcmp(entry_pairs[j.first]->bp->evidence, "TSI_G")) || // strcmp of 0 is match 
+	       (!strcmp(i.second->bp->evidence, "TSI_G") && !strcmp(entry_pairs[j.first]->bp->evidence, "TSI_L")) ) 
+	    ; // don't add as a duplicate
+	  else
+	    dups.insert(j.first); 
+	}
       }
     }
   }

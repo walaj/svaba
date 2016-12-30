@@ -96,7 +96,7 @@ namespace opt {
     static int minOverlap = 0;
     static float error_rate = 0; 
     static bool writeASQG = false;
-    static int num_assembly_rounds = 2;
+    static int num_assembly_rounds = 3;
   }
 
   // error correction options
@@ -1053,7 +1053,7 @@ afterassembly:
   // de duplicate the breakpoints
   std::sort(bp_glob.begin(), bp_glob.end());
   bp_glob.erase( std::unique( bp_glob.begin(), bp_glob.end() ), bp_glob.end() );
-  
+
   // add the coverage data to breaks for allelic fraction computation
   std::unordered_map<std::string, STCoverage*> covs;
   for (auto& i : opt::bam) 
@@ -1143,10 +1143,9 @@ afterassembly:
   wu.m_disc.insert(dmap.begin(), dmap.end());
   for (const auto& a : alc)
     wu.m_bamreads_count += a.NumBamReads();
-  for (auto& i : bp_glob) {
-    if ( i.hasMinimal() && i.confidence != "NOLOCAL" ) 
+  for (auto& i : bp_glob) 
+    if ( i.hasMinimal() && (i.confidence != "NOLOCAL" || i.complex_local ) ) 
       wu.m_bps.push_back(i);
-  }
   
   // dump if getting to much memory
   if (wu.MemoryLimit(THREAD_READ_LIMIT, THREAD_CONTIG_LIMIT) && !opt::hp) {
@@ -1819,7 +1818,7 @@ void WriteFilesOut(SnowmanWorkUnit& wu) {
 
   // send breakpoints to file
   for (auto& i : wu.m_bps) {
-    if ( i.hasMinimal() && i.confidence != "NOLOCAL" ) 
+    if ( i.hasMinimal() && (i.confidence != "NOLOCAL" || i.complex_local))
       os_allbps << i.toFileString(!opt::read_tracking) << std::endl;
   }
 

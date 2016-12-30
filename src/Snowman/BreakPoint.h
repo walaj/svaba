@@ -80,7 +80,7 @@ struct ReducedBreakEnd {
      }
    }
    
-   void __smart_check_free(char * p) {
+   inline void smart_check_free(char * p) {
      if (p)
        free(p);
    }
@@ -102,15 +102,14 @@ struct ReducedBreakEnd {
 
    ReducedBreakPoint() {}
    ~ReducedBreakPoint() {
-     __smart_check_free(ref);
-     __smart_check_free(alt);
-     __smart_check_free(cname);
-     __smart_check_free(homology);
-     __smart_check_free(insertion);
-     __smart_check_free(evidence);
-     __smart_check_free(confidence);
-     __smart_check_free(repeat);
-     //__smart_check_free(read_names);
+     smart_check_free(ref);
+     smart_check_free(alt);
+     smart_check_free(cname);
+     smart_check_free(homology);
+     smart_check_free(insertion);
+     smart_check_free(evidence);
+     smart_check_free(confidence);
+     smart_check_free(repeat);
    }
    ReducedBreakPoint(const std::string &line, const SeqLib::BamHeader& h);
 
@@ -122,19 +121,10 @@ struct ReducedBreakEnd {
    char * insertion;
    char * homology;
    char * repeat;
-   //char * read_names;
 
    std::string read_names, bxtable;
 
    std::vector<std::string> format_s;
-
-   //std::string ref;
-   //std::string alt;
-   //std::string cname;
-   //std::string evidence;
-   //std::string confidence;
-   //std::string insertion;
-   //std::string homology;
 
    ReducedBreakEnd b1, b2;
    double somatic_score = 0;
@@ -193,7 +183,7 @@ struct ReducedBreakEnd {
 
    void fromString(const std::string& s);
 
-   void __adjust_alt_counts();
+   void adjust_alt_counts();
    
  };
  
@@ -269,8 +259,6 @@ struct ReducedBreakEnd {
 
    void checkLocal(const SeqLib::GenomicRegion& window);
 
-   void __set_total_reads();
-   
    void score_somatic(double NODBCUTOFF, double DBCUTOFF);
 
    void addCovs(const std::unordered_map<std::string, STCoverage*>& covs);
@@ -395,14 +383,11 @@ struct ReducedBreakEnd {
    void score_assembly_only();
    void score_assembly_dscrd();
    void score_indel(double LOD_CUTOFF, double LOD_CUTOFF_DBSNP);
-   void __format_readname_string();
-   void __set_homologies_insertions();
-   void __set_evidence();
+   void format_readname_string();
+   void set_homologies_insertions();
+   void set_evidence();
    bool valid() const;
-   void  __format_bx_string();
-
-   double __sv_is_somatic() const;
-   double __indel_is_somatic() const;
+   void format_bx_string();
 
    void setRefAlt(const SeqLib::RefGenome * main_rg, const SeqLib::RefGenome * viral); 
 

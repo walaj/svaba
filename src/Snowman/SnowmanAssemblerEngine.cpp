@@ -165,7 +165,7 @@ void SnowmanAssemblerEngine::doAssembly(ReadTable *pRT, SeqLib::UnalignedSequenc
   int min_overlap = m_min_overlap;
   int cutoff = 0;
 
-  if (pass > 0) {
+  if (pass > 1) {
     //errorRate = 0.015f; // up to one bp mismatch
     errorRate = 0;
     m_error_rate = errorRate;

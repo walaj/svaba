@@ -64,10 +64,10 @@ using namespace SeqLib;
     
     // put the read names into a string
     if (!noreads)  
-      __format_readname_string();
+      format_readname_string();
     
     // make the BX table
-    __format_bx_string();
+    format_bx_string();
 
     double max_lod = 0;
     for (auto& s : allele) 
@@ -167,7 +167,7 @@ BreakPoint::BreakPoint(DiscordantCluster& tdc, const BWAWrapper * bwa, Discordan
     for (auto& i : allele) {
       i.second.indel = false;
       i.second.disc = alt_counts[i.first].size(); //allele[i.first].supporting_reads.size();
-      i.second.__adjust_alt_counts();
+      i.second.adjust_alt_counts();
       //i.second.alt = i.second.disc;
     }
       
@@ -542,7 +542,7 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h) {
       // adjust the alt count
     for (auto& i : allele) {
       i.second.indel = num_align == 1;
-      i.second.__adjust_alt_counts();
+      i.second.adjust_alt_counts();
       //i.second.alt = std::max((int)i.second.supporting_reads.size(), i.second.cigar);
     }
 
@@ -607,17 +607,11 @@ std::ostream& operator<<(std::ostream& out, const BreakPoint& b) {
     }
   
   void BreakPoint::checkBlacklist(GRC &grv) {
-    
-    // only check for indels
-    //if (num_align != 1)
-    //  return;
-    
-    if (grv.CountOverlaps(b1.gr) || grv.CountOverlaps(b2.gr)) {
+    if (grv.CountOverlaps(b1.gr) || grv.CountOverlaps(b2.gr)) 
       blacklist = true;
-    }
   }
   
-  void BreakPoint::__set_homologies_insertions() {
+  void BreakPoint::set_homologies_insertions() {
     try { 
       if (b1.cpos > b2.cpos)
 	homology = seq.substr(b2.cpos, b1.cpos-b2.cpos);
@@ -705,7 +699,7 @@ BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
 
 	      // adjust the alt counts
 	      for (auto& aa : allele)
-		aa.second.__adjust_alt_counts();
+		aa.second.adjust_alt_counts();
 	      //aa.second.alt = aa.second.supporting_reads.size();
 
 	  } 
@@ -714,33 +708,29 @@ BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
     
   }
 
-  void BreakPoint::__set_evidence() {
+  void BreakPoint::set_evidence() {
 
     bool isdisc = (dc.tcount + dc.ncount) != 0;
     //bool issplit = (t.split + n.split) != 0;
 
     if (num_align == 1)
       evidence = "INDEL";
-    else if ( isdisc && !complex && num_align != 0) //num_align == 2 )
+    else if ( isdisc && !complex && num_align > 0)
       evidence = "ASDIS";
     else if ( isdisc && num_align < 3)
       evidence = "DSCRD";
-    else if (!complex) //num_align == 2)
+    else if (!complex) 
       evidence = "ASSMB";
-    else if (complex) //num_align > 2)
-      evidence = "COMPL";
-    else {
-      //std::cerr << "cname " << cname << " num_align" << num_align << " isdisc " << " issplit "  << std::endl;
-      //assert(false);
-      
-    }
+    else if (complex && !complex_local) // is A-C of an ABC
+      evidence = "TSI_G";
+    else if (complex && complex_local) // is AB or BC of an ABC 
+      evidence = "TSI_L";
 
     assert(evidence.length());
 
   }
 
   void BreakPoint::score_assembly_only() {
-
 
     int span = getSpan();
     int num_split = t.split + n.split;
@@ -752,7 +742,7 @@ BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
       if (seq.find(rr) != std::string::npos)
 	hi_rep = true;
 
-    if (!b1.local && !b2.local) // added this back in snowman71. 
+    if (!b1.local && !b2.local && !complex_local) // added this back in snowman71. 
       // issue is that if a read is secondary aligned, it could be 
       // aligned to way off region. Saw cases where this happend in tumor
       // and not normal, so false-called germline event as somatic.
@@ -785,19 +775,19 @@ BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
       confidence = "LOWMAPQ";
     else if (a.split <= 3 && span <= 1500 && span != -1) // small with little split
       confidence = "LOWSPLITSMALL";
-    else if (num_align == 2 && b1.gr.chr != b2.gr.chr && std::min(b1.matchlen, b2.matchlen) < 60) // inter-chr, but no disc reads, weird alignment
+    else if (b1.gr.chr != b2.gr.chr && std::min(b1.matchlen, b2.matchlen) < 60) // inter-chr, but no disc reads, weird alignment
       confidence = "LOWICSUPPORT";
-    else if (num_align == 2 && b1.gr.chr != b2.gr.chr && std::max(b1.nm, b2.nm) >= 3 && std::min(b1.matchlen, b2.matchlen) < 150) // inter-chr, but no disc reads, and too many nm
+    else if (b1.gr.chr != b2.gr.chr && std::max(b1.nm, b2.nm) >= 3 && std::min(b1.matchlen, b2.matchlen) < 150) // inter-chr, but no disc reads, and too many nm
       confidence = "LOWICSUPPORT";
     else if (std::min(b1.matchlen, b2.matchlen) < 0.6 * readlen)
       confidence = "LOWICSUPPORT";      
-    else if (num_align == 2 && std::min(b1.mapq, b2.mapq) < 50 && b1.gr.chr != b2.gr.chr) // interchr need good mapq for assembly only
+    else if (std::min(b1.mapq, b2.mapq) < 50 && b1.gr.chr != b2.gr.chr) // interchr need good mapq for assembly only
       confidence = "LOWMAPQ";
     else if (std::min(b1.matchlen, b2.matchlen) < 40 || (complex_local && std::min(b1.matchlen, b2.matchlen) < 100)) // not enough evidence
       confidence = "LOWMATCHLEN";    
     else if (std::min(b1.matchlen - homology.length(), b2.matchlen - homology.length()) < 40)
       confidence = "LOWMATCHLEN";          
-    else if ((b1.sub_n && b1.mapq < 50) || (b2.sub_n && b2.mapq < 50)) // || std::max(b1.sub_n,b2.sub_n) >= 2)
+    else if ((b1.sub_n && b1.mapq < 50) || (b2.sub_n && b2.mapq < 50)) 
       confidence = "MULTIMATCH";
     else if (secondary && std::min(b1.mapq, b2.mapq) < 30)
       confidence = "SECONDARY";
@@ -821,14 +811,7 @@ BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
     // this is LOD of normal being REF vs AF = 0.5+
     // We want this to be high for a somatic call
     somatic_lod = n.LO_n;
-    
-    // can't call somatic with 3+ normal reads or <5x more tum than norm ALT
-    double ratio = n.alt > 0 ? (double)t.alt / (double)n.alt : 100;
-    if (( ratio <= MIN_SOMATIC_RATIO && n.cov > 10) || n.alt > 2) {
-      somatic_score = 0;
-      return;
-    }
-    
+        
   if (evidence == "INDEL") {
     
     // somatic score is just true or false for now
@@ -837,6 +820,14 @@ BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
 
   // for SVs, just use a hard cutoff for gauging somatic vs germline
   } else {
+
+    // can't call somatic with 3+ normal reads or <5x more tum than norm ALT
+    double ratio = n.alt > 0 ? (double)t.alt / (double)n.alt : 100;
+    if (( ratio <= MIN_SOMATIC_RATIO && n.cov > 10)) {
+      somatic_score = 0;
+      return;
+    }
+
     double ncount = std::max(n.split, dc.ncount);
     double somatic_ratio = ncount > 0 ? (double)std::max(t.split,dc.tcount)/ncount : 100;
     somatic_score = somatic_ratio >= MIN_SOMATIC_RATIO && n.split < 2;
@@ -984,7 +975,7 @@ void BreakPoint::score_indel(double LOD_CUTOFF, double LOD_CUTOFF_DBSNP) {
 void BreakPoint::scoreBreakpoint(double LOD_CUTOFF, double LOD_CUTOFF_DBSNP, double LOD_CUTOFF_SOMATIC, double LOD_CUTOFF_SOMATIC_DBSNP, double scale_errors, int min_dscrd_size) {
     
     // set the evidence (INDEL, DSCRD, etc)
-    __set_evidence();
+    set_evidence();
     
     // 
     double er = repeat_seq.length() > 10 ? MAX_ERROR : ERROR_RATES[repeat_seq.length()];
@@ -1019,9 +1010,10 @@ void BreakPoint::scoreBreakpoint(double LOD_CUTOFF, double LOD_CUTOFF_DBSNP, dou
     assert( (split == 0 && t.split == 0 && n.split==0) || (split > 0 && (t.split + n.split > 0)));
 
     // do the scoring
-    if (evidence == "ASSMB" || (evidence == "COMPL" && (dc.ncount + dc.tcount)==0))
+    bool iscomplex = evidence.find("TSI") != std::string::npos;
+    if (evidence == "ASSMB" || (iscomplex  && (dc.ncount + dc.tcount)==0))
       score_assembly_only();
-    if (evidence == "ASDIS" || (evidence == "COMPL" && (dc.ncount + dc.tcount))) 
+    if (evidence == "ASDIS" || (iscomplex && (dc.ncount + dc.tcount))) 
       score_assembly_dscrd();
     if (evidence == "DSCRD")
       score_dscrd(min_dscrd_size);
@@ -1052,7 +1044,7 @@ void BreakPoint::scoreBreakpoint(double LOD_CUTOFF, double LOD_CUTOFF_DBSNP, dou
   }
 
 // format the text BX tag table (for 10X reads)x
-void BreakPoint::__format_bx_string() {
+void BreakPoint::format_bx_string() {
 
   // only make if alraedy empty
   if (!bxtable.empty())
@@ -1089,7 +1081,7 @@ void BreakPoint::__format_bx_string() {
       bxtable.pop_back(); // remove last comma
 }
 
-  void BreakPoint::__format_readname_string() {
+  void BreakPoint::format_readname_string() {
     
     // only operate it not already formated
     if (read_names.empty())
@@ -1478,7 +1470,7 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
       a.supporting_reads.insert(i);
     
     //a.alt = std::max((int)a.supporting_reads.size(), a.cigar);
-    a.__adjust_alt_counts();
+    a.adjust_alt_counts();
 
     return a;
   }
@@ -1633,7 +1625,7 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
       local = true;
   }
 
-  void SampleInfo::__adjust_alt_counts() {
+  void SampleInfo::adjust_alt_counts() {
     
     // get unique qnames
     std::unordered_set<std::string> qn;

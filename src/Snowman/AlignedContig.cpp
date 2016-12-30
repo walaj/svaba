@@ -356,7 +356,7 @@ void AlignedContig::blacklist(SeqLib::GRC &grv) {
 	  bp.b2 = b.makeBreakEnd(false); 
 
 	  // set the insertion / homology
-	  bp.__set_homologies_insertions();
+	  bp.set_homologies_insertions();
 	  
 	  // order the breakpoint
 	  bp.order();
@@ -383,26 +383,18 @@ void AlignedContig::blacklist(SeqLib::GRC &grv) {
       m_local_breaks_secondaries.clear();
       return;
     }
-    
-    // 3+ mappings. If all good, then don't make the "global"
-    // Actually, do make the global
-    //bool make_locals = true;
-    //for (size_t i = 1; i < m_frag_v.size() - 1; ++i)
-    //  if (m_frag_v[i].m_align.MapQuality() < 50)
-    //	make_locals = false;
-    
-    //if (make_locals) { // intermediates are good, so just leave locals as-is
-    //  return;
-    //}
-    
-    // TODO support 3+ mappings that contain secondary
+
+    //////////////
+    // 3+ mappings
+    //////////////
     
     // go through alignments and find start and end that reach mapq 
-    size_t bstart = MAX_CONTIG_SIZE; //1000 is a dummy
+    size_t bstart = MAX_CONTIG_SIZE; // dummy value to be overwritten
     size_t bend = m_frag_v.size() - 1;
 
+    // loop and find contigs with strong support
     for (size_t i = 0; i < m_frag_v.size(); i++)
-      if (m_frag_v[i].m_align.MapQuality() >= 60) {
+      if (m_frag_v[i].m_align.MapQuality() >= 50) {
 	bend = i;
 	if (bstart == MAX_CONTIG_SIZE)
 	  bstart = i;
@@ -425,9 +417,15 @@ void AlignedContig::blacklist(SeqLib::GRC &grv) {
       i.complex = true;
       i.complex_local = true; // this is a sub-piece
     }
-    
+
+    // if we had ABC but only AB or BC is good connection, then don't treat as complex
+    if (bend - bstart < 2) {
+      m_global_bp.complex = false;
+      m_local_breaks.clear();
+    }
+
     // set the homologies
-    m_global_bp.__set_homologies_insertions();
+    m_global_bp.set_homologies_insertions();
     
     // order the breakpoint
     m_global_bp.order();
