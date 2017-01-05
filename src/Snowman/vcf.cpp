@@ -369,8 +369,6 @@ class GenomicRegionWithID : public SeqLib::GenomicRegion
 // deduplicate
 void VCFFile::deduplicate() {
 
-  std::cerr << "...vcf - deduping events" << endl;
-
   // create the interval tree maps
   // grv1 are left entries, grv2 are right
   // keep it sorted so grv1 always has left most
@@ -389,10 +387,9 @@ void VCFFile::deduplicate() {
   
   for (auto& i : entry_pairs) {
 
-    // if it's already de-duped, dont do it again
-    //if (dups.count(i.first))
-    //  continue;
-    
+    if (count % 50000 == 0)
+      std::cerr << "...dedupe at " << SeqLib::AddCommas(count) << " of " << SeqLib::AddCommas(entry_pairs.size()) << std::endl;
+
     // if both ends are close then they match
     pad = (i.second->bp->b1.gr.chr != i.second->bp->b2.gr.chr) || std::abs(i.second->bp->b1.gr.pos1 - i.second->bp->b2.gr.pos1) > DEDUPEPAD*2 ? DEDUPEPAD : 10;
 
@@ -415,21 +412,25 @@ void VCFFile::deduplicate() {
 
     bool is_pass = i.second->e1.bp->pass; 
 
-    std::unordered_map<int, size_t> key_count;
+    std::unordered_map<int, std::pair<size_t, size_t>> key_count; // left and right is pair
+
     // loop hits to left end
-    for (auto& j : giv1)
+    for (auto& j : giv1) 
       if (grv1.at(j.value).id != i.first && ( is_pass == (grv1.at(j.value).pass) )) //j is hit. Make sure have same pass status
-	++key_count[grv1.at(j.value).id];
+	++key_count[grv1.at(j.value).id].first;
     // loop hits to right end
     for (auto& j : giv2)
       if (grv2.at(j.value).id != i.first && ( is_pass == (grv2.at(j.value).pass) )) //j is hit, grv2.at(j.value).id is key of hit
-	++key_count[grv2.at(j.value).id];
+	++key_count[grv2.at(j.value).id].second;
 
     // loop through hit keys and if key is hit twice (1 left, 1 right), it is an overlap
     for (auto& j : key_count) {
-      if (j.second == 2) { // left and right hit for this key. add 
+      assert((*i.second->bp < *entry_pairs[j.first]->bp) + (*entry_pairs[j.first]->bp < *i.second->bp) == 1); // comparator is working
+      if (j.second.first && j.second.second) { // left and right hit for this key
  	if (*i.second->bp < *entry_pairs[j.first]->bp) { // this has worst read coverage that what it overlaps, so mark as dup
 	  // check that its not a local clashing with a global
+	  //if (!strcmp(i.second->bp->cname,"c_10_29645001_29670001_37C") || !strcmp(i.second->bp->cname,"c_1_200851001_200876001_40C")) //debug
+	  //  std::cerr << " cname " << i.second->bp->cname << " DONT ADD ? " << ((!strcmp(i.second->bp->evidence, "TSI_L") && !strcmp(entry_pairs[j.first]->bp->evidence, "TSI_G")) || (!strcmp(i.second->bp->evidence, "TSI_G") && !strcmp(entry_pairs[j.first]->bp->evidence, "TSI_L")) )  << std::endl;
 	  //std::cerr << i.second->bp->evidence << "  " << entry_pairs[j.first]->bp->evidence << " BP " << std::endl;//debug
 	  if ( (!strcmp(i.second->bp->evidence, "TSI_L") && !strcmp(entry_pairs[j.first]->bp->evidence, "TSI_G")) || // strcmp of 0 is match 
 	       (!strcmp(i.second->bp->evidence, "TSI_G") && !strcmp(entry_pairs[j.first]->bp->evidence, "TSI_L")) ) 

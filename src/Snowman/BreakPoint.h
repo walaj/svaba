@@ -241,6 +241,8 @@ struct ReducedBreakEnd {
    bool isindel = false;
    bool blacklist = false;
 
+   double error_rate = 1e-4;
+
    // keep track of how much of contig is covered by split
    std::pair<int,int> split_cov_bounds = std::pair<int, int>(1e5, -1); // dummy to extreme opposite vals
 

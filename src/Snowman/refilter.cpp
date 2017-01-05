@@ -198,7 +198,7 @@ void runRefilterBreakpoints(int argc, char** argv) {
   SeqLib::BamHeader hdr = bwalker.Header();
   while (getline(infile, line, '\n')) {
     if (line_count % 100000 == 0) 
-      std::cerr << "...read bps file line " << SeqLib::AddCommas(line_count) << std::endl;
+      std::cerr << "...read input bps / write output bps file at line " << SeqLib::AddCommas(line_count) << std::endl;
       
     if (line_count == 0) { // read the header
       os_allbps_r << line << std::endl;

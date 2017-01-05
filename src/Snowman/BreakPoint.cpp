@@ -44,8 +44,8 @@ bool __check_homopolymer(const std::string& s) {
 }
 
 double scale_factor = 5.0;
-static std::unordered_map<int, double> ERROR_RATES = {{0,scale_factor * 1e-4}, {1, scale_factor * 1e-4}, {2, scale_factor * 1e-4}, {3, scale_factor * 1e-4}, {4, scale_factor * 1e-4}, {5, scale_factor * 2e-4}, {6, scale_factor * 5e-4}, {7, scale_factor * 1e-3},
-						      {scale_factor * 8,2e-3}, {9,scale_factor * 3e-3}, {10, scale_factor * 1e-2}, {11, scale_factor * 2e-2}, {12, scale_factor * 3e-5}};
+static std::unordered_map<int, double> ERROR_RATES = {{0, scale_factor * 1e-4}, {1, scale_factor * 1e-4}, {2,  scale_factor * 1e-4}, {3,  scale_factor * 1e-4}, {4,  scale_factor * 1e-4}, {5, scale_factor * 2e-4}, {6, scale_factor * 5e-4}, {7, scale_factor * 1e-3},
+						      {8, scale_factor * 2e-3}, {9, scale_factor * 3e-3}, {10, scale_factor * 1e-2}, {11, scale_factor * 2e-2}, {12, scale_factor * 3e-5}};
 
 
 using namespace SeqLib;
@@ -978,13 +978,11 @@ void BreakPoint::scoreBreakpoint(double LOD_CUTOFF, double LOD_CUTOFF_DBSNP, dou
     set_evidence();
     
     // 
-    double er = repeat_seq.length() > 10 ? MAX_ERROR : ERROR_RATES[repeat_seq.length()];
-    er *= scale_errors;
-    er = er == 0 ? MIN_ERROR : er; // enforce a minimum error
+    error_rate = repeat_seq.length() > 10 ? MAX_ERROR : ERROR_RATES[repeat_seq.length()];
     for (auto& i : allele) {
       i.second.readlen = readlen;
-      i.second.modelSelection(er);
-    __combine_alleles();
+      i.second.modelSelection(error_rate);
+      __combine_alleles();
     }
 
     // kludge. make sure we have included the DC counts (should have done this arleady...)
@@ -1337,8 +1335,8 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
     arg1 = f * (1 - e) /* p(alt not mut) */ + (1-f) * e; /* p (ref mut to alt) */
     if (arg1 > 0)
       ll += alt * log10(arg1); // alt
-    //else
-    // ll = 0
+    else if (alt > 0)
+      ll = -10000000 ; // error is zero, but have artifact so impossible
 
     return ll;
 
@@ -1393,7 +1391,7 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
     double ll_ref_norm = __log_likelihood(cov - scaled_alt, scaled_alt, 0                , er); // likelihood that varaint is actually true REF
     double ll_alt_norm = __log_likelihood(cov - scaled_alt, scaled_alt, std::max(0.5, af), er); // likelihood that variant is 0.5
     LO_n = ll_ref_norm - ll_alt_norm; // higher number means more likely to be AF = 0 (ref) than AF = 0.5 (alt). 
-    
+
     // genotype calculation as provided in 
     // http://bioinformatics.oxfordjournals.org/content/early/2011/09/08/bioinformatics.btr509.full.pdf+html
     //int scaled_cov = std::floor((double)cov * 0.90);
@@ -1490,10 +1488,9 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
     a.readlen = readlen;
     t.readlen = readlen;
     n.readlen = readlen;
-    double er = repeat_seq.length() > 10 ? 0.04 : ERROR_RATES[repeat_seq.length()];
-    t.modelSelection(er);
-    n.modelSelection(er);
-    
+    error_rate = (repeat_seq.length() > 10) ? MAX_ERROR : ERROR_RATES[repeat_seq.length()];
+    t.modelSelection(error_rate);
+    n.modelSelection(error_rate);
   }
 
 
@@ -1673,6 +1670,12 @@ bool ReducedBreakPoint::operator<(const ReducedBreakPoint& bp) const {
   if (dc.tcount > bp.dc.tcount)
     return true;
   else if (dc.tcount < bp.dc.tcount)
+    return false;
+
+  // break the tie somehow
+  if (cname > bp.cname)
+    return true;
+  else if (cname < bp.cname)
     return false;
   
   return false;

@@ -412,8 +412,8 @@ using namespace SeqLib;
     int pos2 = (m_reg2.strand == '+') ? m_reg2.pos2 : m_reg2.pos1;
     
     std::stringstream ss;
-    ss << m_reg1.chr+1 << ":" << pos1 << "(" << m_reg1.strand << ")" << "-" << 
-      m_reg2.chr+1 << ":" << pos2 << "(" << m_reg2.strand << ")";
+    ss << (m_reg1.chr+1) << ":" << pos1 << "(" << m_reg1.strand << ")" << "-" << 
+      (m_reg2.chr+1) << ":" << pos2 << "(" << m_reg2.strand << ")";
     return ss.str();
     
   }

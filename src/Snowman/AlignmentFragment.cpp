@@ -1,7 +1,7 @@
 #include "AlignmentFragment.h"
 #include "AlignedContig.h"
 
-#define MIN_INDEL_MATCH_BRACKET 6
+#define MIN_INDEL_MATCH_BRACKET 0
 #define MAX_INDELS 10000
 #define MAX_INDEL_PER_CONTIG 6 
 
