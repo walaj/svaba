@@ -76,13 +76,12 @@ DBSnpFilter::DBSnpFilter(const std::string& db, const BamHeader& h) {
 	cig.str(std::string());
 	//cig << db.chr << "_" << db.pos1 << "_" << (db.pos2-db.pos1) << (db.m_ref.length() == 1 ? "I" : "D");
 	cig << db.chr << "_" << db.pos1;
-	m_hash.insert(cig.str());
+	//m_hash.insert(cig.str());
+	
+	m_int_hash.insert(hasher(cig.str()));
 	//std::cerr << line << " hash " << cig.str() << std::endl;
 	
       }
-
-
-      
     }
     
     // build the tree
@@ -102,7 +101,8 @@ DBSnpFilter::DBSnpFilter(const std::string& db, const BamHeader& h) {
   }
 
   bool DBSnpFilter::queryHash(const std::string& h) const {
-    return m_hash.count(h);
+    //return m_hash.count(h);
+    return m_int_hash.count(hasher(h));
   }
 
   bool DBSnpFilter::queryBreakpoint(BreakPoint& bp) {

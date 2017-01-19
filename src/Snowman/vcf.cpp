@@ -15,7 +15,7 @@
 #include "SeqLib/GenomicRegionCollection.h"
 
 #define VCF_SECONDARY_CAP 200
-#define SOMATIC_LOD 1
+#define SOMATIC_LOD 1 // just a dummy now. scoring is elsewhere, and output is 0 (germline) or 1 (somatic)
 #define DEDUPEPAD 200
 
 using namespace std;
@@ -338,6 +338,10 @@ VCFFile::VCFFile(std::string file, std::string id, const SeqLib::BamHeader& h, c
 	//delete vpair;
 	continue;
       }
+    
+    // remove BX tags for unfiltered
+    if (!bp->pass)
+      bp->bxtable = "x";
 
     if (bp->indel) {
       indels.insert(pair<int, std::shared_ptr<VCFEntryPair>>(line_count, vpair));
@@ -387,7 +391,7 @@ void VCFFile::deduplicate() {
   
   for (auto& i : entry_pairs) {
 
-    if (count % 50000 == 0)
+    if (count % 250000 == 0)
       std::cerr << "...dedupe at " << SeqLib::AddCommas(count) << " of " << SeqLib::AddCommas(entry_pairs.size()) << std::endl;
 
     // if both ends are close then they match
@@ -425,18 +429,16 @@ void VCFFile::deduplicate() {
 
     // loop through hit keys and if key is hit twice (1 left, 1 right), it is an overlap
     for (auto& j : key_count) {
-      assert((*i.second->bp < *entry_pairs[j.first]->bp) + (*entry_pairs[j.first]->bp < *i.second->bp) == 1); // comparator is working
+      //assert(*i.second->bp < *entry_pairs[j.first]->bp + *entry_pairs[j.first]->bp < *i.second->bp == 1); // comparator is working
       if (j.second.first && j.second.second) { // left and right hit for this key
- 	if (*i.second->bp < *entry_pairs[j.first]->bp) { // this has worst read coverage that what it overlaps, so mark as dup
-	  // check that its not a local clashing with a global
-	  //if (!strcmp(i.second->bp->cname,"c_10_29645001_29670001_37C") || !strcmp(i.second->bp->cname,"c_1_200851001_200876001_40C")) //debug
-	  //  std::cerr << " cname " << i.second->bp->cname << " DONT ADD ? " << ((!strcmp(i.second->bp->evidence, "TSI_L") && !strcmp(entry_pairs[j.first]->bp->evidence, "TSI_G")) || (!strcmp(i.second->bp->evidence, "TSI_G") && !strcmp(entry_pairs[j.first]->bp->evidence, "TSI_L")) )  << std::endl;
-	  //std::cerr << i.second->bp->evidence << "  " << entry_pairs[j.first]->bp->evidence << " BP " << std::endl;//debug
+ 	if (*i.second->bp < *entry_pairs[j.first]->bp) { // this has worst read coverage that what it overlaps, so mark as dup. If tie, take left-most break
+	  // check that its not a local clashing with a global, because they're supposed to be two annotations for one event
 	  if ( (!strcmp(i.second->bp->evidence, "TSI_L") && !strcmp(entry_pairs[j.first]->bp->evidence, "TSI_G")) || // strcmp of 0 is match 
 	       (!strcmp(i.second->bp->evidence, "TSI_G") && !strcmp(entry_pairs[j.first]->bp->evidence, "TSI_L")) ) 
 	    ; // don't add as a duplicate
-	  else
+	  else {
 	    dups.insert(j.first); 
+	  }
 	}
       }
     }
@@ -619,22 +621,8 @@ void VCFFile::writeSVs(std::string basename, bool zip, bool onefile) const {
   for (VCFEntryPairMap::const_iterator it = entry_pairs.begin(); it != entry_pairs.end(); it++) {
     
     if (!dups.count( it->first)) { // dont include duplicate entries
-
-      // renumber the ids
-      //++id_counter;
-      //VCFEntryPair tmppair = it->second;
-
-      //tmppair.e1.idcommon = std::to_string(id_counter) + ":" + analysis_id;
-      //tmppair.e2.idcommon = std::to_string(id_counter) + ":" + analysis_id;
-      //tmppair.e1.id = tmppair.e1.idcommon + ":1";
-      //tmppair.e2.id = tmppair.e2.idcommon + ":2";
-      //tmppair.e1.info_fields["MATEID"] = tmppair.e2.id;
-      //tmppair.e2.info_fields["MATEID"] = tmppair.e1.id;
-    
       tmpvec.push_back(it->second->e1);
       tmpvec.push_back(it->second->e2);
-      //tmpvec.push_back(tmppair.e1);
-      //tmpvec.push_back(tmppair.e2);
     }
 
   }
@@ -644,7 +632,7 @@ void VCFFile::writeSVs(std::string basename, bool zip, bool onefile) const {
 
   // print out the entries
   for (auto& i : tmpvec) { 
-    
+
     if (!i.bp->pass && !include_nonpass)
       continue;
     

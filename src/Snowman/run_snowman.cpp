@@ -16,8 +16,8 @@
 #include "LearnBamParams.h"
 #include "SeqLib/BFC.h"
 
-#define THREAD_READ_LIMIT 2000
-#define THREAD_CONTIG_LIMIT 200
+#define THREAD_READ_LIMIT 1 // 1000
+#define THREAD_CONTIG_LIMIT 1// 100
 
 // useful replace function
 std::string myreplace(std::string &s,
@@ -40,8 +40,8 @@ static std::stringstream ss; // initalize a string stream once
 
 #define MIN_CONTIG_MATCH 35
 #define MATE_LOOKUP_MIN 3
-#define SECONDARY_CAP 200
-#define MAX_MATE_ROUNDS 3
+#define SECONDARY_CAP 10
+#define MAX_MATE_ROUNDS 1
 #define MATE_REGION_LOOKUP_LIMIT 400
 
 #define GERMLINE_CNV_PAD 10
@@ -165,8 +165,8 @@ namespace opt {
   // indel probability cutoffs
   static double lod = 8; // LOD that variant is not ref
   static double lod_db = 6; // same, but at DB snp site (want lower bc we have prior)
-  static double lod_somatic = 2.5; // LOD that normal is REF
-  static double lod_somatic_db = 4; // same, but at DBSNP (want higher bc we have prior that its germline)
+  static double lod_somatic = 6; // LOD that normal is REF
+  static double lod_somatic_db = 10; // same, but at DBSNP (want higher bc we have prior that its germline)
   static double scale_error = 1; // how much to emphasize erorrs. 1 is standard. 0 is assume no errors
 
 }
@@ -649,15 +649,14 @@ afterlearn:
     os_corrected.close();
   log_file.close();
 
-  // make the VCF file
-  makeVCFs();
-
   // more clean up 
   if (ref_genome)
     delete ref_genome;
   if (ref_genome_viral)
     delete ref_genome_viral;
   
+  // make the VCF file
+  makeVCFs();
   
 #ifndef __APPLE__
   //  std::cerr << SeqLib::displayRuntime(start) << std::endl;
@@ -914,8 +913,6 @@ bool runWorkUnit(const SeqLib::GenomicRegion& region, SnowmanWorkUnit& wu, long 
   // adjust counts and timer
   st.stop("r");
 
-
-
   // get the mate reads, if this is local assembly and has insert-size distro
   if (!region.IsEmpty() && !opt::single_end && min_dscrd_size_for_variant) {
     run_mate_collection_loop(region, wu.walkers, wu.badd);
@@ -924,6 +921,7 @@ bool runWorkUnit(const SeqLib::GenomicRegion& region, SnowmanWorkUnit& wu, long 
     st.stop("m");
   }
   
+
   // do the discordant read clustering
   DiscordantClusterMap dmap, dmap_tmp;
   
@@ -1111,7 +1109,7 @@ afterassembly:
   // remove somatic SVs that overlap with germline svs
   if (germline_svs.size()) {
     for (auto& i : bp_glob) {
-      if (i.somatic_score && i.b1.gr.chr == i.b2.gr.chr) {
+      if (i.somatic_score && i.b1.gr.chr == i.b2.gr.chr && i.evidence != "INDEL") {
 	SeqLib::GenomicRegion gr1 = i.b1.gr;
 	SeqLib::GenomicRegion gr2 = i.b2.gr;
 	gr1.Pad(GERMLINE_CNV_PAD);
@@ -1182,7 +1180,7 @@ afterassembly:
 
   // clear out the reads and reset the walkers
   for (auto& w : wu.walkers) {
-    w.second.clear();
+    w.second.clear(); 
     w.second.m_limit = opt::max_reads_per_assembly;
   }
 
@@ -1563,7 +1561,7 @@ void run_assembly(const SeqLib::GenomicRegion& region, SeqLib::BamRecordVector& 
   if (opt::sga::writeASQG)
     engine.setToWriteASQG();
   engine.fillReadTable(bav_this);
-
+  
   // do the actual assembly
   engine.performAssembly(opt::sga::num_assembly_rounds);
   

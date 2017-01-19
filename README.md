@@ -221,7 +221,7 @@ This project was developed in collaboration with the Cancer Genome Analysis team
 * Marcin Imielinski (http://vivo.med.cornell.edu/display/cwid-mai9037)
 
 Additional thanks to Jared Simpson for SGA, Heng Li for htslib and BWA, and for the other developers whose  
-code contributed to [SeqLib](seqlib).
+code contributed to [SeqLib](https://github.com/walaj/SeqLib).
 
 [vbam]: https://github.com/walaj/VariantBam
 

@@ -39,8 +39,8 @@ namespace opt {
   // indel probability cutoffs
   static double lod = 8; // LOD that variant is not ref
   static double lod_db = 6; // same, but at DB snp site (want lower bc we have prior)
-  static double lod_somatic = 2.5; // LOD that normal is REF
-  static double lod_somatic_db = 4; // same, but at DBSNP (want higher bc we have prior that its germline)
+  static double lod_somatic = 6; // LOD that normal is REF
+  static double lod_somatic_db = 10; // same, but at DBSNP (want higher bc we have prior that its germline)
   static double scale_error = 1; 
 }
 
@@ -228,7 +228,8 @@ void runRefilterBreakpoints(int argc, char** argv) {
 	  if (i.first.at(0) == 't')
 	    bp->dc.tcount += i.second.disc;
 	  else
-	    bp->dc.tcount += i.second.disc;
+	    bp->dc.ncount += i.second.disc;
+
 	}
 
 	// match against DBsnp database. Modify bp in place

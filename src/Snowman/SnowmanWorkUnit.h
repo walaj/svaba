@@ -19,7 +19,7 @@ struct SnowmanWorkUnit {
   WalkerMap walkers;
   SeqLib::RefGenome * ref_genome = nullptr;
   SeqLib::RefGenome * vir_genome = nullptr;
-  SeqLib::GRC m_bad_regions;// bad region tracker for this thread
+  //SeqLib::GRC m_bad_regions;// bad region tracker for this thread
   
   // other structures to hold results
   std::vector<AlignedContig> m_alc;

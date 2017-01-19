@@ -5,6 +5,7 @@
 #include <cstring>
 #include <iostream>
 #include <unordered_set>
+#include <functional> //for std::hash
 
 #include "SeqLib/GenomicRegionCollection.h"
 #include "SeqLib/BamHeader.h"
@@ -47,12 +48,16 @@ typedef SeqLib::GenomicRegionCollection<DBSnpSite> DBC;
     friend std::ostream& operator<<(std::ostream& out, const DBSnpFilter& d);
 
   private:
+
+    std::hash<std::string> hasher;
     
     // initialize here once
     std::stringstream cig;
 
     DBC m_sites;
     std::unordered_set<std::string> m_hash;
+
+    std::unordered_set<size_t> m_int_hash;
     
   };
 

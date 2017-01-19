@@ -228,15 +228,9 @@ BreakPoint::BreakPoint(DiscordantCluster& tdc, const BWAWrapper * bwa, Discordan
 	__rep(i, rr, fwd > 0);
 	repeat_seq = rr.length() > repeat_seq.length() ? rr : repeat_seq;
     }
-
-    // look for massive repeats in contig
-    /*for (auto& r : repr)
-      if (seq.find(r) != std::string::npos && r.length() > repeat_seq.length())
-	repeat_seq = r;
-    */
   }
 
-
+// used in the refilter module only
 BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h) {
 
   if (h.isEmpty()) {
@@ -298,14 +292,11 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h) {
 	  aaa.fromString(val);
 	  id += "A";
 	  allele[id] = aaa; //id is dummy. just keep in order as came in;
-
 	  // fill in the discordant info
-	  if (id == "A") // tumor
-	    dc.tcount = aaa.disc;
-	  else
-	    dc.ncount += aaa.disc;
-	    
-
+	  //if (id == "A") // tumor
+	  //  dc.tcount = aaa.disc;
+	  //else
+	  //  dc.ncount += aaa.disc;
 	  break;
 	}
       } catch(...) {
@@ -343,8 +334,6 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h) {
       bool read_should_be_skipped = false;
       if (num_align == 1) {
 	std::vector<std::string> cigvec = j.GetSmartStringTag("SC"); // read against contig CIGAR
-	//if (cigvec.size() != cnvec.size())//debug
-	//  std::cerr << cigvec.size() << " _ " << cnvec.size() << std::endl;
 	assert(cigvec.size() == cnvec.size());
 	size_t kk = 0;
 	
@@ -710,8 +699,11 @@ BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
 
   void BreakPoint::set_evidence() {
 
+    // if we are in refilter, then this is already set
+    if (!evidence.empty())
+      return;
+
     bool isdisc = (dc.tcount + dc.ncount) != 0;
-    //bool issplit = (t.split + n.split) != 0;
 
     if (num_align == 1)
       evidence = "INDEL";
@@ -811,26 +803,27 @@ BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
     // this is LOD of normal being REF vs AF = 0.5+
     // We want this to be high for a somatic call
     somatic_lod = n.LO_n;
-        
-  if (evidence == "INDEL") {
+
+    // find the somatic to normal ratio
+    double ratio = n.alt > 0 ? (double)t.alt / (double)n.alt : 100;    
     
-    // somatic score is just true or false for now
-    // use the specified cutoff for indels, taking into account whether at dbsnp site
-    somatic_score = somatic_lod > (rs.empty() ? NODBCUTOFF : DBCUTOFF);
+    if (evidence == "INDEL") {
+      
+      
+      // somatic score is just true or false for now
+      // use the specified cutoff for indels, taking into account whether at dbsnp site
+      somatic_score = somatic_lod > (rs.empty() ? NODBCUTOFF : DBCUTOFF);
+    
+    // can't call somatic with 5+ normal reads or <5x more tum than norm ALT
+    if ((ratio <= 12 && n.cov > 10) || n.alt > 5)
+      somatic_score = 0;
 
   // for SVs, just use a hard cutoff for gauging somatic vs germline
   } else {
 
-    // can't call somatic with 3+ normal reads or <5x more tum than norm ALT
-    double ratio = n.alt > 0 ? (double)t.alt / (double)n.alt : 100;
-    if (( ratio <= MIN_SOMATIC_RATIO && n.cov > 10)) {
-      somatic_score = 0;
-      return;
-    }
+    // require no reads in normal or 1 read and tons of tumor reads
 
-    double ncount = std::max(n.split, dc.ncount);
-    double somatic_ratio = ncount > 0 ? (double)std::max(t.split,dc.tcount)/ncount : 100;
-    somatic_score = somatic_ratio >= MIN_SOMATIC_RATIO && n.split < 2;
+    somatic_score = ratio >= MIN_SOMATIC_RATIO && n.split < 2 && dc.ncount < 2;
   }
     
   // set germline if single normal read in discordant clsuter
@@ -976,13 +969,14 @@ void BreakPoint::scoreBreakpoint(double LOD_CUTOFF, double LOD_CUTOFF_DBSNP, dou
     
     // set the evidence (INDEL, DSCRD, etc)
     set_evidence();
-    
+
+    __combine_alleles();
+
     // 
     error_rate = repeat_seq.length() > 10 ? MAX_ERROR : ERROR_RATES[repeat_seq.length()];
     for (auto& i : allele) {
       i.second.readlen = readlen;
       i.second.modelSelection(error_rate);
-      __combine_alleles();
     }
 
     // kludge. make sure we have included the DC counts (should have done this arleady...)
@@ -1345,18 +1339,20 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
   void SampleInfo::modelSelection(double er) {
 
     // can't have more alt reads than total reads
-    if (alt >= cov) 
-      cov = alt;
+    // well you can for SVs...
+    int thiscov = cov;
+    if (alt >= cov)  
+      thiscov = alt;
 
     // adjust the coverage to be more in line with restrictions on ALT.
     // namely that ALT reads must overlap the variant site by more than T_SPLIT_BUFF
     // bases, but the raw cov calc does not take this into account. Therefore, adjust here
     double a_cov;
     if (readlen) {
-      a_cov = (double)cov * (double)(readlen - 2 * T_SPLIT_BUFF)/readlen;
+      a_cov = (double)thiscov * (double)(readlen - 2 * T_SPLIT_BUFF)/readlen;
       a_cov = a_cov < 0 ? 0 : a_cov;
     } else {
-      a_cov = cov;
+      a_cov = thiscov;
     }
     af = a_cov > 0 ? (double)alt / (double)a_cov : 1;
     af = af > 1 ? 1 : af;
@@ -1388,8 +1384,9 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
     // or above a larger threshold XX if at DBSNP site, then we accept as somatic
     // LO_n should not be used for setting the confidence that something is real, just the 
     // confidence that it is somatic
-    double ll_ref_norm = __log_likelihood(cov - scaled_alt, scaled_alt, 0                , er); // likelihood that varaint is actually true REF
-    double ll_alt_norm = __log_likelihood(cov - scaled_alt, scaled_alt, std::max(0.5, af), er); // likelihood that variant is 0.5
+    double ll_ref_norm = __log_likelihood(a_cov - scaled_alt, scaled_alt, 0 , er); // likelihood that varaint is actually true REF
+    double ll_alt_norm = __log_likelihood(a_cov - scaled_alt, scaled_alt, std::max(af, 0.5), er); // likelihood that variant is 0.5
+    //std::cerr << " COV " << a_cov << " ALT " << scaled_alt << " LL ALT " << ll_alt_norm << " LL REF " << ll_ref_norm << " ER " << er << std::endl;
     LO_n = ll_ref_norm - ll_alt_norm; // higher number means more likely to be AF = 0 (ref) than AF = 0.5 (alt). 
 
     // genotype calculation as provided in 
@@ -1468,7 +1465,11 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
       a.supporting_reads.insert(i);
     
     //a.alt = std::max((int)a.supporting_reads.size(), a.cigar);
-    a.adjust_alt_counts();
+    
+    if (a.supporting_reads.size()) // we have the read names, so do that (non-refilter run)
+      a.adjust_alt_counts();
+    else // no read names stored, so just get directly
+      a.alt = a1.alt + a2.alt;
 
     return a;
   }

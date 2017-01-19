@@ -115,7 +115,7 @@ SeqLib::GRC SnowmanBamWalker::readBam(std::ofstream * log)
 
     // if hit the limit of reads, log it and try next region
     if (countr > m_limit && m_limit > 0) {
-      
+
       if (log)
 	(*log) << "\tbreaking at " << r.Brief() << " in window " 
 	       << (m_region.size() ? m_region[tb->m_region_idx].ToString() : " whole BAM")
@@ -222,11 +222,10 @@ SeqLib::GRC SnowmanBamWalker::readBam(std::ofstream * log)
     
     // add the ID tag
     std::string srn =  prefix + "_" + std::to_string(r.AlignmentFlag()) + "_" + r.Qname();
-    assert(srn.length());
     r.AddZTag("SR", srn);
     
     DEBUG("SBW read added ", r);
-
+    
     reads.push_back(r); // adding later because of kmer correction
     
   } // end the read loop
