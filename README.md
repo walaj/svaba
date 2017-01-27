@@ -1,4 +1,4 @@
-[![Build Status](https://travis-ci.org/walaj/svaba.svg?branch=master)](https://travis-ci.org/walaj/svaba)
+[![Build Status](https://travis-ci.org/walaj/SvAbA.svg?branch=master)](https://travis-ci.org/walaj/SvAbA)
 
 ## *SvAbA* - Structural variation and indel Analysis by Assembly
 
