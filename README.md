@@ -1,8 +1,8 @@
 [![Build Status](https://travis-ci.org/walaj/svaba.svg?branch=master)](https://travis-ci.org/walaj/svaba)
 
-## *SvAbA* - Structural variation and indel detection by assembly
+## *SvAbA* - Structural variation and indel Analysis by Assembly
 
-[Pronounced Sah-Bah or Svah-bah. This project was formerly "Snowman"]
+[Pronounced sah-bah or svah-bah. This project was formerly "Snowman"]
 
 **License:** [GNU GPLv3][license] 
 
