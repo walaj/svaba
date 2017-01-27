@@ -2,7 +2,7 @@
 AC_PREREQ(2.59) ## specificy version of autoconf
 AC_INIT(svaba, 1.0, jwala@broadinstitute.org)
 AM_INIT_AUTOMAKE(foreign)
-AC_CONFIG_SRCDIR([src/SVaBA/svaba.cpp])
+AC_CONFIG_SRCDIR([src/svaba/svaba.cpp])
 AC_CONFIG_HEADER([config.h])
 AM_MAINTAINER_MODE([disable])
 ##m4_include([m4/m4_ax_openmp.m4])
@@ -69,6 +69,6 @@ AC_CONFIG_FILES([Makefile
 		src/SGA/StringGraph/Makefile
 		src/SGA/SuffixTools/Makefile
                 src/SGA/SGA/Makefile
-                src/SVaBA/Makefile])
+                src/svaba/Makefile])
 
 AC_OUTPUT

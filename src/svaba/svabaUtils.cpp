@@ -1,8 +1,8 @@
-#include "SVaBAUtils.h"
+#include "svabaUtils.h"
 
 #include <iomanip>
 
-namespace SVaBAUtils {
+namespace svabaUtils {
 
 static std::string POLYA = "AAAAAAAAAAAAAAAAAAA";
 static std::string POLYT = "TTTTTTTTTTTTTTTTTTT";
@@ -29,23 +29,23 @@ static std::string POLYTC = "TCTCTCTCTCTCTCTCTCTCTCTC";
     return mdate.str();
   }
 
-  SVaBATimer::SVaBATimer() {
+  svabaTimer::svabaTimer() {
     s = {"r", "m", "as", "bw", "pp", "k"};
     for (auto& i : s)
       times[i] = 0;
     curr_clock = clock();
   }
 
-  void SVaBATimer::stop(const std::string& part) { 
+  void svabaTimer::stop(const std::string& part) { 
     times[part] += (clock() - curr_clock); 
     curr_clock = clock();
   }
 
-  void SVaBATimer::start() { 
+  void svabaTimer::start() { 
     curr_clock = clock(); 
   }
 
-  std::ostream& operator<<(std::ostream &out, const SVaBATimer st) {
+  std::ostream& operator<<(std::ostream &out, const svabaTimer st) {
 
     double total_time = 0;
     for (auto& i : st.times)
@@ -136,7 +136,7 @@ int overlapSize(const SeqLib::BamRecord& query, const SeqLib::BamRecordVector& s
   
 
   std::string runTimeString(int num_t_reads, int num_n_reads, int contig_counter, 
-			    const SeqLib::GenomicRegion& region, const SeqLib::BamHeader& h, const SVaBATimer& st,
+			    const SeqLib::GenomicRegion& region, const SeqLib::BamHeader& h, const svabaTimer& st,
 			    const timespec& start) {
     
     std::stringstream ss;

@@ -11,12 +11,12 @@
 #include "SeqLib/BWAWrapper.h"
 #include "SeqLib/RefGenome.h"
 
-namespace SVaBAUtils {
+namespace svabaUtils {
 
 // make a structure to store timing opt
-struct SVaBATimer {
+struct svabaTimer {
   
-  SVaBATimer();
+  svabaTimer();
 
   std::unordered_map<std::string, double> times;
   std::vector<std::string> s;
@@ -28,7 +28,7 @@ struct SVaBATimer {
   void start();
   
   // print it
-  friend std::ostream& operator<<(std::ostream &out, const SVaBATimer st);
+  friend std::ostream& operator<<(std::ostream &out, const svabaTimer st);
 };
 
  double CalcMHWScore(std::vector<int>& scores);
@@ -36,7 +36,7 @@ struct SVaBATimer {
  int overlapSize(const SeqLib::BamRecord& query, const SeqLib::BamRecordVector& subject);
  bool hasRepeat(const std::string& seq);
  std::string runTimeString(int num_t_reads, int num_n_reads, int contig_counter, 
-			   const SeqLib::GenomicRegion& region, const SeqLib::BamHeader& h, const SVaBATimer& st, 
+			   const SeqLib::GenomicRegion& region, const SeqLib::BamHeader& h, const svabaTimer& st, 
 			   const timespec& start);
  int countJobs(const std::string& regionFile, SeqLib::GRC &file_regions, SeqLib::GRC &run_regions, 
 	       const SeqLib::BamHeader& h, int chunk, int window_pad);

@@ -13,7 +13,7 @@
 #include "SQG.h"
 #include "Match.h"
 
-namespace SVaBAASQG
+namespace svabaASQG
 {
     enum RecordType
     {

@@ -33,7 +33,7 @@ NORMAL_UNINSTALL = :
 PRE_UNINSTALL = :
 POST_UNINSTALL = :
 bin_PROGRAMS = svaba$(EXEEXT)
-subdir = src/SVaBA
+subdir = src/svaba
 DIST_COMMON = $(srcdir)/Makefile.am $(srcdir)/Makefile.in
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
 am__aclocal_m4_deps = $(top_srcdir)/configure.ac
@@ -49,12 +49,12 @@ am_svaba_OBJECTS = svaba-run_svaba.$(OBJEXT) \
 	svaba-BreakPoint.$(OBJEXT) svaba-AlignedContig.$(OBJEXT) \
 	svaba-AlignmentFragment.$(OBJEXT) \
 	svaba-DiscordantCluster.$(OBJEXT) svaba-DBSnpFilter.$(OBJEXT) \
-	svaba-PONFilter.$(OBJEXT) svaba-SVaBAUtils.$(OBJEXT) \
-	svaba-svaba.$(OBJEXT) svaba-SVaBAAssemblerEngine.$(OBJEXT) \
+	svaba-PONFilter.$(OBJEXT) svaba-svabaUtils.$(OBJEXT) \
+	svaba-svaba.$(OBJEXT) svaba-svabaAssemblerEngine.$(OBJEXT) \
 	svaba-vcf.$(OBJEXT) svaba-DiscordantRealigner.$(OBJEXT) \
-	svaba-SVaBAOverlapAlgorithm.$(OBJEXT) \
-	svaba-SVaBAASQG.$(OBJEXT) svaba-SVaBAAssemble.$(OBJEXT) \
-	svaba-KmerFilter.$(OBJEXT) svaba-SVaBABamWalker.$(OBJEXT) \
+	svaba-svabaOverlapAlgorithm.$(OBJEXT) \
+	svaba-svabaASQG.$(OBJEXT) svaba-svabaAssemble.$(OBJEXT) \
+	svaba-KmerFilter.$(OBJEXT) svaba-svabaBamWalker.$(OBJEXT) \
 	svaba-refilter.$(OBJEXT) svaba-LearnBamParams.$(OBJEXT) \
 	svaba-STCoverage.$(OBJEXT) svaba-Histogram.$(OBJEXT) \
 	svaba-BamStats.$(OBJEXT)
@@ -202,9 +202,9 @@ svaba_LDADD = \
 
 svaba_SOURCES = run_svaba.cpp BreakPoint.cpp AlignedContig.cpp AlignmentFragment.cpp \
 		DiscordantCluster.cpp DBSnpFilter.cpp PONFilter.cpp \
-		SVaBAUtils.cpp svaba.cpp SVaBAAssemblerEngine.cpp vcf.cpp \
-		DiscordantRealigner.cpp SVaBAOverlapAlgorithm.cpp SVaBAASQG.cpp \
-		SVaBAAssemble.cpp KmerFilter.cpp SVaBABamWalker.cpp \
+		svabaUtils.cpp svaba.cpp svabaAssemblerEngine.cpp vcf.cpp \
+		DiscordantRealigner.cpp svabaOverlapAlgorithm.cpp svabaASQG.cpp \
+		svabaAssemble.cpp KmerFilter.cpp svabaBamWalker.cpp \
 		refilter.cpp LearnBamParams.cpp \
 		STCoverage.cpp Histogram.cpp BamStats.cpp
 
@@ -221,9 +221,9 @@ $(srcdir)/Makefile.in: @MAINTAINER_MODE_TRUE@ $(srcdir)/Makefile.am  $(am__confi
 	      exit 1;; \
 	  esac; \
 	done; \
-	echo ' cd $(top_srcdir) && $(AUTOMAKE) --foreign src/SVaBA/Makefile'; \
+	echo ' cd $(top_srcdir) && $(AUTOMAKE) --foreign src/svaba/Makefile'; \
 	$(am__cd) $(top_srcdir) && \
-	  $(AUTOMAKE) --foreign src/SVaBA/Makefile
+	  $(AUTOMAKE) --foreign src/svaba/Makefile
 .PRECIOUS: Makefile
 Makefile: $(srcdir)/Makefile.in $(top_builddir)/config.status
 	@case '$?' in \
@@ -301,15 +301,15 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/svaba-LearnBamParams.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/svaba-PONFilter.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/svaba-STCoverage.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/svaba-SVaBAASQG.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/svaba-SVaBAAssemble.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/svaba-SVaBAAssemblerEngine.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/svaba-SVaBABamWalker.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/svaba-SVaBAOverlapAlgorithm.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/svaba-SVaBAUtils.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/svaba-refilter.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/svaba-run_svaba.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/svaba-svaba.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/svaba-svabaASQG.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/svaba-svabaAssemble.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/svaba-svabaAssemblerEngine.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/svaba-svabaBamWalker.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/svaba-svabaOverlapAlgorithm.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/svaba-svabaUtils.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/svaba-vcf.Po@am__quote@
 
 .cpp.o:
@@ -424,19 +424,19 @@ svaba-PONFilter.obj: PONFilter.cpp
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o svaba-PONFilter.obj `if test -f 'PONFilter.cpp'; then $(CYGPATH_W) 'PONFilter.cpp'; else $(CYGPATH_W) '$(srcdir)/PONFilter.cpp'; fi`
 
-svaba-SVaBAUtils.o: SVaBAUtils.cpp
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT svaba-SVaBAUtils.o -MD -MP -MF $(DEPDIR)/svaba-SVaBAUtils.Tpo -c -o svaba-SVaBAUtils.o `test -f 'SVaBAUtils.cpp' || echo '$(srcdir)/'`SVaBAUtils.cpp
-@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/svaba-SVaBAUtils.Tpo $(DEPDIR)/svaba-SVaBAUtils.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='SVaBAUtils.cpp' object='svaba-SVaBAUtils.o' libtool=no @AMDEPBACKSLASH@
+svaba-svabaUtils.o: svabaUtils.cpp
+@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT svaba-svabaUtils.o -MD -MP -MF $(DEPDIR)/svaba-svabaUtils.Tpo -c -o svaba-svabaUtils.o `test -f 'svabaUtils.cpp' || echo '$(srcdir)/'`svabaUtils.cpp
+@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/svaba-svabaUtils.Tpo $(DEPDIR)/svaba-svabaUtils.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='svabaUtils.cpp' object='svaba-svabaUtils.o' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o svaba-SVaBAUtils.o `test -f 'SVaBAUtils.cpp' || echo '$(srcdir)/'`SVaBAUtils.cpp
+@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o svaba-svabaUtils.o `test -f 'svabaUtils.cpp' || echo '$(srcdir)/'`svabaUtils.cpp
 
-svaba-SVaBAUtils.obj: SVaBAUtils.cpp
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT svaba-SVaBAUtils.obj -MD -MP -MF $(DEPDIR)/svaba-SVaBAUtils.Tpo -c -o svaba-SVaBAUtils.obj `if test -f 'SVaBAUtils.cpp'; then $(CYGPATH_W) 'SVaBAUtils.cpp'; else $(CYGPATH_W) '$(srcdir)/SVaBAUtils.cpp'; fi`
-@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/svaba-SVaBAUtils.Tpo $(DEPDIR)/svaba-SVaBAUtils.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='SVaBAUtils.cpp' object='svaba-SVaBAUtils.obj' libtool=no @AMDEPBACKSLASH@
+svaba-svabaUtils.obj: svabaUtils.cpp
+@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT svaba-svabaUtils.obj -MD -MP -MF $(DEPDIR)/svaba-svabaUtils.Tpo -c -o svaba-svabaUtils.obj `if test -f 'svabaUtils.cpp'; then $(CYGPATH_W) 'svabaUtils.cpp'; else $(CYGPATH_W) '$(srcdir)/svabaUtils.cpp'; fi`
+@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/svaba-svabaUtils.Tpo $(DEPDIR)/svaba-svabaUtils.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='svabaUtils.cpp' object='svaba-svabaUtils.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o svaba-SVaBAUtils.obj `if test -f 'SVaBAUtils.cpp'; then $(CYGPATH_W) 'SVaBAUtils.cpp'; else $(CYGPATH_W) '$(srcdir)/SVaBAUtils.cpp'; fi`
+@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o svaba-svabaUtils.obj `if test -f 'svabaUtils.cpp'; then $(CYGPATH_W) 'svabaUtils.cpp'; else $(CYGPATH_W) '$(srcdir)/svabaUtils.cpp'; fi`
 
 svaba-svaba.o: svaba.cpp
 @am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT svaba-svaba.o -MD -MP -MF $(DEPDIR)/svaba-svaba.Tpo -c -o svaba-svaba.o `test -f 'svaba.cpp' || echo '$(srcdir)/'`svaba.cpp
@@ -452,19 +452,19 @@ svaba-svaba.obj: svaba.cpp
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o svaba-svaba.obj `if test -f 'svaba.cpp'; then $(CYGPATH_W) 'svaba.cpp'; else $(CYGPATH_W) '$(srcdir)/svaba.cpp'; fi`
 
-svaba-SVaBAAssemblerEngine.o: SVaBAAssemblerEngine.cpp
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT svaba-SVaBAAssemblerEngine.o -MD -MP -MF $(DEPDIR)/svaba-SVaBAAssemblerEngine.Tpo -c -o svaba-SVaBAAssemblerEngine.o `test -f 'SVaBAAssemblerEngine.cpp' || echo '$(srcdir)/'`SVaBAAssemblerEngine.cpp
-@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/svaba-SVaBAAssemblerEngine.Tpo $(DEPDIR)/svaba-SVaBAAssemblerEngine.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='SVaBAAssemblerEngine.cpp' object='svaba-SVaBAAssemblerEngine.o' libtool=no @AMDEPBACKSLASH@
+svaba-svabaAssemblerEngine.o: svabaAssemblerEngine.cpp
+@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT svaba-svabaAssemblerEngine.o -MD -MP -MF $(DEPDIR)/svaba-svabaAssemblerEngine.Tpo -c -o svaba-svabaAssemblerEngine.o `test -f 'svabaAssemblerEngine.cpp' || echo '$(srcdir)/'`svabaAssemblerEngine.cpp
+@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/svaba-svabaAssemblerEngine.Tpo $(DEPDIR)/svaba-svabaAssemblerEngine.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='svabaAssemblerEngine.cpp' object='svaba-svabaAssemblerEngine.o' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o svaba-SVaBAAssemblerEngine.o `test -f 'SVaBAAssemblerEngine.cpp' || echo '$(srcdir)/'`SVaBAAssemblerEngine.cpp
+@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o svaba-svabaAssemblerEngine.o `test -f 'svabaAssemblerEngine.cpp' || echo '$(srcdir)/'`svabaAssemblerEngine.cpp
 
-svaba-SVaBAAssemblerEngine.obj: SVaBAAssemblerEngine.cpp
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT svaba-SVaBAAssemblerEngine.obj -MD -MP -MF $(DEPDIR)/svaba-SVaBAAssemblerEngine.Tpo -c -o svaba-SVaBAAssemblerEngine.obj `if test -f 'SVaBAAssemblerEngine.cpp'; then $(CYGPATH_W) 'SVaBAAssemblerEngine.cpp'; else $(CYGPATH_W) '$(srcdir)/SVaBAAssemblerEngine.cpp'; fi`
-@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/svaba-SVaBAAssemblerEngine.Tpo $(DEPDIR)/svaba-SVaBAAssemblerEngine.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='SVaBAAssemblerEngine.cpp' object='svaba-SVaBAAssemblerEngine.obj' libtool=no @AMDEPBACKSLASH@
+svaba-svabaAssemblerEngine.obj: svabaAssemblerEngine.cpp
+@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT svaba-svabaAssemblerEngine.obj -MD -MP -MF $(DEPDIR)/svaba-svabaAssemblerEngine.Tpo -c -o svaba-svabaAssemblerEngine.obj `if test -f 'svabaAssemblerEngine.cpp'; then $(CYGPATH_W) 'svabaAssemblerEngine.cpp'; else $(CYGPATH_W) '$(srcdir)/svabaAssemblerEngine.cpp'; fi`
+@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/svaba-svabaAssemblerEngine.Tpo $(DEPDIR)/svaba-svabaAssemblerEngine.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='svabaAssemblerEngine.cpp' object='svaba-svabaAssemblerEngine.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o svaba-SVaBAAssemblerEngine.obj `if test -f 'SVaBAAssemblerEngine.cpp'; then $(CYGPATH_W) 'SVaBAAssemblerEngine.cpp'; else $(CYGPATH_W) '$(srcdir)/SVaBAAssemblerEngine.cpp'; fi`
+@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o svaba-svabaAssemblerEngine.obj `if test -f 'svabaAssemblerEngine.cpp'; then $(CYGPATH_W) 'svabaAssemblerEngine.cpp'; else $(CYGPATH_W) '$(srcdir)/svabaAssemblerEngine.cpp'; fi`
 
 svaba-vcf.o: vcf.cpp
 @am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT svaba-vcf.o -MD -MP -MF $(DEPDIR)/svaba-vcf.Tpo -c -o svaba-vcf.o `test -f 'vcf.cpp' || echo '$(srcdir)/'`vcf.cpp
@@ -494,47 +494,47 @@ svaba-DiscordantRealigner.obj: DiscordantRealigner.cpp
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o svaba-DiscordantRealigner.obj `if test -f 'DiscordantRealigner.cpp'; then $(CYGPATH_W) 'DiscordantRealigner.cpp'; else $(CYGPATH_W) '$(srcdir)/DiscordantRealigner.cpp'; fi`
 
-svaba-SVaBAOverlapAlgorithm.o: SVaBAOverlapAlgorithm.cpp
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT svaba-SVaBAOverlapAlgorithm.o -MD -MP -MF $(DEPDIR)/svaba-SVaBAOverlapAlgorithm.Tpo -c -o svaba-SVaBAOverlapAlgorithm.o `test -f 'SVaBAOverlapAlgorithm.cpp' || echo '$(srcdir)/'`SVaBAOverlapAlgorithm.cpp
-@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/svaba-SVaBAOverlapAlgorithm.Tpo $(DEPDIR)/svaba-SVaBAOverlapAlgorithm.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='SVaBAOverlapAlgorithm.cpp' object='svaba-SVaBAOverlapAlgorithm.o' libtool=no @AMDEPBACKSLASH@
+svaba-svabaOverlapAlgorithm.o: svabaOverlapAlgorithm.cpp
+@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT svaba-svabaOverlapAlgorithm.o -MD -MP -MF $(DEPDIR)/svaba-svabaOverlapAlgorithm.Tpo -c -o svaba-svabaOverlapAlgorithm.o `test -f 'svabaOverlapAlgorithm.cpp' || echo '$(srcdir)/'`svabaOverlapAlgorithm.cpp
+@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/svaba-svabaOverlapAlgorithm.Tpo $(DEPDIR)/svaba-svabaOverlapAlgorithm.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='svabaOverlapAlgorithm.cpp' object='svaba-svabaOverlapAlgorithm.o' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o svaba-SVaBAOverlapAlgorithm.o `test -f 'SVaBAOverlapAlgorithm.cpp' || echo '$(srcdir)/'`SVaBAOverlapAlgorithm.cpp
+@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o svaba-svabaOverlapAlgorithm.o `test -f 'svabaOverlapAlgorithm.cpp' || echo '$(srcdir)/'`svabaOverlapAlgorithm.cpp
 
-svaba-SVaBAOverlapAlgorithm.obj: SVaBAOverlapAlgorithm.cpp
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT svaba-SVaBAOverlapAlgorithm.obj -MD -MP -MF $(DEPDIR)/svaba-SVaBAOverlapAlgorithm.Tpo -c -o svaba-SVaBAOverlapAlgorithm.obj `if test -f 'SVaBAOverlapAlgorithm.cpp'; then $(CYGPATH_W) 'SVaBAOverlapAlgorithm.cpp'; else $(CYGPATH_W) '$(srcdir)/SVaBAOverlapAlgorithm.cpp'; fi`
-@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/svaba-SVaBAOverlapAlgorithm.Tpo $(DEPDIR)/svaba-SVaBAOverlapAlgorithm.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='SVaBAOverlapAlgorithm.cpp' object='svaba-SVaBAOverlapAlgorithm.obj' libtool=no @AMDEPBACKSLASH@
+svaba-svabaOverlapAlgorithm.obj: svabaOverlapAlgorithm.cpp
+@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT svaba-svabaOverlapAlgorithm.obj -MD -MP -MF $(DEPDIR)/svaba-svabaOverlapAlgorithm.Tpo -c -o svaba-svabaOverlapAlgorithm.obj `if test -f 'svabaOverlapAlgorithm.cpp'; then $(CYGPATH_W) 'svabaOverlapAlgorithm.cpp'; else $(CYGPATH_W) '$(srcdir)/svabaOverlapAlgorithm.cpp'; fi`
+@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/svaba-svabaOverlapAlgorithm.Tpo $(DEPDIR)/svaba-svabaOverlapAlgorithm.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='svabaOverlapAlgorithm.cpp' object='svaba-svabaOverlapAlgorithm.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o svaba-SVaBAOverlapAlgorithm.obj `if test -f 'SVaBAOverlapAlgorithm.cpp'; then $(CYGPATH_W) 'SVaBAOverlapAlgorithm.cpp'; else $(CYGPATH_W) '$(srcdir)/SVaBAOverlapAlgorithm.cpp'; fi`
+@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o svaba-svabaOverlapAlgorithm.obj `if test -f 'svabaOverlapAlgorithm.cpp'; then $(CYGPATH_W) 'svabaOverlapAlgorithm.cpp'; else $(CYGPATH_W) '$(srcdir)/svabaOverlapAlgorithm.cpp'; fi`
 
-svaba-SVaBAASQG.o: SVaBAASQG.cpp
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT svaba-SVaBAASQG.o -MD -MP -MF $(DEPDIR)/svaba-SVaBAASQG.Tpo -c -o svaba-SVaBAASQG.o `test -f 'SVaBAASQG.cpp' || echo '$(srcdir)/'`SVaBAASQG.cpp
-@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/svaba-SVaBAASQG.Tpo $(DEPDIR)/svaba-SVaBAASQG.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='SVaBAASQG.cpp' object='svaba-SVaBAASQG.o' libtool=no @AMDEPBACKSLASH@
+svaba-svabaASQG.o: svabaASQG.cpp
+@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT svaba-svabaASQG.o -MD -MP -MF $(DEPDIR)/svaba-svabaASQG.Tpo -c -o svaba-svabaASQG.o `test -f 'svabaASQG.cpp' || echo '$(srcdir)/'`svabaASQG.cpp
+@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/svaba-svabaASQG.Tpo $(DEPDIR)/svaba-svabaASQG.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='svabaASQG.cpp' object='svaba-svabaASQG.o' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o svaba-SVaBAASQG.o `test -f 'SVaBAASQG.cpp' || echo '$(srcdir)/'`SVaBAASQG.cpp
+@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o svaba-svabaASQG.o `test -f 'svabaASQG.cpp' || echo '$(srcdir)/'`svabaASQG.cpp
 
-svaba-SVaBAASQG.obj: SVaBAASQG.cpp
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT svaba-SVaBAASQG.obj -MD -MP -MF $(DEPDIR)/svaba-SVaBAASQG.Tpo -c -o svaba-SVaBAASQG.obj `if test -f 'SVaBAASQG.cpp'; then $(CYGPATH_W) 'SVaBAASQG.cpp'; else $(CYGPATH_W) '$(srcdir)/SVaBAASQG.cpp'; fi`
-@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/svaba-SVaBAASQG.Tpo $(DEPDIR)/svaba-SVaBAASQG.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='SVaBAASQG.cpp' object='svaba-SVaBAASQG.obj' libtool=no @AMDEPBACKSLASH@
+svaba-svabaASQG.obj: svabaASQG.cpp
+@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT svaba-svabaASQG.obj -MD -MP -MF $(DEPDIR)/svaba-svabaASQG.Tpo -c -o svaba-svabaASQG.obj `if test -f 'svabaASQG.cpp'; then $(CYGPATH_W) 'svabaASQG.cpp'; else $(CYGPATH_W) '$(srcdir)/svabaASQG.cpp'; fi`
+@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/svaba-svabaASQG.Tpo $(DEPDIR)/svaba-svabaASQG.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='svabaASQG.cpp' object='svaba-svabaASQG.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o svaba-SVaBAASQG.obj `if test -f 'SVaBAASQG.cpp'; then $(CYGPATH_W) 'SVaBAASQG.cpp'; else $(CYGPATH_W) '$(srcdir)/SVaBAASQG.cpp'; fi`
+@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o svaba-svabaASQG.obj `if test -f 'svabaASQG.cpp'; then $(CYGPATH_W) 'svabaASQG.cpp'; else $(CYGPATH_W) '$(srcdir)/svabaASQG.cpp'; fi`
 
-svaba-SVaBAAssemble.o: SVaBAAssemble.cpp
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT svaba-SVaBAAssemble.o -MD -MP -MF $(DEPDIR)/svaba-SVaBAAssemble.Tpo -c -o svaba-SVaBAAssemble.o `test -f 'SVaBAAssemble.cpp' || echo '$(srcdir)/'`SVaBAAssemble.cpp
-@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/svaba-SVaBAAssemble.Tpo $(DEPDIR)/svaba-SVaBAAssemble.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='SVaBAAssemble.cpp' object='svaba-SVaBAAssemble.o' libtool=no @AMDEPBACKSLASH@
+svaba-svabaAssemble.o: svabaAssemble.cpp
+@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT svaba-svabaAssemble.o -MD -MP -MF $(DEPDIR)/svaba-svabaAssemble.Tpo -c -o svaba-svabaAssemble.o `test -f 'svabaAssemble.cpp' || echo '$(srcdir)/'`svabaAssemble.cpp
+@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/svaba-svabaAssemble.Tpo $(DEPDIR)/svaba-svabaAssemble.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='svabaAssemble.cpp' object='svaba-svabaAssemble.o' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o svaba-SVaBAAssemble.o `test -f 'SVaBAAssemble.cpp' || echo '$(srcdir)/'`SVaBAAssemble.cpp
+@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o svaba-svabaAssemble.o `test -f 'svabaAssemble.cpp' || echo '$(srcdir)/'`svabaAssemble.cpp
 
-svaba-SVaBAAssemble.obj: SVaBAAssemble.cpp
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT svaba-SVaBAAssemble.obj -MD -MP -MF $(DEPDIR)/svaba-SVaBAAssemble.Tpo -c -o svaba-SVaBAAssemble.obj `if test -f 'SVaBAAssemble.cpp'; then $(CYGPATH_W) 'SVaBAAssemble.cpp'; else $(CYGPATH_W) '$(srcdir)/SVaBAAssemble.cpp'; fi`
-@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/svaba-SVaBAAssemble.Tpo $(DEPDIR)/svaba-SVaBAAssemble.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='SVaBAAssemble.cpp' object='svaba-SVaBAAssemble.obj' libtool=no @AMDEPBACKSLASH@
+svaba-svabaAssemble.obj: svabaAssemble.cpp
+@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT svaba-svabaAssemble.obj -MD -MP -MF $(DEPDIR)/svaba-svabaAssemble.Tpo -c -o svaba-svabaAssemble.obj `if test -f 'svabaAssemble.cpp'; then $(CYGPATH_W) 'svabaAssemble.cpp'; else $(CYGPATH_W) '$(srcdir)/svabaAssemble.cpp'; fi`
+@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/svaba-svabaAssemble.Tpo $(DEPDIR)/svaba-svabaAssemble.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='svabaAssemble.cpp' object='svaba-svabaAssemble.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o svaba-SVaBAAssemble.obj `if test -f 'SVaBAAssemble.cpp'; then $(CYGPATH_W) 'SVaBAAssemble.cpp'; else $(CYGPATH_W) '$(srcdir)/SVaBAAssemble.cpp'; fi`
+@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o svaba-svabaAssemble.obj `if test -f 'svabaAssemble.cpp'; then $(CYGPATH_W) 'svabaAssemble.cpp'; else $(CYGPATH_W) '$(srcdir)/svabaAssemble.cpp'; fi`
 
 svaba-KmerFilter.o: KmerFilter.cpp
 @am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT svaba-KmerFilter.o -MD -MP -MF $(DEPDIR)/svaba-KmerFilter.Tpo -c -o svaba-KmerFilter.o `test -f 'KmerFilter.cpp' || echo '$(srcdir)/'`KmerFilter.cpp
@@ -550,19 +550,19 @@ svaba-KmerFilter.obj: KmerFilter.cpp
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o svaba-KmerFilter.obj `if test -f 'KmerFilter.cpp'; then $(CYGPATH_W) 'KmerFilter.cpp'; else $(CYGPATH_W) '$(srcdir)/KmerFilter.cpp'; fi`
 
-svaba-SVaBABamWalker.o: SVaBABamWalker.cpp
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT svaba-SVaBABamWalker.o -MD -MP -MF $(DEPDIR)/svaba-SVaBABamWalker.Tpo -c -o svaba-SVaBABamWalker.o `test -f 'SVaBABamWalker.cpp' || echo '$(srcdir)/'`SVaBABamWalker.cpp
-@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/svaba-SVaBABamWalker.Tpo $(DEPDIR)/svaba-SVaBABamWalker.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='SVaBABamWalker.cpp' object='svaba-SVaBABamWalker.o' libtool=no @AMDEPBACKSLASH@
+svaba-svabaBamWalker.o: svabaBamWalker.cpp
+@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT svaba-svabaBamWalker.o -MD -MP -MF $(DEPDIR)/svaba-svabaBamWalker.Tpo -c -o svaba-svabaBamWalker.o `test -f 'svabaBamWalker.cpp' || echo '$(srcdir)/'`svabaBamWalker.cpp
+@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/svaba-svabaBamWalker.Tpo $(DEPDIR)/svaba-svabaBamWalker.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='svabaBamWalker.cpp' object='svaba-svabaBamWalker.o' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o svaba-SVaBABamWalker.o `test -f 'SVaBABamWalker.cpp' || echo '$(srcdir)/'`SVaBABamWalker.cpp
+@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o svaba-svabaBamWalker.o `test -f 'svabaBamWalker.cpp' || echo '$(srcdir)/'`svabaBamWalker.cpp
 
-svaba-SVaBABamWalker.obj: SVaBABamWalker.cpp
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT svaba-SVaBABamWalker.obj -MD -MP -MF $(DEPDIR)/svaba-SVaBABamWalker.Tpo -c -o svaba-SVaBABamWalker.obj `if test -f 'SVaBABamWalker.cpp'; then $(CYGPATH_W) 'SVaBABamWalker.cpp'; else $(CYGPATH_W) '$(srcdir)/SVaBABamWalker.cpp'; fi`
-@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/svaba-SVaBABamWalker.Tpo $(DEPDIR)/svaba-SVaBABamWalker.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='SVaBABamWalker.cpp' object='svaba-SVaBABamWalker.obj' libtool=no @AMDEPBACKSLASH@
+svaba-svabaBamWalker.obj: svabaBamWalker.cpp
+@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT svaba-svabaBamWalker.obj -MD -MP -MF $(DEPDIR)/svaba-svabaBamWalker.Tpo -c -o svaba-svabaBamWalker.obj `if test -f 'svabaBamWalker.cpp'; then $(CYGPATH_W) 'svabaBamWalker.cpp'; else $(CYGPATH_W) '$(srcdir)/svabaBamWalker.cpp'; fi`
+@am__fastdepCXX_TRUE@	$(am__mv) $(DEPDIR)/svaba-svabaBamWalker.Tpo $(DEPDIR)/svaba-svabaBamWalker.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='svabaBamWalker.cpp' object='svaba-svabaBamWalker.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o svaba-SVaBABamWalker.obj `if test -f 'SVaBABamWalker.cpp'; then $(CYGPATH_W) 'SVaBABamWalker.cpp'; else $(CYGPATH_W) '$(srcdir)/SVaBABamWalker.cpp'; fi`
+@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o svaba-svabaBamWalker.obj `if test -f 'svabaBamWalker.cpp'; then $(CYGPATH_W) 'svabaBamWalker.cpp'; else $(CYGPATH_W) '$(srcdir)/svabaBamWalker.cpp'; fi`
 
 svaba-refilter.o: refilter.cpp
 @am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT svaba-refilter.o -MD -MP -MF $(DEPDIR)/svaba-refilter.Tpo -c -o svaba-refilter.o `test -f 'refilter.cpp' || echo '$(srcdir)/'`refilter.cpp

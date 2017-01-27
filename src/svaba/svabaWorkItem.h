@@ -4,23 +4,23 @@
 #include "SnowTools/GenomicRegionCollection.h"
 #include "run_snowman.h"
 
-/** @brief p-thread work item that calls SVaBA on a small region
+/** @brief p-thread work item that calls svaba on a small region
 
     Detailed description follows here.
     @author X. XYZ, DESY
     @date March 2008
 */
 
-class SVaBAWorkItem {
+class svabaWorkItem {
 
  private:
   SnowTools::GenomicRegion m_gr;
   int m_number;  
 
  public:
-  SVaBAWorkItem(const SnowTools::GenomicRegion& gr, int number)  
+  svabaWorkItem(const SnowTools::GenomicRegion& gr, int number)  
     : m_gr(gr), m_number(number) {}
-    ~SVaBAWorkItem() {}
+    ~svabaWorkItem() {}
     
     int getNumber() { return m_number; }
     

@@ -4,7 +4,7 @@
 // Released under the GPL
 //-----------------------------------------------
 //
-// SVaBAOverlapAlgorithm - This class implements all the logic
+// svabaOverlapAlgorithm - This class implements all the logic
 // for finding and outputting overlaps for sequence reads
 //
 #ifndef SVABA_OVERLAPALGORITHM_H
@@ -30,11 +30,11 @@ struct OverlapResult
     bool searchAborted;
 };*/
 
-class SVaBAOverlapAlgorithm
+class svabaOverlapAlgorithm
 {
     public:
 
-        SVaBAOverlapAlgorithm(const BWT* pBWT, const BWT* pRevBWT, 
+        svabaOverlapAlgorithm(const BWT* pBWT, const BWT* pRevBWT, 
                          double er, int seedLen, int seedStride,
                          bool irrOnly, int maxSeeds = -1) : m_pBWT(pBWT), 
                                          m_pRevBWT(pRevBWT),

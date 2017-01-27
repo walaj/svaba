@@ -600,7 +600,7 @@ PACKAGE_VERSION='1.0'
 PACKAGE_STRING='svaba 1.0'
 PACKAGE_BUGREPORT='jwala@broadinstitute.org'
 
-ac_unique_file="src/SVaBA/svaba.cpp"
+ac_unique_file="src/svaba/svaba.cpp"
 # Factoring default headers for most tests.
 ac_includes_default="\
 #include <stdio.h>
@@ -5254,7 +5254,7 @@ done
 # Make sure the boost headers can be found
 ##AC_CHECK_HEADERS([boost/regex.hpp],[AC_SUBST(CPPFLAGS, "$CPPFLAGS -DHAVE_BOOST")],[AC_MSG_ERROR([The Boost library must be installed for SVaBA. Specify its path with the --with-boost=PATH option])])
 
-ac_config_files="$ac_config_files Makefile SeqLib/src/Makefile src/SGA/Util/Makefile src/SGA/SQG/Makefile src/SGA/Bigraph/Makefile src/SGA/Algorithm/Makefile src/SGA/StringGraph/Makefile src/SGA/SuffixTools/Makefile src/SGA/SGA/Makefile src/SVaBA/Makefile"
+ac_config_files="$ac_config_files Makefile SeqLib/src/Makefile src/SGA/Util/Makefile src/SGA/SQG/Makefile src/SGA/Bigraph/Makefile src/SGA/Algorithm/Makefile src/SGA/StringGraph/Makefile src/SGA/SuffixTools/Makefile src/SGA/SGA/Makefile src/svaba/Makefile"
 
 
 cat >confcache <<\_ACEOF
@@ -5909,7 +5909,7 @@ do
     "src/SGA/StringGraph/Makefile") CONFIG_FILES="$CONFIG_FILES src/SGA/StringGraph/Makefile" ;;
     "src/SGA/SuffixTools/Makefile") CONFIG_FILES="$CONFIG_FILES src/SGA/SuffixTools/Makefile" ;;
     "src/SGA/SGA/Makefile") CONFIG_FILES="$CONFIG_FILES src/SGA/SGA/Makefile" ;;
-    "src/SVaBA/Makefile") CONFIG_FILES="$CONFIG_FILES src/SVaBA/Makefile" ;;
+    "src/svaba/Makefile") CONFIG_FILES="$CONFIG_FILES src/svaba/Makefile" ;;
 
   *) { { $as_echo "$as_me:$LINENO: error: invalid argument: $ac_config_target" >&5
 $as_echo "$as_me: error: invalid argument: $ac_config_target" >&2;}

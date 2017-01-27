@@ -7,7 +7,7 @@
 
 #include "SeqLib/BamWalker.h"
 #include "SeqLib/BamRecord.h"
-#include "SVaBAUtils.h"
+#include "svabaUtils.h"
 
 #define DISC_PAD 150
 #define MIN_PER_CLUST 2
@@ -216,7 +216,7 @@ using namespace SeqLib;
     std::sort(isizer.begin(), isizer.end());
     if (isizer.size() >= 5 && isizer.back() - isizer[0] > 400) {
 
-      medr = SVaBAUtils::CalcMHWScore(isizer);
+      medr = svabaUtils::CalcMHWScore(isizer);
 
       // get the mean
       double sum = std::accumulate(isizer.begin(), isizer.end(), 0.0);

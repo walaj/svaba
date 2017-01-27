@@ -5,7 +5,7 @@
 #include <cassert>
 
 #include "gzstream.h"
-#include "SVaBAUtils.h"
+#include "svabaUtils.h"
 
 #define MAX_ERROR 0.04
 #define MIN_ERROR 0.0005

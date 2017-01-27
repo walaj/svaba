@@ -8,13 +8,13 @@
 #include "SeqLib/BamRecord.h"
 #include "SeqLib/UnalignedSequence.h"
 
-class SVaBAAssemblerEngine
+class svabaAssemblerEngine
 {
  public:
 
-  SVaBAAssemblerEngine() {}
+  svabaAssemblerEngine() {}
   
-  SVaBAAssemblerEngine(const std::string& id, double er, size_t mo, size_t rl) : m_id(id), m_error_rate(er), m_min_overlap(mo), m_readlen(rl) {}
+  svabaAssemblerEngine(const std::string& id, double er, size_t mo, size_t rl) : m_id(id), m_error_rate(er), m_min_overlap(mo), m_readlen(rl) {}
   
   bool hasRepeat(const std::string& seq);
   

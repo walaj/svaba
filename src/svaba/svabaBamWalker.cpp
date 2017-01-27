@@ -1,4 +1,4 @@
-#include "SVaBABamWalker.h"
+#include "svabaBamWalker.h"
 
 //#define QNAME "H01PEALXX140819:3:2218:11657:19504"
 //#define QFLAG -1
@@ -29,7 +29,7 @@ static const std::string FWD_ADAPTER_A = "AGATCGGAAGAGC";
 static const std::string FWD_ADAPTER_B = "AGATCGGAAAGCA";
 static const std::string REV_ADAPTER = "GCTCTTCCGATCT";
 
-void SVaBABamWalker::addCigar(SeqLib::BamRecord &r) {
+void svabaBamWalker::addCigar(SeqLib::BamRecord &r) {
 
   // this is a 100% match
   if (r.CigarSize() == 1)
@@ -56,7 +56,7 @@ void SVaBABamWalker::addCigar(SeqLib::BamRecord &r) {
   
 }
 
-bool SVaBABamWalker::isDuplicate(const SeqLib::BamRecord &r) {
+bool svabaBamWalker::isDuplicate(const SeqLib::BamRecord &r) {
 
   // deduplicate by query-bases / position
   std::string key = r.QualitySequence() + std::to_string(r.Position()) + "_" + std::to_string(r.MatePosition());
@@ -70,7 +70,7 @@ bool SVaBABamWalker::isDuplicate(const SeqLib::BamRecord &r) {
   return true;
 }
 
-SeqLib::GRC SVaBABamWalker::readBam(std::ofstream * log)
+SeqLib::GRC svabaBamWalker::readBam(std::ofstream * log)
 {
 
   // these are setup to only use one bam, so just shortcut it
@@ -261,7 +261,7 @@ SeqLib::GRC SVaBABamWalker::readBam(std::ofstream * log)
   
 }
 
-void SVaBABamWalker::subSampleToWeirdCoverage(double max_coverage) {
+void svabaBamWalker::subSampleToWeirdCoverage(double max_coverage) {
   
   SeqLib::BamRecordVector new_reads;
 
@@ -297,7 +297,7 @@ void SVaBABamWalker::subSampleToWeirdCoverage(double max_coverage) {
   reads = new_reads;
 }
 
-void SVaBABamWalker::calculateMateRegions() {
+void svabaBamWalker::calculateMateRegions() {
 
   assert(m_region.size());
 
@@ -366,7 +366,7 @@ void SVaBABamWalker::calculateMateRegions() {
   
 }
 
-bool SVaBABamWalker::hasAdapter(const SeqLib::BamRecord& r) const {
+bool svabaBamWalker::hasAdapter(const SeqLib::BamRecord& r) const {
 
   // keep it if it has indel or unmapped read
   if (r.MaxDeletionBases() || r.MaxInsertionBases() || !r.InsertSize()) // || !r.NumClip())
@@ -393,7 +393,7 @@ bool SVaBABamWalker::hasAdapter(const SeqLib::BamRecord& r) const {
 
 }
 
-void SVaBABamWalker::realignDiscordants(SeqLib::BamRecordVector& reads) {
+void svabaBamWalker::realignDiscordants(SeqLib::BamRecordVector& reads) {
 
   size_t realigned_count = 0;
   for (auto& r : reads) {
@@ -414,7 +414,7 @@ void SVaBABamWalker::realignDiscordants(SeqLib::BamRecordVector& reads) {
       r.AddIntTag("DD", DiscordantRealigner::MATE_BAD_DISC);
 }
 
-void SVaBABamWalker::QualityTrimRead(SeqLib::BamRecord& r) const {
+void svabaBamWalker::QualityTrimRead(SeqLib::BamRecord& r) const {
 
   int32_t startpoint = 0, endpoint = 0;
   r.QualityTrimmedSequence(3, startpoint, endpoint);

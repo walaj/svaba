@@ -4,8 +4,8 @@
 // Released under the GPL
 //-----------------------------------------------
 
-// This has been modified (slightly) for SVaBA
-#include "SVaBAOverlapAlgorithm.h"
+// This has been modified (slightly) for svaba
+#include "svabaOverlapAlgorithm.h"
 #include "ASQG.h"
 #include <math.h>
 
@@ -18,7 +18,7 @@ static const AlignFlags preSufAF(true, true, false);
 //#define DEBUGOVERLAP 2
 
 // Perform the overlap
-OverlapResult SVaBAOverlapAlgorithm::overlapRead(const SeqRecord& read, int minOverlap, OverlapBlockList* pOutList) const
+OverlapResult svabaOverlapAlgorithm::overlapRead(const SeqRecord& read, int minOverlap, OverlapBlockList* pOutList) const
 {
     OverlapResult r;
     if(static_cast<int>(read.seq.length()) < minOverlap)
@@ -32,7 +32,7 @@ OverlapResult SVaBAOverlapAlgorithm::overlapRead(const SeqRecord& read, int minO
 }
 
 //
-OverlapResult SVaBAOverlapAlgorithm::overlapReadInexact(const SeqRecord& read, int minOverlap, OverlapBlockList* pOBOut) const
+OverlapResult svabaOverlapAlgorithm::overlapReadInexact(const SeqRecord& read, int minOverlap, OverlapBlockList* pOBOut) const
 {
     OverlapResult result;
     OverlapBlockList obWorkingList;
@@ -166,7 +166,7 @@ OverlapResult SVaBAOverlapAlgorithm::overlapReadInexact(const SeqRecord& read, i
 }
 
 //
-OverlapResult SVaBAOverlapAlgorithm::alignReadDuplicate(const SeqRecord& read, OverlapBlockList* pOBOut) const
+OverlapResult svabaOverlapAlgorithm::alignReadDuplicate(const SeqRecord& read, OverlapBlockList* pOBOut) const
 {
     OverlapResult result;
     OverlapBlockList obWorkingList;
@@ -181,7 +181,7 @@ OverlapResult SVaBAOverlapAlgorithm::alignReadDuplicate(const SeqRecord& read, O
 
 // Construct the set of blocks describing irreducible overlaps with READ
 // and write the blocks to pOBOut
-OverlapResult SVaBAOverlapAlgorithm::overlapReadExact(const SeqRecord& read, int minOverlap, OverlapBlockList* pOBOut) const
+OverlapResult svabaOverlapAlgorithm::overlapReadExact(const SeqRecord& read, int minOverlap, OverlapBlockList* pOBOut) const
 {
     OverlapResult result;
     // The complete set of overlap blocks are collected in obWorkingList
@@ -251,7 +251,7 @@ OverlapResult SVaBAOverlapAlgorithm::overlapReadExact(const SeqRecord& read, int
 }
 
 // Write overlap results to an ASQG file
-void SVaBAOverlapAlgorithm::writeResultASQG(std::ostream& writer, const SeqRecord& read, const OverlapResult& result) const
+void svabaOverlapAlgorithm::writeResultASQG(std::ostream& writer, const SeqRecord& read, const OverlapResult& result) const
 {
     ASQG::VertexRecord record(read.id, read.seq.toString());
     record.setSubstringTag(result.isSubstring);
@@ -259,7 +259,7 @@ void SVaBAOverlapAlgorithm::writeResultASQG(std::ostream& writer, const SeqRecor
 }
 
 // Write overlap blocks out to a file
-void SVaBAOverlapAlgorithm::writeOverlapBlocks(std::ostream& writer, size_t readIdx, bool isSubstring, const OverlapBlockList* pList) const
+void svabaOverlapAlgorithm::writeOverlapBlocks(std::ostream& writer, size_t readIdx, bool isSubstring, const OverlapBlockList* pList) const
 {
 
     // Write the header info
@@ -277,7 +277,7 @@ void SVaBAOverlapAlgorithm::writeOverlapBlocks(std::ostream& writer, size_t read
 }
 
 //JEREMIAH
-void SVaBAOverlapAlgorithm::writeOverlapBlocks(std::stringstream& writer, size_t readIdx, bool isSubstring, const OverlapBlockList* pList) const
+void svabaOverlapAlgorithm::writeOverlapBlocks(std::stringstream& writer, size_t readIdx, bool isSubstring, const OverlapBlockList* pList) const
 {
     // Write the header info
     size_t numBlocks = pList->size();
@@ -295,7 +295,7 @@ void SVaBAOverlapAlgorithm::writeOverlapBlocks(std::stringstream& writer, size_t
 
 // Calculate the ranges in pBWT that contain a prefix of at least minOverlap basepairs that
 // overlaps with a suffix of w. The ranges are added to the pOBList
-void SVaBAOverlapAlgorithm::findOverlapBlocksExact(const std::string& w, const BWT* pBWT,
+void svabaOverlapAlgorithm::findOverlapBlocksExact(const std::string& w, const BWT* pBWT,
                                               const BWT* pRevBWT, const AlignFlags& af, int minOverlap,
                                               OverlapBlockList* pOverlapList, OverlapBlockList* pContainList, 
                                               OverlapResult& result) const
@@ -380,7 +380,7 @@ void SVaBAOverlapAlgorithm::findOverlapBlocksExact(const std::string& w, const B
 // at least 1 of these seeds must align exactly for there to be an alignment with 
 // at most maxDiff differences between the prefix/suffix. Only alignments within the
 // range [block_start, block_end] are output. The block_end coordinate is inclusive.
-bool SVaBAOverlapAlgorithm::findOverlapBlocksInexact(const std::string& w, const BWT* pBWT, 
+bool svabaOverlapAlgorithm::findOverlapBlocksInexact(const std::string& w, const BWT* pBWT, 
                                                 const BWT* pRevBWT, const AlignFlags& af, int minOverlap,
                                                 OverlapBlockList* pOverlapList, OverlapBlockList* pContainList, 
                                                 OverlapResult& result) const
@@ -518,7 +518,7 @@ bool SVaBAOverlapAlgorithm::findOverlapBlocksInexact(const std::string& w, const
 }
 
 // Build forward history for the blocks
-void SVaBAOverlapAlgorithm::buildForwardHistory(OverlapBlockList* pList) const
+void svabaOverlapAlgorithm::buildForwardHistory(OverlapBlockList* pList) const
 {
     OverlapBlockList terminalList;
     OverlapBlockList potentialContainedList;
@@ -537,7 +537,7 @@ void SVaBAOverlapAlgorithm::buildForwardHistory(OverlapBlockList* pList) const
 
 // Calculate the single right extension to the '$' for each the contained blocks
 // so that the interval ranges are consistent
-void SVaBAOverlapAlgorithm::terminateContainedBlocks(OverlapBlockList& containedBlocks) const
+void svabaOverlapAlgorithm::terminateContainedBlocks(OverlapBlockList& containedBlocks) const
 {
     for(OverlapBlockList::iterator iter = containedBlocks.begin(); iter != containedBlocks.end(); ++iter)
         BWTAlgorithms::updateBothR(iter->ranges, '$', iter->getExtensionBWT(m_pBWT, m_pRevBWT));
@@ -549,7 +549,7 @@ void SVaBAOverlapAlgorithm::terminateContainedBlocks(OverlapBlockList& contained
 // exactly. d is a function of the overlap length so we define the seed length using the minimum overlap
 // parameter. We then tile seeds across the read starting from the end such that for every overlap length
 // x, there are at least floor(x * error_rate) + 1 seeds.
-void SVaBAOverlapAlgorithm::calculateSeedParameters(const std::string& w, const int minOverlap, int& seed_length, int& seed_stride) const
+void svabaOverlapAlgorithm::calculateSeedParameters(const std::string& w, const int minOverlap, int& seed_length, int& seed_stride) const
 {
     int read_len = w.length();
     seed_length = 0;
@@ -583,7 +583,7 @@ void SVaBAOverlapAlgorithm::calculateSeedParameters(const std::string& w, const 
 }
 
 // Create and intialize the search seeds
-int SVaBAOverlapAlgorithm::createSearchSeeds(const std::string& w, const BWT* pBWT, 
+int svabaOverlapAlgorithm::createSearchSeeds(const std::string& w, const BWT* pBWT, 
                                         const BWT* pRevBWT, int seed_length, int seed_stride,
                                         SearchSeedVector* pOutVector) const
 {
@@ -623,7 +623,7 @@ int SVaBAOverlapAlgorithm::createSearchSeeds(const std::string& w, const BWT* pB
 }
 
 // Extend all the seeds in pInVector to the right over the entire seed range
-void SVaBAOverlapAlgorithm::extendSeedsExactRightQueue(const std::string& w, const BWT* /*pBWT*/, const BWT* pRevBWT,
+void svabaOverlapAlgorithm::extendSeedsExactRightQueue(const std::string& w, const BWT* /*pBWT*/, const BWT* pRevBWT,
                                              ExtendDirection /*dir*/, const SearchSeedVector* pInVector, 
                                              SearchSeedQueue* pOutQueue) const
 {
@@ -649,7 +649,7 @@ void SVaBAOverlapAlgorithm::extendSeedsExactRightQueue(const std::string& w, con
 }
 
 // Extend all the seeds in pInVector to the right over the entire seed range
-void SVaBAOverlapAlgorithm::extendSeedsExactRight(const std::string& w, const BWT* /*pBWT*/, const BWT* pRevBWT,
+void svabaOverlapAlgorithm::extendSeedsExactRight(const std::string& w, const BWT* /*pBWT*/, const BWT* pRevBWT,
                                              ExtendDirection /*dir*/, const SearchSeedVector* pInVector, 
                                              SearchSeedVector* pOutVector) const
 {
@@ -678,7 +678,7 @@ void SVaBAOverlapAlgorithm::extendSeedsExactRight(const std::string& w, const BW
 }
 
 //
-void SVaBAOverlapAlgorithm::extendSeedInexactRight(SearchSeed& seed, const std::string& w, const BWT* /*pBWT*/, 
+void svabaOverlapAlgorithm::extendSeedInexactRight(SearchSeed& seed, const std::string& w, const BWT* /*pBWT*/, 
                                               const BWT* pRevBWT, SearchSeedVector* pOutVector) const
 {
     // If this alignment has run all the way to the end of the sequence
@@ -726,7 +726,7 @@ void SVaBAOverlapAlgorithm::extendSeedInexactRight(SearchSeed& seed, const std::
 }
 
 //
-void SVaBAOverlapAlgorithm::extendSeedInexactLeft(SearchSeed& seed, const std::string& w, 
+void svabaOverlapAlgorithm::extendSeedInexactLeft(SearchSeed& seed, const std::string& w, 
                                              const BWT* pBWT, const BWT* /*pRevBWT*/,
                                              SearchSeedVector* pOutVector) const
 {
@@ -774,7 +774,7 @@ void SVaBAOverlapAlgorithm::extendSeedInexactLeft(SearchSeed& seed, const std::s
 }
 
 // Extend the seed to the right, return true if the seed is still a valid range
-bool SVaBAOverlapAlgorithm::extendSeedExactRight(SearchSeed& seed, const std::string& w, const BWT* /*pBWT*/, const BWT* pRevBWT) const
+bool svabaOverlapAlgorithm::extendSeedExactRight(SearchSeed& seed, const std::string& w, const BWT* /*pBWT*/, const BWT* pRevBWT) const
 {
     // If this alignment has run all the way to the end of the sequence
     // switch it to be a left extension sequence
@@ -794,7 +794,7 @@ bool SVaBAOverlapAlgorithm::extendSeedExactRight(SearchSeed& seed, const std::st
 }
 
 //
-bool SVaBAOverlapAlgorithm::extendSeedExactLeft(SearchSeed& seed, const std::string& w, const BWT* pBWT, const BWT* /*pRevBWT*/) const
+bool svabaOverlapAlgorithm::extendSeedExactLeft(SearchSeed& seed, const std::string& w, const BWT* pBWT, const BWT* /*pRevBWT*/) const
 {
     --seed.left_index;
     if(seed.left_index >= 0)
@@ -813,7 +813,7 @@ bool SVaBAOverlapAlgorithm::extendSeedExactLeft(SearchSeed& seed, const std::str
 }
 
 // Calculate the irreducible blocks from the vector of OverlapBlocks
-void SVaBAOverlapAlgorithm::computeIrreducibleBlocks(const BWT* pBWT, const BWT* pRevBWT, 
+void svabaOverlapAlgorithm::computeIrreducibleBlocks(const BWT* pBWT, const BWT* pRevBWT, 
                                                 OverlapBlockList* pOBList, 
                                                 OverlapBlockList* pOBFinal) const
 {
@@ -835,7 +835,7 @@ void SVaBAOverlapAlgorithm::computeIrreducibleBlocks(const BWT* pBWT, const BWT*
 // The final overlap blocks corresponding to irreducible overlaps are written to pOBFinal.
 // Invariant: the blocks are ordered in descending order of the overlap size so that the longest overlap is first.
 // Invariant: each block corresponds to the same extension of the root sequence w.
-void SVaBAOverlapAlgorithm::_processIrreducibleBlocksExactIterative(const BWT* pBWT, const BWT* pRevBWT, 
+void svabaOverlapAlgorithm::_processIrreducibleBlocksExactIterative(const BWT* pBWT, const BWT* pRevBWT, 
                                                                OverlapBlockList& inList, 
                                                                OverlapBlockList* pOBFinal) const
 {
@@ -967,7 +967,7 @@ void SVaBAOverlapAlgorithm::_processIrreducibleBlocksExactIterative(const BWT* p
 // Classify the blocks in obList as irreducible, transitive or substrings. The irreducible blocks are
 // put into pOBFinal. The remaining are discarded.
 // Invariant: the blocks are ordered in descending order of the overlap size so that the longest overlap is first.
-void SVaBAOverlapAlgorithm::_processIrreducibleBlocksInexact(const BWT* pBWT, const BWT* pRevBWT, 
+void svabaOverlapAlgorithm::_processIrreducibleBlocksInexact(const BWT* pBWT, const BWT* pRevBWT, 
                                                         OverlapBlockList& activeList, 
                                                         OverlapBlockList* pOBFinal) const
 {
@@ -1068,7 +1068,7 @@ void SVaBAOverlapAlgorithm::_processIrreducibleBlocksInexact(const BWT* pBWT, co
 // Move all right-terminal blocks to the termainl list. If a block 
 // is terminal and potentially contained by another block, add it to 
 // containedList
-void SVaBAOverlapAlgorithm::extendActiveBlocksRight(const BWT* pBWT, const BWT* pRevBWT, 
+void svabaOverlapAlgorithm::extendActiveBlocksRight(const BWT* pBWT, const BWT* pRevBWT, 
                                                OverlapBlockList& activeList, 
                                                OverlapBlockList& terminalList,
                                                OverlapBlockList& /*containedList*/) const
@@ -1151,7 +1151,7 @@ void SVaBAOverlapAlgorithm::extendActiveBlocksRight(const BWT* pBWT, const BWT* 
 } 
 
 // Return true if the terminalBlock is a substring of any member of blockList
-bool SVaBAOverlapAlgorithm::isBlockSubstring(OverlapBlock& terminalBlock, const OverlapBlockList& blockList, double maxER) const
+bool svabaOverlapAlgorithm::isBlockSubstring(OverlapBlock& terminalBlock, const OverlapBlockList& blockList, double maxER) const
 {
     OverlapBlockList::const_iterator iter = blockList.begin();
     size_t right_extension_length = terminalBlock.forwardHistory.size();
@@ -1172,7 +1172,7 @@ bool SVaBAOverlapAlgorithm::isBlockSubstring(OverlapBlock& terminalBlock, const 
 }
 
 // Calculate the error rate between two overlap blocks using their history
-double SVaBAOverlapAlgorithm::calculateBlockErrorRate(const OverlapBlock& terminalBlock, const OverlapBlock& otherBlock) const
+double svabaOverlapAlgorithm::calculateBlockErrorRate(const OverlapBlock& terminalBlock, const OverlapBlock& otherBlock) const
 {
     int back_max = std::min(terminalBlock.overlapLen, otherBlock.overlapLen);
     int backwards_diff = SearchHistoryVector::countDifferences(terminalBlock.backHistory, otherBlock.backHistory, back_max);
@@ -1200,7 +1200,7 @@ double SVaBAOverlapAlgorithm::calculateBlockErrorRate(const OverlapBlock& termin
 }
 
 // Update the overlap block list with a righthand extension to b, removing ranges that become invalid
-void SVaBAOverlapAlgorithm::updateOverlapBlockRangesRight(const BWT* pBWT, const BWT* pRevBWT, 
+void svabaOverlapAlgorithm::updateOverlapBlockRangesRight(const BWT* pBWT, const BWT* pRevBWT, 
                                                      OverlapBlockList& obList, char canonical_base) const
 {
     OverlapBlockList::iterator iter = obList.begin(); 

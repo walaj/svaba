@@ -28,9 +28,9 @@ svaba_LDADD = \
 
 svaba_SOURCES = run_svaba.cpp BreakPoint.cpp AlignedContig.cpp AlignmentFragment.cpp \
 		DiscordantCluster.cpp DBSnpFilter.cpp PONFilter.cpp \
-		SVaBAUtils.cpp svaba.cpp SVaBAAssemblerEngine.cpp vcf.cpp \
-		DiscordantRealigner.cpp SVaBAOverlapAlgorithm.cpp SVaBAASQG.cpp \
-		SVaBAAssemble.cpp KmerFilter.cpp SVaBABamWalker.cpp \
+		svabaUtils.cpp svaba.cpp svabaAssemblerEngine.cpp vcf.cpp \
+		DiscordantRealigner.cpp svabaOverlapAlgorithm.cpp svabaASQG.cpp \
+		svabaAssemble.cpp KmerFilter.cpp svabaBamWalker.cpp \
 		refilter.cpp LearnBamParams.cpp \
 		STCoverage.cpp Histogram.cpp BamStats.cpp
 

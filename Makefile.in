@@ -191,7 +191,7 @@ top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 AUTOMAKE_OPTIONS = foreign
-SUBDIRS = SeqLib/fermi-lite SeqLib/htslib SeqLib/bwa SeqLib/src src/SGA/SQG src/SGA/Bigraph src/SGA/Algorithm src/SGA/Util src/SGA/StringGraph src/SGA/SGA src/SGA/SuffixTools src/SVaBA
+SUBDIRS = SeqLib/fermi-lite SeqLib/htslib SeqLib/bwa SeqLib/src src/SGA/SQG src/SGA/Bigraph src/SGA/Algorithm src/SGA/Util src/SGA/StringGraph src/SGA/SGA src/SGA/SuffixTools src/svaba
 all: config.h
 	$(MAKE) $(AM_MAKEFLAGS) all-recursive
 

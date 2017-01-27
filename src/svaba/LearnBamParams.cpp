@@ -2,7 +2,7 @@
 
 #include <numeric>
 #include "SeqLib/BamReader.h"
-#include "SVaBAUtils.h"
+#include "svabaUtils.h"
 
 std::ostream& operator<<(std::ostream& out, const BamParams& p) {
  
@@ -78,7 +78,7 @@ void BamParams::collectStats() {
   isize_vec = tmp;
 
   // get the median first. Use to threshold
-  median_isize = isize_vec.size() ? SVaBAUtils::CalcMHWScore(isize_vec) : 0;
+  median_isize = isize_vec.size() ? svabaUtils::CalcMHWScore(isize_vec) : 0;
 
   double sum = std::accumulate(isize_vec.begin(), isize_vec.end(), 0.0);
   mean_isize = isize_vec.size() > 0 ? sum / isize_vec.size() : 0;
