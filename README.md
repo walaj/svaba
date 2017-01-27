@@ -1,8 +1,8 @@
-[![Build Status](https://travis-ci.org/walaj/SvAbA.svg?branch=master)](https://travis-ci.org/walaj/SvAbA)
+[![Build Status](https://travis-ci.org/walaj/svaba.svg?branch=master)](https://travis-ci.org/walaj/svaba)
 
-## *SvAbA* - Structural variation and indel Analysis by Assembly
+## *SvABA* - Structural variation and indel analysis by assembly
 
-[Pronounced sah-bah or svah-bah. This project was formerly "Snowman"]
+[Pronounced sah-bah. This project was formerly "Snowman"]
 
 **License:** [GNU GPLv3][license] 
 
@@ -46,20 +46,20 @@ svaba --help
 svaba run --help
 ```
 
-SvAbA uses the [SeqLib][seqlib] API for BAM access, BWA-MEM alignments, interval trees and operations,
+SvABA uses the [SeqLib][seqlib] API for BAM access, BWA-MEM alignments, interval trees and operations,
 and several other auxillary operations.
 
 Description
 -----------
 
-SvAbA is a method for detecting structural variants in sequencing data using genome-wide local assembly. Under the hood, 
-SvAbA uses a custom implementation of SGA (String Graph Assembler) by Jared Simpson, and BWA-MEM by Heng Li. Contigs are assembled
+SvABA is a method for detecting structural variants in sequencing data using genome-wide local assembly. Under the hood, 
+SvABA uses a custom implementation of SGA (String Graph Assembler) by Jared Simpson, and BWA-MEM by Heng Li. Contigs are assembled
 for every 25kb window (with some small overlap) for every region in the genome. The default is to use only clipped, discordant, 
 unmapped and indel reads, although this can be customized to any set of reads at the command line using [VariantBam][vbam] rules. 
 These contigs are then immediately aligned to the reference with BWA-MEM and parsed to identify variants. Sequencing reads are likewise 
 realigned to the contigs with BWA-MEM, and variants are scored 
 
-SvAbA is currently configured to provide indel and rearrangement calls (and anything "in between"). It can jointly call any number of BAM/CRAM/SAM files,
+SvABA is currently configured to provide indel and rearrangement calls (and anything "in between"). It can jointly call any number of BAM/CRAM/SAM files,
 and has built-in support for case-control experiments (e.g. tumor/normal, or trios or quads). In case/control mode, 
 any number of cases and controls (but min of 1 case) can be input, and 
 will jointly assemble all sequences together. If both a case and control are present, variants are output separately in "somatic" and "germline" VCFs. 
@@ -68,7 +68,7 @@ VCF will be emitted.
 
 A BWA-MEM index reference genome must also be supplied with ``-G``.
 
-<img src="https://github.com/broadinstitute/SvAbASV/blob/master/gitfig_schematic.png"
+<img src="https://github.com/broadinstitute/SvABASV/blob/master/gitfig_schematic.png"
 width=800/>
 
 Output file description
@@ -91,12 +91,12 @@ reads retrieved and contigs assembled for each region.
 
 ##### ``*.alignments.txt.gz``
 An ASCII plot of variant-supporting contigs and the BWA-MEM alignment of reads to the contigs. This file is incredibly
-useful for debugging and visually inspecting the exact information SvAbA saw when it performed the variant-calling. This file
+useful for debugging and visually inspecting the exact information SvABA saw when it performed the variant-calling. This file
 is typically quite large. The recommended usage is to identify the contig name of your variant of interest first from the VCF file 
 (SCTG=contig_name). Then do ``gunzip -c id.alignment.txt.gz | grep contig_name > plot.txt``. It is highly recommended that you 
 view in a text editor with line truncation turned OFF, so as to not jumble the alignments.
 
-<img src="https://github.com/broadinstitute/SvAbASV/blob/master/gitfig_ascii.png"
+<img src="https://github.com/broadinstitute/SvABASV/blob/master/gitfig_ascii.png"
 width=800/>
 
 ##### ``*.bad_mate_regions.bed``
@@ -112,13 +112,13 @@ constitutes an "indel" and a "structural variant". The unfiltered VCF files incl
 Filtering and Refiltering
 -----------------------
 
-SvAbA performs a series of log-likelihood calculations for each variant. The purpose is to first classify a variant as real vs artifact, 
+SvABA performs a series of log-likelihood calculations for each variant. The purpose is to first classify a variant as real vs artifact, 
 and then to determine if the variant is somatic or germline. These log-likelihoods are output in the VCF and bps.txt.gz file and described here:
 * ``LOD (LO)`` - Log of the odds that variant is real vs artifact. For indels, the likelihood of an artifact read is proportional to the length of local repeats (repeating units up to 5 long per unit)
 * ``LR`` - Log of the odds that the variant has allelic fraction (AF) of 0 or >=0.5. This is used for somatic vs germline classification
 * ``SL`` - Scaled LOD. LOD scores is heuristically scaled as: (min(Mapping quality #1, Mapping quality #2) - 2 * NM) / 60 * LOD
 
-SvAbA can refilter the bps.txt.gz file to produce new VCFs with different stringency cutoffs. To run, the following are required:
+SvABA can refilter the bps.txt.gz file to produce new VCFs with different stringency cutoffs. To run, the following are required:
 * ``-b`` - a BAM from the original run, which is used just for its header
 * ``-i`` - input bps.txt.gz file
 
@@ -180,7 +180,7 @@ k=chr17:7,541,145-7,621,399
 svaba run -t $BAM -a local_test -k $k --write-asqg
 
 ## plot the graph
-$GIT/SvAbASV/R/snow-asqg.R
+$GIT/SvABASV/R/snow-asqg.R
 ```
 
 #### View all of the ASCII alignments 
@@ -216,7 +216,7 @@ sai somatic_run
 Attributions
 ============
 
-SvAbA is developed and maintained by Jeremiah Wala (jwala@broadinstitute.org) --  Rameen Berkoukhim lab -- Dana Farber Cancer Institute, Boston, MA. 
+SvABA is developed and maintained by Jeremiah Wala (jwala@broadinstitute.org) --  Rameen Berkoukhim lab -- Dana Farber Cancer Institute, Boston, MA. 
 
 This project was developed in collaboration with the Cancer Genome Analysis team at the Broad Institute. Particular thanks to:
 * Cheng-Zhong Zhang (Matthew Meyerson Lab)

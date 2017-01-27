@@ -1,9 +1,9 @@
-/* SvAbA - Somatic Structural Variation Dectection
+/* SvABA - Somatic Structural Variation Dectection
  * Copyright 2014 Broad Institute 
  * Written by Jeremiah Wala (jwala@broadinstitute.org)
  * Released under the included license detailed below.
  *
- * SvAbA incorportes the core of String Graph Assembler, 
+ * SvABA incorportes the core of String Graph Assembler, 
  * -- String Graph Assembler -- Copyright 2009 Wellcome Trust Sanger Institute
  * -- Written by Jared Simpson
  * -- Released under the GPL
@@ -16,15 +16,15 @@
 
 static const char *SVABA_USAGE_MESSAGE =
 "------------------------------------------------------------\n"
-"--- SvAbA (sah-bah) - SV and indel detection by assembly ---\n"
+"--- SvABA (sah-bah) - SV and indel detection by assembly ---\n"
 "------------------------------------------------------------\n"
-"Program: SvAbA \n"
+"Program: SvABA \n"
 "FH Version: 134 \n"
 "Contact: Jeremiah Wala [ jwala@broadinstitute.org ]\n"
 "Usage: svaba <command> [options]\n\n"
 "Commands:\n"
-"           run            Run SvAbA SV and Indel detection on BAM(s)\n"
-"           refilter       Refilter the SvAbA breakpoints with additional/different criteria to created filtered VCF and breakpoints file.\n"
+"           run            Run SvABA SV and Indel detection on BAM(s)\n"
+"           refilter       Refilter the SvABA breakpoints with additional/different criteria to created filtered VCF and breakpoints file.\n"
 "\nReport bugs to jwala@broadinstitute.org \n\n";
 
 int main(int argc, char** argv) {
@@ -48,7 +48,7 @@ int main(int argc, char** argv) {
     }
   } 
   
-  std::cerr << "Done with SvAbA" << std::endl;
+  std::cerr << "Done with SvABA" << std::endl;
   return 0;
 
 }
