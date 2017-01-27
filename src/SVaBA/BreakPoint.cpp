@@ -5,7 +5,7 @@
 #include <cassert>
 
 #include "gzstream.h"
-#include "SnowmanUtils.h"
+#include "SVaBAUtils.h"
 
 #define MAX_ERROR 0.04
 #define MIN_ERROR 0.0005
@@ -734,7 +734,7 @@ BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
       if (seq.find(rr) != std::string::npos)
 	hi_rep = true;
 
-    if (!b1.local && !b2.local && !complex_local) // added this back in snowman71. 
+    if (!b1.local && !b2.local && !complex_local) // added this back in v71
       // issue is that if a read is secondary aligned, it could be 
       // aligned to way off region. Saw cases where this happend in tumor
       // and not normal, so false-called germline event as somatic.

@@ -1,5 +1,5 @@
-#ifndef SNOWMAN_ALIGNED_CONTIG_H__
-#define SNOWMAN_ALIGNED_CONTIG_H__
+#ifndef SVABA_ALIGNED_CONTIG_H__
+#define SVABA_ALIGNED_CONTIG_H__
 
 #include "SeqLib/BamRecord.h"
 #include "SeqLib/BamWriter.h"

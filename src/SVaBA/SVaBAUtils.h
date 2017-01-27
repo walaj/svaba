@@ -1,5 +1,5 @@
-#ifndef SNOWMAN_UTILS_H__
-#define SNOWMAN_UTILS_H__
+#ifndef SVABA_UTILS_H__
+#define SVABA_UTILS_H__
 
 #include <ctime>
 #include <sstream>
@@ -11,12 +11,12 @@
 #include "SeqLib/BWAWrapper.h"
 #include "SeqLib/RefGenome.h"
 
-namespace SnowmanUtils {
+namespace SVaBAUtils {
 
 // make a structure to store timing opt
-struct SnowTimer {
+struct SVaBATimer {
   
-  SnowTimer();
+  SVaBATimer();
 
   std::unordered_map<std::string, double> times;
   std::vector<std::string> s;
@@ -28,7 +28,7 @@ struct SnowTimer {
   void start();
   
   // print it
-  friend std::ostream& operator<<(std::ostream &out, const SnowTimer st);
+  friend std::ostream& operator<<(std::ostream &out, const SVaBATimer st);
 };
 
  double CalcMHWScore(std::vector<int>& scores);
@@ -36,7 +36,7 @@ struct SnowTimer {
  int overlapSize(const SeqLib::BamRecord& query, const SeqLib::BamRecordVector& subject);
  bool hasRepeat(const std::string& seq);
  std::string runTimeString(int num_t_reads, int num_n_reads, int contig_counter, 
-			   const SeqLib::GenomicRegion& region, const SeqLib::BamHeader& h, const SnowTimer& st, 
+			   const SeqLib::GenomicRegion& region, const SeqLib::BamHeader& h, const SVaBATimer& st, 
 			   const timespec& start);
  int countJobs(const std::string& regionFile, SeqLib::GRC &file_regions, SeqLib::GRC &run_regions, 
 	       const SeqLib::BamHeader& h, int chunk, int window_pad);

@@ -1,8 +1,8 @@
 # Process this file with autoconf to produce a configure script.
 AC_PREREQ(2.59) ## specificy version of autoconf
-AC_INIT(snowman, 1.0, jwala@broadinstitute.org)
+AC_INIT(svaba, 1.0, jwala@broadinstitute.org)
 AM_INIT_AUTOMAKE(foreign)
-AC_CONFIG_SRCDIR([src/Snowman/snowman.cpp])
+AC_CONFIG_SRCDIR([src/SVaBA/svaba.cpp])
 AC_CONFIG_HEADER([config.h])
 AM_MAINTAINER_MODE([disable])
 ##m4_include([m4/m4_ax_openmp.m4])
@@ -58,7 +58,7 @@ AC_CHECK_HEADERS([ \
 ])
 
 # Make sure the boost headers can be found
-##AC_CHECK_HEADERS([boost/regex.hpp],[AC_SUBST(CPPFLAGS, "$CPPFLAGS -DHAVE_BOOST")],[AC_MSG_ERROR([The Boost library must be installed for Snowman. Specify its path with the --with-boost=PATH option])])
+##AC_CHECK_HEADERS([boost/regex.hpp],[AC_SUBST(CPPFLAGS, "$CPPFLAGS -DHAVE_BOOST")],[AC_MSG_ERROR([The Boost library must be installed for SVaBA. Specify its path with the --with-boost=PATH option])])
 
 AC_CONFIG_FILES([Makefile
                 SeqLib/src/Makefile
@@ -69,6 +69,6 @@ AC_CONFIG_FILES([Makefile
 		src/SGA/StringGraph/Makefile
 		src/SGA/SuffixTools/Makefile
                 src/SGA/SGA/Makefile
-                src/Snowman/Makefile])
+                src/SVaBA/Makefile])
 
 AC_OUTPUT

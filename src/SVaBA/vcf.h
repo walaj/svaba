@@ -1,5 +1,5 @@
-#ifndef SNOWMAN_VCF_GEN_H
-#define SNOWMAN_VCF_GEN_H
+#ifndef SVABA_VCF_GEN_H
+#define SVABA_VCF_GEN_H
 
 #include <memory>
 #include <vector>

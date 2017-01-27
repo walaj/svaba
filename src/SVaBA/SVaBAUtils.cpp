@@ -1,8 +1,8 @@
-#include "SnowmanUtils.h"
+#include "SVaBAUtils.h"
 
 #include <iomanip>
 
-namespace SnowmanUtils {
+namespace SVaBAUtils {
 
 static std::string POLYA = "AAAAAAAAAAAAAAAAAAA";
 static std::string POLYT = "TTTTTTTTTTTTTTTTTTT";
@@ -29,23 +29,23 @@ static std::string POLYTC = "TCTCTCTCTCTCTCTCTCTCTCTC";
     return mdate.str();
   }
 
-  SnowTimer::SnowTimer() {
+  SVaBATimer::SVaBATimer() {
     s = {"r", "m", "as", "bw", "pp", "k"};
     for (auto& i : s)
       times[i] = 0;
     curr_clock = clock();
   }
 
-  void SnowTimer::stop(const std::string& part) { 
+  void SVaBATimer::stop(const std::string& part) { 
     times[part] += (clock() - curr_clock); 
     curr_clock = clock();
   }
 
-  void SnowTimer::start() { 
+  void SVaBATimer::start() { 
     curr_clock = clock(); 
   }
 
-  std::ostream& operator<<(std::ostream &out, const SnowTimer st) {
+  std::ostream& operator<<(std::ostream &out, const SVaBATimer st) {
 
     double total_time = 0;
     for (auto& i : st.times)
@@ -136,7 +136,7 @@ int overlapSize(const SeqLib::BamRecord& query, const SeqLib::BamRecordVector& s
   
 
   std::string runTimeString(int num_t_reads, int num_n_reads, int contig_counter, 
-			    const SeqLib::GenomicRegion& region, const SeqLib::BamHeader& h, const SnowTimer& st,
+			    const SeqLib::GenomicRegion& region, const SeqLib::BamHeader& h, const SVaBATimer& st,
 			    const timespec& start) {
     
     std::stringstream ss;

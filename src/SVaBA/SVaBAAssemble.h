@@ -6,8 +6,8 @@
 //
 // assemble - Assemble reads into contigs
 //
-#ifndef SNOWMAN_ASSEMBLE_H
-#define SNOWMAN_ASSEMBLE_H
+#ifndef SVABA_ASSEMBLE_H
+#define SVABA_ASSEMBLE_H
 #include <getopt.h>
 #include "config.h"
 #include <iostream>

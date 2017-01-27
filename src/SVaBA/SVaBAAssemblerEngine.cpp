@@ -1,13 +1,13 @@
-#include "SnowmanAssemblerEngine.h"
+#include "SVaBAAssemblerEngine.h"
 
 #include <map>
 #include <algorithm>
 
 #include "SGACommon.h"
 
-#include "SnowmanASQG.h"
-#include "SnowmanAssemble.h"
-#include "SnowmanOverlapAlgorithm.h"
+#include "SVaBAASQG.h"
+#include "SVaBAAssemble.h"
+#include "SVaBAOverlapAlgorithm.h"
 
 #include "OverlapCommon.h"
 #include "CorrectionThresholds.h"
@@ -26,7 +26,7 @@ static std::string POLYCG = "CGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCG";
 static std::string POLYTG = "TGTGTGTGTGTGTGTGTGTGTGTGTGTGTGTGTGTGTGTG";
 static std::string POLYCA = "CACACACACACACACACACACACACACACACACACACACA";
 
-void SnowmanAssemblerEngine::fillReadTable(const std::vector<std::string>& r) {
+void SVaBAAssemblerEngine::fillReadTable(const std::vector<std::string>& r) {
 
   int count = 0;
   for (auto& i : r) {
@@ -46,7 +46,7 @@ void SnowmanAssemblerEngine::fillReadTable(const std::vector<std::string>& r) {
   
 }
 
-void SnowmanAssemblerEngine::fillReadTable(SeqLib::BamRecordVector& r)
+void SVaBAAssemblerEngine::fillReadTable(SeqLib::BamRecordVector& r)
 {
   
   m_reads = r;
@@ -85,7 +85,7 @@ void SnowmanAssemblerEngine::fillReadTable(SeqLib::BamRecordVector& r)
   
 }
 
-bool SnowmanAssemblerEngine::hasRepeat(const std::string& seq) {
+bool SVaBAAssemblerEngine::hasRepeat(const std::string& seq) {
 
   if (seq.find("N") != std::string::npos)
     return true;
@@ -108,7 +108,7 @@ bool SnowmanAssemblerEngine::hasRepeat(const std::string& seq) {
 
 }
 
-bool SnowmanAssemblerEngine::performAssembly(int num_assembly_rounds) 
+bool SVaBAAssemblerEngine::performAssembly(int num_assembly_rounds) 
 {
   if (m_pRT.getCount() < 2)
     return false;
@@ -152,7 +152,7 @@ bool SnowmanAssemblerEngine::performAssembly(int num_assembly_rounds)
 
 
 // call the assembler
-void SnowmanAssemblerEngine::doAssembly(ReadTable *pRT, SeqLib::UnalignedSequenceVector &contigs, int pass) {
+void SVaBAAssemblerEngine::doAssembly(ReadTable *pRT, SeqLib::UnalignedSequenceVector &contigs, int pass) {
   
   if (pRT->getCount() == 0)
     return;
@@ -196,14 +196,14 @@ void SnowmanAssemblerEngine::doAssembly(ReadTable *pRT, SeqLib::UnalignedSequenc
   if (!exact)
     calculateSeedParameters(m_readlen, min_overlap, seedLength, seedStride);
 
-  SnowmanOverlapAlgorithm* pOverlapper = new SnowmanOverlapAlgorithm(pBWT_nd, pRBWT_nd, 
+  SVaBAOverlapAlgorithm* pOverlapper = new SVaBAOverlapAlgorithm(pBWT_nd, pRBWT_nd, 
 								     errorRate, seedLength,
 								     seedStride, bIrreducibleOnly);
   
   pOverlapper->setExactModeOverlap(exact);
   pOverlapper->setExactModeIrreducible(exact);
 
-  SnowmanASQG::HeaderRecord headerRecord;
+  SVaBAASQG::HeaderRecord headerRecord;
   headerRecord.setOverlapTag(min_overlap);
   headerRecord.setErrorRateTag(errorRate);
   headerRecord.setInputFileTag("");
@@ -227,7 +227,7 @@ void SnowmanAssemblerEngine::doAssembly(ReadTable *pRT, SeqLib::UnalignedSequenc
     OverlapResult rr = pOverlapper->overlapRead(read, min_overlap, &obl);
     pOverlapper->writeOverlapBlocks(hits_stream, workid, rr.isSubstring, &obl);
 
-    SnowmanASQG::VertexRecord record(read.id, read.seq.toString());
+    SVaBAASQG::VertexRecord record(read.id, read.seq.toString());
     record.setSubstringTag(rr.isSubstring);
     record.write(asqg_stream);
 
@@ -247,7 +247,7 @@ void SnowmanAssemblerEngine::doAssembly(ReadTable *pRT, SeqLib::UnalignedSequenc
     OverlapCommon::parseHitsString(line, pQueryRIT, pQueryRIT, pSAf_nd, pSAr_nd, bIsSelfCompare, readIdx, totalEntries, ov, isSubstring);
 
     for(OverlapVector::iterator iter = ov.begin(); iter != ov.end(); ++iter) {
-       SnowmanASQG::EdgeRecord edgeRecord(*iter);
+       SVaBAASQG::EdgeRecord edgeRecord(*iter);
        edgeRecord.write(asqg_stream);
     }
 
@@ -295,7 +295,7 @@ void SnowmanAssemblerEngine::doAssembly(ReadTable *pRT, SeqLib::UnalignedSequenc
 }
 
 // not totally sure this works...
-ReadTable* SnowmanAssemblerEngine::removeDuplicates(ReadTable* pRT) {
+ReadTable* SVaBAAssemblerEngine::removeDuplicates(ReadTable* pRT) {
 
   // forward
   SuffixArray* pSAf = new SuffixArray(pRT, 1, false); //1 is num threads. false is silent/no
@@ -307,7 +307,7 @@ ReadTable* SnowmanAssemblerEngine::removeDuplicates(ReadTable* pRT) {
   RLBWT *pRBWT = new RLBWT(pSAr, pRT);
   pRT->reverseAll();
 
-  SnowmanOverlapAlgorithm* pRmDupOverlapper = new SnowmanOverlapAlgorithm(pBWT, pRBWT, 
+  SVaBAOverlapAlgorithm* pRmDupOverlapper = new SVaBAOverlapAlgorithm(pBWT, pRBWT, 
 									  0, 0, 
 									  0, false);
   
@@ -335,7 +335,7 @@ ReadTable* SnowmanAssemblerEngine::removeDuplicates(ReadTable* pRT) {
   return pRT_nd;
 }
 
-void SnowmanAssemblerEngine::write_asqg(const StringGraph* oGraph, std::stringstream& asqg_stream, std::stringstream& hits_stream, int pass) const {
+void SVaBAAssemblerEngine::write_asqg(const StringGraph* oGraph, std::stringstream& asqg_stream, std::stringstream& hits_stream, int pass) const {
 
   // write ASQG to file for visualization
   std::ofstream ofile(m_id + "pass_" + std::to_string(pass) + ".asqg", std::ios::out);
@@ -362,7 +362,7 @@ void SnowmanAssemblerEngine::write_asqg(const StringGraph* oGraph, std::stringst
 
 }
 
-void SnowmanAssemblerEngine::remove_exact_dups(SeqLib::UnalignedSequenceVector& cc) const {
+void SVaBAAssemblerEngine::remove_exact_dups(SeqLib::UnalignedSequenceVector& cc) const {
 
   std::set<std::string> ContigDeDup;
   SeqLib::UnalignedSequenceVector cvec;
@@ -377,7 +377,7 @@ void SnowmanAssemblerEngine::remove_exact_dups(SeqLib::UnalignedSequenceVector& 
   cc = cvec;
 }
 
-void SnowmanAssemblerEngine::print_results(const SeqLib::UnalignedSequenceVector& cc) const {
+void SVaBAAssemblerEngine::print_results(const SeqLib::UnalignedSequenceVector& cc) const {
 
   if (cc.size() >= 1) {
     std::cout << "Contig Count: " << cc.size() << " at " << m_id << std::endl;
@@ -388,7 +388,7 @@ void SnowmanAssemblerEngine::print_results(const SeqLib::UnalignedSequenceVector
 }
 
 // lifted from OverlapAlgorithm
-void SnowmanAssemblerEngine::calculateSeedParameters(int read_len, int minOverlap, int& seed_length, int& seed_stride) const {
+void SVaBAAssemblerEngine::calculateSeedParameters(int read_len, int minOverlap, int& seed_length, int& seed_stride) const {
 
     seed_length = 0;
     

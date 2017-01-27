@@ -7,13 +7,13 @@
 // ASQG - Definitions and functions
 // for handling ASGQ files
 //
-#ifndef SNOWMAN_ASQG_H
-#define SNOWMAN_ASQG_H
+#ifndef SVABA_ASQG_H
+#define SVABA_ASQG_H
 
 #include "SQG.h"
 #include "Match.h"
 
-namespace SnowmanASQG
+namespace SVaBAASQG
 {
     enum RecordType
     {

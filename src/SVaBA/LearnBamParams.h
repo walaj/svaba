@@ -1,5 +1,5 @@
-#ifndef SNOWMAN_LEARN_BAM_PARAMS_H__
-#define SNOWMAN_LEARN_BAM_PARAMS_H__
+#ifndef SVABA_LEARN_BAM_PARAMS_H__
+#define SVABA_LEARN_BAM_PARAMS_H__
 
 #include <string>
 #include <ostream>

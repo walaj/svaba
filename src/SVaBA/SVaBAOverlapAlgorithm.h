@@ -4,11 +4,11 @@
 // Released under the GPL
 //-----------------------------------------------
 //
-// SnowmanOverlapAlgorithm - This class implements all the logic
+// SVaBAOverlapAlgorithm - This class implements all the logic
 // for finding and outputting overlaps for sequence reads
 //
-#ifndef SNOWMAN_OVERLAPALGORITHM_H
-#define SNOWMAN_OVERLAPALGORITHM_H
+#ifndef SVABA_OVERLAPALGORITHM_H
+#define SVABA_OVERLAPALGORITHM_H
 
 #include "BWT.h"
 #include "OverlapBlock.h"
@@ -30,11 +30,11 @@ struct OverlapResult
     bool searchAborted;
 };*/
 
-class SnowmanOverlapAlgorithm
+class SVaBAOverlapAlgorithm
 {
     public:
 
-        SnowmanOverlapAlgorithm(const BWT* pBWT, const BWT* pRevBWT, 
+        SVaBAOverlapAlgorithm(const BWT* pBWT, const BWT* pRevBWT, 
                          double er, int seedLen, int seedStride,
                          bool irrOnly, int maxSeeds = -1) : m_pBWT(pBWT), 
                                          m_pRevBWT(pRevBWT),

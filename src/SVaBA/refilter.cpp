@@ -10,7 +10,7 @@
 
 #include "vcf.h"
 #include "BreakPoint.h"
-#include "SnowmanUtils.h"
+#include "SVaBAUtils.h"
 
 
 static DBSnpFilter * dbsnp_filter;
@@ -32,7 +32,7 @@ namespace opt {
 
   static std::string bam;
 
-  static std::string dbsnp; // = "/xchip/gistic/Jeremiah/SnowmanFilters/dbsnp_138.b37_indel.vcf";
+  static std::string dbsnp; // = "/xchip/gistic/Jeremiah/SVaBAFilters/dbsnp_138.b37_indel.vcf";
 
   static int verbose = 1;
 
@@ -181,13 +181,13 @@ void runRefilterBreakpoints(int argc, char** argv) {
   }
 
   VCFHeader header;
-  header.filedate = SnowmanUtils::fileDateString();
+  header.filedate = SVaBAUtils::fileDateString();
   header.source = "";//opt::args;
   header.reference = "";//opt::refgenome;
 
   // open bps file
   std::string new_bps_file = opt::analysis_id + ".bps.txt.gz";
-  SnowmanUtils::fopen(new_bps_file, os_allbps_r);
+  SVaBAUtils::fopen(new_bps_file, os_allbps_r);
 
   // read in the BPS
   std::vector<std::string> allele_names; // store with real name

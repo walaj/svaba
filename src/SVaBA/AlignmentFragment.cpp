@@ -171,7 +171,7 @@ void AlignmentFragment::indelCigarMatches(const std::unordered_map<std::string, 
 	if (i.Type() == 'D' || i.Type() == 'I')
 	  ++di_count;
     }
-    if (di_count > MAX_INDEL_PER_CONTIG && m_align.Qname().substr(0,2) == "c_") // only trim for snowman assembled contigs
+    if (di_count > MAX_INDEL_PER_CONTIG && m_align.Qname().substr(0,2) == "c_") // only trim for svaba assembled contigs
       return false;
     
      // reject if first alignment is I or D or start with too few M
@@ -252,7 +252,7 @@ void AlignmentFragment::indelCigarMatches(const std::unordered_map<std::string, 
 	    bp.b1.gr.pos1 =  m_align.Position() + gcurrlen; // dont count this one//bp.b1.cpos + align.Position; //gcurrlen + align.Position;
 	    bp.b2.gr.pos1 = bp.b1.gr.pos1 + i.Length() + 1;
 	  } else {
-	    bp.b2.gr.pos1 =  (m_align.PositionEnd()) - gcurrlen + 1; // snowman81 removed a -1, set to +1  //bp.b1.cpos + align.Position; //gcurrlen + align.Position;
+	    bp.b2.gr.pos1 =  (m_align.PositionEnd()) - gcurrlen + 1; // v81 removed a -1, set to +1  //bp.b1.cpos + align.Position; //gcurrlen + align.Position;
 	    bp.b1.gr.pos1 =  bp.b2.gr.pos1 - i.Length()- 1; 
 
 	  }

@@ -7,10 +7,10 @@
 // ASQG - Definitions and functions
 // for handling ASGQ files
 //
-#include "SnowmanASQG.h"
+#include "SVaBAASQG.h"
 #include <iterator>
 
-namespace SnowmanASQG
+namespace SVaBAASQG
 {
 
 const int HEADER_VERSION = 1;

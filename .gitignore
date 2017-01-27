@@ -1,4 +1,3 @@
-SnowUtils*
 tmp*
 back.*
 new.*
@@ -20,7 +19,7 @@ config.log
 config.status
 *.o
 bin
-snowman
+svaba
 aclocal.m4
 html
 latex

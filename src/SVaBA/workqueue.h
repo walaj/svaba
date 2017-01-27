@@ -4,10 +4,10 @@
 #include <pthread.h>
 #include <list>
 
-#include "SnowmanWorkUnit.h"
+#include "SVaBAWorkUnit.h"
 #include "SeqLib/RefGenome.h"
 
-typedef std::map<std::string, SnowmanBamWalker> WalkerMap;
+typedef std::map<std::string, SVaBABamWalker> WalkerMap;
 
 template <typename T> class wqueue
 { 
@@ -146,7 +146,7 @@ public:
     if (m_verbose)
       std::cerr << "\tOpening BAMs for thread " << self() << std::endl;
     for (auto& b : bams) {
-      wu.walkers[b.first] = SnowmanBamWalker();
+      wu.walkers[b.first] = SVaBABamWalker();
       wu.walkers[b.first].Open(b.second);
       wu.walkers[b.first].prefix = b.first;
     }
@@ -170,7 +170,7 @@ public:
     return NULL;
   }
 
-  SnowmanWorkUnit wu;
+  SVaBAWorkUnit wu;
 
  private: 
   wqueue<T*>& m_queue;

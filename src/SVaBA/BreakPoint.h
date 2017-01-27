@@ -1,5 +1,5 @@
-#ifndef SNOWTOOLS_BREAKPOINT_H__
-#define SNOWTOOLS_BREAKPOINT_H__
+#ifndef SVABA_BREAKPOINT_H__
+#define SVABA_BREAKPOINT_H__
 
 #include <cstdlib>
 #include <string>

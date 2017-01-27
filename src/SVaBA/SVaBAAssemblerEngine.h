@@ -1,5 +1,5 @@
-#ifndef SNOWMAN_ASSEMBLER_ENGINE_H__
-#define SNOWMAN_ASSEMBLER_ENGINE_H__
+#ifndef SVABA_ASSEMBLER_ENGINE_H__
+#define SVABA_ASSEMBLER_ENGINE_H__
 
 #include "Util.h"
 //#include "contigs.h"
@@ -8,13 +8,13 @@
 #include "SeqLib/BamRecord.h"
 #include "SeqLib/UnalignedSequence.h"
 
-class SnowmanAssemblerEngine
+class SVaBAAssemblerEngine
 {
  public:
 
-  SnowmanAssemblerEngine() {}
+  SVaBAAssemblerEngine() {}
   
-  SnowmanAssemblerEngine(const std::string& id, double er, size_t mo, size_t rl) : m_id(id), m_error_rate(er), m_min_overlap(mo), m_readlen(rl) {}
+  SVaBAAssemblerEngine(const std::string& id, double er, size_t mo, size_t rl) : m_id(id), m_error_rate(er), m_min_overlap(mo), m_readlen(rl) {}
   
   bool hasRepeat(const std::string& seq);
   

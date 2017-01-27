@@ -186,7 +186,7 @@ bool VCFEntry::operator<(const VCFEntry &v) const {
   return be->gr < vbe->gr;    
 }
 
-// create a VCFFile from a snowman breakpoints file
+// create a VCFFile from a svaba breakpoints file
 VCFFile::VCFFile(std::string file, std::string id, const SeqLib::BamHeader& h, const VCFHeader& vheader, bool nopass) {
 
   analysis_id = id;
@@ -264,13 +264,13 @@ VCFFile::VCFFile(std::string file, std::string id, const SeqLib::BamHeader& h, c
   sv_header.addInfoField("SUBN","1","Integer","Number of secondary alignments associated with this contig fragment");
   sv_header.addInfoField("NUMPARTS","1","Integer","If detected with assembly, number of parts the contig maps to. Otherwise 0");
   sv_header.addInfoField("EVDNC","1","String","Evidence for variant. ASSMB assembly only, ASDIS assembly+discordant. DSCRD discordant only, TSI_L templated-sequence insertion (local, e.g. AB or BC of an ABC), TSI_G global (e.g. AC of ABC)");
-  sv_header.addInfoField("SCTG","1","String","Identifier for the contig assembled by SnowmanSV to make the SV call");
+  sv_header.addInfoField("SCTG","1","String","Identifier for the contig assembled by SVaBA to make the SV call");
   sv_header.addInfoField("INSERTION","1","String","Sequence insertion at the breakpoint.");
   sv_header.addInfoField("SPAN","1","Integer","Distance between the breakpoints. -1 for interchromosomal");
   sv_header.addInfoField("DISC_MAPQ","1","Integer","Mean mapping quality of discordant reads mapped here");
 
   // add the indel header fields
-  indel_header.addInfoField("SCTG","1","String","Identifier for the contig assembled by SnowmanSV to make the indel call");
+  indel_header.addInfoField("SCTG","1","String","Identifier for the contig assembled by SVaBA to make the indel call");
   indel_header.addInfoField("MAPQ","1","Integer","Mapping quality (BWA-MEM) of the assembled contig");
   indel_header.addInfoField("SPAN","1","Integer","Size of the indel");
   indel_header.addInfoField("REPSEQ","1","String","Repeat sequence near the variant");

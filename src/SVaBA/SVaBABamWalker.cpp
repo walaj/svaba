@@ -1,4 +1,4 @@
-#include "SnowmanBamWalker.h"
+#include "SVaBABamWalker.h"
 
 //#define QNAME "H01PEALXX140819:3:2218:11657:19504"
 //#define QFLAG -1
@@ -10,7 +10,7 @@
 #define DEBUG(msg, read)
 #endif
 
-//#define DEBUG_SNOWMAN_BAMWALKER 1
+//#define DEBUG_SVABA_BAMWALKER 1
 #define MIN_MAPQ_FOR_MATE_LOOKUP 0
 #define TRAIN_READS_FAIL_SAFE 50000
 #define MIN_ISIZE_FOR_DISCORDANT_REALIGNMENT 1000
@@ -29,7 +29,7 @@ static const std::string FWD_ADAPTER_A = "AGATCGGAAGAGC";
 static const std::string FWD_ADAPTER_B = "AGATCGGAAAGCA";
 static const std::string REV_ADAPTER = "GCTCTTCCGATCT";
 
-void SnowmanBamWalker::addCigar(SeqLib::BamRecord &r) {
+void SVaBABamWalker::addCigar(SeqLib::BamRecord &r) {
 
   // this is a 100% match
   if (r.CigarSize() == 1)
@@ -56,7 +56,7 @@ void SnowmanBamWalker::addCigar(SeqLib::BamRecord &r) {
   
 }
 
-bool SnowmanBamWalker::isDuplicate(const SeqLib::BamRecord &r) {
+bool SVaBABamWalker::isDuplicate(const SeqLib::BamRecord &r) {
 
   // deduplicate by query-bases / position
   std::string key = r.QualitySequence() + std::to_string(r.Position()) + "_" + std::to_string(r.MatePosition());
@@ -70,7 +70,7 @@ bool SnowmanBamWalker::isDuplicate(const SeqLib::BamRecord &r) {
   return true;
 }
 
-SeqLib::GRC SnowmanBamWalker::readBam(std::ofstream * log)
+SeqLib::GRC SVaBABamWalker::readBam(std::ofstream * log)
 {
 
   // these are setup to only use one bam, so just shortcut it
@@ -261,7 +261,7 @@ SeqLib::GRC SnowmanBamWalker::readBam(std::ofstream * log)
   
 }
 
-void SnowmanBamWalker::subSampleToWeirdCoverage(double max_coverage) {
+void SVaBABamWalker::subSampleToWeirdCoverage(double max_coverage) {
   
   SeqLib::BamRecordVector new_reads;
 
@@ -297,7 +297,7 @@ void SnowmanBamWalker::subSampleToWeirdCoverage(double max_coverage) {
   reads = new_reads;
 }
 
-void SnowmanBamWalker::calculateMateRegions() {
+void SVaBABamWalker::calculateMateRegions() {
 
   assert(m_region.size());
 
@@ -346,7 +346,7 @@ void SnowmanBamWalker::calculateMateRegions() {
     }
   }
 
-#ifdef DEBUG_SNOWMAN_BAMWALKER
+#ifdef DEBUG_SVABA_BAMWALKER
   std::cerr << "SBW: Mate regions are" << std::endl;
   for (auto& i : tmp_mate_regions) 
     std::cerr << "    " << i << " count " << i.count << std::endl;
@@ -358,7 +358,7 @@ void SnowmanBamWalker::calculateMateRegions() {
       mate_regions.add(i);
   }
   
-#ifdef DEBUG_SNOWMAN_BAMWALKER
+#ifdef DEBUG_SVABA_BAMWALKER
   std::cerr << "SBW: Final mate regions are:" << std::endl;
   for (auto& i : mate_regions) 
     std::cerr << "    " << i << " read count " << i.count << std::endl;
@@ -366,7 +366,7 @@ void SnowmanBamWalker::calculateMateRegions() {
   
 }
 
-bool SnowmanBamWalker::hasAdapter(const SeqLib::BamRecord& r) const {
+bool SVaBABamWalker::hasAdapter(const SeqLib::BamRecord& r) const {
 
   // keep it if it has indel or unmapped read
   if (r.MaxDeletionBases() || r.MaxInsertionBases() || !r.InsertSize()) // || !r.NumClip())
@@ -393,7 +393,7 @@ bool SnowmanBamWalker::hasAdapter(const SeqLib::BamRecord& r) const {
 
 }
 
-void SnowmanBamWalker::realignDiscordants(SeqLib::BamRecordVector& reads) {
+void SVaBABamWalker::realignDiscordants(SeqLib::BamRecordVector& reads) {
 
   size_t realigned_count = 0;
   for (auto& r : reads) {
@@ -414,7 +414,7 @@ void SnowmanBamWalker::realignDiscordants(SeqLib::BamRecordVector& reads) {
       r.AddIntTag("DD", DiscordantRealigner::MATE_BAD_DISC);
 }
 
-void SnowmanBamWalker::QualityTrimRead(SeqLib::BamRecord& r) const {
+void SVaBABamWalker::QualityTrimRead(SeqLib::BamRecord& r) const {
 
   int32_t startpoint = 0, endpoint = 0;
   r.QualityTrimmedSequence(3, startpoint, endpoint);
