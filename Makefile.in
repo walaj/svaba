@@ -676,7 +676,7 @@ uninstall-am:
 
 
 install:
-	mkdir -p bin && mv src/SVaBA/svaba bin
+	mkdir -p bin && mv src/svaba bin
 
 # Tell versions [3.59,3.63) of GNU make to not export all variables.
 # Otherwise a system limit (for SysV at least) may be exceeded.
