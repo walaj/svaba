@@ -53,11 +53,11 @@ Description
 -----------
 
 SvABA is a method for detecting structural variants in sequencing data using genome-wide local assembly. Under the hood, 
-SvABA uses a custom implementation of SGA (String Graph Assembler) by Jared Simpson, and BWA-MEM by Heng Li. Contigs are assembled
+SvABA uses a custom implementation of [SGA](https://github.com/jts/sga) (String Graph Assembler) by Jared Simpson, and [BWA-MEM](https://github.com/lh3/bwa) by Heng Li. Contigs are assembled
 for every 25kb window (with some small overlap) for every region in the genome. The default is to use only clipped, discordant, 
 unmapped and indel reads, although this can be customized to any set of reads at the command line using [VariantBam][vbam] rules. 
 These contigs are then immediately aligned to the reference with BWA-MEM and parsed to identify variants. Sequencing reads are likewise 
-realigned to the contigs with BWA-MEM, and variants are scored 
+realigned to the contigs with BWA-MEM, and variants are scored.
 
 SvABA is currently configured to provide indel and rearrangement calls (and anything "in between"). It can jointly call any number of BAM/CRAM/SAM files,
 and has built-in support for case-control experiments (e.g. tumor/normal, or trios or quads). In case/control mode, 
@@ -68,7 +68,7 @@ VCF will be emitted.
 
 A BWA-MEM index reference genome must also be supplied with ``-G``.
 
-<img src="https://github.com/broadinstitute/SvABASV/blob/master/gitfig_schematic.png"
+<img src="https://github.com/walaj/svaba/blob/master/gitfig_schematic.png"
 width=800/>
 
 Output file description
@@ -96,7 +96,7 @@ is typically quite large. The recommended usage is to identify the contig name o
 (SCTG=contig_name). Then do ``gunzip -c id.alignment.txt.gz | grep contig_name > plot.txt``. It is highly recommended that you 
 view in a text editor with line truncation turned OFF, so as to not jumble the alignments.
 
-<img src="https://github.com/broadinstitute/SvABASV/blob/master/gitfig_ascii.png"
+<img src="https://github.com/walaj/svaba/blob/master/gitfig_ascii.png"
 width=800/>
 
 ##### ``*.bad_mate_regions.bed``
@@ -219,8 +219,8 @@ Attributions
 SvABA is developed and maintained by Jeremiah Wala (jwala@broadinstitute.org) --  Rameen Berkoukhim lab -- Dana Farber Cancer Institute, Boston, MA. 
 
 This project was developed in collaboration with the Cancer Genome Analysis team at the Broad Institute. Particular thanks to:
-* Cheng-Zhong Zhang (Matthew Meyerson Lab)
-* Marcin Imielinski (http://vivo.med.cornell.edu/display/cwid-mai9037)
+* Cheng-Zhong Zhang - Asst Prof of Biomedical Informatics, Harvard Medical School (https://dbmi.hms.harvard.edu/person/faculty/cheng-zhong-zhang)
+* Marcin Imielinski - Asst Prof of Computational Genomics, Weill Cornell Medicine, (http://www.nygenome.org/lab-groups-overview/imielinski-lab/)
 
 Additional thanks to Jared Simpson for SGA, Heng Li for htslib and BWA, and for the other developers whose  
 code contributed to [SeqLib](https://github.com/walaj/SeqLib).
