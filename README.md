@@ -56,8 +56,8 @@ SvABA is a method for detecting structural variants in sequencing data using gen
 SvABA uses a custom implementation of [SGA](https://github.com/jts/sga) (String Graph Assembler) by Jared Simpson, and [BWA-MEM](https://github.com/lh3/bwa) by Heng Li. Contigs are assembled
 for every 25kb window (with some small overlap) for every region in the genome. The default is to use only clipped, discordant, 
 unmapped and indel reads, although this can be customized to any set of reads at the command line using [VariantBam][vbam] rules. 
-These contigs are then immediately aligned to the reference with BWA-MEM and parsed to identify variants. Sequencing reads are likewise 
-realigned to the contigs with BWA-MEM, and variants are scored.
+These contigs are then immediately aligned to the reference with BWA-MEM and parsed to identify variants. Sequencing reads are then
+realigned to the contigs with BWA-MEM, and variants are scored by their read support.
 
 SvABA is currently configured to provide indel and rearrangement calls (and anything "in between"). It can jointly call any number of BAM/CRAM/SAM files,
 and has built-in support for case-control experiments (e.g. tumor/normal, or trios or quads). In case/control mode, 
@@ -99,10 +99,6 @@ view in a text editor with line truncation turned OFF, so as to not jumble the a
 <img src="https://github.com/walaj/svaba/blob/master/gitfig_ascii.png"
 width=800/>
 
-##### ``*.bad_mate_regions.bed``
-A BED file of regions that were suspected of having poor alignment quality. When encountered, these regions are excluded from future
-mate-lookups. This prevents excessive mate-lookups to centromeres, etc.
-
 ##### ``*.vcf``
 VCF of rearrangements and indels parsed from bps.txt.gz and with a somatic_score == 1 (somatic) or 0 (germline) and quality == PASS. *NOTE* that 
 the cutoff for rearrangement vs indel is taken from BWA-MEM, whether it produces a single gapped-alignment 
@@ -125,7 +121,7 @@ SvABA can refilter the bps.txt.gz file to produce new VCFs with different string
 Examples and recipes
 --------------------
 
-#### Whole genome somatic sv and indel detection 
+#### Whole genome somatic SV and indel detection 
 ```
 wget "https://data.broadinstitute.org/snowman/dbsnp_indel.vcf" ## get a DBSNP known indel file
 DBSNP=dbsnp_indel.vcf
@@ -135,7 +131,7 @@ REF=/seq/references/Homo_sapiens_assembly19/v1/Homo_sapiens_assembly19.fasta
 svaba run -t $TUM_BAM -n $NORM_BAM -p $CORES -D $DBSNP -a somatic_run -G $REF
 ```
 
-#### Whole genome germline sv and indel detection
+#### Whole genome germline SV and indel detection
 ```
 ## Set -I to not do mate-region lookup if mates are mapped to different chromosome.
 ##   This is appropriate for germline-analysis, where we don't have a built-in control
@@ -166,7 +162,7 @@ svaba run -t $TUM_BAM -n $NORM_BAM -p $CORES -k $k  -a TP53 -G $REF
 ```
 ## default behavior is just assemble clipped/discordant/unmapped/gapped reads
 ## This can be overridden with -r all flag
-svaba run -t $BAM -r all -g $REF
+svaba run -t $BAM -r all -G $REF
 ```
 
 #### Snapshot of where svaba run is currently operating
@@ -180,7 +176,7 @@ k=chr17:7,541,145-7,621,399
 svaba run -t $BAM -a local_test -k $k --write-asqg
 
 ## plot the graph
-$GIT/SvABASV/R/snow-asqg.R
+$GIT/svaba/R/svaba-asqg.R
 ```
 
 #### View all of the ASCII alignments 
