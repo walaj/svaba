@@ -454,6 +454,10 @@ void runsvaba(int argc, char** argv) {
   if (opt::main_bam == "-")
     opt::single_end = true;
 
+  // parse the region file, count number of jobs
+  int num_jobs = svabaUtils::countJobs(opt::regionFile, file_regions, regions_torun,
+					 b_header, opt::chunk, WINDOW_PAD); 
+
   // no learning for stdin or single-end mode
   if (opt::single_end) 
     goto afterlearn;
@@ -540,9 +544,6 @@ afterlearn:
     exit(EXIT_FAILURE);
   }
   
-  // parse the region file, count number of jobs
-  int num_jobs = svabaUtils::countJobs(opt::regionFile, file_regions, regions_torun,
-					 b_header, opt::chunk, WINDOW_PAD); 
   if (num_jobs) {
     WRITELOG("...running on " + SeqLib::AddCommas(num_jobs) + " chunks", opt::verbose, true);
   } else {
