@@ -3,6 +3,7 @@
 
 #include "SeqLib/BamRecord.h"
 #include "SeqLib/BWAWrapper.h"
+#include "svabaRead.h"
 
 // object that holds functions for re-aligning a discordant read
 // and checking if it is a true discordant read
@@ -15,14 +16,17 @@ class DiscordantRealigner {
   ~DiscordantRealigner() {}
 
   // check if a read should be realigned
-  bool ShouldRealign(const SeqLib::BamRecord& r) const;
+  //bool ShouldRealign(const SeqLib::BamRecord& r) const;
+  bool ShouldRealign(const svabaRead& r) const;
 
   // realign read
-  bool RealignRead(SeqLib::BamRecord& r, const SeqLib::BWAWrapper* bwa) const;
+  //bool RealignRead(SeqLib::BamRecord& r, const SeqLib::BWAWrapper* bwa) const;
+  bool RealignRead(svabaRead& r, const SeqLib::BWAWrapper* bwa) const;
 
   // reassign a read if it has a better mapping
   // r is the read to be reassigned, s source alignment is the new alignment
-  void ReassignRead(SeqLib::BamRecord& r, const SeqLib::BamRecord& s) const;
+  //void ReassignRead(SeqLib::BamRecord& r, const SeqLib::BamRecord& s) const;
+  //void ReassignRead(svabaRead& r, const svabaRead& s) const;
 
   static const int MAPS_NOT_NEAR_ORIG = -1;  
   static const int MAPS_NEAR_MATE = -2;

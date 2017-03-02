@@ -6,7 +6,6 @@
 #include <unordered_set>
 
 #include "SeqLib/BamWalker.h"
-#include "SeqLib/BamRecord.h"
 #include "svabaUtils.h"
 
 #define DISC_PAD 150
@@ -18,7 +17,7 @@
 
 using namespace SeqLib;
 
-  DiscordantClusterMap DiscordantCluster::clusterReads(const BamRecordVector& bav, const GenomicRegion& interval, int max_mapq_possible, const std::unordered_map<std::string, int> * min_isize_for_disc) {
+  DiscordantClusterMap DiscordantCluster::clusterReads(const svabaReadVector& bav, const GenomicRegion& interval, int max_mapq_possible, const std::unordered_map<std::string, int> * min_isize_for_disc) {
 
 #ifdef DEBUG_CLUSTER
     std::cerr << "CLUSTERING WITH " << bav.size() << " reads " << " and min isize for disc " << min_isize_for_disc << std::endl;
@@ -41,11 +40,12 @@ using namespace SeqLib;
 	}*/
 
     // only add the discordant reads, respecting diff size cutoffs for diff RG
-    BamRecordVector bav_dd;
+    svabaReadVector bav_dd;
     for (auto& r : bav) {
      
       // if suspicious as disccordant, chuck it
-      if (r.GetIntTag("DD") < 0)
+      //if (r.GetIntTag("DD") < 0)
+      if (r.GetDD() < 0)
 	continue;
 
       int cutoff = 800;
@@ -89,7 +89,7 @@ using namespace SeqLib;
     // clear the tmp map. Now we want to use it to store if we already clustered read
     //tmp_map.clear();
     
-    BamRecordClusterVector fwd, rev, fwdfwd, revrev, fwdrev, revfwd;
+    svabaReadClusterVector fwd, rev, fwdfwd, revrev, fwdrev, revfwd;
     std::pair<int, int> fwd_info, rev_info; // refid, pos
     fwd_info = {-1,-1};
     rev_info = {-1,-1};
@@ -175,11 +175,13 @@ using namespace SeqLib;
     // score by number of maps
     for (auto d : dd_clean) {
       for (auto& r : d.second.reads) {
-       double rr = r.second.GetIntTag("DD");
+	//double rr = r.second.GetIntTag("DD");
+	double rr = r.second.GetDD();
        d.second.read_score += (rr > 0) ? 1/rr : 1;
       }
       for (auto& r : d.second.mates) {
-	double rr = r.second.GetIntTag("DD");
+	//double rr = r.second.GetIntTag("DD");
+	double rr = r.second.GetDD();
 	d.second.mate_score += (rr > 0) ? 1/rr : 1;
       }
     }
@@ -190,7 +192,7 @@ using namespace SeqLib;
   }
   
   // this reads is reads in the cluster. all_reads is big pile where all the clusters came from
-  DiscordantCluster::DiscordantCluster(const BamRecordVector& this_reads, const BamRecordVector& all_reads, int max_mapq_possible) {
+  DiscordantCluster::DiscordantCluster(const svabaReadVector& this_reads, const svabaReadVector& all_reads, int max_mapq_possible) {
     
     if (this_reads.size() == 0)
       return;
@@ -247,7 +249,7 @@ using namespace SeqLib;
 	  continue;
 	
 	// add the read to the read map
-	std::string tmp = i.GetZTag("SR");
+	std::string tmp = SRTAG(i);
 	assert(tmp.length());
 	reads[tmp] = i;
 	
@@ -326,7 +328,8 @@ using namespace SeqLib;
     }
     for (auto& i : reads) {
       if (i.second.MapQuality() >= HQMAPQ && hqq.count(i.second.Qname()) && i.second.GetIntTag("NM") < 3) {
-	if(i.second.GetZTag("SR").at(0) == 't')
+	//if(i.second.GetZTag("SR").at(0) == 't')
+	if(i.second.Tumor())
 	  ++tcount_hq;
 	else
 	  ++ncount_hq;
@@ -347,7 +350,7 @@ using namespace SeqLib;
 
   }
   
-  void DiscordantCluster::addMateReads(const BamRecordVector& bav) 
+  void DiscordantCluster::addMateReads(const svabaReadVector& bav) 
   { 
     
     if (!reads.size())
@@ -371,7 +374,7 @@ using namespace SeqLib;
     for (auto& i : bav) {
       std::string sr;
       if (qnames.count(i.Qname())) {
-	  std::string tmp = i.GetZTag("SR");
+	std::string tmp = SRTAG(i) ;
 	  if (reads.count(tmp) == 0)  {// only add if this is a mate read
 	    if (i.ReverseFlag() == st && g.GetOverlap(i.AsGenomicRegion()) > 0) // agrees with intiial mate orientation and position
 	      mates[tmp] = i;
@@ -462,7 +465,7 @@ using namespace SeqLib;
 	  {
 	    if (qnset.count(i.second.Qname()))
 	      continue;
-	    std::string tmp = i.second.GetZTag("SR");
+	    std::string tmp = SRTAG(i.second);
 	    qnset.insert(i.second.Qname());
 	    reads_string += tmp + ",";
 	  }
@@ -470,7 +473,7 @@ using namespace SeqLib;
 	  {
 	    if (qnset.count(i.second.Qname()))
 	      continue;
-	    std::string tmp = i.second.GetZTag("SR");
+	    std::string tmp = SRTAG(i.second);
 	    qnset.insert(i.second.Qname());
 	    reads_string += tmp + ",";
 	  }
@@ -519,7 +522,7 @@ using namespace SeqLib;
    * @param mate Flag to specify if we should cluster on mate position instead of read position
    * @return Description of the return value
    */
-  bool DiscordantCluster::__add_read_to_cluster(BamRecordClusterVector &cvec, BamRecordVector &clust, const BamRecord &a, bool mate) {
+  bool DiscordantCluster::__add_read_to_cluster(svabaReadClusterVector &cvec, svabaReadVector &clust, const svabaRead &a, bool mate) {
 
     // get the position of the previous read. If none, we're starting a new one so make a dummy
     std::pair<int,int> last_info;
@@ -572,12 +575,12 @@ using namespace SeqLib;
     }
   }
 
-  void DiscordantCluster::__cluster_mate_reads(BamRecordClusterVector& brcv, BamRecordClusterVector& fwd, BamRecordClusterVector& rev)
+  void DiscordantCluster::__cluster_mate_reads(svabaReadClusterVector& brcv, svabaReadClusterVector& fwd, svabaReadClusterVector& rev)
   {
     // loop through the clusters, and cluster within clusters based on mate read
     for (auto& v : brcv) 
       {
-	BamRecordVector this_fwd, this_rev;
+	svabaReadVector this_fwd, this_rev;
 	std::sort(v.begin(), v.end(), BamRecordSort::ByMatePosition());
 
 	for (auto& r : v) 
@@ -598,11 +601,11 @@ using namespace SeqLib;
       } // finish main cluster loop
   }
   
-  void DiscordantCluster::__cluster_reads(const BamRecordVector& brv, BamRecordClusterVector& fwd, BamRecordClusterVector& rev, int orientation) 
+  void DiscordantCluster::__cluster_reads(const svabaReadVector& brv, svabaReadClusterVector& fwd, svabaReadClusterVector& rev, int orientation) 
   {
 
     // hold the current cluster
-    BamRecordVector this_fwd, this_rev;
+    svabaReadVector this_fwd, this_rev;
 
     std::unordered_set<std::string> tmp_set;
 
@@ -638,7 +641,7 @@ using namespace SeqLib;
 
   }
 
-  void DiscordantCluster::__convertToDiscordantCluster(DiscordantClusterMap &dd, const BamRecordClusterVector& cvec, const BamRecordVector& bav, int max_mapq_possible) {
+  void DiscordantCluster::__convertToDiscordantCluster(DiscordantClusterMap &dd, const svabaReadClusterVector& cvec, const svabaReadVector& bav, int max_mapq_possible) {
     
     for (auto& v : cvec) {
       if (v.size() > 1) {
@@ -662,9 +665,9 @@ using namespace SeqLib;
     return m_reg1.IsEmpty() || m_reg2.IsEmpty() || m_reg1.chr == -1 || m_reg2.chr == -1;
   }
 
-  void DiscordantCluster::__remove_singletons(BamRecordClusterVector& b)  {
+  void DiscordantCluster::__remove_singletons(svabaReadClusterVector& b)  {
 
-    BamRecordClusterVector tmp;
+    svabaReadClusterVector tmp;
     for (auto& f : b)
       if (f.size() > 1)
 	tmp.push_back(f);

@@ -45,14 +45,14 @@ void set_walker_params(svabaBamWalker& walk);
 MateRegionVector __collect_normal_mate_regions(WalkerMap& walkers);
 MateRegionVector __collect_somatic_mate_regions(WalkerMap& walkers, MateRegionVector& bl);
 SeqLib::GRC __get_exclude_on_badness(std::map<std::string, svabaBamWalker>& walkers, const SeqLib::GenomicRegion& region);
-void correct_reads(std::vector<char*>& learn_seqs, SeqLib::BamRecordVector brv);
-void run_assembly(const SeqLib::GenomicRegion& region, SeqLib::BamRecordVector& bav_this, std::vector<AlignedContig>& master_alc, 
+void correct_reads(std::vector<char*>& learn_seqs, svabaReadVector& brv);
+void run_assembly(const SeqLib::GenomicRegion& region, svabaReadVector& bav_this, std::vector<AlignedContig>& master_alc, 
 		  SeqLib::BamRecordVector& master_contigs, SeqLib::BamRecordVector& master_microbial_contigs, DiscordantClusterMap& dmap,
 		  std::unordered_map<std::string, SeqLib::CigarMap>& cigmap, SeqLib::RefGenome* refg);
-void remove_hardclips(SeqLib::BamRecordVector& brv);
+void remove_hardclips(svabaReadVector& brv);
 CountPair collect_mate_reads(WalkerMap& walkers, const MateRegionVector& mrv, int round, SeqLib::GRC& this_bad_mate_regions);
 CountPair run_mate_collection_loop(const SeqLib::GenomicRegion& region, WalkerMap& wmap, SeqLib::GRC& badd);
-void collect_and_clear_reads(WalkerMap& walkers, SeqLib::BamRecordVector& brv, std::vector<char*>& learn_seqs, std::unordered_set<std::string>& dedupe);
+void collect_and_clear_reads(WalkerMap& walkers, svabaReadVector& brv, std::vector<char*>& learn_seqs, std::unordered_set<std::string>& dedupe);
 void WriteFilesOut(svabaWorkUnit& wu); 
 void run_test_assembly();
 

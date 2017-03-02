@@ -59,7 +59,7 @@ class svabaBamWalker: public SeqLib::BamReader {
     bad_discordant.clear();
   }
 
-  void realignDiscordants(SeqLib::BamRecordVector& reads);
+  void realignDiscordants(svabaReadVector& reads);
   
   bool hasAdapter(const SeqLib::BamRecord& r) const;
   
@@ -75,7 +75,7 @@ class svabaBamWalker: public SeqLib::BamReader {
   bool get_mate_regions = true;
 
   // place to store reads when we get them
-  SeqLib::BamRecordVector reads; //c
+  svabaReadVector reads; //c
 
   // store raw sequences for kmer correction learning
   std::vector<char*> all_seqs; //c
@@ -133,7 +133,7 @@ class svabaBamWalker: public SeqLib::BamReader {
   uint32_t m_seed = 1337;
 
   // quality trim the readd
-  void QualityTrimRead(SeqLib::BamRecord& r) const;
+  void QualityTrimRead(svabaRead& r) const;
   
 };
 

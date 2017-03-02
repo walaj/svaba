@@ -153,12 +153,12 @@ BreakPoint::BreakPoint(DiscordantCluster& tdc, const BWAWrapper * bwa, Discordan
 
     // add the supporting read info to allels
     for (auto& rr : dc.reads) {
-      std::string sr = rr.second.GetZTag("SR");
+      std::string sr = SRTAG(rr.second);
       allele[sr.substr(0,4)].supporting_reads.insert(sr);
       alt_counts[sr.substr(0,4)].insert(rr.second.Qname());
     }
     for (auto& rr : dc.mates) {
-      std::string sr = rr.second.GetZTag("SR");
+      std::string sr = SRTAG(rr.second);
       allele[sr.substr(0,4)].supporting_reads.insert(rr.second.Qname());
       alt_counts[sr.substr(0,4)].insert(rr.second.Qname());
     }
@@ -381,7 +381,7 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h) {
 	continue;
       
       // get read ID
-      std::string sr = j.GetZTag("SR");
+      std::string sr = SRTAG(j);
       assert(sr.length());
       assert(sr.at(0) == 't' || sr.at(0) == 'n');
       bool tumor_read = sr.at(0) == 't';
@@ -499,7 +499,7 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h) {
     // process valid reads
     for (auto& i : bav) {
 
-      std::string sr = i.GetZTag("SR");
+      std::string sr = SRTAG(i);
       if (valid_reads.count(sr)) {
 
 	std::string qn = i.Qname();
@@ -678,11 +678,11 @@ BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
 
 	      // add the discordant reads names to supporting reads for each sampleinfo
 	      for (auto& rr : d.second.reads) {
-		std::string sr = rr.second.GetZTag("SR");
+		std::string sr = SRTAG(rr.second);
 		allele[sr.substr(0,4)].supporting_reads.insert(sr);
 	      }
 	      for (auto& rr : d.second.mates) {
-		std::string sr = rr.second.GetZTag("SR");
+		std::string sr = SRTAG(rr.second);
 		allele[sr.substr(0,4)].supporting_reads.insert(sr);
 	      }
 
@@ -1083,11 +1083,11 @@ void BreakPoint::format_bx_string() {
     
     //add the discordant reads
     for (auto& r : dc.reads) 
-      supp_reads.insert(r.second.GetZTag("SR"));
+      supp_reads.insert(SRTAG(r.second));
 
     //add the reads from the breakpoint
     for (auto& r : reads) 
-      supp_reads.insert(r.GetZTag("SR"));
+      supp_reads.insert(SRTAG(r));
     
     // print reads to a string, delimit with a ,
     size_t lim = 0;

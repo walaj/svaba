@@ -32,7 +32,7 @@ svaba_SOURCES = run_svaba.cpp BreakPoint.cpp AlignedContig.cpp AlignmentFragment
 		DiscordantRealigner.cpp svabaOverlapAlgorithm.cpp svabaASQG.cpp \
 		svabaAssemble.cpp KmerFilter.cpp svabaBamWalker.cpp \
 		refilter.cpp LearnBamParams.cpp \
-		STCoverage.cpp Histogram.cpp BamStats.cpp
+		STCoverage.cpp Histogram.cpp BamStats.cpp svabaRead.cpp
 
 install:
 	mkdir -p ../../bin && mv svaba ../../bin

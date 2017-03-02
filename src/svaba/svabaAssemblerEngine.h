@@ -7,6 +7,7 @@
 #include "ReadTable.h"
 #include "SeqLib/BamRecord.h"
 #include "SeqLib/UnalignedSequence.h"
+#include "svabaRead.h"
 
 class svabaAssemblerEngine
 {
@@ -18,7 +19,7 @@ class svabaAssemblerEngine
   
   bool hasRepeat(const std::string& seq);
   
-  void fillReadTable(SeqLib::BamRecordVector& r);
+  void fillReadTable(svabaReadVector& r);
   
   void fillReadTable(const std::vector<std::string>& r);
   
@@ -68,8 +69,6 @@ class svabaAssemblerEngine
   bool m_write_asqg = false;
   
   ReadTable m_pRT;
-  
-  SeqLib::BamRecordVector m_reads;
   
   //ContigVector m_contigs;
   SeqLib::UnalignedSequenceVector m_contigs;

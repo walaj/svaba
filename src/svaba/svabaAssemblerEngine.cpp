@@ -1,4 +1,5 @@
 #include "svabaAssemblerEngine.h"
+#include "svabaUtils.h"
 
 #include <map>
 #include <algorithm>
@@ -46,38 +47,28 @@ void svabaAssemblerEngine::fillReadTable(const std::vector<std::string>& r) {
   
 }
 
-void svabaAssemblerEngine::fillReadTable(SeqLib::BamRecordVector& r)
-{
+void svabaAssemblerEngine::fillReadTable(svabaReadVector& r) {
   
-  m_reads = r;
-
+  size_t count = 0;
+  
   // make the reads tables
   for (auto& i : r) {
-
-    SeqItem si;
-    std::string sr, seq; 
-
-    // get the sequence
-    sr = i.GetZTag("SR");
-    if (!sr.length())
-      sr = i.Qname();
-
-    seq = i.GetZTag("KC");
-    if (!seq.length()) {
-      seq = i.QualitySequence(); //i.QualityTrimmedSequence(4, dum);
-    } 
+    
+    // get the sequence and unique ID
+    std::string sr = std::to_string(++count);
+    std::string seq = i.Seq();
     assert(sr.length());
     assert(seq.length());
 
     if (hasRepeat(seq) || seq.length() < m_min_overlap)
       continue;
-      
-    si.id = sr;
 
     // put onto the foward strand if not
     if (!i.MappedFlag() && !i.MateReverseFlag())
       SeqLib::rcomplement(seq);
 
+    SeqItem si;
+    si.id = sr;
     si.seq = seq;
     m_pRT.addRead(si);
 

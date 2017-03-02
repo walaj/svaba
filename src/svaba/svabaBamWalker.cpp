@@ -1,4 +1,5 @@
 #include "svabaBamWalker.h"
+#include "svabaRead.h"
 
 //#define QNAME "H01PEALXX140819:3:2218:11657:19504"
 //#define QFLAG -1
@@ -12,7 +13,7 @@
 
 //#define DEBUG_SVABA_BAMWALKER 1
 #define MIN_MAPQ_FOR_MATE_LOOKUP 0
-#define TRAIN_READS_FAIL_SAFE 50000
+//#define TRAIN_READS_FAIL_SAFE 50000
 #define MIN_ISIZE_FOR_DISCORDANT_REALIGNMENT 1000
 #define DISC_REALIGN_MATE_PAD 100
 #define MAX_SECONDARY_HIT_DISC 10
@@ -22,7 +23,6 @@
 // this should be synced with the split-read buffer in BreakPoint2 for more accurate 
 // representation of covearge of INFORMATIVE reads (eg ones that could be split)
 #define INFORMATIVE_COVERAGE_BUFFER 4
-
 
 static const std::string ILLUMINA_PE_PRIMER_2p0 = "CAAGCAGAAGACGGCAT";
 static const std::string FWD_ADAPTER_A = "AGATCGGAAGAGC";
@@ -70,8 +70,7 @@ bool svabaBamWalker::isDuplicate(const SeqLib::BamRecord &r) {
   return true;
 }
 
-SeqLib::GRC svabaBamWalker::readBam(std::ofstream * log)
-{
+SeqLib::GRC svabaBamWalker::readBam(std::ofstream * log) {
 
   // these are setup to only use one bam, so just shortcut it
   SeqLib::_Bam * tb = &m_bams.begin()->second;
@@ -102,12 +101,19 @@ SeqLib::GRC svabaBamWalker::readBam(std::ofstream * log)
     bool qcpass = !r.DuplicateFlag() && !r.QCFailFlag();
     bool pass_all = true;
 
+    svabaRead s(r, prefix);
+
     // quality score trim read. Stores in GV tag
-    QualityTrimRead(r);
+    QualityTrimRead(s);
     
     // if its less than 20, dont even mess with it
-    if (r.QualitySequence().length() < 20)
+    //if (s.QualitySequence().length() < 20)
+    if (s.SeqLength() < 20)
+      //if (s.QualitySequence().length() < 20)
       continue;
+
+    //debug
+    s.AddZTag("GV", s.Seq());
 
     rule_pass = m_mr->isValid(r);
       
@@ -185,7 +191,7 @@ SeqLib::GRC svabaBamWalker::readBam(std::ofstream * log)
     DEBUG("SBW pass all? " + std::to_string(pass_all), r);
    
     // add all the reads for kmer correction
-    if (qcpass && do_kmer_filtering && all_seqs.size() < TRAIN_READS_FAIL_SAFE && qcpass && !r.NumHardClip()) {
+    if (qcpass && do_kmer_filtering && all_seqs.size() < (m_limit * 5) && qcpass && !r.NumHardClip()) {
       std::string qq = r.QualitySequence();
       bool train = pass_all && qq.length() > 40;
       // if not 
@@ -214,22 +220,32 @@ SeqLib::GRC svabaBamWalker::readBam(std::ofstream * log)
       (*log) << "...read in " << SeqLib::AddCommas<size_t>(countr) << " weird reads for whole genome read-in. At pos " << r.Brief() << std::endl;
     
     // for memory conservation
-    r.RemoveTag("BQ");
-    r.RemoveTag("OQ");
+    s.RemoveTag("BQ");
+    s.RemoveTag("OQ");
     //r.RemoveTag("XT");
     //r.RemoveTag("XA");
     //r.RemoveTag("SA");
     
     // add the ID tag
-    std::string srn =  prefix + "_" + std::to_string(r.AlignmentFlag()) + "_" + r.Qname();
-    r.AddZTag("SR", srn);
+    //std::string srn =  prefix + "_" + std::to_string(r.AlignmentFlag());// + "_" + r.Qname();
+    //r.AddZTag("SR", srn);
     
     DEBUG("SBW read added ", r);
-    
-    reads.push_back(r); // adding later because of kmer correction
+
+    //
+    //std::string g = r.QualitySequence();
+    //svabaRead s(r, prefix);
+    //s.AddSeq(r.QualitySequence()); // copies the sequence
+    //r.ClearSeqQualAndTags();       // also clears same r within svabaRead
+    //s.ClearSeqQualAndTags();
+    s.SetSequence(std::string()); // clear out the sequence & qual in the htslib
+    s.RemoveTag("GV");
+
+    //reads.push_back(r); // adding later because of kmer correction
+    reads.push_back(s); // adding later because of kmer correctiona
     
   } // end the read loop
-  
+
 #ifdef QNAME
   for (auto& j : reads) { DEBUG("SBW read kept pre-filter", j); }
 #endif
@@ -263,7 +279,7 @@ SeqLib::GRC svabaBamWalker::readBam(std::ofstream * log)
 
 void svabaBamWalker::subSampleToWeirdCoverage(double max_coverage) {
   
-  SeqLib::BamRecordVector new_reads;
+  svabaReadVector new_reads;
 
   for (auto& r : reads)
     {
@@ -309,7 +325,9 @@ void svabaBamWalker::calculateMateRegions() {
   // loop the reads and add mate reads to MateRegionVector
   for (auto& r : reads) {
 
-    int dd = r.GetIntTag("DD");
+    //int dd = r.GetIntTag("DD");
+    int dd = r.GetDD(); 
+    
     // throw away reads that have too many different discordant mappings, or 
     // are otherwise bad (dd < 0)
     if (!r.PairedFlag() || r.MateChrID() > 22 || r.ChrID() > 22 || !r.MappedFlag() 
@@ -393,11 +411,12 @@ bool svabaBamWalker::hasAdapter(const SeqLib::BamRecord& r) const {
 
 }
 
-void svabaBamWalker::realignDiscordants(SeqLib::BamRecordVector& reads) {
+//void svabaBamWalker::realignDiscordants(SeqLib::BamRecordVector& reads) {
+void svabaBamWalker::realignDiscordants(svabaReadVector& reads) {
 
   size_t realigned_count = 0;
   for (auto& r : reads) {
-
+    
     if (!dr.ShouldRealign(r))
       continue;
 
@@ -410,19 +429,21 @@ void svabaBamWalker::realignDiscordants(SeqLib::BamRecordVector& reads) {
 
   // loop through and set DD < 0 for all read-pairs that have a bad discordant
   for (auto& r : reads)
-    if (r.GetIntTag("DD") >= 0 && bad_discordant.count(r.Qname()))
-      r.AddIntTag("DD", DiscordantRealigner::MATE_BAD_DISC);
+    if (r.GetDD() >= 0 && bad_discordant.count(r.Qname()))
+      r.SetDD(DiscordantRealigner::MATE_BAD_DISC);
+
 }
 
-void svabaBamWalker::QualityTrimRead(SeqLib::BamRecord& r) const {
+void svabaBamWalker::QualityTrimRead(svabaRead& r) const {
 
   int32_t startpoint = 0, endpoint = 0;
   r.QualityTrimmedSequence(3, startpoint, endpoint);
   int32_t new_len = endpoint - startpoint;
   if (endpoint != -1 && new_len < r.Length() && new_len > 0 && new_len - startpoint >= 0 && startpoint + new_len <= r.Length()) { 
     try { 
-      r.AddZTag("GV", r.Sequence().substr(startpoint, new_len));
-      assert(r.GetZTag("GV").length());
+      //r.AddZTag("GV", r.Sequence().substr(startpoint, new_len));
+      r.SetSeq(r.Sequence().substr(startpoint, new_len));
+      //assert(r.GetZTag("GV").length());
     } catch (...) {
       std::cerr << "Subsequence failure with sequence of length "  
 		<< r.Sequence().length() << " and startpoint "
@@ -431,7 +452,8 @@ void svabaBamWalker::QualityTrimRead(SeqLib::BamRecord& r) const {
     }
     // read is fine
   } else {
-    r.AddZTag("GV", r.Sequence());
+    //r.AddZTag("GV", r.Sequence());
+    r.SetSeq(r.Sequence()); // copies the sequence
   }
   
 

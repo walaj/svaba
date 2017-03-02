@@ -7,9 +7,9 @@
 #include <iostream>
 #include <unordered_map>
 
-#include "SeqLib/BamRecord.h"
+#include "svabaRead.h"
 
-typedef std::vector<SeqLib::BamRecordVector> BamRecordClusterVector;
+typedef std::vector<svabaReadVector> svabaReadClusterVector;
 
   /** Class to hold clusters of discordant reads */
   class DiscordantCluster 
@@ -33,7 +33,7 @@ typedef std::vector<SeqLib::BamRecordVector> BamRecordClusterVector;
      * @param this_reads Pre-clustered set of discordant reads (but not their mates)
      * @param all_reads A pile of reads to search for mates
      */
-    DiscordantCluster(const SeqLib::BamRecordVector& this_reads, const SeqLib::BamRecordVector& all_reads, int max_mapq_possible);
+    DiscordantCluster(const svabaReadVector& this_reads, const svabaReadVector& all_reads, int max_mapq_possible);
     
     /** Is this discordant cluster empty? */
     bool isEmpty() const;
@@ -45,7 +45,7 @@ typedef std::vector<SeqLib::BamRecordVector> BamRecordClusterVector;
     
     bool hasAssociatedAssemblyContig() const { return m_contig.length(); }
 
-    void addMateReads(const SeqLib::BamRecordVector& bav);
+    void addMateReads(const svabaReadVector& bav);
     
     /** Return the discordant cluster as a string with just coordinates */
     std::string toRegionString() const;
@@ -65,17 +65,17 @@ typedef std::vector<SeqLib::BamRecordVector> BamRecordClusterVector;
     /** Is this a valid cluster? */
     bool valid() const;
 
-    static void __remove_singletons(BamRecordClusterVector& b);
+    static void __remove_singletons(svabaReadClusterVector& b);
 
-    static std::unordered_map<std::string, DiscordantCluster> clusterReads(const SeqLib::BamRecordVector& bav, const SeqLib::GenomicRegion& interval, int max_mapq_possible, const std::unordered_map<std::string, int> * min_isize_for_disc);
+    static std::unordered_map<std::string, DiscordantCluster> clusterReads(const svabaReadVector& bav, const SeqLib::GenomicRegion& interval, int max_mapq_possible, const std::unordered_map<std::string, int> * min_isize_for_disc);
 
-    static bool __add_read_to_cluster(BamRecordClusterVector &cvec, SeqLib::BamRecordVector &clust, const SeqLib::BamRecord &a, bool mate);
+    static bool __add_read_to_cluster(svabaReadClusterVector &cvec, svabaReadVector &clust, const svabaRead &a, bool mate);
 
-    static void __cluster_reads(const SeqLib::BamRecordVector& brv, BamRecordClusterVector& fwd, BamRecordClusterVector& rev, int orientation);
+    static void __cluster_reads(const svabaReadVector& brv, svabaReadClusterVector& fwd, svabaReadClusterVector& rev, int orientation);
 
-    static void __cluster_mate_reads(BamRecordClusterVector& brcv, BamRecordClusterVector& fwd, BamRecordClusterVector& rev);
+    static void __cluster_mate_reads(svabaReadClusterVector& brcv, svabaReadClusterVector& fwd, svabaReadClusterVector& rev);
 
-    static void __convertToDiscordantCluster(std::unordered_map<std::string, DiscordantCluster> &dd, const BamRecordClusterVector& cvec, const SeqLib::BamRecordVector& bav, int max_mapq_possible);
+    static void __convertToDiscordantCluster(std::unordered_map<std::string, DiscordantCluster> &dd, const svabaReadClusterVector& cvec, const svabaReadVector& bav, int max_mapq_possible);
 
     /** Query an interval against the two regions of the cluster. If the region overlaps
      * with one region, return the other region. This is useful for finding the partner 
@@ -92,8 +92,8 @@ typedef std::vector<SeqLib::BamRecordVector> BamRecordClusterVector;
 
     std::unordered_map<std::string, int> counts; // supporting read counts per sample (e.g. t001 - 4, n001 - 6)
 
-    std::unordered_map<std::string, SeqLib::BamRecord> reads;
-    std::unordered_map<std::string, SeqLib::BamRecord> mates;
+    std::unordered_map<std::string, svabaRead> reads;
+    std::unordered_map<std::string, svabaRead> mates;
 
     std::string m_contig = "";
 

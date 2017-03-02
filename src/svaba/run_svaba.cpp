@@ -905,7 +905,8 @@ bool runWorkUnit(const SeqLib::GenomicRegion& region, svabaWorkUnit& wu, long un
 
   // setup read collectors
   std::vector<char*> all_seqs;
-  SeqLib::BamRecordVector bav_this;
+  //SeqLib::BamRecordVector bav_this;
+  svabaReadVector bav_this;
 
   // collect and clear reads from main round
   std::unordered_set<std::string> dedupe;
@@ -995,7 +996,12 @@ bool runWorkUnit(const SeqLib::GenomicRegion& region, svabaWorkUnit& wu, long un
     bfc->clear();  // clear memory and reads
 
     // add the reads for correction
-    bfc->ErrorCorrectToTag(bav_this, "KC");
+    std::vector<std::string> to_correct;
+    for (auto& r : bav_this) 
+      to_correct.push_back(r.Seq());
+    bfc->ErrorCorrectToVector(to_correct);
+    for (size_t i = 0; i < to_correct.size(); ++i) 
+      bav_this[i].SetSeq(to_correct[i]);
 
     double kcov = bfc->GetKCov();
     int kmer    = bfc->GetKMer();
@@ -1011,7 +1017,7 @@ bool runWorkUnit(const SeqLib::GenomicRegion& region, svabaWorkUnit& wu, long un
   
   // do the assembly, contig realignment, contig local realignment, and read realignment
   // modifes bav_this, alc, all_contigs and all_microbial_contigs
-  run_assembly(region, bav_this, alc, all_contigs, all_microbial_contigs, dmap, cigmap, wu.ref_genome);
+  //run_assembly(region, bav_this, alc, all_contigs, all_microbial_contigs, dmap, cigmap, wu.ref_genome);
 
 afterassembly:
   
@@ -1169,7 +1175,7 @@ afterassembly:
       std::string seq = r.GetZTag("KC");
       if (seq.empty())
 	seq = r.QualitySequence();
-      os_corrected << ">" << r.GetZTag("SR") << std::endl << seq << std::endl;
+      os_corrected << ">" << SRTAG(r) << std::endl << seq << std::endl;
     }
     pthread_mutex_unlock(&snow_lock);
   }
@@ -1242,7 +1248,8 @@ SeqLib::GRC makeAssemblyRegions(const SeqLib::GenomicRegion& region) {
 
 }
 
-void alignReadsToContigs(SeqLib::BWAWrapper& bw, const SeqLib::UnalignedSequenceVector& usv, SeqLib::BamRecordVector& bav_this, std::vector<AlignedContig>& this_alc, const SeqLib::RefGenome *  rg) {
+void alignReadsToContigs(SeqLib::BWAWrapper& bw, const SeqLib::UnalignedSequenceVector& usv, 
+			 svabaReadVector& bav_this, std::vector<AlignedContig>& this_alc, const SeqLib::RefGenome *  rg) {
   
   if (!usv.size())
     return;
@@ -1288,9 +1295,10 @@ void alignReadsToContigs(SeqLib::BWAWrapper& bw, const SeqLib::UnalignedSequence
     SeqLib::BamRecordVector brv, brv_ref;
 
     // try the corrected seq first
-    std::string seqr = i.GetZTag("KC");
-      if (seqr.empty())
-	seqr = i.QualitySequence();
+    //std::string seqr = i.GetZTag("KC");
+    //  if (seqr.empty())
+    //	seqr = i.QualitySequence();
+    std::string seqr = i.Seq();
     
     bool hardclip = false;
     assert(seqr.length());
@@ -1352,6 +1360,9 @@ void alignReadsToContigs(SeqLib::BWAWrapper& bw, const SeqLib::UnalignedSequence
       i.SmartAddTag("TE", std::to_string(r.AlignmentEndPosition()));
       i.SmartAddTag("SC", r.CigarString());
       i.SmartAddTag("CN", usv[r.ChrID()].Name);
+
+      i.AddZTag("SR", i.SR().substr(0,4));
+      i.AddZTag("GV", i.Seq());
 
       for (auto& a : this_alc) {
 	if (a.getContigName() != usv[r.ChrID()].Name)
@@ -1486,7 +1497,7 @@ MateRegionVector __collect_somatic_mate_regions(WalkerMap& walkers, MateRegionVe
 
 }
 
-void correct_reads(std::vector<char*>& learn_seqs, SeqLib::BamRecordVector brv) {
+void correct_reads(std::vector<char*>& learn_seqs, svabaReadVector& brv) {
 
   if (!learn_seqs.size())
     return;
@@ -1506,7 +1517,7 @@ void correct_reads(std::vector<char*>& learn_seqs, SeqLib::BamRecordVector brv) 
     	free(learn_seqs[i]);
     
     // do the correction
-    kmer_corrected = kmer.correctReads(brv);
+    //kmer_corrected = kmer.correctReads(brv); //debug
 
     WRITELOG("...SGA kmer corrected " + std::to_string(kmer_corrected) + " reads of " + std::to_string(brv.size()), opt::verbose > 1, true);  
   } //else if (opt::ec_correct_type == "f") {
@@ -1518,15 +1529,15 @@ void correct_reads(std::vector<char*>& learn_seqs, SeqLib::BamRecordVector brv) 
     
 }
 
-void remove_hardclips(SeqLib::BamRecordVector& brv) {
-  SeqLib::BamRecordVector bav_tmp;
+void remove_hardclips(svabaReadVector& brv) {
+  svabaReadVector bav_tmp;
   for (auto& i : brv)
     if (i.NumHardClip() == 0) 
       bav_tmp.push_back(i);
   brv = bav_tmp;
 }
 
-void run_assembly(const SeqLib::GenomicRegion& region, SeqLib::BamRecordVector& bav_this, std::vector<AlignedContig>& master_alc, 
+void run_assembly(const SeqLib::GenomicRegion& region, svabaReadVector& bav_this, std::vector<AlignedContig>& master_alc, 
 		  SeqLib::BamRecordVector& master_contigs, SeqLib::BamRecordVector& master_microbial_contigs, DiscordantClusterMap& dmap,
 		  std::unordered_map<std::string, SeqLib::CigarMap>& cigmap, SeqLib::RefGenome* refg) {
 
@@ -1762,12 +1773,13 @@ CountPair collect_mate_reads(WalkerMap& walkers, const MateRegionVector& mrv, in
   return counts;
 }
 
-void collect_and_clear_reads(WalkerMap& walkers, SeqLib::BamRecordVector& brv, std::vector<char*>& learn_seqs, std::unordered_set<std::string>& dedupe) {
+//void collect_and_clear_reads(WalkerMap& walkers, SeqLib::BamRecordVector& brv, std::vector<char*>& learn_seqs, std::unordered_set<std::string>& dedupe) {
+void collect_and_clear_reads(WalkerMap& walkers, svabaReadVector& brv, std::vector<char*>& learn_seqs, std::unordered_set<std::string>& dedupe) {
 
   // concatenate together all the reads from the different walkers
   for (auto& w : walkers) {
     for (auto& r : w.second.reads) {
-      std::string sr = r.GetZTag("SR");
+      std::string sr = r.SR();
       if (!dedupe.count(sr)) {
 	brv.push_back(r); 
         dedupe.insert(sr);

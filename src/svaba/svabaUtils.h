@@ -11,6 +11,8 @@
 #include "SeqLib/BWAWrapper.h"
 #include "SeqLib/RefGenome.h"
 
+#define SRTAG(r) ((r).GetZTag("SR") + (r).Qname())
+
 namespace svabaUtils {
 
 // make a structure to store timing opt

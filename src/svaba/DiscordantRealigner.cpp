@@ -1,4 +1,5 @@
 #include "DiscordantRealigner.h"
+#include "svabaUtils.h"
 
 #ifdef QNAME
 #define DEBUG(msg, read)				\
@@ -7,10 +8,14 @@
 #define DEBUG(msg, read)
 #endif
 
-bool DiscordantRealigner::ShouldRealign(const SeqLib::BamRecord& r) const {
+//bool DiscordantRealigner::ShouldRealign(const SeqLib::BamRecord& r) const {
+bool DiscordantRealigner::ShouldRealign(const svabaRead& r) const {
+
+  //if (r.SR() == "t000_147_H01PEALXX140819:3:1219:25827:26572")
+  //  std::cerr << " DD " << r.GetDD() << " fi " << r.FullInsertSize() << " lim " << min_isize_for_discordant_realignment << std::endl;
 
   // read was already realigned
-  if (r.GetIntTag("DD") != 0)
+  if (r.GetDD() != 0)
     return false;
   
   // read can't be discordant anyway, since not both mapped
@@ -30,16 +35,17 @@ bool DiscordantRealigner::ShouldRealign(const SeqLib::BamRecord& r) const {
   return true;
 }
 
-bool DiscordantRealigner::RealignRead(SeqLib::BamRecord& r, const SeqLib::BWAWrapper* bwa) const {
+//bool DiscordantRealigner::RealignRead(SeqLib::BamRecord& r, const SeqLib::BWAWrapper* bwa) const {
+bool DiscordantRealigner::RealignRead(svabaRead& r, const SeqLib::BWAWrapper* bwa) const {
 
   DEBUG("Realigning original read", r);
 
   SeqLib::BamRecordVector als;
-  bwa->AlignSequence(r.Sequence(), r.Qname(), als, false, 0.60, secondary_cap);
-  
+  bwa->AlignSequence(r.Seq(), r.Qname(), als, false, 0.60, secondary_cap);
+
   // no alignments, so label as bad
   if (!als.size()) {
-    r.AddIntTag("DD", MAPS_NOWHERE);
+    r.SetDD(MAPS_NOWHERE);
     return false;
   }
 
@@ -54,14 +60,6 @@ bool DiscordantRealigner::RealignRead(SeqLib::BamRecord& r, const SeqLib::BWAWra
 
     DEBUG("   Realigned hit (one of) " + std::to_string(als.size()), i);
 
-    // if the realignment has a better mapq at differnt location
-    // then take that, and say that it is too uncertain to be a 
-    // reliable alignment
-    if (i.MapQuality() > r.MapQuality() && gr.GetOverlap(i.AsGenomicRegion())) {
-      ;//ReassignRead(r, i); // to, from
-      //continue;
-    }
-    
     // if there is another alignment that overlaps with the original
     // but has a lower MAPQ, take the new mapq
     if (gr.GetOverlap(i.AsGenomicRegion())) {
@@ -83,41 +81,19 @@ bool DiscordantRealigner::RealignRead(SeqLib::BamRecord& r, const SeqLib::BWAWra
   
   // add tags
   if (!has_orig) 
-    r.AddIntTag("DD", MAPS_NOT_NEAR_ORIG);
+    r.SetDD(MAPS_NOT_NEAR_ORIG);
   else if (maps_near_mate) 
-    r.AddIntTag("DD", MAPS_NEAR_MATE);
+    r.SetDD(MAPS_NEAR_MATE);
   else
-    r.AddIntTag("DD", als.size());
+    r.SetDD(als.size());
   
-  if (r.GetIntTag("DD") < 0)
-    return true; // was realigned
-  else 
-    return false;
-  
+  return r.GetDD() < 0; // was it realigned?
 }
 
-void DiscordantRealigner::ReassignRead(SeqLib::BamRecord& r, const SeqLib::BamRecord& s) const {
+/*void DiscordantRealigner::ReassignRead(svabaRead& r, const svabaRead& s) const {
 
-  std::string sr = r.GetZTag("SR");
-
-  // make a deep copy
-  // now if s is deleted, it doesn't affect r 
-  // (t is new memory location)
-  bam1_t* t = bam_dup1(s.raw());
-
-  // should carry with it everything (tags etc)
-  r.assign(t);
-
-  r.SetChrIDMate(s.MateChrID());
-  r.SetPositionMate(s.MatePosition());
-  r.SetPairMappedFlag();
-
-  if (s.MateReverseFlag())
-    r.SetMateReverseFlag();
-
-  r.AddIntTag("DD", REASSIGNED_READ); // read is re-assigned, so too worrisome for discordant
-  r.AddZTag("SR", sr);
-
+  r.Reassign(s);
+  r.SetDD(REASSIGNED_READ);
   return;
 
-}
+  }*/

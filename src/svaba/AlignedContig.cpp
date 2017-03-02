@@ -1,5 +1,6 @@
 #include "AlignedContig.h"
 #include "PlottedRead.h"
+#include "svabaUtils.h"
 
 AlignedContig::AlignedContig(const SeqLib::BamRecordVector& bav, const std::set<std::string>& pref) {
     
@@ -226,8 +227,7 @@ void AlignedContig::blacklist(SeqLib::GRC &grv) {
       int rc = 0;
       std::string this_cig;
       std::string seq = i.QualitySequence();
-      std::string sr = i.GetZTag("SR");
-      
+      std::string sr = SRTAG(i);
       
       // get the more complex tags (since there can be multiple annotations per tag)
       std::vector<int> posvec = i.GetSmartIntTag("SL"); // start positions ON CONTIG

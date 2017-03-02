@@ -111,7 +111,7 @@ am_svaba_OBJECTS = svaba-run_svaba.$(OBJEXT) \
 	svaba-KmerFilter.$(OBJEXT) svaba-svabaBamWalker.$(OBJEXT) \
 	svaba-refilter.$(OBJEXT) svaba-LearnBamParams.$(OBJEXT) \
 	svaba-STCoverage.$(OBJEXT) svaba-Histogram.$(OBJEXT) \
-	svaba-BamStats.$(OBJEXT)
+	svaba-BamStats.$(OBJEXT) svaba-svabaRead.$(OBJEXT)
 svaba_OBJECTS = $(am_svaba_OBJECTS)
 svaba_DEPENDENCIES = $(top_builddir)/src/SGA/SGA/libsga.a \
 	$(top_builddir)/src/SGA/StringGraph/libstringgraph.a \
@@ -309,7 +309,7 @@ svaba_SOURCES = run_svaba.cpp BreakPoint.cpp AlignedContig.cpp AlignmentFragment
 		DiscordantRealigner.cpp svabaOverlapAlgorithm.cpp svabaASQG.cpp \
 		svabaAssemble.cpp KmerFilter.cpp svabaBamWalker.cpp \
 		refilter.cpp LearnBamParams.cpp \
-		STCoverage.cpp Histogram.cpp BamStats.cpp
+		STCoverage.cpp Histogram.cpp BamStats.cpp svabaRead.cpp
 
 all: all-am
 
@@ -417,6 +417,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/svaba-svabaAssemblerEngine.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/svaba-svabaBamWalker.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/svaba-svabaOverlapAlgorithm.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/svaba-svabaRead.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/svaba-svabaUtils.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/svaba-vcf.Po@am__quote@
 
@@ -741,6 +742,20 @@ svaba-BamStats.obj: BamStats.cpp
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='BamStats.cpp' object='svaba-BamStats.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o svaba-BamStats.obj `if test -f 'BamStats.cpp'; then $(CYGPATH_W) 'BamStats.cpp'; else $(CYGPATH_W) '$(srcdir)/BamStats.cpp'; fi`
+
+svaba-svabaRead.o: svabaRead.cpp
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT svaba-svabaRead.o -MD -MP -MF $(DEPDIR)/svaba-svabaRead.Tpo -c -o svaba-svabaRead.o `test -f 'svabaRead.cpp' || echo '$(srcdir)/'`svabaRead.cpp
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/svaba-svabaRead.Tpo $(DEPDIR)/svaba-svabaRead.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='svabaRead.cpp' object='svaba-svabaRead.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o svaba-svabaRead.o `test -f 'svabaRead.cpp' || echo '$(srcdir)/'`svabaRead.cpp
+
+svaba-svabaRead.obj: svabaRead.cpp
+@am__fastdepCXX_TRUE@	$(AM_V_CXX)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -MT svaba-svabaRead.obj -MD -MP -MF $(DEPDIR)/svaba-svabaRead.Tpo -c -o svaba-svabaRead.obj `if test -f 'svabaRead.cpp'; then $(CYGPATH_W) 'svabaRead.cpp'; else $(CYGPATH_W) '$(srcdir)/svabaRead.cpp'; fi`
+@am__fastdepCXX_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/svaba-svabaRead.Tpo $(DEPDIR)/svaba-svabaRead.Po
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	$(AM_V_CXX)source='svabaRead.cpp' object='svaba-svabaRead.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCXX_FALSE@	$(AM_V_CXX@am__nodep@)$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(svaba_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c -o svaba-svabaRead.obj `if test -f 'svabaRead.cpp'; then $(CYGPATH_W) 'svabaRead.cpp'; else $(CYGPATH_W) '$(srcdir)/svabaRead.cpp'; fi`
 
 ID: $(am__tagged_files)
 	$(am__define_uniq_tagged_files); mkid -fID $$unique
