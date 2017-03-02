@@ -76,7 +76,7 @@ static const struct option longopts[] = {
 
 
 static const char *BP_USAGE_MESSAGE =
-"Usage: snowman refilter [OPTION] -i bps.txt.gz -o bps.new.txt.gz\n\n"
+"Usage: svaba refilter [OPTION] -i bps.txt.gz -o bps.new.txt.gz\n\n"
 "  Description: \n"
 "\n"
 "  General options\n"
@@ -253,12 +253,12 @@ void runRefilterBreakpoints(int argc, char** argv) {
       std::cerr << "...making the primary VCFs (unfiltered and filtered) from file " << new_bps_file << std::endl;
     VCFFile snowvcf(new_bps_file, opt::analysis_id, bwalker.Header(), header, true);
  
-    std::string basename = opt::analysis_id + ".snowman.unfiltered.";
+    std::string basename = opt::analysis_id + ".svaba.unfiltered.";
     snowvcf.include_nonpass = true;
     snowvcf.writeIndels(basename, false, allele_names.size() == 1);
     snowvcf.writeSVs(basename, false, allele_names.size() == 1);
 
-    basename = opt::analysis_id + ".snowman.";
+    basename = opt::analysis_id + ".svaba.";
     snowvcf.include_nonpass = false;
     snowvcf.writeIndels(basename, false, allele_names.size() == 1);
     snowvcf.writeSVs(basename, false, allele_names.size() == 1);
