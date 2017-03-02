@@ -420,11 +420,13 @@ void VCFFile::deduplicate() {
 
     // loop hits to left end
     for (auto& j : giv1) 
-      if (grv1.at(j.value).id != i.first && ( is_pass == (grv1.at(j.value).pass) )) //j is hit. Make sure have same pass status
+      if (grv1.at(j.value).id != i.first && ( is_pass == (grv1.at(j.value).pass) ) &&
+	  entry_pairs[grv1.at(j.value).id]->bp->b1.gr.strand == i.second->bp->b1.gr.strand) //j is hit. Make sure have same pass status
 	++key_count[grv1.at(j.value).id].first;
     // loop hits to right end
     for (auto& j : giv2)
-      if (grv2.at(j.value).id != i.first && ( is_pass == (grv2.at(j.value).pass) )) //j is hit, grv2.at(j.value).id is key of hit
+      if (grv2.at(j.value).id != i.first && ( is_pass == (grv2.at(j.value).pass) ) &&
+	  entry_pairs[grv2.at(j.value).id]->bp->b2.gr.strand == i.second->bp->b2.gr.strand) //j is hit, grv2.at(j.value).id is key of hit
 	++key_count[grv2.at(j.value).id].second;
 
     // loop through hit keys and if key is hit twice (1 left, 1 right), it is an overlap

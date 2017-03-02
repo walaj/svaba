@@ -1003,18 +1003,22 @@ void BreakPoint::scoreBreakpoint(double LOD_CUTOFF, double LOD_CUTOFF_DBSNP, dou
 
     // do the scoring
     bool iscomplex = evidence.find("TSI") != std::string::npos;
-    if (evidence == "ASSMB" || (iscomplex  && (dc.ncount + dc.tcount)==0))
-      score_assembly_only();
-    if (evidence == "ASDIS" || (iscomplex && (dc.ncount + dc.tcount))) 
-      score_assembly_dscrd();
-    if (evidence == "DSCRD")
-      score_dscrd(min_dscrd_size);
-    // it failed assembly filters, but might pass discordant filters
-    if (evidence == "ASDIS" && confidence != "PASS") { 
-      evidence = "DSCRD";
-      score_dscrd(min_dscrd_size);
-    } else if (evidence == "INDEL") 
+    if (confidence.empty() && evidence != "INDEL") {
+      if (evidence == "ASSMB" || (iscomplex  && (dc.ncount + dc.tcount)==0))
+	score_assembly_only();
+      if (evidence == "ASDIS" || (iscomplex && (dc.ncount + dc.tcount))) 
+	score_assembly_dscrd();
+      if (evidence == "DSCRD")
+	score_dscrd(min_dscrd_size);
+      // it failed assembly filters, but might pass discordant filters
+      if (evidence == "ASDIS" && confidence != "PASS") { 
+	evidence = "DSCRD";
+	score_dscrd(min_dscrd_size);
+      }
+    }
+    else if (evidence == "INDEL") {
       score_indel(LOD_CUTOFF, LOD_CUTOFF_DBSNP);
+    }
 
     // set the somatic_score field to true or false
     score_somatic(LOD_CUTOFF_SOMATIC, LOD_CUTOFF_SOMATIC_DBSNP);
