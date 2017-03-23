@@ -37,7 +37,8 @@ using namespace SeqLib;
       int cutoff = DEFAULT_ISIZE_THRESHOLD;
       if (min_isize_for_disc) {
 
-	std::string RG = r.GetZTag("RG");
+	std::string RG;
+	r.GetZTag("RG", RG);
 
 	// temporary hack for simulated data
 	if (RG.find("tumor") != std::string::npos) {
@@ -166,12 +167,10 @@ using namespace SeqLib;
     // score by number of maps
     for (auto d : dd_clean) {
       for (auto& r : d.second.reads) {
-	//double rr = r.second.GetIntTag("DD");
 	double rr = r.second.GetDD();
        d.second.read_score += (rr > 0) ? 1/rr : 1;
       }
       for (auto& r : d.second.mates) {
-	//double rr = r.second.GetIntTag("DD");
 	double rr = r.second.GetDD();
 	d.second.mate_score += (rr > 0) ? 1/rr : 1;
       }
@@ -313,12 +312,16 @@ using namespace SeqLib;
     std::unordered_set<std::string> hqq;
     // set which reads are HQ
     for (auto& i : mates) {
-      if (i.second.MapQuality() >= HQMAPQ && i.second.GetIntTag("NM") < 3) {
+      int nm=0;
+      i.second.GetIntTag("NM", nm);
+      if (i.second.MapQuality() >= HQMAPQ && nm < 3) {
 	hqq.insert(i.second.Qname());
       }
     }
     for (auto& i : reads) {
-      if (i.second.MapQuality() >= HQMAPQ && hqq.count(i.second.Qname()) && i.second.GetIntTag("NM") < 3) {
+      int nm=0;
+      i.second.GetIntTag("NM", nm);
+      if (i.second.MapQuality() >= HQMAPQ && hqq.count(i.second.Qname()) && nm < 3) {
 	//if(i.second.GetZTag("SR").at(0) == 't')
 	if(i.second.Tumor())
 	  ++tcount_hq;

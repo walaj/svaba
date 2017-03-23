@@ -1198,7 +1198,8 @@ afterassembly:
   if (opt::write_corrected_reads) {
     pthread_mutex_lock(&snow_lock);    
     for (auto& r : bav_this) {
-      std::string seq = r.GetZTag("KC");
+      std::string seq;
+      r.GetZTag("KC", seq);
       if (seq.empty())
 	seq = r.QualitySequence();
       //os_corrected << ">" << SRTAG(r) << std::endl << seq << std::endl;
@@ -1336,8 +1337,11 @@ void alignReadsToContigs(SeqLib::BWAWrapper& bw, const SeqLib::UnalignedSequence
 
     // get the maximum non-reference alignment score
     int max_as = 0;
-    for (auto& r : brv)
-      max_as = std::max(max_as, r.GetIntTag("AS"));
+    for (auto& r : brv) {
+      int thisas = 0;
+      r.GetIntTag("AS", thisas);
+      max_as = std::max(max_as, thisas);
+    }
 
     // align to the reference alleles
     if (!bw_ref.IsEmpty())
@@ -1345,8 +1349,11 @@ void alignReadsToContigs(SeqLib::BWAWrapper& bw, const SeqLib::UnalignedSequence
 
     // get the maximum reference alignment score
     int max_as_r = 0;
-    for (auto& r : brv_ref)
-      max_as_r = std::max(max_as_r, r.GetIntTag("AS"));
+    for (auto& r : brv_ref) {
+      int thisas= 0;
+      r.GetIntTag("AS", thisas);
+      max_as_r = std::max(max_as_r, thisas);
+    }
     
     // reject if better alignment to reference
     if (max_as_r > max_as) {
@@ -1369,7 +1376,9 @@ void alignReadsToContigs(SeqLib::BWAWrapper& bw, const SeqLib::UnalignedSequence
     for (auto& r : brv_svaba) {
 
       // make sure alignment score is OK
-      if ((double)r.NumMatchBases() * 0.5 > r.GetIntTag("AS")/* && i.GetZTag("SR").at(0) == 't'*/)
+      int thisas = 0;
+      r.GetIntTag("AS", thisas);
+      if ((double)r.NumMatchBases() * 0.5 > thisas/* && i.GetZTag("SR").at(0) == 't'*/)
       	continue;
       
       bool length_pass = (r.PositionEnd() - r.Position()) >= ((double)seqr.length() * 0.75);

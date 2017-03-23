@@ -586,18 +586,22 @@ std::ostream& operator<<(std::ostream& out, const BreakPoint& b) {
   }
   
 BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
-    sub_n = b.GetIntTag("SQ");
-    gr.chr = b.ChrID(); 
-    gr.pos1 = -1;
-    gr.pos2 = -1;
-    cpos = -1;
-    mapq = b.MapQuality();
-    chr_name = b.GetZTag("MC"); 
-    assert(chr_name.length());
-    assert(chr_name != "23");
-    nm = std::max(b.GetIntTag("NM") - (int)b.MaxInsertionBases() - (int)b.MaxDeletionBases(), 0);
-    as_frac = (double)b.GetIntTag("AS") / (double) b.NumMatchBases();
-  }
+  b.GetIntTag("SQ", sub_n);
+  gr.chr = b.ChrID(); 
+  gr.pos1 = -1;
+  gr.pos2 = -1;
+  cpos = -1;
+  mapq = b.MapQuality();
+  b.GetZTag("MC", chr_name); 
+  assert(chr_name.length());
+  assert(chr_name != "23");
+  int tnm=0;
+  b.GetIntTag("NM",tnm);
+  nm = std::max(tnm - (int)b.MaxInsertionBases() - (int)b.MaxDeletionBases(), 0);
+  int thisas=0;
+  b.GetIntTag("AS",thisas);
+  as_frac = (double)thisas / (double) b.NumMatchBases();
+}
 
   void BreakPoint::__combine_with_discordant_cluster(DiscordantClusterMap& dmap)
   {
@@ -1028,7 +1032,8 @@ void BreakPoint::format_bx_string() {
       std::string qname = r.second.Qname();
       if (qn.count(qname))
 	continue;
-      std::string tmp = r.second.GetZTag("BX");
+      std::string tmp;
+      r.second.GetZTag("BX", tmp);
       if (!tmp.empty()) 
 	++supp_tags[tmp];
       qn.insert(qname);
@@ -1039,7 +1044,8 @@ void BreakPoint::format_bx_string() {
       std::string qname = r.Qname();
       if (qn.count(qname))
 	continue;
-      std::string tmp = r.GetZTag("BX");
+      std::string tmp;
+      r.GetZTag("BX", tmp);
       if (!tmp.empty())
 	++supp_tags[tmp];
       qn.insert(qname);

@@ -115,7 +115,8 @@ void LearnBamParams::process_read(const SeqLib::BamRecord& r, size_t count, BamP
    if (chr == r.ChrID())
      pos2 = r.Position();
    
-   std::string RG = r.GetZTag("RG");
+   std::string RG;
+   r.GetZTag("RG", RG);
    // hack for simulated data
    if (RG.find("tumor") != std::string::npos) {
      std::string qn = r.Qname();

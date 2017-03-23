@@ -361,7 +361,9 @@ void AlignedContig::blacklist(SeqLib::GRC &grv) {
     bp.cname = getContigName(); 
     assert(bp.cname.length());
     
-    bp.has_local_alignment = m_frag_v[0].m_align.GetIntTag("LA"); // has local alignment?
+    int la = 0;
+    m_frag_v[0].m_align.GetIntTag("LA", la);
+    bp.has_local_alignment = la > 0; //m_frag_v[0].m_align.GetIntTag("LA"); // has local alignment?
 
     // walk along the ordered contig list and make the breakpoint pairs  
     for (AlignmentFragmentVector::const_iterator it = m_frag_v.begin(); it != m_frag_v.end() - 1; it++) {

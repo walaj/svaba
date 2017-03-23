@@ -28,7 +28,7 @@ AlignmentFragment::AlignmentFragment(const SeqLib::BamRecord &talign, bool flip)
 
     m_align = talign;
 
-    sub_n = talign.GetIntTag("SQ");
+    talign.GetIntTag("SQ", sub_n);
 
     // orient cigar so it is on the contig orientation. 
     // need to do this to get the right ordering of the contig fragments below
@@ -125,7 +125,8 @@ void AlignmentFragment::SetIndels(const AlignedContig * c) {
     out << "\tC[" << c.break1 << "," << c.break2 << "] G[" << c.gbreak1 << "," << c.gbreak2 << "]";
     
     // add local info
-    std::string chr_name = c.m_align.GetZTag("MC");
+    std::string chr_name;
+    c.m_align.GetZTag("MC", chr_name);
     if (!chr_name.length())
       chr_name = std::to_string(c.m_align.ChrID()+1);
     out << "\tLocal: " << c.local << "\tAligned to: " << chr_name << ":" << c.m_align.Position() << "(" << (c.m_align.ReverseFlag() ? "-" : "+") << ") CIG: " << c.m_align.CigarString() << " MAPQ: " << c.m_align.MapQuality() << " SUBN " << c.sub_n;
@@ -297,15 +298,19 @@ void AlignmentFragment::indelCigarMatches(const std::unordered_map<std::string, 
     BreakEnd b;
 
     b.sub_n = sub_n;
-    b.chr_name = m_align.GetZTag("MC");
+    m_align.GetZTag("MC", b.chr_name);
     assert(b.chr_name.length());
     b.mapq = m_align.MapQuality();
     b.matchlen = m_align.NumMatchBases();
     b.local = local;
-    b.nm = std::max(m_align.GetIntTag("NM") - m_align.MaxDeletionBases(), (uint32_t)0);
-    b.simple = m_align.GetIntTag("SZ");
+    int nm1;
+    m_align.GetIntTag("NM", nm1);
+    b.nm = std::max(nm1 - m_align.MaxDeletionBases(), (uint32_t)0);
+    m_align.GetIntTag("SZ",  b.simple);
 
-    b.as_frac = (double)m_align.GetIntTag("AS") / (double) m_align.NumMatchBases();
+    int as;
+    m_align.GetIntTag("AS", as);
+    b.as_frac = (double)as / (double) m_align.NumMatchBases();
 
 
     // if alignment is too short, zero the mapq

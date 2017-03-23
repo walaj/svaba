@@ -62,7 +62,8 @@ void BamReadGroup::addRead(BamRecord &r)
   if (mapqr >=0 && mapqr <= 100)
     mapq.addElem(mapqr);
   
-  int32_t this_nm = r.GetIntTag("NM");;
+  int32_t this_nm=0;
+  r.GetIntTag("NM", this_nm);;
   //r_get_int32_tag(r, "NM", this_nm);
   if (this_nm <= 100)
     nm.addElem(this_nm);
@@ -88,7 +89,8 @@ void BamStats::addRead(BamRecord &r)
 {
 
   // get the read group
-  std::string rg = r.GetZTag("RG"); 
+  std::string rg;
+  r.GetZTag("RG", rg); 
   if (rg.empty()) // try grabbing from QNAME
     rg = "QNAMED_" + r.ParseReadGroup();
 
