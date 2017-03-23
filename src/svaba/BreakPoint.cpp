@@ -153,14 +153,15 @@ BreakPoint::BreakPoint(DiscordantCluster& tdc, const BWAWrapper * bwa, Discordan
 
     // add the supporting read info to allels
     for (auto& rr : dc.reads) {
-      std::string sr = SRTAG(rr.second);
-      allele[sr.substr(0,4)].supporting_reads.insert(sr);
-      alt_counts[sr.substr(0,4)].insert(rr.second.Qname());
+      //std::string sr = SRTAG(rr.second);
+      std::string sr = rr.second.SR();
+      allele[rr.second.Prefix()].supporting_reads.insert(sr);
+      alt_counts[rr.second.Prefix()].insert(rr.second.Qname());
     }
     for (auto& rr : dc.mates) {
-      std::string sr = SRTAG(rr.second);
-      allele[sr.substr(0,4)].supporting_reads.insert(rr.second.Qname());
-      alt_counts[sr.substr(0,4)].insert(rr.second.Qname());
+      std::string sr = rr.second.SR();
+      allele[rr.second.Prefix()].supporting_reads.insert(rr.second.Qname());
+      alt_counts[rr.second.Prefix()].insert(rr.second.Qname());
     }
     
     // add the alt counts
@@ -308,128 +309,94 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h) {
 
   }
   
-  void BreakPoint::splitCoverage(SeqLib::BamRecordVector &bav) {
+//void BreakPoint::splitCoverage(SeqLib::BamRecordVector &bav) {
+  void BreakPoint::splitCoverage(svabaReadVector &bav) {
     
-    // keep track of if first and second mate covers same split. 
-    // if so, this is fishy and remove them both
+    // track if first and second mate covers same split. fishy and remove them both
     std::unordered_map<std::string, bool> qname_and_num;
 
-    // keep track of which ones are valid w/respect to unique qname / num combo (num = first, second mate)
-    std::set<std::string> valid_reads; // rname
-    
+    // keep track of which reads already added
+    std::unordered_set<std::string> qnames;
+
     // keep track of reads to reject
     std::set<std::string> reject_qnames;
 
-    // get the homology length. this is useful because if read alignment ends in homologous region, it is not split
+    // get the homology length. useful bc if read alignment ends in homologous region, it is not split
     int homlen = b1.cpos - b2.cpos;
     if (homlen < 0)
       homlen = 0;
    
-    // loop all of the aligned reads
+    // loop all of the read to contig alignments for this contig
     for (auto& j : bav) {
 
-      std::vector<std::string> cnvec = j.GetSmartStringTag("CN");
-      
-      // for indels, reads with ins alignments to del contig dont count, vice versa
+      r2c& this_r2c = j.GetR2C(cname);
+
       bool read_should_be_skipped = false;
       if (num_align == 1) {
-	std::vector<std::string> cigvec = j.GetSmartStringTag("SC"); // read against contig CIGAR
-	assert(cigvec.size() == cnvec.size());
-	size_t kk = 0;
+
+	std::vector<int> del_breaks;
+	std::vector<int> ins_breaks;
+	int pos = 0;
 	
-	for (; kk < cnvec.size(); kk++)  // find the right contig r2c cigar (since can have one read to many contig)
-	  if (cnvec[kk] == cname)  { // found the right cigar string
+	// if this is a nasty repeat, don't trust non-perfect alignmentx on r2c alignment
+	if (__check_homopolymer(j.Sequence())) 
+	  read_should_be_skipped = true;
+	
+	// loop through r2c cigar and see positions
+	for(auto& i : this_r2c.cig) {
+	  
+	  if (i.Type() == 'D') 
+	    del_breaks.push_back(pos);
+	  else if (i.Type() == 'I')
+	    ins_breaks.push_back(pos);
+	  
+	  // update position on contig
+	  if (i.ConsumesReference())
+	    pos += i.Length(); // update position on contig
+	  
+	}
+	
+	size_t buff = std::max((size_t)3, repeat_seq.length() + 3);
+	for (auto& i : del_breaks)
+	  if (i > b1.cpos - buff || i < b1.cpos + buff) // if start of insertion is at start of a del of r2c
+	    read_should_be_skipped = true;
+	for (auto& i : ins_breaks)
+	  if (i > b1.cpos - buff || i < b1.cpos + buff) // if start of insertion is at start of a del of r2c
+	    read_should_be_skipped = true;
+      } 
 
-	    Cigar tcig = cigarFromString(cigvec[kk]);
-	    std::vector<int> del_breaks;
-	    std::vector<int> ins_breaks;
-	    int pos = 0;
-	    
-	    // if this is a nasty repeat, don't trust non-perfect alignmentx on r2c alignment
-	    //if ( (repeat_seq.length() > 6 || __check_homopolymer(j.Sequence())) && tcig.size() > 1) 
-	    if (__check_homopolymer(j.Sequence())) 
-	      read_should_be_skipped = true;
-	    
-	    // loop through r2c cigar and see positions
-	    for(auto& i : tcig) {
-
-	      if (i.Type() == 'D') 
-		del_breaks.push_back(pos);
-	      else if (i.Type() == 'I')
-		ins_breaks.push_back(pos);
-
-	      // update position on contig
-	      if (i.ConsumesReference())
-		pos += i.Length(); // update position on contig
-
-	    }
-	    
-	    size_t buff = std::max((size_t)3, repeat_seq.length() + 3);
-	    //if (insertion.length()) { // for insertions, skip reads that have del to insertion at same pos
-	      for (auto& i : del_breaks)
-		if (i > b1.cpos - buff || i < b1.cpos + buff) // if start of insertion is at start of a del of r2c
-		  read_should_be_skipped = true;
-	      //} else { // for del, skip reads that have ins r2c to deletion at sam pos
-	      for (auto& i : ins_breaks)
-		if (i > b1.cpos - buff || i < b1.cpos + buff) // if start of insertion is at start of a del of r2c
-		  read_should_be_skipped = true;
-	      //}
-	  }
-      }
-      
-      if (read_should_be_skipped) 
+      if (read_should_be_skipped)  // default is r2c does not support var, so don't amend this_r2c
 	continue;
       
       // get read ID
-      std::string sr = SRTAG(j);
-      assert(sr.length());
-      assert(sr.at(0) == 't' || sr.at(0) == 'n');
-      bool tumor_read = sr.at(0) == 't';
-      std::string sample_id = sr.substr(0,4);
+      std::string sample_id = j.Prefix(); //substr(0,4); // maybe just make this prefix
+      std::string sr = j.SR(); 
 
       // need read to cover past variant by some buffer. If there is a repeat,
       // then this needs to be even longer to avoid ambiguity
       int this_tbuff = T_SPLIT_BUFF + repeat_seq.length();
       int this_nbuff = N_SPLIT_BUFF + repeat_seq.length();      
 
-      int rightbreak1 = b1.cpos + (tumor_read ? this_tbuff : this_nbuff); // read must extend this far right of break1
-      int leftbreak1  = b1.cpos - (tumor_read ? this_tbuff : this_nbuff); // read must extend this far left of break1
-      int rightbreak2 = b2.cpos + (tumor_read ? this_tbuff : this_nbuff);
-      int leftbreak2  = b2.cpos - (tumor_read ? this_tbuff : this_nbuff);
+      int rightbreak1 = b1.cpos + (j.Tumor() ? this_tbuff : this_nbuff); // read must extend this far right of break1
+      int leftbreak1  = b1.cpos - (j.Tumor() ? this_tbuff : this_nbuff); // read must extend this far left of break1
+      int rightbreak2 = b2.cpos + (j.Tumor() ? this_tbuff : this_nbuff);
+      int leftbreak2  = b2.cpos - (j.Tumor() ? this_tbuff : this_nbuff);
 
       std::string contig_qname; // for sanity checking
       // get the alignment position on contig
-      int pos = 0, te = 0;
-      try {
-	std::vector<int> posvec = j.GetSmartIntTag("SL");
-	std::vector<int> tevec  = j.GetSmartIntTag("SE");
-	
-	for (size_t y = 0; y < cnvec.size(); ++y) {
-	  if (cnvec[y] == cname) {
-	    pos = posvec[y];
-	    te  = tevec[y];
-	    contig_qname = cname; // for sanity checking
-	  }
-	}
-      } catch (...) {
-	std::cerr << "error grabbing SE tag for tag " << j.GetZTag("SE") << std::endl;
-      }
-      assert(contig_qname == cname); // for sanity checking
+      int pos = this_r2c.start_on_contig;
+      int te  = this_r2c.end_on_contig;
 
       int rightend = te; 
       int leftend  = pos;
       bool issplit1 = (leftend <= leftbreak1) && (rightend >= rightbreak1);
       bool issplit2 = (leftend <= leftbreak2) && (rightend >= rightbreak2);
-      //bool issplit1I = (leftend <= leftbreak1I) && (rightend >= rightbreak1I);
-      //bool issplit2I = (leftend <= leftbreak2I) && (rightend >= rightbreak2I);
 
       bool both_split = issplit1 && issplit2;
       bool one_split = issplit1 || issplit2;
-      //bool both_splitI = issplit1I && issplit2I;
-      //bool one_splitI = issplit1I || issplit2I;
+
       // be more permissive for NORMAL, so keep out FPs
-      bool valid  = (both_split && (tumor_read || homlen > 0)) || (one_split && !tumor_read && homlen == 0) || (one_split && insertion.length() >= INSERT_SIZE_TOO_BIG_SPAN_READS);
-      //bool validI = (both_splitI && homlen > 0) || (one_splitI && homlen == 0) || (one_splitI && insertion.length() >= INSERT_SIZE_TOO_BIG_SPAN_READS);
+      bool valid  = (both_split && (j.Tumor() || homlen > 0)) || (one_split && !j.Tumor() && homlen == 0) || (one_split && insertion.length() >= INSERT_SIZE_TOO_BIG_SPAN_READS);
       // requiring both break ends to be split for homlen > 0 is for situation beow
       // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>A..........................
       // ............................B>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
@@ -438,6 +405,16 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h) {
       // segment, it should be non-split on all, for overlapping alignments like above. Not true of 
       // insertions at junctions, where one can split at one and not the other because of the intervening sequence buffer
 
+      // check that deletion (in read to contig coords) doesn't cover break point
+      size_t p = pos; // move along on contig, starting at first non-clipped base
+      for (SeqLib::Cigar::const_iterator c = this_r2c.cig.begin(); c != this_r2c.cig.end(); ++c) {
+	if (c->Type() == 'D') { 
+	  if ( (p >= leftbreak1 && p <= rightbreak1) || (p >= leftbreak2 && p <= rightbreak2) )
+	    read_should_be_skipped = true;
+	}
+	if (c->ConsumesReference()) // if it moves it along the contig
+	  p += c->Length();
+      }
 
       //debug
       /*if (sr == "t000_163_H01PEALXX140819:2:2202:14804:18907")
@@ -454,6 +431,7 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h) {
       if (valid) { 
 	
 	std::string qn = j.Qname();
+
 
 	// if read seen and other read was other mate, then reject
 	if (num_align > 1 && qname_and_num.count(qn) && qname_and_num[qn] != j.FirstFlag()) {
@@ -472,8 +450,8 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h) {
 	  
 	  // this is a valid read
 	  if (valid)
-	    valid_reads.insert(sr);
-	  
+	    this_r2c.supports_var = true;
+	  //valid_reads.insert(sr);
 
 	  // how much of the contig do these span
 	  // for a given read QNAME, get the coverage that 
@@ -488,43 +466,34 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h) {
       if (issplit2 && valid)
 	++b2.split[sample_id];	
 
-      //if (issplit1I && validI)
-      //	++b1.splitI[sample_id];
-      //if (issplit2I && validI)
-      //	++b2.splitI[sample_id];	
+      // add r2c back, but as amended
+      //j.AddR2C(cname, this_r2c);
 
-      
     } // end read loop
 
     // process valid reads
     for (auto& i : bav) {
-
-      std::string sr = SRTAG(i);
-      if (valid_reads.count(sr)) {
+      
+      r2c& this_r2c = i.GetR2C(cname);
+      if (this_r2c.supports_var/*valid_reads.count(sr)*/) {
 
 	std::string qn = i.Qname();
-	// i don't know why I wanted to keep this to large events...
-	// changing back to only one split from a read pair
-	if (qnames.count(qn)/* && span > 1000*/)
+	if (qnames.count(qn))
 	  continue; // don't count support if already added and not a short event
 	// check that it's not a bad 1, 2 split
 	if (reject_qnames.count(qn)) {
+	  this_r2c.supports_var = false;
+	  i.AddR2C(cname, this_r2c); // update that this actually does not support
 	  continue; 
 	}
 
 	reads.push_back(i);
-	split_reads.insert(sr);
-
-	// get read ID
-	//assert(sr.at(0) == 't' || sr.at(0) == 'n');
-	//bool tumor_read = sr.at(0) == 't';
-	std::string sample_id = sr.substr(0,4);
 
 	// keep track of qnames of split reads
 	qnames.insert(qn);
-	allele[sample_id].supporting_reads.insert(sr);
+	allele[i.Prefix()].supporting_reads.insert(i.SR());
 	
-      	++allele[sample_id].split;
+      	++allele[i.Prefix()].split;
       }
     }
 
@@ -532,7 +501,6 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h) {
     for (auto& i : allele) {
       i.second.indel = num_align == 1;
       i.second.adjust_alt_counts();
-      //i.second.alt = std::max((int)i.second.supporting_reads.size(), i.second.cigar);
     }
 
   }
@@ -670,7 +638,7 @@ BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
 	      dc = d.second;
 	      d.second.m_contig = cname;
 
-	      // add the counts
+	      // add the read counts
 	      for (auto& c : d.second.counts) {
 		allele[c.first].disc = c.second;
 		allele[c.first].indel = num_align == 1;
@@ -678,12 +646,11 @@ BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
 
 	      // add the discordant reads names to supporting reads for each sampleinfo
 	      for (auto& rr : d.second.reads) {
-		std::string sr = SRTAG(rr.second);
-		allele[sr.substr(0,4)].supporting_reads.insert(sr);
+		allele[rr.second.Prefix()].supporting_reads.insert(rr.second.SR());
+
 	      }
 	      for (auto& rr : d.second.mates) {
-		std::string sr = SRTAG(rr.second);
-		allele[sr.substr(0,4)].supporting_reads.insert(sr);
+		allele[rr.second.Prefix()].supporting_reads.insert(rr.second.SR());
 	      }
 
 	      // adjust the alt counts
@@ -691,6 +658,7 @@ BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
 		aa.second.adjust_alt_counts();
 	      //aa.second.alt = aa.second.supporting_reads.size();
 
+	      assert(allele.size() < 3); //debug
 	  } 
 	
       }
@@ -1020,6 +988,12 @@ void BreakPoint::scoreBreakpoint(double LOD_CUTOFF, double LOD_CUTOFF_DBSNP, dou
       score_indel(LOD_CUTOFF, LOD_CUTOFF_DBSNP);
     }
 
+    // filter out SVs with only 1 BX tag supporting
+    // if we have bx tags
+    format_bx_string();
+    if (bx_count == 1 && confidence == "PASS")
+      confidence = "SINGLEBX";
+
     // set the somatic_score field to true or false
     score_somatic(LOD_CUTOFF_SOMATIC, LOD_CUTOFF_SOMATIC_DBSNP);
 
@@ -1070,6 +1044,8 @@ void BreakPoint::format_bx_string() {
 	++supp_tags[tmp];
       qn.insert(qname);
     }
+
+    bx_count = supp_tags.size();
     
     for (const auto& s : supp_tags)
       bxtable = bxtable += s.first + "_" + std::to_string(s.second) + ",";
@@ -1080,18 +1056,20 @@ void BreakPoint::format_bx_string() {
   void BreakPoint::format_readname_string() {
     
     // only operate it not already formated
-    if (read_names.empty())
+    if (!read_names.empty())
       return;
     
     std::unordered_set<std::string> supp_reads;
     
     //add the discordant reads
     for (auto& r : dc.reads) 
-      supp_reads.insert(SRTAG(r.second));
+      supp_reads.insert(r.second.SR());
+    //supp_reads.insert(SRTAG(r.second));
 
     //add the reads from the breakpoint
     for (auto& r : reads) 
-      supp_reads.insert(SRTAG(r));
+      //supp_reads.insert(SRTAG(r)); // BamRecords (not svabaBamRead)
+    supp_reads.insert(r.SR());
     
     // print reads to a string, delimit with a ,
     size_t lim = 0;
@@ -1107,7 +1085,7 @@ void BreakPoint::format_bx_string() {
     }
     if (!read_names.empty())
       read_names = read_names.substr(1, read_names.size() - 1); // remove first _
-    
+
   }
 
   void BreakPoint::setRefAlt(const RefGenome * main_rg, const RefGenome * viral) {

@@ -222,15 +222,13 @@ void AlignedContig::blacklist(SeqLib::GRC &grv) {
     // print out the individual reads
     for (auto& i : ac.m_bamreads) {
       
-      int pos = -1;
-      int aln = -1;
-      int rc = 0;
-      std::string this_cig;
-      std::string seq = i.QualitySequence();
-      std::string sr = SRTAG(i);
+      //std::string seq = i.QualitySequence();
+      std::string seq = i.Seq(); 
+      //std::string sr = SRTAG(i);
+      std::string sr = i.SR();
       
       // get the more complex tags (since there can be multiple annotations per tag)
-      std::vector<int> posvec = i.GetSmartIntTag("SL"); // start positions ON CONTIG
+      /*      std::vector<int> posvec = i.GetSmartIntTag("SL"); // start positions ON CONTIG
       std::vector<int> alnvec = i.GetSmartIntTag("TS"); // start positions ON READ
       std::vector<int> rcvec = i.GetSmartIntTag("RC"); // read reverse complmented relative to contig
       std::vector<std::string> cigvec = i.GetSmartStringTag("SC"); // read against contig CIGAR
@@ -252,10 +250,37 @@ void AlignedContig::blacklist(SeqLib::GRC &grv) {
 	  this_cig = cigvec[kk];
 	  break;
 	}
-      
+
       // reverse complement if need be
       if (rc)
 	SeqLib::rcomplement(seq);      
+      */
+
+      // get the read to contig alignment information
+      r2c this_r2c = i.GetR2C(ac.getContigName());
+      
+      int pos = this_r2c.start_on_contig;
+      int aln = this_r2c.start_on_read;
+
+      if (this_r2c.rc)
+	SeqLib::rcomplement(seq);
+  
+      // edit the string to reflect gapped alignments
+      size_t p = 0; // move along on sequence, starting at first non-clipped base
+      std::string gapped_seq;
+      for (SeqLib::Cigar::const_iterator c = this_r2c.cig.begin(); c != this_r2c.cig.end(); ++c) {
+	if (c->Type() == 'M') { // 
+	  assert(p + c->Length() <= seq.length());
+	  gapped_seq += seq.substr(p, c->Length());
+	} else if (c->Type() == 'D') {
+	  gapped_seq += std::string(c->Length(), '-');
+	}
+	
+	if (c->Type() == 'I' || c->Type() == 'M')
+	  p += c->Length();
+      }
+      seq = gapped_seq;
+      
       
       if (aln > 0)
 	try {
@@ -275,15 +300,14 @@ void AlignedContig::blacklist(SeqLib::GRC &grv) {
 
 	}
       
-      
-      assert(kk != cnvec.size()); // assure that we found something
+      //assert(kk != cnvec.size()); // assure that we found something
       pos = abs(pos);
       int padlen = ac.getSequence().size() - pos - seq.size() + 5;
       padlen = std::max(5, padlen);
       
       std::stringstream rstream;
       assert(pos < MAX_CONTIG_SIZE && padlen < MAX_CONTIG_SIZE); // bug, need to check
-      rstream << sr << "--" << (i.ChrID()+1) << ":" << i.Position() << " r2c CIGAR: " << this_cig;
+      rstream << sr << "--" << (i.ChrID()+1) << ":" << i.Position() << " r2c CIGAR: " << this_r2c.cig;
       
       plot_vec.push_back({pos, seq, rstream.str()});
     }
@@ -628,6 +652,7 @@ std::string AlignedContig::getSequence() const {
   return m_seq; 
 }
 
-void AlignedContig::AddAlignedRead(const SeqLib::BamRecord& br) {
+//void AlignedContig::AddAlignedRead(const SeqLib::BamRecord& br) {
+void AlignedContig::AddAlignedRead(const svabaRead& br) {
   m_bamreads.push_back(br);
 }

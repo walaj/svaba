@@ -8,6 +8,7 @@
 
 #include "CorrectionThresholds.h"
 #include "OverlapCommon.h"
+#include "svabaRead.h"
 
 typedef std::map<std::string, int> KmerCountMap;
 
@@ -21,9 +22,11 @@ class KmerFilter {
 
     int correctReads(SeqLib::BamRecordVector& vec);
 
+    int correctReads(svabaReadVector& vec);
+
     void makeIndex(const std::vector<char*>& v);
 
-    void makeIndex(SeqLib::BamRecordVector& vec);
+    //void makeIndex(SeqLib::BamRecordVector& vec);
   
  private: 
 

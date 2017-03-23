@@ -16,8 +16,12 @@
 #include "LearnBamParams.h"
 #include "SeqLib/BFC.h"
 
-#define THREAD_READ_LIMIT 1 // 1000
-#define THREAD_CONTIG_LIMIT 1// 100
+#define THREAD_READ_LIMIT  20000
+#define THREAD_CONTIG_LIMIT 250
+
+// minimum number of reads to support even reporting dscrd cluster 
+// (if not assocaited with assembly contig)
+#define MIN_DSCRD_READS_DSCRD_ONLY 3 
 
 // useful replace function
 std::string myreplace(std::string &s,
@@ -43,6 +47,7 @@ static std::stringstream ss; // initalize a string stream once
 #define SECONDARY_CAP 10
 #define MAX_MATE_ROUNDS 1
 #define MATE_REGION_LOOKUP_LIMIT 400
+#define MAX_NUM_MATE_WINDOWS 50000000
 
 #define GERMLINE_CNV_PAD 10
 #define WINDOW_PAD 500
@@ -142,7 +147,7 @@ namespace opt {
   static int chunk = 25000;
   static std::string regionFile;  // region to run on
   static std::string analysis_id = "no_id";
-  static int num_to_sample = 5000000;  // num to learn from (eg isize distribution)
+  static int num_to_sample = 2000000;  // num to learn from (eg isize distribution)
 
   // runtime parameters
   static int verbose = 0;
@@ -286,7 +291,7 @@ static const char *RUN_USAGE_MESSAGE =
 "      --no-interchrom-lookup           Skip mate lookup for inter-chr candidate events. Reduces power for translocations but less I/O.\n"
 "      --discordant-only                Only run the discordant read clustering module, skip assembly. \n"
 "      --num-assembly-rounds            Run assembler multiple times. > 1 will bootstrap the assembly. [2]\n"
-"      --num-to-sample                  When learning about inputs, number of reads to sample. [1000000]\n"
+"      --num-to-sample                  When learning about inputs, number of reads to sample. [2,000,000]\n"
 "      --hp                             Highly parallel. Don't write output until completely done. More memory, but avoids all thread-locks.\n"
 "  Output options\n"
 "  -z, --g-zip                          Gzip and tabix the output VCF files. [off]\n"
@@ -363,7 +368,7 @@ void runsvaba(int argc, char** argv) {
   ss << 
     "    Num reads to sample: " << opt::num_to_sample << std::endl << 
     "    Discordant read extract SD cutoff:  " << opt::sd_disc_cutoff << std::endl << 
-    "    Discordant cluster std-dev cutoff:  " << (opt::sd_disc_cutoff ) << std::endl << 
+    "    Discordant cluster std-dev cutoff:  " << opt::sd_disc_cutoff << std::endl << 
     "    Minimum number of reads for mate lookup " << opt::mate_lookup_min << std::endl <<
     "    LOD cutoff (non-REF):            " << opt::lod << std::endl << 
     "    LOD cutoff (non-REF, at DBSNP):  " << opt::lod_db << std::endl << 
@@ -538,11 +543,12 @@ afterlearn:
 
   // open the reference for reading seqeuence
   ref_genome = new SeqLib::RefGenome;
+
   svabaUtils::__open_index_and_writer(opt::refgenome, main_bwa, opt::analysis_id + ".contigs.bam", b_contig_writer, ref_genome, bwa_header);
   if (ref_genome->IsEmpty()) {
     std::cerr << "ERROR: Unable to open index file: " << opt::refgenome << std::endl;
     exit(EXIT_FAILURE);
-  }
+   }
   
   if (num_jobs) {
     WRITELOG("...running on " + SeqLib::AddCommas(num_jobs) + " chunks", opt::verbose, true);
@@ -678,7 +684,7 @@ void makeVCFs() {
   WRITELOG("...loading the bps files for conversion to VCF", opt::verbose, true);
 
   std::string file = opt::analysis_id + ".bps.txt.gz";
-  //if (!SeqLib::read_access_test(file))
+  //if !SeqLib::read_access_test(file))
   //  file = opt::analysis_id + ".bps.txt";
 
   // make the header
@@ -699,6 +705,13 @@ void makeVCFs() {
     header.colnames += "\t" + fname; 
   }
 
+
+  // check if it has a matched control. If so, output "somatic / germline" vcfs
+  bool case_control_run = false;
+  for (auto& b : opt::bam)
+    if (b.first.at(0) == 'n')
+      case_control_run = true;
+
   // primary VCFs
   if (SeqLib::read_access_test(file)) {
     WRITELOG("...making the primary VCFs (unfiltered and filtered) from file " + file, opt::verbose, true);
@@ -708,15 +721,15 @@ void makeVCFs() {
       std::string basename = opt::analysis_id + ".svaba.unfiltered.";
       snowvcf.include_nonpass = true;
       WRITELOG("...writing unfiltered VCFs", opt::verbose, true);
-      snowvcf.writeIndels(basename, opt::zip, opt::bam.size() == 1);
-      snowvcf.writeSVs(basename, opt::zip, opt::bam.size() == 1);
+      snowvcf.writeIndels(basename, opt::zip, !case_control_run);
+      snowvcf.writeSVs(basename, opt::zip,    !case_control_run);
     }
 
     WRITELOG("...writing filtered VCFs", opt::verbose, true);
     std::string basename = opt::analysis_id + ".svaba.";
     snowvcf.include_nonpass = false;
-    snowvcf.writeIndels(basename, opt::zip, opt::bam.size() == 1);
-    snowvcf.writeSVs(basename, opt::zip, opt::bam.size() == 1);
+    snowvcf.writeIndels(basename, opt::zip, !case_control_run);
+    snowvcf.writeSVs(basename, opt::zip,    !case_control_run);
 
   } else {
     WRITELOG("ERROR: Failed to make VCF. Could not file bps file " + file, true, true);
@@ -852,9 +865,9 @@ bool runWorkUnit(const SeqLib::GenomicRegion& region, svabaWorkUnit& wu, long un
     set_walker_params(w.second);
 
   // create a new BFC read error corrector for this
-  SeqLib::BFC * bfc = nullptr;
+  SeqPointer<SeqLib::BFC> bfc;
   if (opt::ec_correct_type == "f") {
-    bfc = new SeqLib::BFC();
+    bfc = SeqPointer<SeqLib::BFC>(new SeqLib::BFC());
     for (auto& w : wu.walkers)
       w.second.bfc = bfc;
   }
@@ -885,9 +898,10 @@ bool runWorkUnit(const SeqLib::GenomicRegion& region, svabaWorkUnit& wu, long un
     }
 
     // do the reading, and store the bad mate regions
-    wu.badd.Concat(w.second.readBam(&log_file));
+    wu.badd.Concat(w.second.readBam(&log_file)); 
     wu.badd.MergeOverlappingIntervals();
     wu.badd.CreateTreeMap();
+
     
     // adjust the counts
     if (w.first.at(0) == 't') {
@@ -954,7 +968,7 @@ bool runWorkUnit(const SeqLib::GenomicRegion& region, svabaWorkUnit& wu, long un
       WRITELOG(i.first + " " + i.second.toFileString(false), true, false);
 
  afterdiscclustering:
-  
+
   // skip all the assembly stuff?
   if (opt::disc_cluster_only)
     goto afterassembly;
@@ -993,33 +1007,44 @@ bool runWorkUnit(const SeqLib::GenomicRegion& region, svabaWorkUnit& wu, long un
     int learn_reads_count = bfc->NumSequences();
     
     bfc->Train();
-    bfc->clear();  // clear memory and reads
+    bfc->clear();  // clear memory and reads. Keeps training data
 
-    // add the reads for correction
-    std::vector<std::string> to_correct;
-    for (auto& r : bav_this) 
-      to_correct.push_back(r.Seq());
-    bfc->ErrorCorrectToVector(to_correct);
-    for (size_t i = 0; i < to_correct.size(); ++i) 
-      bav_this[i].SetSeq(to_correct[i]);
+    st.stop("t");
 
+    // reload with the reads to be corrected
+    for (auto& s : bav_this)
+      bfc->AddSequence(s.Seq().c_str(), "", "");
+
+    // error correct 
+    bfc->ErrorCorrect();
+
+    // retrieve the sequences
+    std::string s, name_dum;
+    for (auto& r : bav_this) {
+      assert(bfc->GetSequence(s, name_dum));
+      r.SetSeq(s);
+    }
+    
     double kcov = bfc->GetKCov();
     int kmer    = bfc->GetKMer();
 
-    WRITELOG("   BFC attempted correct " + std::to_string(bav_this.size()) + " train: " + 
+    WRITELOG("...BFC attempted correct " + std::to_string(bav_this.size()) + " train: " + 
 	     std::to_string(learn_reads_count) + " kcov: " + std::to_string(kcov) + 
 	     " kmer: " + std::to_string(kmer), opt::verbose > 1, true);      
 
-    delete bfc;
-    bfc = nullptr;
   }
+
   st.stop("k");
   
   // do the assembly, contig realignment, contig local realignment, and read realignment
   // modifes bav_this, alc, all_contigs and all_microbial_contigs
-  //run_assembly(region, bav_this, alc, all_contigs, all_microbial_contigs, dmap, cigmap, wu.ref_genome);
+  run_assembly(region, bav_this, alc, all_contigs, all_microbial_contigs, dmap, cigmap, wu.ref_genome);
 
 afterassembly:
+
+  // clear it out, not needed anymore
+  if (bfc)
+    bfc->clear();
   
   st.stop("as");
   WRITELOG("...done assembling, post processing", opt::verbose > 1, false);
@@ -1049,7 +1074,8 @@ afterassembly:
       (i.second.m_reg2.pos1 - i.second.m_reg1.pos2) < min_dscrd_size_for_variant && 
       i.second.m_reg1.chr == i.second.m_reg2.chr;
     // DiscordantCluster not associated with assembly BP and has 2+ read support
-    if (!i.second.hasAssociatedAssemblyContig() && (i.second.tcount + i.second.ncount) > 1 && i.second.valid() && !below_size) {
+    if (!i.second.hasAssociatedAssemblyContig() && 
+	(i.second.tcount + i.second.ncount) >= MIN_DSCRD_READS_DSCRD_ONLY && i.second.valid() && !below_size) {
       BreakPoint tmpbp(i.second, main_bwa, dmap, region);
       bp_glob.push_back(tmpbp);
     }
@@ -1175,7 +1201,8 @@ afterassembly:
       std::string seq = r.GetZTag("KC");
       if (seq.empty())
 	seq = r.QualitySequence();
-      os_corrected << ">" << SRTAG(r) << std::endl << seq << std::endl;
+      //os_corrected << ">" << SRTAG(r) << std::endl << seq << std::endl;
+      os_corrected << ">" << r.SR() << std::endl << seq << std::endl;
     }
     pthread_mutex_unlock(&snow_lock);
   }
@@ -1327,13 +1354,19 @@ void alignReadsToContigs(SeqLib::BWAWrapper& bw, const SeqLib::UnalignedSequence
       //std::cerr << "                        " << max_as_r << ">" << max_as << "  " << brv_ref[0] << std::endl;
       continue;
     }
-    
+
+    // convert to a svabaReadVector
+    svabaReadVector brv_svaba;
+    for (auto& r : brv)
+      brv_svaba.push_back(svabaRead(r, i.Prefix()));
+    brv.clear();
+
     // make sure we have only one alignment per contig
     std::set<std::string> cc;
 
     // check which ones pass
     SeqLib::BamRecordVector bpass;
-    for (auto& r : brv) {
+    for (auto& r : brv_svaba) {
 
       // make sure alignment score is OK
       if ((double)r.NumMatchBases() * 0.5 > r.GetIntTag("AS")/* && i.GetZTag("SR").at(0) == 't'*/)
@@ -1349,21 +1382,28 @@ void alignReadsToContigs(SeqLib::BWAWrapper& bw, const SeqLib::UnalignedSequence
 
     // annotate the original read
     for (auto& r : bpass) {
+
+      r2c this_r2c; // alignment of this read to this contig
       if (r.ReverseFlag())
-	i.SmartAddTag("RC","1");
-      else 
-	i.SmartAddTag("RC","0");
+	this_r2c.rc = true;
+      //i.SmartAddTag("RC","1");
+      //else 
+      //i.SmartAddTag("RC","0");
 
-      i.SmartAddTag("SL", std::to_string(r.Position()));
-      i.SmartAddTag("SE", std::to_string(r.PositionEnd()));
-      i.SmartAddTag("TS", std::to_string(r.AlignmentPosition()));
-      i.SmartAddTag("TE", std::to_string(r.AlignmentEndPosition()));
-      i.SmartAddTag("SC", r.CigarString());
-      i.SmartAddTag("CN", usv[r.ChrID()].Name);
+      this_r2c.AddAlignment(r);
+      i.AddR2C(usv[r.ChrID()].Name, this_r2c);
+      
+      //i.SmartAddTag("SL", std::to_string(r.Position()));
+      //i.SmartAddTag("SE", std::to_string(r.PositionEnd()));
+      //i.SmartAddTag("TS", std::to_string(r.AlignmentPosition()));
+      //i.SmartAddTag("TE", std::to_string(r.AlignmentEndPosition()));
+      //i.SmartAddTag("SC", r.CigarString());
+      //i.SmartAddTag("CN", usv[r.ChrID()].Name);
 
-      i.AddZTag("SR", i.SR().substr(0,4));
-      i.AddZTag("GV", i.Seq());
+      //i.AddZTag("SR", i.SR().substr(0,4));
+      //i.AddZTag("GV", i.Seq());
 
+      // add the read to the right contig (loop to check for right contig)
       for (auto& a : this_alc) {
 	if (a.getContigName() != usv[r.ChrID()].Name)
 	  continue;
@@ -1432,6 +1472,13 @@ CountPair run_mate_collection_loop(const SeqLib::GenomicRegion& region, WalkerMa
 	somatic_mate_regions.add(s);
 	all_somatic_mate_regions.add(s);
       }
+      
+      // don't add too many regions
+      if (all_somatic_mate_regions.size() > MAX_NUM_MATE_WINDOWS) {
+	all_somatic_mate_regions.clear(); // its a bad region. Don't even look up any
+	break;
+      }
+
     }
     
     // print out to log
@@ -1517,16 +1564,11 @@ void correct_reads(std::vector<char*>& learn_seqs, svabaReadVector& brv) {
     	free(learn_seqs[i]);
     
     // do the correction
-    //kmer_corrected = kmer.correctReads(brv); //debug
+    kmer_corrected = kmer.correctReads(brv); 
+    //kmer_corrected = kmer.correctReads(brv); 
 
     WRITELOG("...SGA kmer corrected " + std::to_string(kmer_corrected) + " reads of " + std::to_string(brv.size()), opt::verbose > 1, true);  
-  } //else if (opt::ec_correct_type == "f") {
-    
-    //std::cerr << " LEARNING FROM " << learn_seqs.size() << " reads, to correct " << brv.size() << std::endl;
-    //bfc.TrainCorrection(learn_seqs);
-    //bfc.ErrorCorrectToTag(brv, "KC");
-  //}
-    
+  } 
 }
 
 void remove_hardclips(svabaReadVector& brv) {

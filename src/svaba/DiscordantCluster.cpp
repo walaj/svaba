@@ -10,6 +10,7 @@
 
 #define DISC_PAD 150
 #define MIN_PER_CLUST 2
+#define DEFAULT_ISIZE_THRESHOLD 800 // shouldn't be hit if isize was learned
 
 #define REGPOS1 500000000
 
@@ -19,40 +20,26 @@ using namespace SeqLib;
 
   DiscordantClusterMap DiscordantCluster::clusterReads(const svabaReadVector& bav, const GenomicRegion& interval, int max_mapq_possible, const std::unordered_map<std::string, int> * min_isize_for_disc) {
 
-#ifdef DEBUG_CLUSTER
-    std::cerr << "CLUSTERING WITH " << bav.size() << " reads " << " and min isize for disc " << min_isize_for_disc << std::endl;
-#endif
-
 #ifdef DEBUG_CLUSTER    
-    for (auto& i : bav)
-      std::cerr << " PRE DEDUPED CLUSTER " << i << std::endl;
+    //for (auto& i : bav)
+    //  std::cerr << " PRE DEDUPED CLUSTER " << i << std::endl;
 #endif
-
-    // remove any reads that are not present twice or have sufficient isize
-    /*std::unordered_map<std::string, int> tmp_map;
-    for (auto& i : bav) {
-
-      std::string tt = i.Qname();
-      if (!tmp_map.count(tt))
-	tmp_map[tt] = 1;
-      else
-	++tmp_map[tt];
-	}*/
 
     // only add the discordant reads, respecting diff size cutoffs for diff RG
     svabaReadVector bav_dd;
     for (auto& r : bav) {
      
-      // if suspicious as disccordant, chuck it
-      //if (r.GetIntTag("DD") < 0)
+      // if suspicious as discordant, remove from clustering
       if (r.GetDD() < 0)
 	continue;
 
-      int cutoff = 800;
+      // find the discordant size cutoff for this read
+      int cutoff = DEFAULT_ISIZE_THRESHOLD;
       if (min_isize_for_disc) {
 
 	std::string RG = r.GetZTag("RG");
-	// hack for simulated data
+
+	// temporary hack for simulated data
 	if (RG.find("tumor") != std::string::npos) {
 	  std::string qn = r.Qname();
 	  size_t posr = qn.find(":", 0);
@@ -63,14 +50,18 @@ using namespace SeqLib;
 	}
 
 	std::unordered_map<std::string, int>::const_iterator ff = min_isize_for_disc->find(RG);
-	if (ff != min_isize_for_disc->end())
+	if (ff != min_isize_for_disc->end()) {
 	  cutoff = ff->second;
+	} else {
+	  std::cerr << "Couldn't find RG " << RG << " Setting cutoff to default (800) " << std::endl;
+	}
 
       }
-
-      // accept as discordant if not FR, has large enough isize, is inter-chromosomal, and has both mates mapping
-      // also dont cluster on weird chr
-      if ( ( r.PairOrientation() != FRORIENTATION || r.FullInsertSize() >= cutoff || r.Interchromosomal()) && r.PairMappedFlag() && r.ChrID() < 24 && r.MateChrID() < 24)
+      // accept as discordant if not FR, has large enough isize, is inter-chromosomal, 
+      // and has both mates mapping. Also dont cluster on weird chr
+      if ( ( r.PairOrientation() != FRORIENTATION || r.FullInsertSize() >= cutoff || r.Interchromosomal()) && 
+	   r.PairMappedFlag() && r.ChrID() < 24 && r.MateChrID() < 24 &&
+           r.NumMatchBases() > r.NumHardClip()) // has to have mostly not-hardclip
 	bav_dd.push_back(r);
     }
 
@@ -82,8 +73,8 @@ using namespace SeqLib;
     std::sort(bav_dd.begin(), bav_dd.end(), BamRecordSort::ByReadPosition());
 
 #ifdef DEBUG_CLUSTER    
-    for (auto& i : bav_dd)
-      std::cerr << " DEDUPED CLUSTER " << i << std::endl;
+    //for (auto& i : bav_dd)
+    //  std::cerr << " DEDUPED CLUSTER " << i << std::endl;
 #endif
 
     // clear the tmp map. Now we want to use it to store if we already clustered read
@@ -249,11 +240,11 @@ using namespace SeqLib;
 	  continue;
 	
 	// add the read to the read map
-	std::string tmp = SRTAG(i);
+	std::string tmp = i.SR();
 	assert(tmp.length());
 	reads[tmp] = i;
 	
-	++counts[tmp.substr(0,4)];
+	++counts[i.Prefix()];
 	
 	// the ID is the lexographically lowest qname
 	std::string qn = i.Qname();
@@ -374,7 +365,7 @@ using namespace SeqLib;
     for (auto& i : bav) {
       std::string sr;
       if (qnames.count(i.Qname())) {
-	std::string tmp = SRTAG(i) ;
+	std::string tmp = i.SR();
 	  if (reads.count(tmp) == 0)  {// only add if this is a mate read
 	    if (i.ReverseFlag() == st && g.GetOverlap(i.AsGenomicRegion()) > 0) // agrees with intiial mate orientation and position
 	      mates[tmp] = i;
@@ -465,7 +456,7 @@ using namespace SeqLib;
 	  {
 	    if (qnset.count(i.second.Qname()))
 	      continue;
-	    std::string tmp = SRTAG(i.second);
+	    std::string tmp = i.second.SR();
 	    qnset.insert(i.second.Qname());
 	    reads_string += tmp + ",";
 	  }
@@ -473,7 +464,7 @@ using namespace SeqLib;
 	  {
 	    if (qnset.count(i.second.Qname()))
 	      continue;
-	    std::string tmp = SRTAG(i.second);
+	    std::string tmp = i.second.SR();
 	    qnset.insert(i.second.Qname());
 	    reads_string += tmp + ",";
 	  }

@@ -10,6 +10,7 @@
 #include "BreakPoint.h"
 #include "DiscordantCluster.h"
 #include "AlignmentFragment.h"
+#include "svabaRead.h"
 
 /*! Contains the mapping of an aligned contig to the reference genome,
  * along with pointer to all of the reads aligned to this contig, and a 
@@ -102,7 +103,8 @@ class AlignedContig {
   std::pair<int, int> getCoverageAtPosition(int pos) const;
 
   // add a new read aligned to this contig
-  void AddAlignedRead(const SeqLib::BamRecord& br);
+  //void AddAlignedRead(const SeqLib::BamRecord& br);
+  void AddAlignedRead(const svabaRead& br);
 
   // return number of bam reads
   size_t NumBamReads() const { return m_bamreads.size(); }
@@ -113,7 +115,8 @@ class AlignedContig {
 
   int deletion_against_contig_read_count = 0;
 
-  SeqLib::BamRecordVector m_bamreads; // store all of the reads aligned to contig
+  //SeqLib::BamRecordVector m_bamreads; // store all of the reads aligned to contig
+  svabaReadVector m_bamreads; // store all of the reads aligned to contig
 
   std::vector<int> aligned_coverage; //coverage of each base in contig, whether it has alignment 
 

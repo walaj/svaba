@@ -131,8 +131,8 @@ public:
     // load the reference genomce
     if (m_verbose)
       std::cerr << "\tOpening ref genome for thread " << self() << std::endl;
-    wu.ref_genome = new SeqLib::RefGenome();
-    wu.ref_genome->LoadIndex(ref);
+    wu.ref_genome = new SeqLib::RefGenome(); 
+    wu.ref_genome->LoadIndex(ref); 
 
     // load the viral genome
     if (!vir.empty()) {

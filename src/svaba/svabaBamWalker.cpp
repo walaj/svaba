@@ -59,7 +59,7 @@ void svabaBamWalker::addCigar(SeqLib::BamRecord &r) {
 bool svabaBamWalker::isDuplicate(const SeqLib::BamRecord &r) {
 
   // deduplicate by query-bases / position
-  std::string key = r.QualitySequence() + std::to_string(r.Position()) + "_" + std::to_string(r.MatePosition());
+  std::string key = r.Sequence() + std::to_string(r.Position()) + "_" + std::to_string(r.MatePosition()); 
 
   // its not already add, insert
   if (!seq_set.count(key)) {
@@ -80,11 +80,29 @@ SeqLib::GRC svabaBamWalker::readBam(std::ofstream * log) {
   // keep track of regions where we hit the weird-read limit
   SeqLib::GRC bad_regions;
 
+
+  // buffer to store reads from a region
+  // if we don't hit the limit, then add them to be assembled
+  svabaReadVector this_reads;
+
   // if we have a LOT of reads (aka whole genome run), keep track for printing
   size_t countr = 0;
 
+  // keep track of which region we are in 
+  int current_region = tb->m_region_idx;
+
+  // store qnames of reads have read into adapter
+  std::unordered_set<uint32_t> adapter;
+
   // loop the reads
   while (GetNextRecord(r)) {
+
+    // when we more regions, save the reads from last region
+    if (tb->m_region_idx != current_region) {
+      current_region = tb->m_region_idx;
+      reads.insert(reads.end(), this_reads.begin(), this_reads.end());
+      this_reads.clear();
+    }
 
     // check if it passed blacklist
     if (blacklist.size() && blacklist.CountOverlaps(r.AsGenomicRegion())) {
@@ -112,35 +130,35 @@ SeqLib::GRC svabaBamWalker::readBam(std::ofstream * log) {
       //if (s.QualitySequence().length() < 20)
       continue;
 
-    //debug
-    s.AddZTag("GV", s.Seq());
+    s.AddZTag("GV", s.Seq()); 
 
-    rule_pass = m_mr->isValid(r);
+    rule_pass = m_mr->isValid(r); 
       
     DEBUG("SBW read seen", r);
 
     // if hit the limit of reads, log it and try next region
-    if (countr > m_limit && m_limit > 0) {
+    //if (countr > m_limit && m_limit > 0) {
+    if (this_reads.size() > m_limit && m_limit > 0) {
 
       if (log)
 	(*log) << "\tbreaking at " << r.Brief() << " in window " 
 	       << (m_region.size() ? m_region[tb->m_region_idx].ToString() : " whole BAM")
-	       << " with " << SeqLib::AddCommas(countr) 
+	       << " with " << SeqLib::AddCommas(this_reads.size()) 
 	       << " weird reads. Limit: " << SeqLib::AddCommas(m_limit) << std::endl;
 
-      if (m_region.size()) 
+      if (m_region.size())  
 	bad_regions.add(m_region[tb->m_region_idx]);
 
       // clear these reads out
-      if ((int)reads.size() - countr > 0)
-	reads.erase(reads.begin(), reads.begin() + countr);
+      //if ((int)reads.size() - countr > 0)
+      this_reads.clear();
+      //reads.erase(reads.begin(), reads.begin() + countr);
       
       // force it to try the next region, or return if none left
       ++tb->m_region_idx; // increment to next region
-      if (tb->m_region_idx >= m_region.size()) /// no more regions left
+      if (tb->m_region_idx >= m_region.size()) {/// no more regions left
 	break;
-      else { // move to next region
-	countr = 0;
+      } else { // move to next region
 	tb->SetRegion(m_region[tb->m_region_idx]);
 	continue;
       }
@@ -171,19 +189,22 @@ SeqLib::GRC svabaBamWalker::readBam(std::ofstream * log) {
     pass_all = pass_all && qcpass && rule_pass;
     
     // check if has adapter
-    pass_all = pass_all && !hasAdapter(r);
+    uint32_t hashed  = __ac_Wang_hash(__ac_X31_hash_string(r.Qname().c_str()));
+    if (hasAdapter(r)) 
+      adapter.insert(hashed);
+    pass_all = pass_all && !adapter.count(hashed);
 
     // check if duplicated
-    is_dup = isDuplicate(r);
+    //is_dup = isDuplicate(r); 
     pass_all = !is_dup && pass_all;
-    
+
     // add to weird coverage
-    if (pass_all && get_coverage)
+    if (pass_all && get_coverage) 
       weird_cov.addRead(r, 0, false);
-    
+
     // add to the cigar map for all non-duplicate reads
     if (pass_all && get_mate_regions) // only add cigar for non-mate regions
-      addCigar(r);
+      addCigar(r); 
 
     DEBUG("SBW read has qcpass?: " + std::to_string(qcpass), r);
     DEBUG("SBW duplicated? " + std::to_string(is_dup), r);
@@ -192,21 +213,20 @@ SeqLib::GRC svabaBamWalker::readBam(std::ofstream * log) {
    
     // add all the reads for kmer correction
     if (qcpass && do_kmer_filtering && all_seqs.size() < (m_limit * 5) && qcpass && !r.NumHardClip()) {
-      std::string qq = r.QualitySequence();
-      bool train = pass_all && qq.length() > 40;
+      bool train = pass_all && s.SeqLength() > 40;
+
       // if not 
       if (!pass_all) {
-	uint32_t k = __ac_Wang_hash(__ac_X31_hash_string(r.Qname().c_str()) ^ m_seed);
-	if ((double)(k&0xffffff) / 0x1000000 <= kmer_subsample) 
+	if ((double)(hashed&0xffffff) / 0x1000000 <= kmer_subsample) 
 	  train = true;
       }
       
-      // in bfc addsequence, memory is copied. for all_seqs,i copy explicitly
+      // in bfc addsequence, memory is copied. for all_seqs (SGA correction), copy explicitly
       if (train) {
 	if (bfc)
-	  bfc->AddSequence(qq.c_str(), r.Qualities().c_str(), r.Qname().c_str()); // for BFC correciton
+	  assert(bfc->AddSequence(s.Seq().c_str(), ""/*r.Qualities().c_str()*/, s.SR().c_str())); // for BFC correciton
 	else {
-	  all_seqs.push_back(strdup(qq.c_str()));
+	  all_seqs.push_back(strdup(s.Seq().c_str()));
 	}
       }
 
@@ -232,25 +252,26 @@ SeqLib::GRC svabaBamWalker::readBam(std::ofstream * log) {
     
     DEBUG("SBW read added ", r);
 
-    //
-    //std::string g = r.QualitySequence();
-    //svabaRead s(r, prefix);
-    //s.AddSeq(r.QualitySequence()); // copies the sequence
-    //r.ClearSeqQualAndTags();       // also clears same r within svabaRead
-    //s.ClearSeqQualAndTags();
     s.SetSequence(std::string()); // clear out the sequence & qual in the htslib
     s.RemoveTag("GV");
-
-    //reads.push_back(r); // adding later because of kmer correction
-    reads.push_back(s); // adding later because of kmer correctiona
+   
+    this_reads.push_back(s); // adding later because of kmer correctiona 
     
   } // end the read loop
+
+  // remove the adapter reads
+  svabaReadVector new_reads;
+  for (auto& r : this_reads)
+    if (!adapter.count(__ac_Wang_hash(__ac_X31_hash_string(r.Qname().c_str()))))
+      new_reads.push_back(r);
+  
+  reads.insert(reads.end(), new_reads.begin(), new_reads.end());
 
 #ifdef QNAME
   for (auto& j : reads) { DEBUG("SBW read kept pre-filter", j); }
 #endif
   
-  if (reads.size() < 3)
+  if (this_reads.size() < 3) 
     return bad_regions;
   
   // clean out the buffer

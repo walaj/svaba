@@ -11,7 +11,7 @@
 #include "SeqLib/BWAWrapper.h"
 #include "SeqLib/RefGenome.h"
 
-#define SRTAG(r) ((r).GetZTag("SR") + (r).Qname())
+#define SRTAG(r) ((r).GetZTag("SR") + "_" + std::to_string((r).AlignmentFlag()) + "_" + (r).Qname())
 
 namespace svabaUtils {
 

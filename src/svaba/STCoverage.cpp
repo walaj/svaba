@@ -91,6 +91,7 @@ using namespace SeqLib;
     assert(r.ChrID() >= 0);
     assert(r.ChrID() < (int)m_map.size());
 
+    size_t lim = 0;
     try {
        while (p <= e) {
 	//CovMap::iterator iter = m_map.find(p);
@@ -106,7 +107,7 @@ using namespace SeqLib;
 		<< " is greater than expected max of " << v->size() << " -- skipping" << std::endl;
       
     }
-    
+
   }
   
   std::ostream& operator<<(std::ostream &out, const STCoverage &c) {

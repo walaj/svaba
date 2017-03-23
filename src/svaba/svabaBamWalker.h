@@ -119,7 +119,8 @@ class svabaBamWalker: public SeqLib::BamReader {
   SeqLib::Filter::ReadFilterCollection * m_mr;
 
   // 
-  SeqLib::BFC * bfc = nullptr;
+  SeqPointer<SeqLib::BFC> bfc;
+  //  SeqLib::BFC * bfc = nullptr;
 
  private:
 

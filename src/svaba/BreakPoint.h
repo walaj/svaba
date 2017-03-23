@@ -12,6 +12,7 @@
 #include "STCoverage.h"
 #include "SeqLib/RefGenome.h"
 #include "DiscordantCluster.h"
+#include "svabaRead.h"
 
   // forward declares
   struct BreakPoint;
@@ -202,6 +203,9 @@ struct ReducedBreakEnd {
    
    std::string seq, cname, rs, insertion, homology, repeat_seq, evidence, confidence, ref, alt, read_names, bxtable;   
 
+   // count of unique bx tags
+   size_t bx_count = 0;
+
    // the evidence per break-end
    BreakEnd b1, b2;
 
@@ -213,7 +217,7 @@ struct ReducedBreakEnd {
    SampleInfo t, n, a;
 
    // reads spanning this breakpoint
-   SeqLib::BamRecordVector reads;
+   svabaReadVector reads;
 
    // store if it has a non-clipped local alignment
    bool has_local_alignment = false;
@@ -230,7 +234,7 @@ struct ReducedBreakEnd {
 
    bool secondary = false;
 
-   std::unordered_set<std::string> split_reads, qnames;
+   //std::unordered_set<std::string> split_reads, qnames;
    
    int pon = 0;
    int num_align = 0;
@@ -279,7 +283,8 @@ struct ReducedBreakEnd {
     * @discussion Note: will cause an error if the AL tag not filled in for the reads. 
     * The AL tag is filled in by AlignedContig::alignReadsToContigs.
     */
-   void splitCoverage(SeqLib::BamRecordVector &bav);
+   //void splitCoverage(SeqLib::BamRecordVector &bav);
+   void splitCoverage(svabaReadVector &bav);
    
    /*! Determines if the BreakPoint overlays a blacklisted region. If 
     * and overlap is found, sets the blacklist bool to true.

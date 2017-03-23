@@ -45,7 +45,6 @@ class STCoverage {
   /** Clear the coverage map */
   void clear();
 
-
   /** */
   void settleCoverage();
       

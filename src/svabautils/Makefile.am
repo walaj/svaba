@@ -1,6 +1,6 @@
-bin_PROGRAMS = snowmanutils
+bin_PROGRAMS = svabautils
 
-snowmanutils_CPPFLAGS = \
+svabautils_CPPFLAGS = \
 	-I$(top_srcdir)/src/SGA/Util \
 	-I$(top_srcdir)/src/SGA/Bigraph \
 	-I$(top_srcdir)/src/SGA/SuffixTools \
@@ -8,11 +8,11 @@ snowmanutils_CPPFLAGS = \
 	-I$(top_srcdir)/src/SGA/Algorithm \
 	-I$(top_srcdir)/src/SGA/SQG \
 	-I$(top_srcdir)/src/SGA/SGA \
-	-I$(top_srcdir)/src/Snowman \
+	-I$(top_srcdir)/src/Svaba \
 	-I$(top_srcdir)/SeqLib \
 	-I$(top_srcdir)/SeqLib/htslib
 
-snowmanutils_LDADD = \
+svabautils_LDADD = \
 	$(top_builddir)/src/SGA/SGA/libsga.a \
 	$(top_builddir)/src/SGA/StringGraph/libstringgraph.a \
 	$(top_builddir)/src/SGA/Algorithm/libalgorithm.a \
@@ -25,9 +25,9 @@ snowmanutils_LDADD = \
 	$(top_builddir)/SeqLib/htslib/libhts.a \
 	$(top_builddir)/SeqLib/fermi-lite/libfml.a
 
-snowmanutils_LDFLAGS = -pthread -std=c++11
+svabautils_LDFLAGS = -pthread -std=c++11
 
-snowmanutils_SOURCES = snowutils.cpp splitcounter.cpp ../Snowman/BreakPoint2.cpp ../Snowman/AlignedContig2.cpp \
+svabautils_SOURCES = snowutils.cpp splitcounter.cpp ../Snowman/BreakPoint2.cpp ../Snowman/AlignedContig2.cpp \
 		../Snowman/DiscordantCluster.cpp ../Snowman/DBSnpFilter.cpp ../Snowman/PONFilter.cpp \
 		../Snowman/SnowmanUtils.cpp ../Snowman/SnowmanAssemblerEngine.cpp ../Snowman/vcf.cpp ../Snowman/DiscordantRealigner.cpp \
 		../Snowman/SnowmanOverlapAlgorithm.cpp ../Snowman/SnowmanASQG.cpp \

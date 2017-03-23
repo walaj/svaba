@@ -30,7 +30,7 @@ static std::string POLYTC = "TCTCTCTCTCTCTCTCTCTCTCTC";
   }
 
   svabaTimer::svabaTimer() {
-    s = {"r", "m", "as", "bw", "pp", "k"};
+    s = {"r", "m", "as", "bw", "pp", "t", "k"};
     for (auto& i : s)
       times[i] = 0;
     curr_clock = clock();
@@ -59,15 +59,16 @@ static std::string POLYTC = "TCTCTCTCTCTCTCTCTCTCTCTC";
     auto itm = st.times.find("m");
     auto ita = st.times.find("as");
     auto itk = st.times.find("k");
+    auto itt = st.times.find("t");
     auto itp = st.times.find("pp");
 
     if (total_time)
-      sprintf (buffer, "R: %2d%% M: %2d%% K: %2d%% A: %2d%% P: %2d%%", 
+      sprintf (buffer, "R: %2d%% M: %2d%% T: %2d%% C: %2d%% A: %2d%% P: %2d%%", 
 	       SeqLib::percentCalc<double>(itr->second, total_time),
 	       SeqLib::percentCalc<double>(itm->second, total_time),
+	       SeqLib::percentCalc<double>(itt->second, total_time),
 	       SeqLib::percentCalc<double>(itk->second, total_time),
 	       SeqLib::percentCalc<double>(ita->second, total_time),
-	       //SeqLib::percentCalc<double>(itb->second, total_time),
 	       SeqLib::percentCalc<double>(itp->second, total_time));
     else
       sprintf (buffer, "NO TIME");
