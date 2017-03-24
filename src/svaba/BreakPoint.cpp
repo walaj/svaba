@@ -321,6 +321,9 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h) {
     // keep track of reads to reject
     std::set<std::string> reject_qnames;
 
+    // keep track of which SR tags are valid splits
+    std::unordered_set<std::string> valid_reads;
+
     // get the homology length. useful bc if read alignment ends in homologous region, it is not split
     int homlen = b1.cpos - b2.cpos;
     if (homlen < 0)
@@ -429,9 +432,7 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h) {
       // each other), or one end for insertions larger than 10, or this is a complex breakpoint
 
       if (valid) { 
-	
 	std::string qn = j.Qname();
-
 
 	// if read seen and other read was other mate, then reject
 	if (num_align > 1 && qname_and_num.count(qn) && qname_and_num[qn] != j.FirstFlag()) {
@@ -449,9 +450,8 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h) {
 	    qname_and_num[qn] = j.FirstFlag();
 	  
 	  // this is a valid read
-	  if (valid)
-	    this_r2c.supports_var = true;
-	  //valid_reads.insert(sr);
+	  this_r2c.supports_var = true;
+	  valid_reads.insert(sr);
 
 	  // how much of the contig do these span
 	  // for a given read QNAME, get the coverage that 
@@ -475,7 +475,7 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h) {
     for (auto& i : bav) {
       
       r2c& this_r2c = i.GetR2C(cname);
-      if (this_r2c.supports_var/*valid_reads.count(sr)*/) {
+      if (valid_reads.count(i.SR())) {
 
 	std::string qn = i.Qname();
 	if (qnames.count(qn))
@@ -661,8 +661,6 @@ BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
 	      for (auto& aa : allele)
 		aa.second.adjust_alt_counts();
 	      //aa.second.alt = aa.second.supporting_reads.size();
-
-	      assert(allele.size() < 3); //debug
 	  } 
 	
       }
