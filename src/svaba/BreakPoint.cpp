@@ -19,6 +19,9 @@
 #define HOMOLOGY_FACTOR 4
 #define MIN_SOMATIC_RATIO 15
 
+// when calculating coverage at one base, average over bases (left and right)
+#define COVERAGE_AVG_BUFF 10
+
 // define repeats
 static std::vector<std::string> repr = {"AAAAAAAAAAAAAAAA", "TTTTTTTTTTTTTTTT", 
 					"CCCCCCCCCCCCCCCC", "GGGGGGGGGGGGGGGG",
@@ -904,7 +907,7 @@ void BreakPoint::score_indel(double LOD_CUTOFF, double LOD_CUTOFF_DBSNP) {
 	homozygous_ref = false;
     }
     
-    // get the allelic fractions, just for VLOWAF filter
+    // get the allelic ractions, just for VLOWAF filter
     double af_t = t.cov > 0 ? (double)t.alt / (double)t.cov : 0;
     double af_n = n.cov > 0 ? (double)n.alt / (double)n.cov : 0;
     double af = std::max(af_t, af_n);
@@ -1420,9 +1423,15 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
 
   void BreakPoint::addCovs(const std::unordered_map<std::string, STCoverage*>& covs) {
 
-    // setting to min coverage because we want to accurately genotype indels
-    for (auto& i : covs) 
-      allele[i.first].cov = std::min(i.second->getCoverageAtPosition(b1.gr.chr, b1.gr.pos1), i.second->getCoverageAtPosition(b2.gr.chr, b2.gr.pos1));
+    for (auto& i : covs)  {
+      int c = 0;
+      for (int j = -COVERAGE_AVG_BUFF; j <= COVERAGE_AVG_BUFF; ++j) {
+	c +=  i.second->getCoverageAtPosition(b1.gr.chr, b1.gr.pos1 + j);
+	c +=  i.second->getCoverageAtPosition(b2.gr.chr, b2.gr.pos1 + j);
+      }
+      allele[i.first].cov = c / 2 / (COVERAGE_AVG_BUFF*2 + 1); // std::max(i.second->getCoverageAtPosition(b1.gr.chr, b1.gr.pos1), i.second->getCoverageAtPosition(b2.gr.chr, b2.gr.pos1));
+    }
+    
   }
 
   std::ostream& operator<<(std::ostream& out, const BreakEnd& b) {

@@ -303,12 +303,12 @@ void AlignmentFragment::indelCigarMatches(const std::unordered_map<std::string, 
     b.mapq = m_align.MapQuality();
     b.matchlen = m_align.NumMatchBases();
     b.local = local;
-    int nm1;
+    int nm1 = 0;
     m_align.GetIntTag("NM", nm1);
     b.nm = std::max(nm1 - m_align.MaxDeletionBases(), (uint32_t)0);
     m_align.GetIntTag("SZ",  b.simple);
 
-    int as;
+    int as = 0;
     m_align.GetIntTag("AS", as);
     b.as_frac = (double)as / (double) m_align.NumMatchBases();
 

@@ -22,7 +22,7 @@
 // trim this many bases from front and back of read when determining coverage
 // this should be synced with the split-read buffer in BreakPoint2 for more accurate 
 // representation of covearge of INFORMATIVE reads (eg ones that could be split)
-#define INFORMATIVE_COVERAGE_BUFFER 4
+#define INFORMATIVE_COVERAGE_BUFFER 0
 
 static const std::string ILLUMINA_PE_PRIMER_2p0 = "CAAGCAGAAGACGGCAT";
 static const std::string FWD_ADAPTER_A = "AGATCGGAAGAGC";
@@ -166,8 +166,9 @@ SeqLib::GRC svabaBamWalker::readBam(std::ofstream * log) {
     }
     
     // add to all reads pile for kmer correction
-    if (qcpass && get_coverage) 
+    if (qcpass && get_coverage) {
       cov.addRead(r, INFORMATIVE_COVERAGE_BUFFER, false); 
+    }
     
     // check if in simple-seq
     if (simple_seq->size()) {

@@ -1258,24 +1258,6 @@ void sendThreads(SeqLib::GRC& regions_torun) {
 
 }
 
-SeqLib::GRC makeAssemblyRegions(const SeqLib::GenomicRegion& region) {
-
-  // set the regions to run
-  SeqLib::GRC grv_small;
-  if (region.IsEmpty()) {  // whole genome, so divide up the whole thing
-    for (size_t c = 0; c < 23; ++c)
-      grv_small.Concat(SeqLib::GRC(opt::chunk, WINDOW_PAD, SeqLib::GenomicRegion(c, WINDOW_PAD + 1, b_header.GetSequenceLength(c) - WINDOW_PAD - 1)));
-    //grv_small.Concat(SeqLib::GRC(opt::chunk, WINDOW_PAD, SeqLib::GenomicRegion(c, WINDOW_PAD + 1, SeqLib::CHR_LEN[c] - WINDOW_PAD - 1)));
-  }
-  else if (region.Width() >= opt::chunk) // divide into smaller chunks
-    grv_small = SeqLib::GRC(opt::chunk, WINDOW_PAD, region);
-  else
-    grv_small.add(region);
-
-  return grv_small;
-
-}
-
 void alignReadsToContigs(SeqLib::BWAWrapper& bw, const SeqLib::UnalignedSequenceVector& usv, 
 			 svabaReadVector& bav_this, std::vector<AlignedContig>& this_alc, const SeqLib::RefGenome *  rg) {
   
@@ -1294,7 +1276,7 @@ void alignReadsToContigs(SeqLib::BWAWrapper& bw, const SeqLib::UnalignedSequence
   // get the reference sequence
   std::vector<std::string> ref_alleles;
   for (auto& i : g)
-    if (i.chr < 24) //1-Y
+    //if (i.chr < 24) //1-Y
       try {
 	std::string tmpref = rg->QueryRegion(i.ChrName(bwa_header), i.pos1, i.pos2);
 	ref_alleles.push_back(tmpref); 

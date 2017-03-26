@@ -38,7 +38,8 @@ using namespace SeqLib;
       if (min_isize_for_disc) {
 
 	std::string RG;
-	r.GetZTag("RG", RG);
+	if (!r.GetZTag("RG", RG))
+	  RG = "NA";
 
 	// temporary hack for simulated data
 	if (RG.find("tumor") != std::string::npos) {
@@ -47,7 +48,7 @@ using namespace SeqLib;
 	  RG = (posr != std::string::npos) ? qn.substr(0, posr) : RG;
 	} else {
 	  // best practice without "tumor" hack
-	  RG = r.ParseReadGroup();
+	  //RG = r.ParseReadGroup();
 	}
 
 	std::unordered_map<std::string, int>::const_iterator ff = min_isize_for_disc->find(RG);

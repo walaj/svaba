@@ -91,7 +91,6 @@ using namespace SeqLib;
     assert(r.ChrID() >= 0);
     assert(r.ChrID() < (int)m_map.size());
 
-    size_t lim = 0;
     try {
        while (p <= e) {
 	//CovMap::iterator iter = m_map.find(p);

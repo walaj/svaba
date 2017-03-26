@@ -263,7 +263,7 @@ void svabaAssemblerEngine::doAssembly(ReadTable *pRT, SeqLib::UnalignedSequenceV
   StringGraph * oGraph = assemble(asqg_stream, min_overlap, maxEdges, bExact, 
 	   trimLengthThreshold, bPerformTR, bValidate, numTrimRounds, 
 	   resolveSmallRepeatLen, numBubbleRounds, gap_divergence, 
-				  divergence, maxIndelLength, cutoff, m_id + "_", contigs, (pass > 0), m_write_asqg);
+				  divergence, maxIndelLength, cutoff, m_id + "_", contigs, m_write_asqg);
   
   // optionally output the graph structure
   if (m_write_asqg)

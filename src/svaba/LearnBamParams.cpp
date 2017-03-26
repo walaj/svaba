@@ -59,7 +59,7 @@ void BamParams::collectStats() {
 
   if (isize_vec.size() < 100) {
     std::cerr << "not enough paired-end reads to get insert-size distribution. skipping discordant analysis" << std::endl;
-    std::cerr << "\ttead group: " << read_group << " Insert-sizes sampled: " << isize_vec.size() << " visited " << visited << std::endl;
+    std::cerr << "\read group: " << read_group << " Insert-sizes sampled: " << isize_vec.size() << " visited " << visited << std::endl;
     return;
   }
     
@@ -116,7 +116,8 @@ void LearnBamParams::process_read(const SeqLib::BamRecord& r, size_t count, BamP
      pos2 = r.Position();
    
    std::string RG;
-   r.GetZTag("RG", RG);
+   if (!r.GetZTag("RG", RG))
+     RG = "NA";
    // hack for simulated data
    if (RG.find("tumor") != std::string::npos) {
      std::string qn = r.Qname();
@@ -124,7 +125,7 @@ void LearnBamParams::process_read(const SeqLib::BamRecord& r, size_t count, BamP
       RG = (posr != std::string::npos) ? qn.substr(0, posr) : RG;
    } else {
      // best practice without "tumor" hack
-     RG = r.ParseReadGroup();
+     //RG = r.ParseReadGroup();
    }
    
    BamParamsMap::iterator ff = p.find(RG);
