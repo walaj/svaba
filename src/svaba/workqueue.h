@@ -1,10 +1,10 @@
-#ifndef WORKQUEUE_SNOW_H
-#define WORKQUEUE_SNOW_H
+#ifndef WORKQUEUE_SVABA_H
+#define WORKQUEUE_SVABA_H
 
 #include <pthread.h>
 #include <list>
 
-#include "svabaWorkUnit.h"
+#include "svabaThreadUnit.h"
 #include "SeqLib/RefGenome.h"
 
 typedef std::map<std::string, svabaBamWalker> WalkerMap;
@@ -54,12 +54,12 @@ template <typename T> class wqueue
 
 };
 
-class SnowThread {
+class svabaThread {
 
   public:
-  SnowThread() : m_tid(0), m_running(0), m_detached(0) {}
+  svabaThread() : m_tid(0), m_running(0), m_detached(0) {}
   
-  ~SnowThread()
+  ~svabaThread()
   {
     if (m_running == 1 && m_detached == 0) {
       pthread_detach(m_tid);
@@ -71,7 +71,7 @@ class SnowThread {
 
   static void* runThread(void* arg)
   {
-    return ((SnowThread*)arg)->run();
+    return ((svabaThread*)arg)->run();
   }
  
   int start()
@@ -120,7 +120,7 @@ private:
 };
 
 template <class T>
-  class ConsumerThread : public SnowThread {
+  class ConsumerThread : public svabaThread {
  
 public:
 
@@ -170,7 +170,7 @@ public:
     return NULL;
   }
 
-  svabaWorkUnit wu;
+  svabaThreadUnit wu;
 
  private: 
   wqueue<T*>& m_queue;

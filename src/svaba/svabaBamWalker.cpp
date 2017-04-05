@@ -140,12 +140,15 @@ SeqLib::GRC svabaBamWalker::readBam(std::ofstream * log) {
     //if (countr > m_limit && m_limit > 0) {
     if (this_reads.size() > m_limit && m_limit > 0) {
 
-      if (log)
-	(*log) << "\tbreaking at " << r.Brief() << " in window " 
+      std::stringstream ss; 
+      ss << "\tbreaking at " << r.Brief() << " in window " 
 	       << (m_region.size() ? m_region[tb->m_region_idx].ToString() : " whole BAM")
 	       << " with " << SeqLib::AddCommas(this_reads.size()) 
 	       << " weird reads. Limit: " << SeqLib::AddCommas(m_limit) << std::endl;
-
+      if (log)
+	(*log) << ss.str();
+      std::cerr << ss.str();
+      
       if (m_region.size())  
 	bad_regions.add(m_region[tb->m_region_idx]);
 

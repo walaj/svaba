@@ -1,5 +1,5 @@
-#ifndef SVABA_WORK_UNIT_H__
-#define SVABA_WORK_UNIT_H__
+#ifndef SVABA_THREAD_UNIT_H__
+#define SVABA_THREAD_UNIT_H__
 
 // hold outputs for a single (or set on the same thread) of local assemblies
 
@@ -13,7 +13,7 @@
 
 typedef std::map<std::string, svabaBamWalker> WalkerMap;
 
-struct svabaWorkUnit {
+struct svabaThreadUnit {
   
   // its own thread-safe versions of readers and genomes
   WalkerMap walkers;
@@ -45,7 +45,7 @@ struct svabaWorkUnit {
     return m_bamreads_count > readlim || m_contigs.size() > contlim || m_vir_contigs.size() > contlim || m_disc_reads > readlim;
   }
   
-  ~svabaWorkUnit() {
+  ~svabaThreadUnit() {
     clear();
     if (ref_genome)
       delete ref_genome;

@@ -1,5 +1,5 @@
-#ifndef SNOWMAN_RUN_H__
-#define SNOWMAN_RUN_H__
+#ifndef SVABA_RUN_H__
+#define SVABA_RUN_H__
 
 #include <pthread.h>
 
@@ -38,7 +38,7 @@ void runsvaba(int argc, char** argv);
 void learnParameters(const SeqLib::GRC& regions);
 int countJobs(SeqLib::GRC &file_regions, SeqLib::GRC &run_regions);
 void sendThreads(SeqLib::GRC& regions_torun);
-bool runWorkUnit(const SeqLib::GenomicRegion& region, svabaWorkUnit& wu, long unsigned int thread_id);
+bool runWorkItem(const SeqLib::GenomicRegion& region, svabaThreadUnit& wu, long unsigned int thread_id);
 SeqLib::GRC makeAssemblyRegions(const SeqLib::GenomicRegion& region);
 void alignReadsToContigs(SeqLib::BWAWrapper& bw, const SeqLib::UnalignedSequenceVector& usv, SeqLib::BamRecordVector& bav_this, std::vector<AlignedContig>& this_alc, const SeqLib::RefGenome * rg);
 void set_walker_params(svabaBamWalker& walk);
@@ -53,7 +53,7 @@ void remove_hardclips(svabaReadVector& brv);
 CountPair collect_mate_reads(WalkerMap& walkers, const MateRegionVector& mrv, int round, SeqLib::GRC& this_bad_mate_regions);
 CountPair run_mate_collection_loop(const SeqLib::GenomicRegion& region, WalkerMap& wmap, SeqLib::GRC& badd);
 void collect_and_clear_reads(WalkerMap& walkers, svabaReadVector& brv, std::vector<char*>& learn_seqs, std::unordered_set<std::string>& dedupe);
-void WriteFilesOut(svabaWorkUnit& wu); 
+void WriteFilesOut(svabaThreadUnit& wu); 
 void run_test_assembly();
 
 class svabaWorkItem {
@@ -69,8 +69,8 @@ class svabaWorkItem {
     
     int getNumber() { return m_number; }
     
-    bool run(svabaWorkUnit& wu, long unsigned int thread_id) { 
-      return runWorkUnit(m_gr, wu, thread_id);
+    bool run(svabaThreadUnit& wu, long unsigned int thread_id) { 
+      return runWorkItem(m_gr, wu, thread_id);
     }
 };
 

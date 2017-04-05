@@ -141,7 +141,7 @@ namespace opt {
   static int max_cov = 100;
   static size_t mate_lookup_min = 3;
   static bool interchrom_lookup = true;
-  static int32_t max_reads_per_assembly = -1; // set default of 10000 in parseRunOptions
+  static int32_t max_reads_per_assembly = -1; // set default of 50000 in parseRunOptions
 
   // additional optional params
   static int chunk = 25000;
@@ -286,7 +286,7 @@ static const char *RUN_USAGE_MESSAGE =
 "  -L, --mate-lookup-min                Minimum number of somatic reads required to attempt mate-region lookup [3]\n"
 "  -s, --disc-sd-cutoff                 Number of standard deviations of calculated insert-size distribution to consider discordant. [3.92]\n"
 "  -c, --chunk-size                     Size of a local assembly window (in bp). Set 0 for whole-BAM in one assembly. [25000]\n"
-"  -x, --max-reads                      Max total read count to read in from assembly region. Set 0 to turn off. [10000]\n"
+"  -x, --max-reads                      Max total read count to read in from assembly region. Set 0 to turn off. [50000]\n"
 "  -C, --max-coverage                   Max read coverage to send to assembler (per BAM). Subsample reads if exceeded. [500]\n"
 "      --no-interchrom-lookup           Skip mate lookup for inter-chr candidate events. Reduces power for translocations but less I/O.\n"
 "      --discordant-only                Only run the discordant read clustering module, skip assembly. \n"
@@ -827,7 +827,7 @@ void parseRunOptions(int argc, char** argv) {
   if (opt::chunk <= 0 || opt::main_bam == "-")
     opt::max_reads_per_assembly = INT_MAX;
   else if (opt::max_reads_per_assembly < 0) 
-    opt::max_reads_per_assembly = 10000; //set a default
+    opt::max_reads_per_assembly = 50000; //set a default
 
       
 
@@ -857,7 +857,7 @@ void parseRunOptions(int argc, char** argv) {
     }
 }
 
-bool runWorkUnit(const SeqLib::GenomicRegion& region, svabaWorkUnit& wu, long unsigned int thread_id) {
+bool runWorkItem(const SeqLib::GenomicRegion& region, svabaThreadUnit& wu, long unsigned int thread_id) {
   
   WRITELOG("Running region " + region.ToString() + " on thread " + std::to_string(thread_id), opt::verbose > 1, true);
 
@@ -1281,7 +1281,7 @@ void alignReadsToContigs(SeqLib::BWAWrapper& bw, const SeqLib::UnalignedSequence
 	std::string tmpref = rg->QueryRegion(i.ChrName(bwa_header), i.pos1, i.pos2);
 	ref_alleles.push_back(tmpref); 
       } catch (...) {
-	std::cerr << "Caught exception for ref_allele on " << i << std::endl;
+	//std::cerr << "Caught exception for ref_allele on " << i << std::endl;
       }
   // make the reference allele BWAWrapper
   SeqLib::BWAWrapper bw_ref;
@@ -1832,7 +1832,7 @@ void collect_and_clear_reads(WalkerMap& walkers, svabaReadVector& brv, std::vect
   }
 }
 
-void WriteFilesOut(svabaWorkUnit& wu) {
+void WriteFilesOut(svabaThreadUnit& wu) {
 
   // print the alignment plots
   for (const auto& i : wu.m_alc) 

@@ -782,7 +782,6 @@ BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
     
     if (evidence == "INDEL") {
       
-      
       // somatic score is just true or false for now
       // use the specified cutoff for indels, taking into account whether at dbsnp site
       somatic_score = somatic_lod > (rs.empty() ? NODBCUTOFF : DBCUTOFF);
@@ -1333,6 +1332,12 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
     if (alt >= cov)  
       thiscov = alt;
 
+    // adjust the alt count 
+    if (alt < cigar)
+      alt = cigar;
+    if (alt < split)
+      alt = split;
+
     // adjust the coverage to be more in line with restrictions on ALT.
     // namely that ALT reads must overlap the variant site by more than T_SPLIT_BUFF
     // bases, but the raw cov calc does not take this into account. Therefore, adjust here
@@ -1430,6 +1435,9 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
 	c +=  i.second->getCoverageAtPosition(b2.gr.chr, b2.gr.pos1 + j);
       }
       allele[i.first].cov = c / 2 / (COVERAGE_AVG_BUFF*2 + 1); // std::max(i.second->getCoverageAtPosition(b1.gr.chr, b1.gr.pos1), i.second->getCoverageAtPosition(b2.gr.chr, b2.gr.pos1));
+
+      if (cname=="c_22_16905001_16930001_191C") //debug
+	std::cerr << i.first << " COV " << allele[i.first].cov << std::endl;
     }
     
   }
