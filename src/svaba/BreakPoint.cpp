@@ -784,11 +784,12 @@ BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
       
       // somatic score is just true or false for now
       // use the specified cutoff for indels, taking into account whether at dbsnp site
-      somatic_score = somatic_lod > (rs.empty() ? NODBCUTOFF : DBCUTOFF);
-    
+      somatic_score = somatic_lod > ( (rs.empty() || rs=="x") ? NODBCUTOFF : DBCUTOFF);
+
     // can't call somatic with 5+ normal reads or <5x more tum than norm ALT
-    if ((ratio <= 12 && n.cov > 10) || n.alt > 5)
-      somatic_score = 0;
+    //if ((ratio <= 12 && n.cov > 10) || n.alt > 5)
+    //if (n.alt > 5)
+    //  somatic_score = 0;
 
   // for SVs, just use a hard cutoff for gauging somatic vs germline
   } else {
@@ -1380,7 +1381,7 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
     // confidence that it is somatic
     double ll_ref_norm = __log_likelihood(a_cov - scaled_alt, scaled_alt, 0 , er); // likelihood that varaint is actually true REF
     double ll_alt_norm = __log_likelihood(a_cov - scaled_alt, scaled_alt, std::max(af, 0.5), er); // likelihood that variant is 0.5
-    //std::cerr << " COV " << a_cov << " ALT " << scaled_alt << " LL ALT " << ll_alt_norm << " LL REF " << ll_ref_norm << " ER " << er << std::endl;
+    //std::cerr << " COV " << a_cov << " ALT " << scaled_alt << " LL ALT " << ll_alt_norm << " LL REF " << ll_ref_norm << " ER " << er << " LL TOTAL " << (ll_ref_norm - ll_alt_norm) << std::endl;
     LO_n = ll_ref_norm - ll_alt_norm; // higher number means more likely to be AF = 0 (ref) than AF = 0.5 (alt). 
 
     // genotype calculation as provided in 
