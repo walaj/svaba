@@ -597,7 +597,7 @@ BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
   mapq = b.MapQuality();
   b.GetZTag("MC", chr_name); 
   assert(chr_name.length());
-  assert(chr_name != "23");
+
   int tnm=0;
   b.GetIntTag("NM",tnm);
   nm = std::max(tnm - (int)b.MaxInsertionBases() - (int)b.MaxDeletionBases(), 0);
