@@ -39,7 +39,7 @@ make
 make install
 
 ## QUICK START (eg run tumor / normal on Chr22, with 4 cores)
-bin/svaba -t tumor.bam -n normal.bam -k 22 -G ref.fa -a test_id -p -4
+bin/svaba run -t tumor.bam -n normal.bam -k 22 -G ref.fa -a test_id -p -4
 
 ## get help
 svaba --help
