@@ -20,8 +20,8 @@
 
 using namespace std;
 
-static std::string sv_format = "GT:AD:DP:GQ:PL:SR:DR:LR:LO"; 
-static std::string indel_format = "GT:AD:DP:GQ:PL:SR:CR:LR:LO";
+static std::string sv_format = "GT:AD:DP:GQ:PL:SR:DR:LR:LO:HT:HP"; 
+static std::string indel_format = "GT:AD:DP:GQ:PL:SR:CR:LR:LO:HT:HP";
 static InfoMap flag_map;
 static int global_id = 0;
 static std::stringstream lod_ss;
@@ -233,6 +233,7 @@ VCFFile::VCFFile(std::string file, std::string id, const SeqLib::BamHeader& h, c
   sv_header.addFilterField("MULTIMATCH", "Low MAPQ and this contig fragment maps well to multiple locations");
   sv_header.addFilterField("LOWSPANDSCRD", "Discordant-only cluster is too small given isize distribution to call confidently"); 
   sv_header.addFilterField("SIMPLESEQUENCE", "Major portion of one contig mapping falls in a simple sequence, as given by -R flag. Assembly-only filter"); 
+  sv_header.addFilterField("DUALHAP", "Contains read pairs from multiple haplotypes. (Only for somatic calls with phased 10X data)"); 
   //sv_header.addSampleField(sample_id_norm);
   //sv_header.addSampleField(sample_id_tum);
   //sv_header.colnames = sv_header.colnames + "\t" + sample_id_norm + "\t" + sample_id_tum;
@@ -250,9 +251,11 @@ VCFFile::VCFFile(std::string file, std::string id, const SeqLib::BamHeader& h, c
   indel_header.addFilterField("SINGLEBX","Variant is supported by only a single BX tag (if run with 10X Genomics data)");
 
   //add the SV info fields
+  sv_header.addInfoField("HT","1","Integer","Total number of haplotyped read pairs across all samples (with HP tag. 10X only)");
+  sv_header.addInfoField("HR","1","Float","Proportion of haplotyped read pairs with haplotype 1 across all samples (10X only)");
   sv_header.addInfoField("REPSEQ","1","String","Repeat sequence near the event");
   sv_header.addInfoField("READNAMES",".","String","IDs of ALT reads");
-  sv_header.addInfoField("BX",".","String","Table of BX tag counts for supporting reads");
+  sv_header.addInfoField("BX",".","String","Table of BX tag counts for supporting read pairs (10X only)");
   sv_header.addInfoField("NM","1","Integer","Number of mismatches of this alignment fragment to reference");
   sv_header.addInfoField("MATENM","1","Integer","Number of mismatches of partner alignment fragment to reference");
   sv_header.addInfoField("SVTYPE","1","String","Type of structural variant");
@@ -276,6 +279,8 @@ VCFFile::VCFFile(std::string file, std::string id, const SeqLib::BamHeader& h, c
   indel_header.addInfoField("MAPQ","1","Integer","Mapping quality (BWA-MEM) of the assembled contig");
   indel_header.addInfoField("SPAN","1","Integer","Size of the indel");
   indel_header.addInfoField("REPSEQ","1","String","Repeat sequence near the variant");
+  indel_header.addInfoField("HT","1","Integer","Total number of haplotyped read pairs across all samples (with HP tag. 10X only)");
+  indel_header.addInfoField("HR","1","Float","Proportion of haplotyped read pairs with haplotype 1 across all samples (10X only)");
   indel_header.addFormatField("GT", "1","String", "Most likely genotype");
   indel_header.addFormatField("AD", "1","Integer", "Allele depth: Number of reads supporting the variant");
   indel_header.addFormatField("DP","1","Integer","Depth of coverage: Number of reads covering site.");
@@ -286,6 +291,8 @@ VCFFile::VCFFile(std::string file, std::string id, const SeqLib::BamHeader& h, c
   indel_header.addFormatField("LR","1","Float","Log-odds that this variant is AF=0 vs AF>=0.5");
   indel_header.addFormatField("LO","1","Float","Log-odds that this variant is real vs artifact");
   indel_header.addFormatField("SL","1","Float","Alignment-quality Scaled log-odds, where LO is LO * (MAPQ - 2*NM)/60");
+  indel_header.addFormatField("HT","1","Integer","Total number of haplotyped read pairs (with HP tag. 10X only)");
+  indel_header.addFormatField("HR","1","Float","Proportion of haplotyped read pairs with haplotype 1 (10X only)");
 
   sv_header.addFormatField("GT", "1","String", "Most likely genotype");
   sv_header.addFormatField("AD", "1","Integer", "Allele depth: Number of reads supporting the variant");
@@ -297,6 +304,8 @@ VCFFile::VCFFile(std::string file, std::string id, const SeqLib::BamHeader& h, c
   sv_header.addFormatField("LR","1","Float","Log-odds that this variant is REF vs AF=0.5");
   sv_header.addFormatField("LO","1","Float","Log-odds that this variant is real vs artifact");
   sv_header.addFormatField("SL","1","Float","Alignment-quality Scaled log-odds, where LO is LO * (MAPQ - 2*NM)/60");
+  sv_header.addFormatField("HT","1","Integer","Total number of haplotyped read pairs (with HP tag. 10X only)");
+  sv_header.addFormatField("HR","1","Float","Proportion of haplotyped read pairs with haplotype 1 (10X only)");
 
   indel_header.addInfoField("PON","1","Integer","Number of normal samples that have this indel present");
   indel_header.addInfoField("NM","1","Integer","Number of mismatches of this alignment fragment to reference");
@@ -759,8 +768,12 @@ std::unordered_map<std::string, std::string> VCFEntry::fillInfoFields() const {
   if (!bp->read_names.empty() && bp->read_names != "x")
     info_fields["READNAMES"] = bp->read_names;
 
-  if (!bp->bxtable.empty() && bp->bxtable != "x")
+  // BX tags for 10X data
+  if (!bp->bxtable.empty() && bp->bxtable != "x") {
     info_fields["BX"] = bp->bxtable;
+    info_fields["HT"] = std::to_string(bp->hp1 + bp->hp2);
+    info_fields["HR"] = std::to_string((float)(bp->hp1) / (float)(bp->hp1 +bp->hp2));
+  }
 
   if (bp->repeat)
     info_fields["REPSEQ"] = std::string(bp->repeat);

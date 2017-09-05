@@ -172,7 +172,7 @@ namespace opt {
   static double lod_db = 6; // same, but at DB snp site (want lower bc we have prior)
   static double lod_somatic = 6; // LOD that normal is REF
   static double lod_somatic_db = 10; // same, but at DBSNP (want higher bc we have prior that its germline)
-  static double scale_error = 1; // how much to emphasize erorrs. 1 is standard. 0 is assume no errors
+  //  static double scale_error = 1; // how much to emphasize erorrs. 1 is standard. 0 is assume no errors
 
 }
 
@@ -201,7 +201,7 @@ enum {
   OPT_CLIP5,
   OPT_CLIP3,
   OPT_GERMLINE,
-  OPT_SCALE_ERRORS,
+  //  OPT_SCALE_ERRORS,
   OPT_NO_UNFILTERED
 };
 
@@ -247,7 +247,7 @@ static const struct option longopts[] = {
   { "lod-dbsnp",               required_argument, NULL, OPT_LOD_DB },
   { "lod-somatic",             required_argument, NULL, OPT_LOD_SOMATIC },
   { "lod-somatic-dbsnp",       required_argument, NULL, OPT_LOD_SOMATIC_DB },
-  { "scale-errors",            required_argument, NULL, OPT_SCALE_ERRORS },
+  //  { "scale-errors",            required_argument, NULL, OPT_SCALE_ERRORS },
   { "discordant-only",         no_argument, NULL, OPT_DISCORDANT_ONLY },
   { "num-to-sample",           required_argument, NULL, OPT_NUM_TO_SAMPLE },
   { "write-asqg",              no_argument, NULL, OPT_ASQG   },
@@ -281,7 +281,7 @@ static const char *RUN_USAGE_MESSAGE =
 "      --lod-dbsnp                      LOD cutoff to classify indel as non-REF (tests AF=0 vs AF=MaxLikelihood(AF)) at DBSnp indel site [5]\n"
 "      --lod-somatic                    LOD cutoff to classify indel as somatic (tests AF=0 in normal vs AF=ML(0.5)) [2.5]\n"
 "      --lod-somatic-dbsnp              LOD cutoff to classify indel as somatic (tests AF=0 in normal vs AF=ML(0.5)) at DBSnp indel site [4]\n"
-"      --scale-errors                   Scale the priors that a site is artifact at given repeat count. 0 means assume low (const) error rate [1]\n"
+						//"      --scale-errors                   Scale the priors that a site is artifact at given repeat count. 0 means assume low (const) error rate [1]\n"
 "  Additional options\n"                       
 "  -L, --mate-lookup-min                Minimum number of somatic reads required to attempt mate-region lookup [3]\n"
 "  -s, --disc-sd-cutoff                 Number of standard deviations of calculated insert-size distribution to consider discordant. [3.92]\n"
@@ -793,7 +793,7 @@ void parseRunOptions(int argc, char** argv) {
     case OPT_LOD_SOMATIC: arg >> opt::lod_somatic; break;
     case OPT_LOD_SOMATIC_DB: arg >> opt::lod_somatic_db; break;
     case OPT_HP: opt::hp = true; break;
-    case OPT_SCALE_ERRORS: arg >> opt::scale_error; break;
+      //    case OPT_SCALE_ERRORS: arg >> opt::scale_error; break;
     case 'C': arg >> opt::max_cov;  break;
     case OPT_NUM_TO_SAMPLE: arg >> opt::num_to_sample;  break;
     case OPT_READ_TRACK: opt::read_tracking = true; break;
@@ -1095,7 +1095,7 @@ afterassembly:
 
   for (auto& i : bp_glob) {
     i.readlen = readlen; // set the readlength
-    i.scoreBreakpoint(opt::lod, opt::lod_db, opt::lod_somatic, opt::lod_somatic_db, opt::scale_error, min_dscrd_size_for_variant);
+    i.scoreBreakpoint(opt::lod, opt::lod_db, opt::lod_somatic, opt::lod_somatic_db, min_dscrd_size_for_variant);
   }
 
   // label somatic breakpoints that intersect directly with normal as NOT somatic

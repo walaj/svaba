@@ -131,6 +131,7 @@ struct ReducedBreakEnd {
    double somatic_score = 0;
    double somatic_lod = 0; // LogOdds that variant not in normal
    double true_lod = 0;
+   uint32_t hp1:16, hp2:16; // hp tags for 10X data
 
    uint32_t nsplit:8, tsplit:8, af_n:7, num_align:5, secondary:1, dbsnp:1, pass:1, blacklist:1, indel:1, imprecise:1;
    uint32_t tcov_support:8, ncov_support:8, tcov:8, ncov:8;
@@ -146,6 +147,8 @@ struct ReducedBreakEnd {
 
    bool indel;
 
+   int repeat_length = 0;
+
    int split = 0;
    int cigar = 0;
    int alt = 0;
@@ -158,6 +161,7 @@ struct ReducedBreakEnd {
    std::string PL;
    std::string genotype;
    std::vector<double> genotype_likelihoods = {0,0,0};
+   std::pair<int, int> hp_table; // store HP tag counts for 10X data
 
    int readlen = 0;
 
@@ -201,7 +205,11 @@ struct ReducedBreakEnd {
 
    int aligned_covered = 0;
    
-   std::string seq, cname, rs, insertion, homology, repeat_seq, evidence, confidence, ref, alt, read_names, bxtable;   
+   int repeat_unit_length = 1;
+   std::string seq, cname, rs, insertion, homology, repeat_seq, evidence, confidence, ref, alt, read_names, bxtable;
+
+   // store HP tags from 10X genomes. One per unique read pair
+   std::pair<int32_t, int32_t> hp_table;
 
    // count of unique bx tags
    size_t bx_count = 0;
@@ -273,9 +281,9 @@ struct ReducedBreakEnd {
     * it lands on a repeat */
    void repeatFilter();
 
-   //int checkPon(const PONFilter * p);
-  
-
+   // count the 10X HP tags
+   void count_haplotype_tags();
+   
    void __combine_with_discordant_cluster(DiscordantClusterMap& dmap);
    
    /*! @function determine if the breakpoint has split read support
@@ -297,7 +305,7 @@ struct ReducedBreakEnd {
    
    /*! Score a breakpoint with a QUAL score, and as somatic or germline
     */
-   void scoreBreakpoint(double LOD_CUTOFF, double LOD_CUTOFF_DBSNP, double LOD_CUTOFF_SOMATIC, double LOD_CUTOFF_SOMATIC_DBSNP, double scale_errors, int min_dscrd_size);
+   void scoreBreakpoint(double LOD_CUTOFF, double LOD_CUTOFF_DBSNP, double LOD_CUTOFF_SOMATIC, double LOD_CUTOFF_SOMATIC_DBSNP, int min_dscrd_size);
    
    /*! Compute the allelic fraction (tumor and normal) for this BreakPoint.
     *

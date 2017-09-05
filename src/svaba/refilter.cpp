@@ -237,7 +237,7 @@ void runRefilterBreakpoints(int argc, char** argv) {
 	  dbsnp_filter->queryBreakpoint(*bp);
 
 	// score them
-	bp->scoreBreakpoint(opt::lod, opt::lod_db, opt::lod_somatic, opt::lod_somatic_db, opt::scale_error, 0);
+	bp->scoreBreakpoint(opt::lod, opt::lod_db, opt::lod_somatic, opt::lod_somatic_db, 0);
 	os_allbps_r << bp->toFileString(!opt::read_tracking) << std::endl;
 	delete bp;
       }

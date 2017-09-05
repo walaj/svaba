@@ -15,8 +15,11 @@ struct r2c {
   int32_t end_on_read     = 0;  // end pos on read (from r.AlignmentPosition())
   bool rc = false;    // reverse complement wrt contig? 
   SeqLib::Cigar cig; // cigar of read to contig
-  bool supports_var = false; // does this support a variant?
+  //bool supports_var = false; // does this support a variant?
   bool is_split = false; // is this a split read?
+
+  std::unordered_map<std::string, bool> supports_var; // does this r2c support a variant (for a particular variant, 
+  // since one contig can have multiple variants
 
   void AddAlignment (const SeqLib::BamRecord& b) {
     start_on_contig = b.Position();
@@ -54,10 +57,10 @@ class svabaRead : public SeqLib::BamRecord {
 
   int SeqLength() const { return strlen(seq.get()); }
 
-  void AddR2C(const std::string& contig_name, const r2c& r) {
+  void AddR2C(const std::string& breakpoint_name, const r2c& r) {
     if (!m_r2c) 
       m_r2c = SeqPointer<R2CMap>(new R2CMap());
-    m_r2c->insert({contig_name, r});
+    m_r2c->insert({breakpoint_name, r});
   }
 
   r2c& GetR2C(const std::string& contig_name) const {

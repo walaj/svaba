@@ -22,6 +22,18 @@
 // when calculating coverage at one base, average over bases (left and right)
 #define COVERAGE_AVG_BUFF 10
 
+static void string_tokens_to_int_pair(const std::string& s, const std::string& delimiter, std::pair<int, int>& p) {
+  if (s.find("x") != std::string::npos || s.empty()) {
+    p.first = 0;
+    p.second = 0;
+    return;
+  }
+  size_t pos = 0;
+  assert((pos = s.find(delimiter)) != std::string::npos);
+  p.first =  std::stoi(s.substr(0, pos));
+  p.second = std::stoi(s.substr(pos+1, s.length() - pos - 1));
+}
+
 // define repeats
 static std::vector<std::string> repr = {"AAAAAAAAAAAAAAAA", "TTTTTTTTTTTTTTTT", 
 					"CCCCCCCCCCCCCCCC", "GGGGGGGGGGGGGGGG",
@@ -72,9 +84,13 @@ using namespace SeqLib;
     // make the BX table
     format_bx_string();
 
+    // make the HP table
+    count_haplotype_tags();
+
     double max_lod = 0;
     for (auto& s : allele) 
       max_lod = std::max(max_lod, s.second.LO);
+    max_lod = std::max(max_lod, a.LO);
 
     ss << b1.chr_name << sep << b1.gr.pos1 << sep << b1.gr.strand << sep 
        << b2.chr_name << sep << b2.gr.pos1 << sep << b2.gr.strand << sep 
@@ -96,7 +112,8 @@ using namespace SeqLib;
        << pon << sep << (repeat_seq.length() ? repeat_seq : "x") << sep 
        << blacklist << sep << (rs.length() ? rs : "x") << sep 
        << (read_names.length() ? read_names : "x") << sep
-       << (!bxtable.empty() ? bxtable : "x");
+       << (!bxtable.empty() ? bxtable : "x") << sep 
+       << hp_table.first << "," << hp_table.second;
 
     for (auto& a : allele)
       ss << sep << a.second.toFileString();
@@ -200,7 +217,7 @@ BreakPoint::BreakPoint(DiscordantCluster& tdc, const BWAWrapper * bwa, Discordan
 	  d.second.m_id_competing = dc.ID();
 	}
     }
-
+        
   }
 
   bool BreakPoint::hasDiscordant() const {
@@ -227,11 +244,21 @@ BreakPoint::BreakPoint(DiscordantCluster& tdc, const BWAWrapper * bwa, Discordan
     // look at all fwd / rev repeats up to 5-mers
     repeat_seq = std::string();
     for (int fwd = 0; fwd <= 1; ++fwd)
-      for (int i = 1; i <= 5; ++i) {
+      for (int i = 1; i <= 6; ++i) {
 	std::string rr;
 	__rep(i, rr, fwd > 0);
-	repeat_seq = rr.length() > repeat_seq.length() ? rr : repeat_seq;
+	if (rr.length() > repeat_seq.length()) {
+	  repeat_unit_length= i;
+	  repeat_seq = rr;
+	  //std::cerr << " REP " << repeat_seq << " UNIT " << repeat_unit_length << std::endl;
+	}
     }
+
+    
+    // make sure all samples have the repeat length
+    for (auto& a : allele)
+      a.second.repeat_length = repeat_seq.length();
+
   }
 
 // used in the refilter module only
@@ -247,7 +274,7 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h) {
     size_t count = 0;
 
     std::string chr1, pos1, chr2, pos2, chr_name1, chr_name2, id; 
-    id = "";//dummmy
+    id = std::string();//dummmy
     char strand1 = '*', strand2 = '*';
     while (std::getline(iss, val, '\t')) {
       SampleInfo aaa;
@@ -274,8 +301,8 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h) {
 	case 15: dc.mapq2 = std::stoi(val); break;  
 	case 16: b1.sub_n = std::stoi(val); break;
 	case 17: b2.sub_n = std::stoi(val); break;
-	case 18: homology = (val == "x" ? "" : val); break;
-	case 19: insertion = (val == "x" ? "" : val); break;
+	case 18: homology = (val == "x" ? std::string() : val); break;
+	case 19: insertion = (val == "x" ? std::string() : val); break;
 	case 20: cname = val; break;
 	case 21: num_align = std::stoi(val); break;
 	case 22: confidence = val; break;
@@ -291,6 +318,9 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h) {
 	case 32: rs = val; break;
 	case 33: read_names = val; break;
 	case 34: bxtable = val; break;
+	case 35: // hp tags for 10X data
+	  string_tokens_to_int_pair(val, ",", hp_table);
+	  break;
         default: 
 	  aaa.indel = evidence == "INDEL";
 	  aaa.fromString(val);
@@ -331,11 +361,14 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h) {
     int homlen = b1.cpos - b2.cpos;
     if (homlen < 0)
       homlen = 0;
-   
+
+    const std::string hash_string = getHashString(); // unique string for this breakpoint
+
     // loop all of the read to contig alignments for this contig
     for (auto& j : bav) {
 
       r2c& this_r2c = j.GetR2C(cname);
+      this_r2c.supports_var[hash_string] = false; // zero it
 
       bool read_should_be_skipped = false;
       if (num_align == 1) {
@@ -452,8 +485,7 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h) {
 	  if (!qname_and_num.count(qn)) 
 	    qname_and_num[qn] = j.FirstFlag();
 	  
-	  // this is a valid read
-	  this_r2c.supports_var = true;
+	  this_r2c.supports_var[hash_string] = true;
 	  valid_reads.insert(sr);
 
 	  // how much of the contig do these span
@@ -485,7 +517,7 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h) {
 	  continue; // don't count support if already added and not a short event
 	// check that it's not a bad 1, 2 split
 	if (reject_qnames.count(qn)) {
-	  this_r2c.supports_var = false;
+	  this_r2c.supports_var[hash_string] = false;
 	  i.AddR2C(cname, this_r2c); // update that this actually does not support
 	  continue; 
 	}
@@ -509,12 +541,8 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h) {
   }
   
   std::string BreakPoint::getHashString() const {
-    
     bool isdel = insertion.length() == 0;
-    //if (isdel) // del breaks are stored as last non-deleted base. CigarMap stores as THE deleted base
-    //  pos1++;
     std::string st = std::to_string(b1.gr.chr) + "_" + std::to_string(b1.gr.pos1) + "_" + std::to_string(this->getSpan()) + (isdel ? "D" : "I");
-    //std::string st = std::to_string(b1.gr.chr) + "_" + std::to_string(b1.gr.pos1); // + "_" + std::to_string(this->getSpan()) + (isdel ? "D" : "I");
     return st;
   }
   
@@ -597,7 +625,7 @@ BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
   mapq = b.MapQuality();
   b.GetZTag("MC", chr_name); 
   assert(chr_name.length());
-  assert(chr_name != "23");
+  //assert(chr_name != "23");
   int tnm=0;
   b.GetIntTag("NM",tnm);
   nm = std::max(tnm - (int)b.MaxInsertionBases() - (int)b.MaxDeletionBases(), 0);
@@ -606,8 +634,7 @@ BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
   as_frac = (double)thisas / (double) b.NumMatchBases();
 }
 
-  void BreakPoint::__combine_with_discordant_cluster(DiscordantClusterMap& dmap)
-  {
+void BreakPoint::__combine_with_discordant_cluster(DiscordantClusterMap& dmap) {
     const int PAD = 50;
     GenomicRegion bp1 = b1.gr;
     GenomicRegion bp2 = b2.gr;
@@ -667,7 +694,7 @@ BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
 	  } 
 	
       }
-    
+
   }
 
   void BreakPoint::set_evidence() {
@@ -728,12 +755,12 @@ BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
       confidence = "LOWMAPQ";
     else if ( std::min(b1.mapq, b2.mapq) <= 30 && a.split <= 8 ) 
       confidence = "LOWMAPQ";
-    else if (std::max(b1.nm, b2.nm) >= 10 || std::min(b1.as_frac, b2.as_frac) < 0.8) 
+    else if (std::max(b1.nm, b2.nm) >= 10 || std::min(b1.as_frac, b2.as_frac) < 0.8)  
       confidence = "LOWAS";
-    else if ( (std::max(b1.nm, b2.nm) >= 3 || std::min(b1.as_frac, b2.as_frac) < 0.85) && getSpan() < 0 )
+    else if ( (std::max(b1.nm, b2.nm) >= 3 || std::min(b1.as_frac, b2.as_frac) < 0.85) && getSpan() < 0 ) 
       confidence = "LOWAS";      
-    else if ((double)aligned_covered / (double)seq.length() < 0.80) // less than 80% of read is covered by some alignment
-      confidence = "LOWAS";        
+      //else if ((double)aligned_covered / (double)seq.length() < 0.80) { // less than 80% of read is covered by some alignment
+      // confidence = "LOWAS";        
     else if ( (b1.matchlen < 50 && b1.mapq < 60) || (b2.matchlen < 50 && b2.mapq < 60) )
       confidence = "LOWMAPQ";
     else if ( std::min(b1.nm, b2.nm) >= 10)
@@ -744,7 +771,7 @@ BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
       confidence = "LOWICSUPPORT";
     else if (b1.gr.chr != b2.gr.chr && std::max(b1.nm, b2.nm) >= 3 && std::min(b1.matchlen, b2.matchlen) < 150) // inter-chr, but no disc reads, and too many nm
       confidence = "LOWICSUPPORT";
-    else if (std::min(b1.matchlen, b2.matchlen) < 0.6 * readlen)
+    else if (b1.gr.chr != b2.gr.chr && std::min(b1.matchlen, b2.matchlen) < 0.6 * readlen)
       confidence = "LOWICSUPPORT";      
     else if (std::min(b1.mapq, b2.mapq) < 50 && b1.gr.chr != b2.gr.chr) // interchr need good mapq for assembly only
       confidence = "LOWMAPQ";
@@ -756,8 +783,8 @@ BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
       confidence = "MULTIMATCH";
     else if (secondary && std::min(b1.mapq, b2.mapq) < 30)
       confidence = "SECONDARY";
-    else if ((repeat_seq.length() >= 10 && std::max(t.split, n.split) < 7) || hi_rep)
-      confidence = "WEAKSUPPORTHIREP";
+    //else if ((repeat_seq.length()/repeat_unit_length >= 10 && std::max(t.split, n.split) < 7) || hi_rep)
+    //  confidence = "WEAKSUPPORTHIREP";
     else if (num_split < 6 && getSpan() < 300 && b1.gr.strand==b2.gr.strand) 
       confidence = "LOWQINVERSION";
     else if ( (b1.matchlen - b1.simple < 15 || b2.matchlen - b2.simple < 15) )
@@ -785,6 +812,9 @@ BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
       // somatic score is just true or false for now
       // use the specified cutoff for indels, taking into account whether at dbsnp site
       somatic_score = somatic_lod > ( (rs.empty() || rs=="x") ? NODBCUTOFF : DBCUTOFF);
+      for (auto& aa : allele)// make sure normals are 0/0
+	if (aa.first.at(0) == 'n' && aa.second.genotype == "0/0")
+	  somatic_score = 0; 
 
     // can't call somatic with 5+ normal reads or <5x more tum than norm ALT
     //if ((ratio <= 12 && n.cov > 10) || n.alt > 5)
@@ -898,6 +928,7 @@ void BreakPoint::score_indel(double LOD_CUTOFF, double LOD_CUTOFF_DBSNP) {
     double max_lod = 0;
     for (auto& s : allele) 
       max_lod = std::max(max_lod, s.second.LO);
+    max_lod = std::max(max_lod, a.LO);
 
     // check if homozygous reference is most likely GT
     bool homozygous_ref = true;
@@ -938,7 +969,7 @@ void BreakPoint::score_indel(double LOD_CUTOFF, double LOD_CUTOFF_DBSNP) {
   // LOD SOM cutoff is cutoff for whether NORMAL BAM(s) are AF = 0
   // LOD SOM DBSNP cutoff same as above, but at DBSNP site (should be HIGHER threshold,
   //   since we have prior that it's NOT somatic
-void BreakPoint::scoreBreakpoint(double LOD_CUTOFF, double LOD_CUTOFF_DBSNP, double LOD_CUTOFF_SOMATIC, double LOD_CUTOFF_SOMATIC_DBSNP, double scale_errors, int min_dscrd_size) {
+void BreakPoint::scoreBreakpoint(double LOD_CUTOFF, double LOD_CUTOFF_DBSNP, double LOD_CUTOFF_SOMATIC, double LOD_CUTOFF_SOMATIC_DBSNP,int min_dscrd_size) {
     
     // set the evidence (INDEL, DSCRD, etc)
     set_evidence();
@@ -946,7 +977,8 @@ void BreakPoint::scoreBreakpoint(double LOD_CUTOFF, double LOD_CUTOFF_DBSNP, dou
     __combine_alleles();
 
     // 
-    error_rate = repeat_seq.length() > 10 ? MAX_ERROR : ERROR_RATES[repeat_seq.length()];
+    int rrr = repeat_seq.length() / repeat_unit_length; // number of repeat units
+    error_rate = repeat_unit_length > 3 ? ERROR_RATES[0] : (rrr > 10 ? MAX_ERROR : ERROR_RATES[rrr]);
     for (auto& i : allele) {
       i.second.readlen = readlen;
       i.second.modelSelection(error_rate);
@@ -1005,7 +1037,10 @@ void BreakPoint::scoreBreakpoint(double LOD_CUTOFF, double LOD_CUTOFF_DBSNP, dou
     // quality score is odds that read is non-homozygous reference (max 99)
     quality = 0;
     for (auto& a : allele)
+      //quality = std::max(a.second.NH_GQ, (double)quality); 
       quality = std::max(a.second.NH_GQ, (double)quality); 
+    //quality = std::max(quality, a.LO);
+    //quality = std::min(99, quality);
     
   }
 
@@ -1018,6 +1053,74 @@ void BreakPoint::scoreBreakpoint(double LOD_CUTOFF, double LOD_CUTOFF_DBSNP, dou
     
   }
 
+void BreakPoint::count_haplotype_tags() {
+
+  std::unordered_set<std::string> qn; // only add tag once per qname
+
+  // add the discordant reads
+  /*for (const auto& r : dc.reads) {
+    std::string qname = r.second.Qname();
+    if (qn.count(qname))
+      continue;
+    int32_t tmp = -1;
+    if (r.second.GetIntTag("HP", tmp))
+      (tmp==1) ? ++hp_table.first : ++hp_table.second;
+    else
+      continue;
+    
+    //std::cerr << r.second.Qname() << "\t" << r.second.Position() << "\t" << tmp << "\tDISC\t" << getHashString() << std::endl;
+    qn.insert(qname);
+
+    // per tumor / normal
+    const std::string sr = r.second.SR();
+    (tmp==1) ? ++a.hp_table.first : ++a.hp_table.second;
+    if (r.second.Tumor())
+      (tmp==1) ? ++t.hp_table.first : ++t.hp_table.second;
+    else
+      (tmp==1) ? ++n.hp_table.first : ++n.hp_table.second;
+
+    // per sample
+    (tmp==1) ? ++allele[r.second.Prefix()].hp_table.first : ++allele[r.second.Prefix()].hp_table.second;
+
+    }*/
+  
+  // add the reads from the breakpoint
+  for (const auto& r : reads) {
+    std::string qname = r.Qname();
+
+    // ok so can only consider proper pairs, because otherwise haplotyping is inaccurate
+    if (qn.count(qname) || !r.GetR2C(cname).supports_var[getHashString()] || !r.ProperPair())
+      continue;
+
+    int32_t tmp = -1;
+    if (r.GetIntTag("HP", tmp)) {
+      //std::cerr << qname << " pos " << r.Position() << " cname " << cname << " hash " << getHashString() << " Supp var " << r.GetR2C(cname).supports_var[getHashString()] << " HP " << tmp << std::endl;//debug
+      (tmp==1) ? ++hp_table.first : ++hp_table.second;
+    }
+    else
+      continue;
+
+    //if (qname=="SL-HXA:330:HKK7TCCXX:8:2103:24677:26800")  //debug
+    //  std::cerr << " cname " << cname << " hash " << getHashString() << " Supp var " << r.GetR2C(cname).supports_var[getHashString()] << std::endl;//debug
+    //std::cerr << r.Qname() << "\t" << r.Position() << "\t" << tmp << " SPLIT " << getHashString() << std::endl;
+
+    qn.insert(qname);
+    
+    // per tumor / normal
+    const std::string sr = r.SR();
+    (tmp==1) ? ++a.hp_table.first : ++a.hp_table.second;
+    if (r.Tumor())
+      (tmp==1) ? ++t.hp_table.first : ++t.hp_table.second;
+    else
+      (tmp==1) ? ++n.hp_table.first : ++n.hp_table.second;
+
+    // per sample
+    (tmp==1) ? ++allele[r.Prefix()].hp_table.first : ++allele[r.Prefix()].hp_table.second;
+
+  }
+  
+}
+
 // format the text BX tag table (for 10X reads)x
 void BreakPoint::format_bx_string() {
 
@@ -1026,43 +1129,43 @@ void BreakPoint::format_bx_string() {
     return;
 
   std::unordered_set<std::string> qn; // only add tag once per qname
-    std::unordered_map<std::string, size_t> supp_tags;
-
-    //add the discordant reads
-    for (const auto& r : dc.reads) {
-      std::string qname = r.second.Qname();
-      if (qn.count(qname))
-	continue;
-      std::string tmp;
-      r.second.GetZTag("BX", tmp);
-      if (!tmp.empty()) 
-	++supp_tags[tmp];
-      qn.insert(qname);
-    }
-    
-    //add the reads from the breakpoint
-    for (const auto& r : reads) {
-      std::string qname = r.Qname();
-      if (qn.count(qname))
-	continue;
-      std::string tmp;
-      r.GetZTag("BX", tmp);
-      if (!tmp.empty())
-	++supp_tags[tmp];
-      qn.insert(qname);
-    }
-
-    bx_count = supp_tags.size();
-    
-    for (const auto& s : supp_tags)
-      bxtable = bxtable += s.first + "_" + std::to_string(s.second) + ",";
-    if (bxtable.length())
-      bxtable.pop_back(); // remove last comma
+  std::unordered_map<std::string, size_t> supp_tags;
+  
+  //add the discordant reads
+  for (const auto& r : dc.reads) {
+    std::string qname = r.second.Qname();
+    if (qn.count(qname))
+      continue;
+    std::string tmp;
+    r.second.GetZTag("BX", tmp);
+    if (!tmp.empty()) 
+      ++supp_tags[tmp];
+    qn.insert(qname);
+  }
+  
+  //add the reads from the breakpoint
+  for (const auto& r : reads) {
+    std::string qname = r.Qname();
+    if (qn.count(qname))
+      continue;
+    std::string tmp;
+    r.GetZTag("BX", tmp);
+    if (!tmp.empty() && r.GetR2C(cname).supports_var[getHashString()])
+      ++supp_tags[tmp];
+    qn.insert(qname);
+  }
+  
+  bx_count = supp_tags.size();
+  
+  for (const auto& s : supp_tags)
+    bxtable = bxtable += s.first + "_" + std::to_string(s.second) + ",";
+  if (bxtable.length())
+    bxtable.pop_back(); // remove last comma
 }
 
-  void BreakPoint::format_readname_string() {
-    
-    // only operate it not already formated
+void BreakPoint::format_readname_string() {
+  
+  // only operate it not already formated
     if (!read_names.empty())
       return;
     
@@ -1208,6 +1311,8 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
 
     //float afn, aft;
     std::string ref_s, alt_s, cname_s, insertion_s, homology_s, evidence_s, confidence_s, read_names_s, bxtable_s;
+
+    std::pair<int, int> tmppair;
     
     std::string chr1, pos1, chr2, pos2, chr_name1, chr_name2, repeat_s; 
     char strand1 = '*', strand2 = '*';
@@ -1267,6 +1372,11 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
 	case 32: dbsnp = val != "x"; break;
 	case 33: read_names_s = val; break; //reads
 	case 34: bxtable_s = val; break; //bx tags
+	case 35: // hp tags for 10X data
+	  string_tokens_to_int_pair(val, ",", tmppair);
+	  hp1 = tmppair.first;
+	  hp2 = tmppair.second;
+	  break;
 	default:
 	  format_s.push_back(val);
 	}
@@ -1306,10 +1416,19 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
 
     // mutect log liklihood against error
     double ll = 0;
-    const double back_mutate_chance = 0; // this should be zero? assume indel never accidentally back mutates
+    // this should be zero? assume indel never accidentally back mutates
+    // no, because even if it doesn't back mutate, there is a false-negative rate of ALT reads being counted 
+    // as ref, because of edge effects. That is, if an ALT read is right at the very edge of the ALT, esp
+    // in the context of a repeat, there is no way to tell if it is ALT or REF
+    // therefore, the odds that a read is ALT but called ref is 
+    // the fraction of reads that could have edge effects, times the ALT
+    // rate for reads that don't have edge effects
+    // *2 is because could have edge effect on either side
+    const double back_mutate_chance = 0; //std::max((int)T_SPLIT_BUFF, repeat_length) *2 / readlen * f ; 
     ref = ref <= 0 ? 0 : ref;
 
-    double arg1 = f * e * back_mutate_chance  /* p(alt mut to ref) */ + (1-f)  * (1-e); /* p(ref not mutated) */ 
+    //double arg1 = f * back_mutate_chance  /* p(alt mut to ref) */ + (1-f)  * (1-e) //back_mutate_chance); /* p(ref not mutated) */ 
+    double arg1 = f * back_mutate_chance  /* p(alt mut to ref) */ + (1-f)  * (1-e); /* p(ref not mutated) */ 
     if (arg1 > 0)
       ll += ref * log10(arg1); // ref
     //else //if (ref == 0)// get rid of NaN issue
@@ -1330,6 +1449,7 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
     // can't have more alt reads than total reads
     // well you can for SVs...
     int thiscov = cov;
+
     if (alt >= cov)  
       thiscov = alt;
 
@@ -1343,16 +1463,16 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
     // namely that ALT reads must overlap the variant site by more than T_SPLIT_BUFF
     // bases, but the raw cov calc does not take this into account. Therefore, adjust here
     double a_cov;
-    if (readlen) {
-      a_cov = (double)thiscov * (double)(readlen - 2 * T_SPLIT_BUFF)/readlen;
-      a_cov = a_cov < 0 ? 0 : a_cov;
-    } else {
+    //if (readlen) {
+    //  a_cov = (double)thiscov * (double)(readlen - 2 * T_SPLIT_BUFF)/readlen;
+    // a_cov = a_cov < 0 ? 0 : a_cov;
+    //} else {
       a_cov = thiscov;
-    }
+    //}
     af = a_cov > 0 ? (double)alt / (double)a_cov : 1;
     af = af > 1 ? 1 : af;
 
-    int scaled_alt = std::min(alt, (int)a_cov);
+    //int scaled_alt = std::min(alt, (int)a_cov);
 
     // mutect log liklihood against error
     // how likely to see these ALT counts if true AF is af
@@ -1366,9 +1486,10 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
     // the indiviual calcs will have more confidence. Ultimately,
     // LO will represent the log likeihood that the variant is AF = af
     // vs AF = 0 
-    double ll_alt = __log_likelihood(a_cov - scaled_alt, scaled_alt, af, er);
-    double ll_err = __log_likelihood(a_cov - scaled_alt, scaled_alt, 0 , er);
+    double ll_alt = __log_likelihood(a_cov - alt, alt, af, er);
+    double ll_err = __log_likelihood(a_cov - alt, alt, 0 , er);
     LO = ll_alt - ll_err; 
+    //std::cerr << " COV " << a_cov << " ALT " << alt << " LL ALT " << ll_alt << " LL ERR " << ll_err << " ER " << er << " LL TOTAL " << LO << std::endl;
 
     //mutetct log likelihood normal
     // er = 0.0005; // make this low, so that ALT in REF is rare and NORM in TUM gives low somatic prob
@@ -1379,21 +1500,22 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
     // or above a larger threshold XX if at DBSNP site, then we accept as somatic
     // LO_n should not be used for setting the confidence that something is real, just the 
     // confidence that it is somatic
-    double ll_ref_norm = __log_likelihood(a_cov - scaled_alt, scaled_alt, 0 , er); // likelihood that varaint is actually true REF
-    double ll_alt_norm = __log_likelihood(a_cov - scaled_alt, scaled_alt, std::max(af, 0.5), er); // likelihood that variant is 0.5
-    //std::cerr << " COV " << a_cov << " ALT " << scaled_alt << " LL ALT " << ll_alt_norm << " LL REF " << ll_ref_norm << " ER " << er << " LL TOTAL " << (ll_ref_norm - ll_alt_norm) << std::endl;
+    double ll_ref_norm = __log_likelihood(a_cov - alt, alt, 0 , er); // likelihood that varaint is actually true REF
+    double ll_alt_norm = __log_likelihood(a_cov - alt, alt, std::max(af, 0.5), er); // likelihood that variant is 0.5
+    //std::cerr << " COV " << a_cov << " ALT " << alt << " LL ALT " << ll_alt_norm << " LL REF " << ll_ref_norm << " ER " << er << " LL TOTAL " << (ll_ref_norm - ll_alt_norm) << std::endl;
     LO_n = ll_ref_norm - ll_alt_norm; // higher number means more likely to be AF = 0 (ref) than AF = 0.5 (alt). 
 
     // genotype calculation as provided in 
     // http://bioinformatics.oxfordjournals.org/content/early/2011/09/08/bioinformatics.btr509.full.pdf+html
     //int scaled_cov = std::floor((double)cov * 0.90);
     //int this_alt = std::min(alt, scaled_cov);
-    genotype_likelihoods[0] = __genotype_likelihoods(2, er, scaled_alt, a_cov); // 0/0
-    genotype_likelihoods[1] = __genotype_likelihoods(1, er, scaled_alt, a_cov); // 0/1
-    genotype_likelihoods[2] = __genotype_likelihoods(0, er, scaled_alt, a_cov); // 1/1
+    //std::cerr << " HERE " << " ER " << er << " ALT " << alt << " COV " << a_cov << " repat " << repeat_length << std::endl;
+    genotype_likelihoods[0] = __genotype_likelihoods(2, er, alt, a_cov); // 0/0
+    genotype_likelihoods[1] = __genotype_likelihoods(1, er, alt, a_cov); // 0/1
+    genotype_likelihoods[2] = __genotype_likelihoods(0, er, alt, a_cov); // 1/1
 
     //debug
-    //std::cerr << " ALT " << alt << " scaled alt " << scaled_alt << " ER " << er << " A_COV " << a_cov << 
+    //std::cerr << " ALT " << alt << " scaled alt " << alt << " ER " << er << " A_COV " << a_cov << 
     //  " 0/0 " << genotype_likelihoods[0] << " 0/1 " << genotype_likelihoods[1] << 
     //  " 1/1 " << genotype_likelihoods[2] << " LOD " << LO << " LO_n " << LO_n << 
     //  " af " << af << std::endl;
@@ -1435,10 +1557,19 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
 	c +=  i.second->getCoverageAtPosition(b1.gr.chr, b1.gr.pos1 + j);
 	c +=  i.second->getCoverageAtPosition(b2.gr.chr, b2.gr.pos1 + j);
       }
-      allele[i.first].cov = c / 2 / (COVERAGE_AVG_BUFF*2 + 1); // std::max(i.second->getCoverageAtPosition(b1.gr.chr, b1.gr.pos1), i.second->getCoverageAtPosition(b2.gr.chr, b2.gr.pos1));
-
-      if (cname=="c_22_16905001_16930001_191C") //debug
-	std::cerr << i.first << " COV " << allele[i.first].cov << std::endl;
+      
+      //if (num_align==1) // first indels, read the coverage
+      //std::cerr << i.first << " COV-1 " << i.second->getCoverageAtPosition(b1.gr.chr, b1.gr.pos1-1) << " POS " << (b1.gr.pos1-1) << std::endl;
+      //std::cerr << i.first << " COV " << i.second->getCoverageAtPosition(b1.gr.chr, b1.gr.pos1) << " POS " << b1.gr.pos1 << std::endl;
+      //std::cerr << i.first << " COV1 " << i.second->getCoverageAtPosition(b1.gr.chr, b1.gr.pos1+1) << " POS " << (b1.gr.pos1+1) << std::endl;
+      //std::cerr << i.first << " COV2 " << i.second->getCoverageAtPosition(b1.gr.chr, b1.gr.pos1+2) << " POS " << (b1.gr.pos1+2) << std::endl;
+      if (insertion.size())
+	allele[i.first].cov = std::min(i.second->getCoverageAtPosition(b1.gr.chr, b1.gr.pos1),i.second->getCoverageAtPosition(b1.gr.chr, b1.gr.pos1-1)); // / (COVERAGE_AVG_BUFF*2 + 1); // std::max(i.second->getCoverageAtPosition(b1.gr.chr, b1.gr.pos1), i.second->getCoverageAtPosition(b2.gr.chr, b2.gr.pos1));
+      else
+	allele[i.first].cov = std::max(i.second->getCoverageAtPosition(b1.gr.chr, b1.gr.pos1),i.second->getCoverageAtPosition(b1.gr.chr, b1.gr.pos1-1)); // / (COVERAGE_AVG_BUFF*2 + 1); // std::max(i.second->getCoverageAtPosition(b1.gr.chr, b1.gr.pos1), i.second->getCoverageAtPosition(b2.gr.chr, b2.gr.pos1));
+      //std::cerr << " FINAL " << allele[i.first].cov << std::endl;
+      //else // for SVs, average it
+      //	allele[i.first].cov = c / 2 / (COVERAGE_AVG_BUFF*2 + 1); // std::max(i.second->getCoverageAtPosition(b1.gr.chr, b1.gr.pos1), i.second->getCoverageAtPosition(b2.gr.chr, b2.gr.pos1)); //1708	
     }
     
   }
@@ -1475,12 +1606,19 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
     else // no read names stored, so just get directly
       a.alt = a1.alt + a2.alt;
 
+    a.cov = std::max(a.alt, a.cov);
+
     return a;
   }
 
   void BreakPoint::__combine_alleles() {
 
+    // make sure the covs are at least as great as alt
+    for (auto& s : allele) 
+      s.second.cov = std::max(s.second.cov, s.second.alt);
+
     for (auto& s : allele) {
+      
       if (s.first.at(0) == 't') {
 	t = t + s.second;
       } else {
@@ -1493,9 +1631,11 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
     a.readlen = readlen;
     t.readlen = readlen;
     n.readlen = readlen;
-    error_rate = (repeat_seq.length() > 10) ? MAX_ERROR : ERROR_RATES[repeat_seq.length()];
+    int rrr = repeat_seq.length() / repeat_unit_length; // number of repeats
+    error_rate = repeat_unit_length > 3 ? ERROR_RATES[0] : ((rrr > 10) ? MAX_ERROR : ERROR_RATES[rrr]);
     t.modelSelection(error_rate);
     n.modelSelection(error_rate);
+    a.modelSelection(error_rate);
   }
 
 
@@ -1503,14 +1643,16 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
 
     std::stringstream ss;
 
+    float haplotype_ratio = (hp_table.first + hp_table.second) > 0 ? (float)hp_table.first / float(hp_table.first + hp_table.second) : 0;
+
     if (indel)
       ss << std::setprecision(4) << genotype << ":" << 
 	std::max(alt, cigar) << ":" << cov << ":" << GQ << ":" << PL << ":" << split << ":" << cigar 
-	 << ":" << LO_n << ":" << LO;// << ":" << SLO;
+	 << ":" << LO_n << ":" << LO << ":" << (hp_table.first + hp_table.second) << ":" << haplotype_ratio;// << ":" << SLO;
     else
       ss << std::setprecision(4) << genotype << ":" << 
 	alt << ":" << cov << ":" << GQ << ":" << PL << ":" << split
-	 << ":" << disc << ":" << LO_n << ":" << LO;// << ":" << SLO;
+	 << ":" << disc << ":" << LO_n << ":" << LO << ":" << (hp_table.first + hp_table.second) << ":" << haplotype_ratio;// << ":" << SLO;
           
     return ss.str();
 
@@ -1532,7 +1674,8 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
       case 6: split = std::stoi(val); break;
       case 8: LO_n =   std::stod(val); break;
       case 9: LO = std::stod(val); break;
-      case 10: SLO = std::stod(val); break;
+      case 10: hp_table.first = std::stod(val); break;
+      case 11: hp_table.second = std::stod(val); break;
       case 7: 
 	if (indel)
 	  cigar = std::stoi(val);
@@ -1554,7 +1697,7 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
     // move left and right from breakend 1
     //int replen = 0;
     //int curr_replen = 1;
-    rseq = "";
+    rseq = std::string();
 
     // return if we are too close to the edge for some reason
     if (b1.cpos > (int)seq.length() - 5)
@@ -1645,7 +1788,10 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
   // assumes biallelic model
   // http://bioinformatics.oxfordjournals.org/content/early/2011/09/08/bioinformatics.btr509.full.pdf+html
   double SampleInfo::__genotype_likelihoods(int g, double er, int alt, int cov) {
-    double val =  - cov * log10(2) + (cov - alt) * log10( (2 - g) * er + g  * (1 - er) ) + alt * log10( (2 - g) * (1 - er) + g * er);
+    // for missed_alt_prob, see comment in __log_likelihood
+    double missed_alt_prob = (double)std::max((int)T_SPLIT_BUFF, repeat_length) * 2 / readlen;// * (double)alt/cov ; // odds that an ALT was called as REFf
+    //std::cerr << "MISS " << missed_alt_prob << std::endl;
+    double val =  - cov * log10(2) + (cov - alt) * log10( (2 - g) * missed_alt_prob + g  * (1 - er) ) + alt * log10( (2 - g) * (1 - er) + g * er);
     return val;
   }
 
