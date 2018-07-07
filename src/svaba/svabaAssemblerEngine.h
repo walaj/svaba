@@ -8,6 +8,7 @@
 #include "SeqLib/BamRecord.h"
 #include "SeqLib/UnalignedSequence.h"
 #include "svabaRead.h"
+#include "svaba_params.h"
 
 class svabaAssemblerEngine
 {

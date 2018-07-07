@@ -7,20 +7,7 @@
 #include "gzstream.h"
 #include "svabaUtils.h"
 
-#define MAX_ERROR 0.04
-#define MIN_ERROR 0.0005
-
-#define T_SPLIT_BUFF 5
-#define N_SPLIT_BUFF 5
-// if the insertion is this big or larger, don't require splits to span both sides
-#define INSERT_SIZE_TOO_BIG_SPAN_READS 16
-
-// if homology is greater than homology / HOMOLOGY_FACTOR, then reject for assembly-only
-#define HOMOLOGY_FACTOR 4
-#define MIN_SOMATIC_RATIO 15
-
-// when calculating coverage at one base, average over bases (left and right)
-#define COVERAGE_AVG_BUFF 10
+#include "svaba_params.h"
 
 // define repeats
 static std::vector<std::string> repr = {"AAAAAAAAAAAAAAAA", "TTTTTTTTTTTTTTTT", 

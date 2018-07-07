@@ -1,5 +1,6 @@
 #include "svabaBamWalker.h"
 #include "svabaRead.h"
+#include "svaba_params.h"
 
 //#define QNAME "H01PEALXX140819:3:2218:11657:19504"
 //#define QFLAG -1
@@ -10,19 +11,6 @@
 #else
 #define DEBUG(msg, read)
 #endif
-
-//#define DEBUG_SVABA_BAMWALKER 1
-#define MIN_MAPQ_FOR_MATE_LOOKUP 0
-//#define TRAIN_READS_FAIL_SAFE 50000
-#define MIN_ISIZE_FOR_DISCORDANT_REALIGNMENT 1000
-#define DISC_REALIGN_MATE_PAD 100
-#define MAX_SECONDARY_HIT_DISC 10
-#define MATE_REGION_PAD 250
-
-// trim this many bases from front and back of read when determining coverage
-// this should be synced with the split-read buffer in BreakPoint2 for more accurate 
-// representation of covearge of INFORMATIVE reads (eg ones that could be split)
-#define INFORMATIVE_COVERAGE_BUFFER 0
 
 static const std::string ILLUMINA_PE_PRIMER_2p0 = "CAAGCAGAAGACGGCAT";
 static const std::string FWD_ADAPTER_A = "AGATCGGAAGAGC";
@@ -141,7 +129,7 @@ SeqLib::GRC svabaBamWalker::readBam(std::ofstream * log) {
     if (this_reads.size() > m_limit && m_limit > 0) {
 
       std::stringstream ss; 
-      ss << "\tbreaking at " << r.Brief() << " in window " 
+      ss << "\tstopping read lookup at " << r.Brief() << " in window " 
 	       << (m_region.size() ? m_region[tb->m_region_idx].ToString() : " whole BAM")
 	       << " with " << SeqLib::AddCommas(this_reads.size()) 
 	       << " weird reads. Limit: " << SeqLib::AddCommas(m_limit) << std::endl;

@@ -15,13 +15,7 @@
 #include "svabaUtils.h"
 #include "LearnBamParams.h"
 #include "SeqLib/BFC.h"
-
-#define THREAD_READ_LIMIT  20000
-#define THREAD_CONTIG_LIMIT 250
-
-// minimum number of reads to support even reporting dscrd cluster 
-// (if not assocaited with assembly contig)
-#define MIN_DSCRD_READS_DSCRD_ONLY 3 
+#include "svaba_params.h"
 
 // useful replace function
 std::string myreplace(std::string &s,
@@ -41,21 +35,6 @@ static std::stringstream ss; // initalize a string stream once
     if (toerr) std::cerr << (msg) << std::endl; };
 
 #define ERROR_EXIT(msg) { std::cerr << (msg) << std::endl; exit(EXIT_FAILURE); }
-
-#define MIN_CONTIG_MATCH 35
-#define MATE_LOOKUP_MIN 3
-#define SECONDARY_CAP 10
-#define MAX_MATE_ROUNDS 1
-#define MATE_REGION_LOOKUP_LIMIT 400
-#define MAX_NUM_MATE_WINDOWS 50000000
-
-#define GERMLINE_CNV_PAD 10
-#define WINDOW_PAD 500
-#define MICROBE_MATCH_MIN 50
-#define GET_MATES 1
-#define MICROBE 1
-#define LARGE_INTRA_LOOKUP_LIMIT 50000
-#define SECONDARY_FRAC 0.90
 
 // if a local alignment has < MIN_CLIP_FOR_LOCAL clips
 // then it has a good local (and is not an SV candidate contig)
@@ -140,6 +119,7 @@ namespace opt {
   static std::string rules = "{\"global\" : {\"duplicate\" : false, \"qcfail\" : false}, \"\" : { \"rules\" : [FRRULES,{\"rr\" : true},{\"ff\" : true}, {\"rf\" : true}, {\"ic\" : true}, {\"clip\" : 5, \"length\" : READLENLIM}, {\"ins\" : true}, {\"del\" : true}, {\"mapped\": true , \"mate_mapped\" : false}, {\"mate_mapped\" : true, \"mapped\" : false}]}}";  
   static int max_cov = 100;
   static size_t mate_lookup_min = 3;
+  static size_t mate_region_lookup_limit = 400;
   static bool interchrom_lookup = true;
   static int32_t max_reads_per_assembly = -1; // set default of 50000 in parseRunOptions
 
@@ -205,7 +185,7 @@ enum {
   OPT_NO_UNFILTERED
 };
 
-static const char* shortopts = "hzIAt:n:p:v:r:G:e:k:c:a:m:B:D:Y:S:L:s:V:R:K:E:C:x:";
+static const char* shortopts = "hzIAt:n:p:v:r:G:e:k:c:a:m:B:D:Y:S:L:s:V:R:K:E:C:x:M:";
 static const struct option longopts[] = {
   { "help",                    no_argument, NULL, 'h' },
   { "tumor-bam",               required_argument, NULL, 't' },
@@ -257,6 +237,7 @@ static const struct option longopts[] = {
   { "blacklist",               required_argument, NULL, 'B' },
   { "max-coverage",            required_argument, NULL, 'C' },
   { "max-reads",               required_argument, NULL, 'x' },
+  { "max-reads-mate-region",   required_argument, NULL, 'M' },
   { "num-assembly-rounds",     required_argument, NULL, OPT_NUM_ASSEMBLY_ROUNDS },
   { NULL, 0, NULL, 0 }
 };
@@ -287,6 +268,7 @@ static const char *RUN_USAGE_MESSAGE =
 "  -s, --disc-sd-cutoff                 Number of standard deviations of calculated insert-size distribution to consider discordant. [3.92]\n"
 "  -c, --chunk-size                     Size of a local assembly window (in bp). Set 0 for whole-BAM in one assembly. [25000]\n"
 "  -x, --max-reads                      Max total read count to read in from assembly region. Set 0 to turn off. [50000]\n"
+"  -M, --max-reads-mate-region          Max weird reads to include from a mate lookup region. [400]\n"
 "  -C, --max-coverage                   Max read coverage to send to assembler (per BAM). Subsample reads if exceeded. [500]\n"
 "      --no-interchrom-lookup           Skip mate lookup for inter-chr candidate events. Reduces power for translocations but less I/O.\n"
 "      --discordant-only                Only run the discordant read clustering module, skip assembly. \n"
@@ -767,6 +749,7 @@ void parseRunOptions(int argc, char** argv) {
     case 'h': help = true; break;
     case OPT_GAP_OPEN : arg >> opt::bwa::gap_open_penalty; break;
     case 'x' : arg >> opt::max_reads_per_assembly; break;
+    case 'M' : arg >> opt::mate_region_lookup_limit; break;
     case 'A' : opt::all_contigs = true; break;
     case OPT_MATCH_SCORE : arg >> opt::bwa::sequence_match_score; break;
     case OPT_READLEN : arg >> readlen; break;
@@ -1778,7 +1761,7 @@ CountPair collect_mate_reads(WalkerMap& walkers, const MateRegionVector& mrv, in
   for (auto& w : walkers) {
 
     int oreads = w.second.reads.size();
-    w.second.m_limit = MATE_REGION_LOOKUP_LIMIT;
+    w.second.m_limit = opt::mate_region_lookup_limit;
 
     // convert MateRegionVector to GRC
     SeqLib::GRC gg;

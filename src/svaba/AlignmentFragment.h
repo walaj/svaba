@@ -8,6 +8,7 @@
 #include <string>
 #include <set>
 #include "BreakPoint.h"
+#include "svaba_params.h"
 
 #define MAX_CONTIG_SIZE 5000000
 

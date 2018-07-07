@@ -14,9 +14,7 @@
 #include "gzstream.h"
 #include "SeqLib/GenomicRegionCollection.h"
 
-#define VCF_SECONDARY_CAP 200
-#define SOMATIC_LOD 1 // just a dummy now. scoring is elsewhere, and output is 0 (germline) or 1 (somatic)
-#define DEDUPEPAD 200
+#include "svaba_params.h"
 
 using namespace std;
 
