@@ -28,7 +28,7 @@ AlignmentFragment::AlignmentFragment(const SeqLib::BamRecord &talign, bool flip)
 
     m_align = talign;
 
-    talign.GetIntTag("SQ", sub_n);
+    assert(talign.GetIntTag("SQ", sub_n));
 
     // orient cigar so it is on the contig orientation. 
     // need to do this to get the right ordering of the contig fragments below

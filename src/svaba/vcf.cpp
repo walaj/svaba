@@ -902,7 +902,7 @@ std::string VCFEntry::getIdString() const {
 
 }
 
-std::pair<std::string, std::string> VCFEntry::getSampStrings() const {
+/*std::pair<std::string, std::string> VCFEntry::getSampStrings() const {
 
   // put the reads into the format string
   //std::string new_readid_t = formatReadString(b.read_names, 't');
@@ -926,7 +926,7 @@ std::pair<std::string, std::string> VCFEntry::getSampStrings() const {
   return std::pair<std::string, std::string>(samp1, samp2);
 
 
-}
+  }*/
 
 void VCFHeader::addContigField(std::string id, int len) {
   contigfieldmap[id] = std::to_string(len);

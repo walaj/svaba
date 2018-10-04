@@ -15,9 +15,9 @@
 #define AUTHOR "Jeremiah Wala <jwala@broadinstitute.org>"
 
 static const char *SVABA_USAGE_MESSAGE =
-"------------------------------------------------------------\n"
-"--- SvABA (sah-bah) - SV and indel detection by assembly ---\n"
-"------------------------------------------------------------\n"
+"--------------------------------------------------\n"
+"--- SvABA - SV and indel detection by assembly ---\n"
+"--------------------------------------------------\n"
 "Program: SvABA \n"
 "FH Version: 134 \n"
 "Contact: Jeremiah Wala [ jwala@broadinstitute.org ]\n"
