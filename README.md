@@ -2,7 +2,7 @@
 
 ## *SvABA* - Structural variation and indel analysis by assembly
 
-[Pronounced sah-bah. This project was formerly "Snowman"]
+[This project was formerly "Snowman"]
 
 **License:** [GNU GPLv3][license] 
 
