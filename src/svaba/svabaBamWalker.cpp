@@ -130,7 +130,7 @@ SeqLib::GRC svabaBamWalker::readBam(std::ofstream * log) {
 
       std::stringstream ss; 
       ss << "\tstopping read lookup at " << r.Brief() << " in window " 
-	       << (m_region.size() ? m_region[tb->m_region_idx].ToString() : " whole BAM")
+	 << (m_region.size() ? m_region[tb->m_region_idx].ToString(tb->GetHeader()) : " whole BAM")
 	       << " with " << SeqLib::AddCommas(this_reads.size()) 
 	       << " weird reads. Limit: " << SeqLib::AddCommas(m_limit) << std::endl;
       if (log)

@@ -842,7 +842,7 @@ void parseRunOptions(int argc, char** argv) {
 
 bool runWorkItem(const SeqLib::GenomicRegion& region, svabaThreadUnit& wu, long unsigned int thread_id) {
   
-  WRITELOG("Running region " + region.ToString() + " on thread " + std::to_string(thread_id), opt::verbose > 1, true);
+  WRITELOG("Running region " + region.ToString(bwa_header) + " on thread " + std::to_string(thread_id), opt::verbose > 1, true);
 
   for (auto& w : wu.walkers)
     set_walker_params(w.second);
@@ -969,15 +969,15 @@ bool runWorkItem(const SeqLib::GenomicRegion& region, svabaThreadUnit& wu, long 
   // check that we don't have too many reads
   if (bav_this.size() > (size_t)(region.Width() * 20) && region.Width() > 20000) {
     std::stringstream ssss;
-    WRITELOG("TOO MANY READS IN REGION " + SeqLib::AddCommas(bav_this.size()) + "\t" + region.ToString(), opt::verbose, false);
+    WRITELOG("TOO MANY READS IN REGION " + SeqLib::AddCommas(bav_this.size()) + "\t" + region.ToString(bwa_header), opt::verbose, false);
     goto afterassembly;
   }
 
   // print message about assemblies
   if (bav_this.size() > 1) {
-    WRITELOG("Doing assemblies on " + region.ToString(), opt::verbose > 1, false);
+    WRITELOG("Doing assemblies on " + region.ToString(bwa_header), opt::verbose > 1, false);
   } else if (bav_this.size() < 3) { 
-    WRITELOG("Skipping assembly (<= 2 reads) on " + region.ToString(), opt::verbose > 1, false);
+    WRITELOG("Skipping assembly (<= 2 reads) on " + region.ToString(bwa_header), opt::verbose > 1, false);
     goto afterassembly;
   }
 
@@ -1457,7 +1457,7 @@ CountPair run_mate_collection_loop(const SeqLib::GenomicRegion& region, WalkerMa
     
     // print out to log
     for (auto& i : somatic_mate_regions) 
-      WRITELOG("...mate region " + i.ToString() + " case read count that triggered lookup: " + 
+      WRITELOG("...mate region " + i.ToString(bwa_header) + " case read count that triggered lookup: " + 
 	       std::to_string(i.count) + " on mate-lookup round " + std::to_string(jjj+1), opt::verbose > 1, true);
     
     // collect the reads for this round
@@ -1563,7 +1563,7 @@ void run_assembly(const SeqLib::GenomicRegion& region, svabaReadVector& bav_this
     try {
       lregion = refg->QueryRegion(bwa_header.IDtoName(region.chr), region.pos1, region.pos2);
     } catch (...) {
-      WRITELOG(" Caught exception for lregion with reg " + region.ToString(), true, true);
+      WRITELOG(" Caught exception for lregion with reg " + region.ToString(bwa_header), true, true);
       lregion = "";
     }
   }
@@ -1820,7 +1820,7 @@ void WriteFilesOut(svabaThreadUnit& wu) {
   // print the alignment plots
   for (const auto& i : wu.m_alc) 
     if (i.hasVariant()) 
-      all_align << i << std::endl;
+      all_align << i.print(bwa_header) << std::endl;
 
   // send the microbe to file
   for (const auto& b : wu.m_vir_contigs)
