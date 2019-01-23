@@ -62,11 +62,10 @@ using namespace SeqLib;
       // accept as discordant if not FR, has large enough isize, is inter-chromosomal, 
       // and has both mates mapping. Also dont cluster on weird chr
       if ( ( r.PairOrientation() != FRORIENTATION || r.FullInsertSize() >= cutoff || r.Interchromosomal()) && 
-	   r.PairMappedFlag() && r.ChrID() < 24 && r.MateChrID() < 24 &&
+	   r.PairMappedFlag() /* && r.ChrID() < 24 && r.MateChrID() < 24 */  &&
            r.NumMatchBases() > r.NumHardClip()) // has to have mostly not-hardclip
 	bav_dd.push_back(r);
     }
-
     
     if (!bav_dd.size())
       return DiscordantClusterMap();

@@ -41,6 +41,8 @@ struct ReducedBreakEnd {
    
    void checkLocal(const SeqLib::GenomicRegion& window);
 
+   std::string print(const SeqLib::BamHeader& h) const;
+
    std::string hash(int offset = 0) const;
 
    std::string id;
@@ -61,7 +63,7 @@ struct ReducedBreakEnd {
    double as_frac= 0;
    bool local;
 
-   friend std::ostream& operator<<(std::ostream& out, const BreakEnd& b);
+   //   friend std::ostream& operator<<(std::ostream& out, const BreakEnd& b);
  };
 
  struct ReducedDiscordantCluster {
@@ -100,6 +102,9 @@ struct ReducedBreakEnd {
 
    // define how to sort these  
    bool operator<(const ReducedBreakPoint& bp) const;
+
+   // print it with the correct chromsome string
+   std::string print(const BreakPoint& b, const SeqLib::BamHeader& h) const;
 
    ReducedBreakPoint() {}
    ~ReducedBreakPoint() {
@@ -273,8 +278,7 @@ struct ReducedBreakEnd {
     * it lands on a repeat */
    void repeatFilter();
 
-   //int checkPon(const PONFilter * p);
-  
+   std::string print(const SeqLib::BamHeader& h) const;
 
    void __combine_with_discordant_cluster(DiscordantClusterMap& dmap);
    
@@ -384,7 +388,7 @@ struct ReducedBreakEnd {
      return false;
   }
 
-   friend std::ostream& operator<<(std::ostream& out, const BreakPoint& bp);
+   //   friend std::ostream& operator<<(std::ostream& out, const BreakPoint& bp);
    
    void score_dscrd(int min_dscrd_size);
    void score_assembly_only();

@@ -72,7 +72,7 @@ class AlignedContig {
   std::string getSequence() const; 
   
   //! print this contig
-  friend std::ostream& operator<<(std::ostream &out, const AlignedContig &ac);
+  std::string print(const SeqLib::BamHeader& h) const;
   
   // Return if this contig contains a potential variant (indel or multi-map)
   bool hasVariant() const;

@@ -533,17 +533,41 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h) {
   }
 */
 
-std::ostream& operator<<(std::ostream& out, const BreakPoint& b) {
+
+
+
+std::string BreakPoint::print(const SeqLib::BamHeader& h) const {
   
-      if (b.isindel) {
-	out << ">" << (b.insertion.size() ? "INS: " : "DEL: ") << b.getSpan() << " " << b.b1.gr << " " << b.cname << " " << b.evidence;
-	  //<< " T/N split: " << b.t.split << "/" << b.n.split << " T/N cigar: " 
+  std::stringstream out;
+  if (isindel) {
+    out << ">" << (insertion.size() ? "INS: " : "DEL: ") << getSpan() << " " << 
+      b1.gr.ToString(h) << " " << cname << " " << evidence;
+    for (auto& i : allele)
+      out << " " << i.first << ":" << i.second.split;  
+  } else {
+    out << ": " << b1.gr.PointString(h) << " to " << b2.gr.PointString(h) << " SPAN " << getSpan() << " " << cname
+	<< " " << evidence;
+    for (auto& i : allele)
+      out << " " << i.first << ":" << i.second.split;  
+  }
+  
+  return out.str();
+  
+}
+  
+
+/*std::ostream& operator<<(std::ostream& out, const BreakPoint& b) {
+  
+  if (b.isindel) {
+	out << ">" << (b.insertion.size() ? "INS: " : "DEL: ") << b.getSpan() << " " << 
+	  b.b1.gr << " " << b.cname << " " << b.evidence;
+	//<< " T/N split: " << b.t.split << "/" << b.n.split << " T/N cigar: " 
           //  << b.t.cigar << "/" << b.n.cigar << " T/N Cov " << b.t.cov << "/" << b.n.cov << " DBSNP: " << rs_t;
 	for (auto& i : b.allele)
 	  out << " " << i.first << ":" << i.second.split;  
       } else {
 	out << ": " << b.b1.gr.PointString() << " to " << b.b2.gr.PointString() << " SPAN " << b.getSpan() << " " << b.cname << " " << b.evidence;
-	  //<< " T/N split: " << b.t.split << "/" << b.n.split << " T/N disc: " 
+	//<< " T/N split: " << b.t.split << "/" << b.n.split << " T/N disc: " 
 	  //  << b.dc.tcount << "/" << b.dc.ncount << " " << b.evidence;
 	for (auto& i : b.allele)
 	  out << " " << i.first << ":" << i.second.split;  
@@ -551,7 +575,7 @@ std::ostream& operator<<(std::ostream& out, const BreakPoint& b) {
       
       return out;
       
-    }
+      }*/
   
   void BreakPoint::checkBlacklist(GRC &grv) {
     if (grv.CountOverlaps(b1.gr) || grv.CountOverlaps(b2.gr)) 
@@ -1430,10 +1454,14 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
     
   }
 
-  std::ostream& operator<<(std::ostream& out, const BreakEnd& b) {
+std::string BreakEnd::print(const SeqLib::BamHeader& h) const {
+  return gr.ToString(h) + " - " + id + " mapq " + std::to_string(mapq) + " subn " + std::to_string(sub_n);
+}
+
+/*  std::ostream& operator<<(std::ostream& out, const BreakEnd& b) {
     out << b.gr << " - " << b.id << " mapq " << b.mapq << " subn " << b.sub_n << std::endl;
     return out;
-  }
+    }*/
   
   std::ostream& operator<<(std::ostream& out, const SampleInfo& a) {
     out << " split: " << a.split << " cigar " << a.cigar << " alt " << a.alt << " cov " << a.cov << " disc " << a.disc;
