@@ -218,6 +218,7 @@ VCFFile::VCFFile(std::string file, std::string id, const SeqLib::BamHeader& h, c
   sv_header.addFilterField("LOWSPAN","Discordant read cluster (no split read support), and less than 10kb span and < 12 reads");
   //sv_header.addFilterField("FOLDBACK","Rearrangement is inversion type with span < 80. Very likely fold-back Illumina error");
   sv_header.addFilterField("LOWMAPQ","Assembly contig has non 60/60 mapq and no discordant support");
+  sv_header.addFilterField("LOWMATCHLEN","Assembly contig has fewer than 40 bases mapping uniquely to a reference locus (<100 if complex mapping or ");
   sv_header.addFilterField("SINGLEBX","Variant is supported by only a single BX tag (if run with 10X Genomics data)");
   sv_header.addFilterField("LOWQINVERSION","Assembly-only inversion of span < 300 and < 6 split reads. Common artifact in Illumina data");
   sv_header.addFilterField("LOWMAPQDISC","Both clusters of reads failed to achieve mean mapq of > 30 for DSCRD");

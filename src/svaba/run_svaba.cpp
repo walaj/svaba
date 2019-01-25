@@ -1105,7 +1105,7 @@ afterassembly:
     }
   }
   for (auto& i : bp_glob) {
-    if (ccc[i.b1.hash()] > 1)
+    if (i.evidence == "INDEL" && ccc[i.b1.hash()] > 1)
       i.confidence = "REPVAR";
   }
 
