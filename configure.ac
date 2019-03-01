@@ -45,7 +45,7 @@ AC_SUBST(AM_CXXFLAGS, "-g -Wall -Wextra $fail_on_warning -Wno-unknown-pragmas -s
 ##AC_SUBST(CXXFLAGS, "-O3")
 ##AC_SUBST(CFLAGS, "-O3")
 ##AC_SUBST(CPPFLAGS, "$CPPFLAGS $boost_include")
-AC_SUBST(LDFLAGS, "$LDFLAGS -pthread -std=c++11")
+AC_SUBST(LDFLAGS, "$LDFLAGS -pthread -std=c++11 -lbz2 -llzma")
 
 # We always need to specify to link to certain libraries
 ##AC_SUBST(LIBS, "$LIBS") # libboost_regex.a libboost_filesystem.a libboost_system.a")
