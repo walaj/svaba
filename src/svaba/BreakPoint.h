@@ -262,7 +262,7 @@ struct ReducedBreakEnd {
    /** Construct a breakpoint from a cluster of discordant reads
     */
    BreakPoint(DiscordantCluster& tdc, const SeqLib::BWAWrapper * bwa, DiscordantClusterMap& dmap, 
-	      const SeqLib::GenomicRegion& region);
+	      const SeqLib::GenomicRegion& region, const SeqLib::BamHeader& h);
      
    BreakPoint() {}
    

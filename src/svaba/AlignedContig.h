@@ -42,7 +42,7 @@ class AlignedContig {
   
   // Loop through the vector of DiscordantCluster objects
   // associated with this contig and print
-  std::string printDiscordantClusters() const;
+  std::string printDiscordantClusters(const SeqLib::BamHeader& h) const;
   
   // return the name of the contig
   std::string getContigName() const;

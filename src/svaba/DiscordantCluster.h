@@ -48,16 +48,19 @@ typedef std::vector<svabaReadVector> svabaReadClusterVector;
     void addMateReads(const svabaReadVector& bav);
     
     /** Return the discordant cluster as a string with just coordinates */
-    std::string toRegionString() const;
+    std::string toRegionString(const SeqLib::BamHeader& h) const;
     
     /** Return the ID associated with this cluster */
     std::string ID() const { return m_id; } 
     
     /** Print this with region string and read counts and mapq */
-    friend std::ostream& operator<<(std::ostream& out, const DiscordantCluster& dc);
+    //friend std::ostream& operator<<(std::ostream& out, const DiscordantCluster& dc);
+
+    /** Print this with region string and read counts and mapq */
+    std::string print(const SeqLib::BamHeader& h) const;
     
     /** Return as a string for writing to a file */
-    std::string toFileString(bool with_read_names = false) const;
+    std::string toFileString(const SeqLib::BamHeader& h, bool with_read_names) const;
     
     /** Sort by coordinate */
     bool operator < (const DiscordantCluster& b) const;

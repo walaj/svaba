@@ -108,9 +108,9 @@ using namespace SeqLib;
   }
 
 
-  // make a breakpoint from a discordant cluster 
+// make a breakpoint from a discordant cluster 
 BreakPoint::BreakPoint(DiscordantCluster& tdc, const BWAWrapper * bwa, DiscordantClusterMap& dmap, 
-		       const GenomicRegion& region) {
+		       const GenomicRegion& region, const SeqLib::BamHeader& h) {
     
     num_align = 0;
     dc = tdc;
@@ -123,7 +123,7 @@ BreakPoint::BreakPoint(DiscordantCluster& tdc, const BWAWrapper * bwa, Discordan
        chr_name1 = bwa->ChrIDToName(dc.m_reg1.chr); //bwa->ChrIDToName(tdc.reads.begin()->second.ChrID());
        chr_name2 = bwa->ChrIDToName(dc.m_reg2.chr); //bwa->ChrIDToName(tdc.reads.begin()->second.ChrID());
     } catch (...) {
-      std::cerr << "Warning: Found mismatch between reference genome and BAM genome for discordant cluster " << dc << std::endl;
+      std::cerr << "Warning: Found mismatch between reference genome and BAM genome for discordant cluster " << dc.print(h) << std::endl;
       chr_name1 = "Unknown";
       chr_name2 = "Unknown";
     }
@@ -162,8 +162,8 @@ BreakPoint::BreakPoint(DiscordantCluster& tdc, const BWAWrapper * bwa, Discordan
       //i.second.alt = i.second.disc;
     }
       
-    // give a unique id
-    cname = dc.toRegionString() + "__" + std::to_string(region.chr+1) + "_" + std::to_string(region.pos1) + 
+    // give a unique id (OK to give an empty header here, since used internally)
+    cname = dc.toRegionString(h) + "__" + std::to_string(region.chr+1) + "_" + std::to_string(region.pos1) + 
       "_" + std::to_string(region.pos2) + "D";
 
     // check if another cluster overlaps, but different strands

@@ -197,7 +197,7 @@ std::string AlignedContig::print(const SeqLib::BamHeader& h) const {
     
     // print the AlignmentFragments alignments
     for (auto& i : m_frag_v) 
-      out << i.print() << " Disc: " << printDiscordantClusters() << " -- " << getContigName() << std::endl;
+      out << i.print() << " Disc: " << printDiscordantClusters(h) << " -- " << getContigName() << std::endl;
     bool draw_divider = true;
     for (auto& i : m_frag_v) {
       for (auto& j : i.secondaries) {
@@ -205,7 +205,7 @@ std::string AlignedContig::print(const SeqLib::BamHeader& h) const {
 	  out << std::string(m_seq.length(), 'S') << std::endl;
 	  draw_divider = false;
 	}
-	out << j.print() << " Disc: " << printDiscordantClusters() << " -- " << getContigName() << std::endl;
+	out << j.print() << " Disc: " << printDiscordantClusters(h) << " -- " << getContigName() << std::endl;
       }
     }
     
@@ -460,14 +460,14 @@ std::string AlignedContig::print(const SeqLib::BamHeader& h) const {
     
   }
   
-  std::string AlignedContig::printDiscordantClusters() const {
+std::string AlignedContig::printDiscordantClusters(const SeqLib::BamHeader& h) const {
     
     std::stringstream out;
     if (m_dc.size() == 0)
       return "none";
     
     for (std::vector<DiscordantCluster>::const_iterator it = m_dc.begin(); it != m_dc.end(); it++)
-      out << *it << " ";
+      out << it->print(h) << " ";
     return out.str();
     
   }

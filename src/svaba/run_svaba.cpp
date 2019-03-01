@@ -154,6 +154,10 @@ namespace opt {
   static double lod_somatic_db = 10; // same, but at DBSNP (want higher bc we have prior that its germline)
   static double scale_error = 1; // how much to emphasize erorrs. 1 is standard. 0 is assume no errors
 
+  // input options
+  static bool override_reference_check = false; // allow the user, with caution, to use two different reference genomes 
+                                                // (one for BAM alignment, one as ref for svaba)
+
 }
 
 enum { 
@@ -182,7 +186,8 @@ enum {
   OPT_CLIP3,
   OPT_GERMLINE,
   OPT_SCALE_ERRORS,
-  OPT_NO_UNFILTERED
+  OPT_NO_UNFILTERED,
+  OPT_OVERRIDE_REFERENCE_CHECK
 };
 
 static const char* shortopts = "hzIAt:n:p:v:r:G:e:k:c:a:m:B:D:Y:S:L:s:V:R:K:E:C:x:M:";
@@ -239,6 +244,7 @@ static const struct option longopts[] = {
   { "max-reads",               required_argument, NULL, 'x' },
   { "max-reads-mate-region",   required_argument, NULL, 'M' },
   { "num-assembly-rounds",     required_argument, NULL, OPT_NUM_ASSEMBLY_ROUNDS },
+  { "override-reference-check",no_argument, NULL, OPT_OVERRIDE_REFERENCE_CHECK},
   { NULL, 0, NULL, 0 }
 };
 
@@ -275,6 +281,7 @@ static const char *RUN_USAGE_MESSAGE =
 "      --num-assembly-rounds            Run assembler multiple times. > 1 will bootstrap the assembly. [2]\n"
 "      --num-to-sample                  When learning about inputs, number of reads to sample. [2,000,000]\n"
 "      --hp                             Highly parallel. Don't write output until completely done. More memory, but avoids all thread-locks.\n"
+"      --override-reference-check       With much caution, allows user to run svaba with different reference genomes for BAMs and -G\n"
 "  Output options\n"
 "  -z, --g-zip                          Gzip and tabix the output VCF files. [off]\n"
 "  -A, --all-contigs                    Output all contigs that were assembled, regardless of mapping or length. [off]\n"
@@ -333,8 +340,8 @@ void runsvaba(int argc, char** argv) {
   
   std::cerr << 
     "-----------------------------------------------------------" << std::endl << 
-    "--- Running svaba SV and indel detection on " << SeqLib::AddCommas(opt::numThreads) << 
-    " threads --" <<(opt::numThreads >= 10 ? "" : "-") << std::endl <<
+    "---  Running svaba SV and indel detection on " << SeqLib::AddCommas(opt::numThreads) <<
+    " threads ---" <<(opt::numThreads >= 10 ? "" : "-") << std::endl <<
     "---    (inspect *.log for real-time progress updates)   ---" << std::endl << 
     "-----------------------------------------------------------" << std::endl;
   
@@ -407,7 +414,7 @@ void runsvaba(int argc, char** argv) {
     std::cerr << "ERROR: empty header in main bam file" << std::endl;
     exit(EXIT_FAILURE);
   }
-  
+  	 
   // open some writer bams
   if (opt::write_extracted_reads) // open the extracted reads writer
     svabaUtils::__openWriterBam(b_header, opt::analysis_id + ".extracted.reads.bam", er_writer);    
@@ -531,13 +538,51 @@ afterlearn:
     std::cerr << "ERROR: Unable to open index file: " << opt::refgenome << std::endl;
     exit(EXIT_FAILURE);
    }
+
+  // check that the two headers are equivalant
+  if (opt::override_reference_check) {
+    WRITELOG("!!! Will NOT perform check of reference compatability with BAM.\n!!! Only if *sure* that reference and BAM have same chr in same order.", true, true);
+  } else {
+    bool trigger_explain = false;
+    if (b_header.NumSequences() != bwa_header.NumSequences()) {
+      trigger_explain = true;
+      std::stringstream ss;
+      ss << "!!!!!!!!!!! WARNING !!!!!!!!!!!" << std::endl 
+	 << "!!!!!! Number of sequences in BAM header mismatches reference" << std::endl
+	 << "!!!!!! BAM: " << b_header.NumSequences() << " -- Ref: " << bwa_header.NumSequences();
+      WRITELOG(ss.str(), true, true);
+    }
+    
+    // check that the two headers are equivalant  
+    for (int i = 0; i < std::min(b_header.NumSequences(), bwa_header.NumSequences()); ++i) {
+      if (b_header.IDtoName(i) != bwa_header.IDtoName(i)) {
+	trigger_explain = true;
+	std::stringstream ss;
+	ss << "!!!!!! BAM sequence id " << i << ": \"" << b_header.IDtoName(i) << "\"" 
+	   << " -- Ref sequence id " << i << ": \"" << bwa_header.IDtoName(i) << "\"";
+	WRITELOG(ss.str(), true, true);
+      }
+    }
+    if (trigger_explain) {
+      std::stringstream ss;
+      ss << "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" << std::endl
+	 << "!!! SvABA is being run with different reference genome than the reads were mapped to." << std::endl 
+	 << "!!! This can cause a massive failure in variant detection!" << std::endl 
+	 << "!!! If you are *sure* that the two references are functionally equivalent (e.g. chr1 vs 1)" << std::endl 
+	 << "!!! and that the order of the chromosomes is equivalent between the two," << std::endl 
+	 << "!!! you can override this error with option \"--override-reference-check\"" << std::endl 
+	 << "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!";
+      WRITELOG(ss.str(), true, true);
+      exit(EXIT_FAILURE);
+    }
+  }
   
   if (num_jobs) {
     WRITELOG("...running on " + SeqLib::AddCommas(num_jobs) + " chunks", opt::verbose, true);
   } else {
     WRITELOG("Chunk was <= 0: READING IN WHOLE GENOME AT ONCE", opt::verbose, true);
   }
-
+  
   // loop through and construct the readgroup rules
   std::stringstream ss_rules;
   std::unordered_set<std::string> rg_seen;
@@ -748,6 +793,7 @@ void parseRunOptions(int argc, char** argv) {
     case 'z': opt::zip = true; break;
     case 'h': help = true; break;
     case OPT_GAP_OPEN : arg >> opt::bwa::gap_open_penalty; break;
+    case OPT_OVERRIDE_REFERENCE_CHECK : opt::override_reference_check = true; break;
     case 'x' : arg >> opt::max_reads_per_assembly; break;
     case 'M' : arg >> opt::mate_region_lookup_limit; break;
     case 'A' : opt::all_contigs = true; break;
@@ -948,7 +994,7 @@ bool runWorkItem(const SeqLib::GenomicRegion& region, svabaThreadUnit& wu, long 
   // print out results
   if (opt::verbose > 3)
     for (auto& i : dmap) 
-      WRITELOG(i.first + " " + i.second.toFileString(false), true, false);
+      WRITELOG(i.first + " " + i.second.toFileString(b_header, false), true, false);
 
  afterdiscclustering:
 
@@ -1059,7 +1105,7 @@ afterassembly:
     // DiscordantCluster not associated with assembly BP and has 2+ read support
     if (!i.second.hasAssociatedAssemblyContig() && 
 	(i.second.tcount + i.second.ncount) >= MIN_DSCRD_READS_DSCRD_ONLY && i.second.valid() && !below_size) {
-      BreakPoint tmpbp(i.second, main_bwa, dmap, region);
+      BreakPoint tmpbp(i.second, main_bwa, dmap, region, b_header);
       bp_glob.push_back(tmpbp);
     }
   }
@@ -1829,7 +1875,7 @@ void WriteFilesOut(svabaThreadUnit& wu) {
   // send the discordant to file
   for (auto& i : wu.m_disc)
     if (i.second.valid()) //std::max(i.second.mapq1, i.second.mapq2) >= 5)
-      os_discordant << i.second.toFileString(opt::read_tracking) << std::endl;
+      os_discordant << i.second.toFileString(b_header, opt::read_tracking) << std::endl;
   
   // write ALL contigs
   if (opt::verbose > 2)
