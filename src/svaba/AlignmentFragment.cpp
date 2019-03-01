@@ -77,14 +77,16 @@ AlignmentFragment::AlignmentFragment(const SeqLib::BamRecord &talign, bool flip)
       gbreak2 = m_align.PositionEnd();
     }
 
+    // shouldn't hit either of the next two conditions
     if (break1 >= MAX_CONTIG_SIZE || break2 >= MAX_CONTIG_SIZE || break1 < 0 || break2 < 0) 
-      std::cerr << " break1 " << break1 << " break2 " << break2 << " " << (*this) << std::endl;
+      std::cerr << " break1 " << break1 << " break2 " << break2 << " " << this->print() << std::endl;
     assert(break1 < MAX_CONTIG_SIZE);
     assert(break2 < MAX_CONTIG_SIZE);
 
     if (break1 < 0 || break2 < 0) {
-      std::cout << (*this) << std::endl;
+      std::cerr << "Negative breakpoint detected. Error?"  << this->print() << std::endl;
     }
+
     assert(break1 >= 0);
     assert(break2 >= 0);
 
@@ -104,35 +106,36 @@ void AlignmentFragment::SetIndels(const AlignedContig * c) {
     }
 }
 
-  std::ostream& operator<<(std::ostream &out, const AlignmentFragment &c) {
-    
-    // sets the direction to print
-    char jsign = '>'; 
-    if (c.m_align.ReverseFlag())
-      jsign = '<';
-    
-    // print the cigar value per base
-    for (auto& j : /*c.m_align.GetCigar()*/ c.m_cigar) { //c.align.CigarData) { // print releative to forward strand
-      if (j.Type() == 'M')
-	out << std::string(j.Length(), jsign);
-      else if (j.Type() == 'I') 
-	out << std::string(j.Length(), 'I');
-      else if (j.Type() == 'S' || j.Type() == 'H')
-	out << std::string(j.Length(), '.');
-    }
-    
-    // print contig and genome breaks
-    out << "\tC[" << c.break1 << "," << c.break2 << "] G[" << c.gbreak1 << "," << c.gbreak2 << "]";
-    
-    // add local info
-    std::string chr_name;
-    c.m_align.GetZTag("MC", chr_name);
-    if (!chr_name.length())
-      chr_name = std::to_string(c.m_align.ChrID()+1);
-    out << "\tLocal: " << c.local << "\tAligned to: " << chr_name << ":" << c.m_align.Position() << "(" << (c.m_align.ReverseFlag() ? "-" : "+") << ") CIG: " << c.m_align.CigarString() << " MAPQ: " << c.m_align.MapQuality() << " SUBN " << c.sub_n;
+std::string AlignmentFragment::print() const {
   
-    return out;
+  std::stringstream out;
+  // sets the direction to print
+  char jsign = '>'; 
+  if (m_align.ReverseFlag())
+    jsign = '<';
+  
+  // print the cigar value per base
+  for (auto& j : /*m_align.GetCigar()*/ m_cigar) { //align.CigarData) { // print releative to forward strand
+    if (j.Type() == 'M')
+      out << std::string(j.Length(), jsign);
+    else if (j.Type() == 'I') 
+      out << std::string(j.Length(), 'I');
+    else if (j.Type() == 'S' || j.Type() == 'H')
+      out << std::string(j.Length(), '.');
   }
+  
+  // print contig and genome breaks
+  out << "\tC[" << break1 << "," << break2 << "] G[" << gbreak1 << "," << gbreak2 << "]";
+  
+    // add local info
+  std::string chr_name;
+  m_align.GetZTag("MC", chr_name);
+  if (!chr_name.length())
+    chr_name = std::to_string(m_align.ChrID()+1);
+  out << "\tLocal: " << local << "\tAligned to: " << chr_name << ":" << m_align.Position() << "(" << (m_align.ReverseFlag() ? "-" : "+") << ") CIG: " << m_align.CigarString() << " MAPQ: " << m_align.MapQuality() << " SUBN " << sub_n;
+  
+  return out.str();
+}
 
 
 void AlignmentFragment::indelCigarMatches(const std::unordered_map<std::string, SeqLib::CigarMap>& cmap) {
@@ -162,7 +165,7 @@ void AlignmentFragment::indelCigarMatches(const std::unordered_map<std::string, 
     
      // make sure we have a non-zero cigar
     if (m_cigar.size() == 0) {
-      std::cerr << "CIGAR of length 0 on " << *this << std::endl;
+      std::cerr << "CIGAR of length 0 on " << this->print() << std::endl;
       return false;
     }
 
@@ -186,8 +189,8 @@ void AlignmentFragment::indelCigarMatches(const std::unordered_map<std::string, 
       ++loc;
       if ( (i.Type() == 'D' || i.Type() == 'I')) {
 	assert (loc != 1 && loc != m_cigar.size()); // shuldn't start with I or D
-	bool prev_match = (m_cigar[loc-2].Type() == 'M' && m_cigar[loc-2].Length() >= MIN_INDEL_MATCH_BRACKET);
-	bool post_match = (m_cigar[loc].Type() == 'M' && m_cigar[loc].Length() >= MIN_INDEL_MATCH_BRACKET);
+	bool prev_match = (m_cigar[loc-2].Type() == 'M'/* && m_cigar[loc-2].Length() >= MIN_INDEL_MATCH_BRACKET*/);
+	bool post_match = (m_cigar[loc].Type() == 'M'/* && m_cigar[loc].Length() >= MIN_INDEL_MATCH_BRACKET*/);
 	if (loc > idx && prev_match && post_match) { // require 15M+ folowoing I/D
 	  idx = loc;
 	  break;

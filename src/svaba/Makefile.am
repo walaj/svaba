@@ -22,7 +22,8 @@ svaba_LDADD = \
 	$(top_builddir)/SeqLib/src/libseqlib.a \
 	$(top_builddir)/SeqLib/bwa/libbwa.a \
 	$(top_builddir)/SeqLib/htslib/libhts.a \
-	$(top_builddir)/SeqLib/fermi-lite/libfml.a
+	$(top_builddir)/SeqLib/fermi-lite/libfml.a \
+	-llzma -lbz2 -lz
 
 ##svaba_LDFLAGS = -pthread -std=c++11
 

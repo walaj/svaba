@@ -15,12 +15,12 @@
 #define AUTHOR "Jeremiah Wala <jwala@broadinstitute.org>"
 
 static const char *SVABA_USAGE_MESSAGE =
-"--------------------------------------------------\n"
-"--- SvABA - SV and indel detection by assembly ---\n"
-"--------------------------------------------------\n"
+"------------------------------------------------------------\n"
+"-------- SvABA - SV and indel detection by assembly --------\n"
+"------------------------------------------------------------\n"
 "Program: SvABA \n"
-"FH Version: 134 \n"
-"Contact: Jeremiah Wala [ jwala@broadinstitute.org ]\n"
+"Version: 1.1.0 \n"
+"Contact: Jeremiah Wala [ jeremiah.wala@gmail.org ]\n"
 "Usage: svaba <command> [options]\n\n"
 "Commands:\n"
 "           run            Run SvABA SV and Indel detection on BAM(s)\n"

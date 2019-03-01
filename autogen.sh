@@ -4,4 +4,4 @@ set -ex
 aclocal
 autoconf
 autoheader
-automake -a
+automake --add-missing --copy

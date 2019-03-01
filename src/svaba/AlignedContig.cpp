@@ -160,67 +160,69 @@ void AlignedContig::blacklist(SeqLib::GRC &grv) {
       m_global_bp.splitCoverage(m_bamreads);
     
   }
+ 
+std::string AlignedContig::print(const SeqLib::BamHeader& h) const {
   
-  std::ostream& operator<<(std::ostream& out, const AlignedContig &ac) {
-    
-    // print the global breakpoint
-    if (!ac.m_global_bp.isEmpty())
-      out << "Global BP: " << ac.m_global_bp << 
-	" ins_aginst_contig " << ac.insertion_against_contig_read_count << 
-	" del_against_contig " << ac.deletion_against_contig_read_count << "  " << 
-	ac.getContigName() << std::endl;       
-    
-    // print the global breakpoint for secondaries
-    if (ac.m_global_bp_secondaries.size())
-      out << "SECONDARY Global BP: " << ac.m_global_bp << 
-	" ins_aginst_contig " << ac.insertion_against_contig_read_count << 
-	" del_against_contig " << ac.deletion_against_contig_read_count << "  " << 
-	ac.getContigName() << std::endl;       
-    
-    // print the multi-map breakpoints
-    for (auto& i : ac.m_local_breaks)
-      if (!i.isEmpty())
-	out << "Multi-map BP: " << i << " -- " << ac.getContigName() << std::endl;       
-    // print the multi-map breakpoints for secondary
-    for (auto& i : ac.m_local_breaks_secondaries)
-      if (!i.isEmpty())
-	out << "SECONDARY Multi-map BP: " << i << " -- " << ac.getContigName() << std::endl;       
-    
-    // print the indel breakpoints
-    for (auto& i : ac.m_frag_v)
+  std::stringstream out;
+
+  // print the global breakpoint
+  if (!m_global_bp.isEmpty())
+    out << "Global BP: " << m_global_bp.print(h) << 
+      " ins_aginst_contig " << insertion_against_contig_read_count << 
+      " del_against_contig " << deletion_against_contig_read_count << "  " << 
+      getContigName() << std::endl;       
+  
+  // print the global breakpoint for secondaries
+  if (m_global_bp_secondaries.size())
+    out << "SECONDARY Global BP: " << m_global_bp.print(h) << 
+      " ins_aginst_contig " << insertion_against_contig_read_count << 
+      " del_against_contig " << deletion_against_contig_read_count << "  " << 
+      getContigName() << std::endl;       
+  
+  // print the multi-map breakpoints
+  for (auto& i : m_local_breaks)
+    if (!i.isEmpty())
+      out << "Multi-map BP: " << i.print(h) << " -- " << getContigName() << std::endl;       
+  // print the multi-map breakpoints for secondary
+  for (auto& i : m_local_breaks_secondaries)
+    if (!i.isEmpty())
+      out << "SECONDARY Multi-map BP: " << i.print(h) << " -- " << getContigName() << std::endl;       
+  
+  // print the indel breakpoints
+    for (auto& i : m_frag_v)
       for (auto& j : i.getIndelBreaks()) 
 	if (!j.isEmpty())
-	  out << "Indel: " << j << " -- " << ac.getContigName() << " ins_a_contig " << ac.insertion_against_contig_read_count << 
-	    " del_a_contig " << ac.deletion_against_contig_read_count << std::endl;       
+	  out << "Indel: " << j.print(h) << " -- " << getContigName() << " ins_a_contig " << insertion_against_contig_read_count << 
+	    " del_a_contig " << deletion_against_contig_read_count << std::endl;       
     
     // print the AlignmentFragments alignments
-    for (auto& i : ac.m_frag_v) 
-      out << i << " Disc: " << ac.printDiscordantClusters() << " -- " << ac.getContigName() << std::endl;
+    for (auto& i : m_frag_v) 
+      out << i.print() << " Disc: " << printDiscordantClusters(h) << " -- " << getContigName() << std::endl;
     bool draw_divider = true;
-    for (auto& i : ac.m_frag_v) {
+    for (auto& i : m_frag_v) {
       for (auto& j : i.secondaries) {
 	if (draw_divider) {
-	  out << std::string(ac.m_seq.length(), 'S') << std::endl;
+	  out << std::string(m_seq.length(), 'S') << std::endl;
 	  draw_divider = false;
 	}
-	out << j << " Disc: " << ac.printDiscordantClusters() << " -- " << ac.getContigName() << std::endl;
+	out << j.print() << " Disc: " << printDiscordantClusters(h) << " -- " << getContigName() << std::endl;
       }
     }
-
+    
     // print the break locations for indel deletions
-    for (auto& i : ac.m_frag_v) {
+    for (auto& i : m_frag_v) {
       for (auto& j : i.getIndelBreaks()) {
 	if (j.num_align == 1 && j.insertion == "") // deletion
 	  //std::cerr << j.b1.cpos << " " << j.b2.cpos << " name " << ac.getContigName() << " ins " << j.insertion << std::endl;
-	  out << std::string(j.b1.cpos, ' ') << "|" << std::string(j.b2.cpos-j.b1.cpos-1, ' ') << '|' << "   " << ac.getContigName() << std::endl;	
+	  out << std::string(j.b1.cpos, ' ') << "|" << std::string(j.b2.cpos-j.b1.cpos-1, ' ') << '|' << "   " << getContigName() << std::endl;	
       }
     }
     
-    out << ac.getSequence() << "    " << ac.getContigName() << std::endl; 
+    out << getSequence() << "    " << getContigName() << std::endl; 
     PlottedReadVector plot_vec;
     
     // print out the individual reads
-    for (auto& i : ac.m_bamreads) {
+    for (auto& i : m_bamreads) {
       
       //std::string seq = i.QualitySequence();
       std::string seq = i.Seq(); 
@@ -243,7 +245,7 @@ void AlignedContig::blacklist(SeqLib::GRC &grv) {
       assert(cnvec.size() == posvec.size());
       size_t kk = 0;
       for (; kk < cnvec.size(); kk++) 
-	if (cnvec[kk] == ac.getContigName()) {
+	if (cnvec[kk] == getContigName()) {
 	  pos = posvec[kk];
 	  aln = alnvec[kk];
 	  rc = rcvec[kk];
@@ -257,7 +259,7 @@ void AlignedContig::blacklist(SeqLib::GRC &grv) {
       */
 
       // get the read to contig alignment information
-      r2c this_r2c = i.GetR2C(ac.getContigName());
+      r2c this_r2c = i.GetR2C(getContigName());
       
       int pos = this_r2c.start_on_contig;
       int aln = this_r2c.start_on_read;
@@ -290,19 +292,19 @@ void AlignedContig::blacklist(SeqLib::GRC &grv) {
 	    seq.length() << " start " << aln << " length " << (seq.length() - aln) << std::endl;
 	}
       
-      if ( (pos + seq.length() ) > ac.getSequence().length()) 
+      if ( (pos + seq.length() ) > getSequence().length()) 
 	try { 
-	  seq = seq.substr(0, ac.getSequence().length() - pos);
+	  seq = seq.substr(0, getSequence().length() - pos);
 	} catch (...) {
 	  std::cerr << "AlignedContig::operator<< (2) error: substring out of bounds. seqlen " << 
-	    seq.length() << " start " << 0 << " pos " << pos << " ac.getSequence().length() " << 
-	    ac.getSequence().length() << std::endl;
+	    seq.length() << " start " << 0 << " pos " << pos << " getSequence().length() " << 
+	    getSequence().length() << std::endl;
 
 	}
       
       //assert(kk != cnvec.size()); // assure that we found something
       pos = abs(pos);
-      int padlen = ac.getSequence().size() - pos - seq.size() + 5;
+      int padlen = getSequence().size() - pos - seq.size() + 5;
       padlen = std::max(5, padlen);
       
       std::stringstream rstream;
@@ -328,7 +330,7 @@ void AlignedContig::blacklist(SeqLib::GRC &grv) {
       }
       if (!found) { // didn't fit anywhere, so make a new line
 	PlottedReadLine prl;
-	prl.contig_len = ac.getSequence().length();
+	prl.contig_len = getSequence().length();
 	prl.addRead(&i);
 	line_vec.push_back(prl);
       }
@@ -336,9 +338,9 @@ void AlignedContig::blacklist(SeqLib::GRC &grv) {
     
     // plot the lines. Add contig identifier to each
     for (auto& i : line_vec) 
-      out << i << " " << ac.getContigName() << std::endl;
+      out << i << " " << getContigName() << std::endl;
     
-    return out;
+    return out.str();
   }
   
   void AlignedContig::setMultiMapBreakPairs() {
@@ -458,14 +460,14 @@ void AlignedContig::blacklist(SeqLib::GRC &grv) {
     
   }
   
-  std::string AlignedContig::printDiscordantClusters() const {
+std::string AlignedContig::printDiscordantClusters(const SeqLib::BamHeader& h) const {
     
     std::stringstream out;
     if (m_dc.size() == 0)
       return "none";
     
     for (std::vector<DiscordantCluster>::const_iterator it = m_dc.begin(); it != m_dc.end(); it++)
-      out << *it << " ";
+      out << it->print(h) << " ";
     return out.str();
     
   }

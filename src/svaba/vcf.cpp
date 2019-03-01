@@ -34,7 +34,7 @@ void __write_to_zip_vcf(const VCFEntry& v, BGZF * f) {
 }
 
 // forward declare
-void tabixVcf(const std::string &fn);
+//void tabixVcf(const std::string &fn);
 
 // comparator for info fields
 // lhs < rhs
@@ -218,6 +218,7 @@ VCFFile::VCFFile(std::string file, std::string id, const SeqLib::BamHeader& h, c
   sv_header.addFilterField("LOWSPAN","Discordant read cluster (no split read support), and less than 10kb span and < 12 reads");
   //sv_header.addFilterField("FOLDBACK","Rearrangement is inversion type with span < 80. Very likely fold-back Illumina error");
   sv_header.addFilterField("LOWMAPQ","Assembly contig has non 60/60 mapq and no discordant support");
+  sv_header.addFilterField("LOWMATCHLEN","Assembly contig has fewer than 40 bases mapping uniquely to a reference locus (<100 if complex mapping or ");
   sv_header.addFilterField("SINGLEBX","Variant is supported by only a single BX tag (if run with 10X Genomics data)");
   sv_header.addFilterField("LOWQINVERSION","Assembly-only inversion of span < 300 and < 6 split reads. Common artifact in Illumina data");
   sv_header.addFilterField("LOWMAPQDISC","Both clusters of reads failed to achieve mean mapq of > 30 for DSCRD");
@@ -567,9 +568,9 @@ void VCFFile::writeIndels(string basename, bool zip, bool onefile) const {
   
   if (zip) {
     // tabix it
-    tabixVcf(gname);
-    if (!onefile)
-      tabixVcf(sname);
+    //tabixVcf(gname);
+    //if (!onefile)
+    //  tabixVcf(sname);
   }
   
 }
@@ -666,16 +667,16 @@ void VCFFile::writeSVs(std::string basename, bool zip, bool onefile) const {
 
   // tabix it
   if (zip) {
-    if (!onefile)
-      tabixVcf(sname); 
-    tabixVcf(gname);
+    //if (!onefile)
+      //tabixVcf(sname); 
+    //tabixVcf(gname);
   }
 
 }
 
 
 // tabix the vcf
-void tabixVcf(const std::string &fn) {
+/*void tabixVcf(const std::string &fn) {
 
   // tabix it
   tbx_conf_t conf = tbx_conf_gff;
@@ -684,7 +685,7 @@ void tabixVcf(const std::string &fn) {
   if ( tbx_index_build(fn.c_str(), 0, &conf) ) 
     cerr << "tbx_index_build failed: " << fn << endl;
 
-}
+    }*/
 
 VCFEntryPair::VCFEntryPair(std::shared_ptr<ReducedBreakPoint>& b) {
 

@@ -42,7 +42,7 @@ class AlignedContig {
   
   // Loop through the vector of DiscordantCluster objects
   // associated with this contig and print
-  std::string printDiscordantClusters() const;
+  std::string printDiscordantClusters(const SeqLib::BamHeader& h) const;
   
   // return the name of the contig
   std::string getContigName() const;
@@ -72,7 +72,7 @@ class AlignedContig {
   std::string getSequence() const; 
   
   //! print this contig
-  friend std::ostream& operator<<(std::ostream &out, const AlignedContig &ac);
+  std::string print(const SeqLib::BamHeader& h) const;
   
   // Return if this contig contains a potential variant (indel or multi-map)
   bool hasVariant() const;
