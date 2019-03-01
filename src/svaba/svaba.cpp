@@ -16,11 +16,11 @@
 
 static const char *SVABA_USAGE_MESSAGE =
 "------------------------------------------------------------\n"
-"--- SvABA (sah-bah) - SV and indel detection by assembly ---\n"
+"-------- SvABA - SV and indel detection by assembly --------\n"
 "------------------------------------------------------------\n"
 "Program: SvABA \n"
-"FH Version: 134 \n"
-"Contact: Jeremiah Wala [ jwala@broadinstitute.org ]\n"
+"Version: 1.0.1 \n"
+"Contact: Jeremiah Wala [ jeremiah.wala@gmail.org ]\n"
 "Usage: svaba <command> [options]\n\n"
 "Commands:\n"
 "           run            Run SvABA SV and Indel detection on BAM(s)\n"

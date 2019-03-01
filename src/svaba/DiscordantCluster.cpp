@@ -62,11 +62,10 @@ using namespace SeqLib;
       // accept as discordant if not FR, has large enough isize, is inter-chromosomal, 
       // and has both mates mapping. Also dont cluster on weird chr
       if ( ( r.PairOrientation() != FRORIENTATION || r.FullInsertSize() >= cutoff || r.Interchromosomal()) && 
-	   r.PairMappedFlag() && r.ChrID() < 24 && r.MateChrID() < 24 &&
+	   r.PairMappedFlag() /* && r.ChrID() < 24 && r.MateChrID() < 24 */  &&
            r.NumMatchBases() > r.NumHardClip()) // has to have mostly not-hardclip
 	bav_dd.push_back(r);
     }
-
     
     if (!bav_dd.size())
       return DiscordantClusterMap();
@@ -404,25 +403,25 @@ using namespace SeqLib;
     return mean;
   }
   
-  std::string DiscordantCluster::toRegionString() const 
+std::string DiscordantCluster::toRegionString(const SeqLib::BamHeader& h) const 
   {
     int pos1 = (m_reg1.strand == '+') ? m_reg1.pos2 : m_reg1.pos1;
     int pos2 = (m_reg2.strand == '+') ? m_reg2.pos2 : m_reg2.pos1;
     
     std::stringstream ss;
-    ss << (m_reg1.chr+1) << ":" << pos1 << "(" << m_reg1.strand << ")" << "-" << 
-      (m_reg2.chr+1) << ":" << pos2 << "(" << m_reg2.strand << ")";
+    ss << h.IDtoName(m_reg1.chr) << ":" << pos1 << "(" << m_reg1.strand << ")" << "-" << 
+      h.IDtoName(m_reg2.chr) << ":" << pos2 << "(" << m_reg2.strand << ")";
     return ss.str();
     
   }
   
-  // define how to print this to stdout
-  std::ostream& operator<<(std::ostream& out, const DiscordantCluster& dc) 
-  {
-    out << dc.toRegionString() << " Tcount: " << dc.tcount << 
-      " Ncount: "  << dc.ncount << " Mean MAPQ: " 
-	<< dc.mapq1 << " Mean Mate MAPQ: " << dc.mapq2 << " Valid: " << (dc.valid() ? "TRUE" : "FALSE");
-    return out;
+// define how to print this
+std::string DiscordantCluster::print(const SeqLib::BamHeader& h) const {
+    std::stringstream ss;
+    ss << toRegionString(h) << " Tcount: " << tcount << 
+      " Ncount: "  << ncount << " Mean MAPQ: " 
+       << mapq1 << " Mean Mate MAPQ: " << mapq2 << " Valid: " << (valid() ? "TRUE" : "FALSE");
+    return ss.str();
   }
   
   bool DiscordantCluster::valid() const {
@@ -445,15 +444,13 @@ using namespace SeqLib;
 
   
   // define how to print to file
-  std::string DiscordantCluster::toFileString(bool with_read_names /* false */) const 
-  { 
+  std::string DiscordantCluster::toFileString(const SeqLib::BamHeader& h, bool with_read_names) const { 
     
     std::string sep = "\t";
     
     // add the reads names (currently off)
     std::string reads_string;
-    if (with_read_names) 
-      {
+    if (with_read_names) {
 	
 	std::unordered_set<std::string> qnset;
 	for (auto& i : reads) 
@@ -464,8 +461,7 @@ using namespace SeqLib;
 	    qnset.insert(i.second.Qname());
 	    reads_string += tmp + ",";
 	  }
-	for (auto& i : mates) 
-	  {
+	for (auto& i : mates) {
 	    if (qnset.count(i.second.Qname()))
 	      continue;
 	    std::string tmp = i.second.SR();
@@ -484,11 +480,11 @@ using namespace SeqLib;
     int pos2 = m_reg2.strand == '+' ? m_reg2.pos2 : m_reg2.pos1;
 
     std::stringstream out;
-    out << m_reg1.chr+1 << sep << pos1 << sep << m_reg1.strand << sep 
-	<< m_reg2.chr+1 << sep << pos2 << sep << m_reg2.strand << sep 
+    out << h.IDtoName(m_reg1.chr) << sep << pos1 << sep << m_reg1.strand << sep 
+	<< h.IDtoName(m_reg2.chr) << sep << pos2 << sep << m_reg2.strand << sep 
 	<< tcount << sep << ncount << sep << tcount_hq << sep << ncount_hq
 	<< sep << mapq1 << sep 
-	<< mapq2 << sep << (m_contig.length() ? m_contig : "x") << sep << toRegionString()
+	<< mapq2 << sep << (m_contig.length() ? m_contig : "x") << sep << toRegionString(h)
 	<< sep << (reads_string.length() ? reads_string : "x");
 
     return (out.str());

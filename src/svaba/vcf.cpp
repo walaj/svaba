@@ -34,7 +34,7 @@ void __write_to_zip_vcf(const VCFEntry& v, BGZF * f) {
 }
 
 // forward declare
-void tabixVcf(const std::string &fn);
+//void tabixVcf(const std::string &fn);
 
 // comparator for info fields
 // lhs < rhs
@@ -568,9 +568,9 @@ void VCFFile::writeIndels(string basename, bool zip, bool onefile) const {
   
   if (zip) {
     // tabix it
-    tabixVcf(gname);
-    if (!onefile)
-      tabixVcf(sname);
+    //tabixVcf(gname);
+    //if (!onefile)
+    //  tabixVcf(sname);
   }
   
 }
@@ -667,16 +667,16 @@ void VCFFile::writeSVs(std::string basename, bool zip, bool onefile) const {
 
   // tabix it
   if (zip) {
-    if (!onefile)
-      tabixVcf(sname); 
-    tabixVcf(gname);
+    //if (!onefile)
+      //tabixVcf(sname); 
+    //tabixVcf(gname);
   }
 
 }
 
 
 // tabix the vcf
-void tabixVcf(const std::string &fn) {
+/*void tabixVcf(const std::string &fn) {
 
   // tabix it
   tbx_conf_t conf = tbx_conf_gff;
@@ -685,7 +685,7 @@ void tabixVcf(const std::string &fn) {
   if ( tbx_index_build(fn.c_str(), 0, &conf) ) 
     cerr << "tbx_index_build failed: " << fn << endl;
 
-}
+    }*/
 
 VCFEntryPair::VCFEntryPair(std::shared_ptr<ReducedBreakPoint>& b) {
 
