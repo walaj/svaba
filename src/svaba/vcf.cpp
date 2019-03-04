@@ -10,6 +10,7 @@
 
 #include "htslib/tbx.h"
 #include "htslib/bgzf.h"
+#include "htslib/khash.h"
 
 #include "gzstream.h"
 #include "SeqLib/GenomicRegionCollection.h"
@@ -21,10 +22,12 @@ using namespace std;
 static std::string sv_format = "GT:AD:DP:GQ:PL:SR:DR:LR:LO"; 
 static std::string indel_format = "GT:AD:DP:GQ:PL:SR:CR:LR:LO";
 static InfoMap flag_map;
-static int global_id = 0;
+//static int global_id = 0;
 static std::stringstream lod_ss;
 
 static std::unordered_map<std::string, int> cname_count;
+
+static std::unordered_set<uint32_t> hash_avoid; // being extra careful for hash collisions
 
 void __write_to_zip_vcf(const VCFEntry& v, BGZF * f) {
   std::stringstream ss;
@@ -692,9 +695,26 @@ VCFEntryPair::VCFEntryPair(std::shared_ptr<ReducedBreakPoint>& b) {
   bp = b;
   e1.bp = bp;
   e2.bp = bp;
-  ++global_id;
-  e1.id = global_id;
-  e2.id = global_id;
+  uint32_t hashed;
+  int i = 0;
+  do {
+    // come up with some string that describes this, to be hashed (doesn't have to be human readable)
+    std::string s = std::to_string(bp->b1.gr.pos1) + "-" +
+      std::to_string(bp->b2.gr.pos1) + "-" +
+      bp->b1.chr_name + "_" + bp->b2.chr_name + std::string(b->cname) +
+      //"-" + std::to_string(b->cov) + "-" + std::to_string(b->af_n) + "-" + std::to_string(b->tcigar) + 
+      //"-" + std::to_string(b->af_t) + std::to_string(b->quality) + 
+      std::to_string(i);
+    hashed  = __ac_Wang_hash(__ac_X31_hash_string(s.c_str()));
+    ++i;
+    //std::cout << "size " << hash_avoid.size() << " HI " << hashed << " " << (hash_avoid.find(hashed) != hash_avoid.end()) << " " << bp->b1.gr << " " << bp->b2.gr << std::endl;
+  } while (hash_avoid.find(hashed) != hash_avoid.end());
+
+    hash_avoid.insert(hashed);
+  
+  //++global_id;
+  e1.id = hashed; //global_id;
+  e2.id = hashed; //global_id;
   e1.id_num = 1;
   e2.id_num = 2;
 

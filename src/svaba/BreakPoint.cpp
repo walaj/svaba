@@ -66,13 +66,13 @@ using namespace SeqLib;
     for (auto& s : allele) 
       max_lod = std::max(max_lod, s.second.LO);
 
-    ss << b1.chr_name << sep << b1.gr.pos1 << sep << b1.gr.strand << sep 
-       << b2.chr_name << sep << b2.gr.pos1 << sep << b2.gr.strand << sep 
-       << ref << sep << alt << sep 
-       << getSpan() << sep
-       << b1.mapq << sep << b2.mapq << sep 
-       << b1.nm << sep << b2.nm << sep 
-       << dc.mapq1 << sep << dc.mapq2 << sep
+    ss << b1.chr_name << sep << b1.gr.pos1 << sep << b1.gr.strand << sep //1-3
+       << b2.chr_name << sep << b2.gr.pos1 << sep << b2.gr.strand << sep //4-6
+       << ref << sep << alt << sep //7-8
+       << getSpan() << sep //9
+       << b1.mapq << sep << b2.mapq << sep //10-11
+       << b1.nm << sep << b2.nm << sep //12-13
+       << dc.mapq1 << sep << dc.mapq2 << sep //14-15
        << a.split << sep << a.cigar << sep << a.alt << sep << a.cov << sep // ALL NEW 9/2018
        //<< dc.ncount << sep << dc.tcount << sep
        << b1.sub_n << sep << b2.sub_n << sep      
@@ -1246,17 +1246,17 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
 	  alt_s = val;
 	  break;
 	case 9: break; //span = stoi(val); break; // automatically calculated
-	case 10: 
+	case 10: //mapq1
 	  b1 = ReducedBreakEnd(GenomicRegion(chr1, pos1, pos1, h), std::stoi(val), chr_name1); b1.gr.strand = strand1; break;
-	case 11:
+	case 11: //mapq2
 	  b2 = ReducedBreakEnd(GenomicRegion(chr2, pos2, pos2, h), std::stoi(val), chr_name2); b2.gr.strand = strand2; break;
 	case 12: b1.nm = INTNSTOI(val,255); break;
 	case 13: b2.nm = INTNSTOI(val,255); break;
-	  //case 14: mapq1 (not needed)
-	  //case 15: mapq2 (not needed)
-	  //case 16: split (not needed) // NEWBIES
-	  //case 17: cigar (not needed) 
-	  //case 18: alt (not needed)
+	case 14: dc.mapq1 = INTNSTOI(val, 255); break;
+	case 15: dc.mapq2 = INTNSTOI(val, 255); break;
+	  //case 16: split (not needed, since in genotype) 
+	  //case 17: cigar (not needed, since in genotype) 
+	  //case 18: alt (not needed, since in genotype)
 	case 19: cov = INTNSTOI(val,65535); break;
 	case 20: b1.sub_n = INTNSTOI(val,255); break;
 	case 21: b2.sub_n = INTNSTOI(val,255); break;

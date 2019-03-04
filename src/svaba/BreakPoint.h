@@ -197,7 +197,7 @@ struct ReducedBreakEnd {
  struct BreakPoint {
    
    static std::string header() { 
-     return "chr1\tpos1\tstrand1\tchr2\tpos2\tstrand2\tref\talt\tspan\tmapq1\tmapq2\tsplit\tcigar\talt\tcov\tnm1\tnm2\tdisc_mapq1\tdisc_mapq2\tsub_n1\tsub_n2\thomology\tinsertion\tcontig\tnumalign\tconfidence\tevidence\tquality\tsecondary_alignment\tsomatic_score\tsomatic_lod\ttrue_lod\tpon_samples\trepeat_seq\tgraylist\tDBSNP\treads\tbxtags"; 
+     return "chr1\tpos1\tstrand1\tchr2\tpos2\tstrand2\tref\talt\tspan\tmapq1\tmapq2\tnm1\tnm2\tdisc_mapq1\tdisc_mapq2\tsplit\tcigar\talt\tcov\tsub_n1\tsub_n2\thomology\tinsertion\tcontig\tnumalign\tconfidence\tevidence\tquality\tsecondary_alignment\tsomatic_score\tsomatic_lod\ttlod\tpon_samples\trepeat_seq\tgraylist\tDBSNP\treads\tbxtags"; 
    }
 
    double somatic_score = 0;

@@ -50,9 +50,6 @@ struct VCFHeader {
   // output it to a string
   friend std::ostream& operator<<(std::ostream& out, const VCFHeader& v);
 
-  //set the filedate string to the current date
-  void setCurrentDate();
-
   //add an info field
   void addInfoField(std::string field, std::string number, std::string type, std::string description);
 

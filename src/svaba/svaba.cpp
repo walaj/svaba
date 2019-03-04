@@ -12,14 +12,14 @@
 #include "refilter.h"
 #include "run_svaba.h"
 
-#define AUTHOR "Jeremiah Wala <jwala@broadinstitute.org>"
+#define AUTHOR "Jeremiah Wala <jeremiah.wala@gmail.com"
 
 static const char *SVABA_USAGE_MESSAGE =
 "------------------------------------------------------------\n"
 "-------- SvABA - SV and indel detection by assembly --------\n"
 "------------------------------------------------------------\n"
 "Program: SvABA \n"
-"Version: 1.1.0 \n"
+"Version: " SVABA_VERSION "\n"
 "Contact: Jeremiah Wala [ jeremiah.wala@gmail.org ]\n"
 "Usage: svaba <command> [options]\n\n"
 "Commands:\n"

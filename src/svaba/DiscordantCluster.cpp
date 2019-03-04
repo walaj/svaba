@@ -333,7 +333,7 @@ using namespace SeqLib;
     mapq1 = __getMeanMapq(false);
     mapq2 = __getMeanMapq(true);
     assert(mapq1 >= 0);
-    assert(mapq2 >= -1); // can have -1 as placeholder if no mate reads (bc didnt do lookup)x
+    assert(mapq2 >= -1); // can have -1 as placeholder if no mate reads (bc didnt do lookup)
 
     // orient them correctly so that left end is first
     if (m_reg2 < m_reg1) {
@@ -394,7 +394,7 @@ using namespace SeqLib;
       return -1;
 
     if (tmapq.size() > 0)
-      mean = std::accumulate(tmapq.begin(), tmapq.end(), 0.0) / tmapq.size();
+      mean = ((double)std::accumulate(tmapq.begin(), tmapq.end(), 0.0)) / ((double)tmapq.size());
 
     // actually, get the median
     //if (tmapq.size() > 0)

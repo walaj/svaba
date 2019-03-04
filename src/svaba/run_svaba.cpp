@@ -70,7 +70,7 @@ static struct timespec start;
 
 // learned value 
 static int max_mapq_possible;
-static std::string args = "svaba "; // hold string of what the input args were
+static std::string args = "svaba"; // hold string of what the input args were
 static int32_t readlen = 0;
 
 namespace opt {
@@ -647,6 +647,7 @@ afterlearn:
   os_discordant << DiscordantCluster::header() << std::endl;
 
   // put args into string for VCF later
+  args += "(v" + std::string(SVABA_VERSION) + ") ";
   for (int i = 0; i < argc; ++i)
     args += std::string(argv[i]) + " ";
 
