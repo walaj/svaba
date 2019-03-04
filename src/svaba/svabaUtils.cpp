@@ -19,13 +19,11 @@ static std::string POLYTC = "TCTCTCTCTCTCTCTCTCTCTCTC";
     // set the time string
     time_t t = time(0);   // get time now
     struct tm * now = localtime( & t );
-    std::stringstream month;
     std::stringstream mdate;
-    if ( (now->tm_mon+1) < 10)
-      month << "0" << now->tm_mon+1;
-    else 
-      month << now->tm_mon+1;
-    mdate << (now->tm_year + 1900) << month.str() <<  now->tm_mday;
+    mdate << (now->tm_year + 1900) 
+	  << (now->tm_mon + 1 < 10 ? "0": "") << (now->tm_mon + 1) 
+	  << (now->tm_mday < 10 ? "0" : "")
+	  << now->tm_mday;
     return mdate.str();
   }
 

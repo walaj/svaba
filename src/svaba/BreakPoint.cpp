@@ -9,6 +9,9 @@
 
 #include "svaba_params.h"
 
+// n is the max integer given the int size (e.g. 255). x is string with int
+#define INTNSTOI(x,n) std::min((int)n, std::stoi(x));
+
 // define repeats
 static std::vector<std::string> repr = {"AAAAAAAAAAAAAAAA", "TTTTTTTTTTTTTTTT", 
 					"CCCCCCCCCCCCCCCC", "GGGGGGGGGGGGGGGG",
@@ -63,13 +66,14 @@ using namespace SeqLib;
     for (auto& s : allele) 
       max_lod = std::max(max_lod, s.second.LO);
 
-    ss << b1.chr_name << sep << b1.gr.pos1 << sep << b1.gr.strand << sep 
-       << b2.chr_name << sep << b2.gr.pos1 << sep << b2.gr.strand << sep 
-       << ref << sep << alt << sep 
-       << getSpan() << sep
-       << b1.mapq << sep << b2.mapq << sep 
-       << b1.nm << sep << b2.nm << sep 
-       << dc.mapq1 << sep << dc.mapq2 << sep
+    ss << b1.chr_name << sep << b1.gr.pos1 << sep << b1.gr.strand << sep //1-3
+       << b2.chr_name << sep << b2.gr.pos1 << sep << b2.gr.strand << sep //4-6
+       << ref << sep << alt << sep //7-8
+       << getSpan() << sep //9
+       << b1.mapq << sep << b2.mapq << sep //10-11
+       << b1.nm << sep << b2.nm << sep //12-13
+       << dc.mapq1 << sep << dc.mapq2 << sep //14-15
+       << a.split << sep << a.cigar << sep << a.alt << sep << a.cov << sep // ALL NEW 9/2018
        //<< dc.ncount << sep << dc.tcount << sep
        << b1.sub_n << sep << b2.sub_n << sep      
        << (homology.length() ? homology : "x") << sep 
@@ -259,25 +263,29 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h) {
 	  //case 15: dc.tcount = std::stoi(val); break;
 	case 14: dc.mapq1 = std::stoi(val); break;  
 	case 15: dc.mapq2 = std::stoi(val); break;  
-	case 16: b1.sub_n = std::stoi(val); break;
-	case 17: b2.sub_n = std::stoi(val); break;
-	case 18: homology = (val == "x" ? "" : val); break;
-	case 19: insertion = (val == "x" ? "" : val); break;
-	case 20: cname = val; break;
-	case 21: num_align = std::stoi(val); break;
-	case 22: confidence = val; break;
-	case 23: evidence = val; break;
-	case 24: quality = std::stoi(val); break;
-	case 25: secondary = val == "1";
-	case 26: somatic_score = std::stod(val); break;
-	case 27: somatic_lod = std::stod(val); break;
-	case 28: a.LO = std::stod(val); break;
-	case 29: pon = std::stoi(val); break;
-	case 30: repeat_seq = val; break;
-	case 31: blacklist = (val=="1"); break;
-	case 32: rs = val; break;
-	case 33: read_names = val; break;
-	case 34: bxtable = val; break;
+	case 16: a.split = std::stoi(val); break;
+	case 17: a.cigar = std::stoi(val); break;
+	case 18: a.alt = std::stoi(val); break;
+	case 19: a.cov = std::stoi(val); break;
+	case 20: b1.sub_n = std::stoi(val); break;
+	case 21: b2.sub_n = std::stoi(val); break;
+	case 22: homology = (val == "x" ? "" : val); break;
+	case 23: insertion = (val == "x" ? "" : val); break;
+	case 24: cname = val; break;
+	case 25: num_align = std::stoi(val); break;
+	case 26: confidence = val; break;
+	case 27: evidence = val; break;
+	case 28: quality = std::stoi(val); break;
+	case 29: secondary = val == "1";
+	case 30: somatic_score = std::stod(val); break;
+	case 31: somatic_lod = std::stod(val); break;
+	case 32: a.LO = std::stod(val); break;
+	case 33: pon = std::stoi(val); break;
+	case 34: repeat_seq = val; break;
+	case 35: blacklist = (val=="1"); break;
+	case 36: rs = val; break;
+	case 37: read_names = val; break;
+	case 38: bxtable = val; break;
         default: 
 	  aaa.indel = evidence == "INDEL";
 	  aaa.fromString(val);
@@ -1238,46 +1246,48 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
 	  alt_s = val;
 	  break;
 	case 9: break; //span = stoi(val); break; // automatically calculated
-	case 10: 
+	case 10: //mapq1
 	  b1 = ReducedBreakEnd(GenomicRegion(chr1, pos1, pos1, h), std::stoi(val), chr_name1); b1.gr.strand = strand1; break;
-	case 11:
+	case 11: //mapq2
 	  b2 = ReducedBreakEnd(GenomicRegion(chr2, pos2, pos2, h), std::stoi(val), chr_name2); b2.gr.strand = strand2; break;
-	case 12: b1.nm = std::stoi(val); break;
-	case 13: b2.nm = std::stoi(val); break;
-	case 16: b1.sub_n = std::min((int)255, std::stoi(val)); break;
-	case 17: b2.sub_n = std::min((int)255, std::stoi(val)); break;
-	  //case 14: dc.ncount = std::min((int)255, std::stoi(val)); break;
-	  //case 15: dc.tcount = std::min((int)255,std::stoi(val)); break;
-	case 14: dc.mapq1 = std::stoi(val); break;  
-	case 15: dc.mapq2 = std::stoi(val); break;  
-	case 18: 
+	case 12: b1.nm = INTNSTOI(val,255); break;
+	case 13: b2.nm = INTNSTOI(val,255); break;
+	case 14: dc.mapq1 = INTNSTOI(val, 255); break;
+	case 15: dc.mapq2 = INTNSTOI(val, 255); break;
+	  //case 16: split (not needed, since in genotype) 
+	  //case 17: cigar (not needed, since in genotype) 
+	  //case 18: alt (not needed, since in genotype)
+	case 19: cov = INTNSTOI(val,65535); break;
+	case 20: b1.sub_n = INTNSTOI(val,255); break;
+	case 21: b2.sub_n = INTNSTOI(val,255); break;
+	case 22: 
 	  homology_s = val;
 	  break; 
-	case 19: 
+	case 23: 
 	  insertion_s = val;
 	  break; 
-	case 20: cname_s = val; break;
-	case 21: num_align = std::min((int)31, std::stoi(val)); break;
-	case 22: 
+	case 24: cname_s = val; break;
+	case 25: num_align = std::min((int)31, std::stoi(val)); break;
+	case 26: 
 	  pass = val == "PASS";
 	  confidence_s = val;
 	  break;
-	case 23: 
+	case 27: 
 	  evidence_s = val;
 	  indel = val == "INDEL"; 
 	  imprecise = val == "DSCRD"; 
 	  break; 
-	case 24: quality = std::stod(val); break; //std::min((int)255,std::stoi(val)); break;
-	case 25: secondary = val == "1" ? 1 : 0;
-	case 26: somatic_score = std::stod(val); break;
-	case 27: somatic_lod = std::stod(val); break;
-	case 28: true_lod = std::stod(val); break;
-	case 29: pon = std::min(255,std::stoi(val)); break;
-	case 30: repeat_s = val; break; // repeat_seq
-	case 31: blacklist = (val=="1" ? 1 : 0); break;
-	case 32: dbsnp = val != "x"; break;
-	case 33: read_names_s = val; break; //reads
-	case 34: bxtable_s = val; break; //bx tags
+	case 28: quality = std::stod(val); break; //std::min((int)255,std::stoi(val)); break;
+	case 29: secondary = val == "1" ? 1 : 0;
+	case 30: somatic_score = std::stod(val); break;
+	case 31: somatic_lod = std::stod(val); break;
+	case 32: true_lod = std::stod(val); break;
+	case 33: pon = std::min(255,std::stoi(val)); break;
+	case 34: repeat_s = val; break; // repeat_seq
+	case 35: blacklist = (val=="1" ? 1 : 0); break;
+	case 36: dbsnp = val != "x"; break;
+	case 37: read_names_s = val; break; //reads
+	case 38: bxtable_s = val; break; //bx tags
 	default:
 	  format_s.push_back(val);
 	}
@@ -1672,25 +1682,30 @@ bool ReducedBreakPoint::operator<(const ReducedBreakPoint& bp) const {
   else if (std::strcmp(evidence, bp.evidence) > 0) // >
     return false;
   
-  if (nsplit > bp.nsplit) 
+  if (cov > bp.cov)
     return true;
-  else if (nsplit < bp.nsplit)
+  else if (cov < bp.cov)
     return false;
+
+  //if (nsplit > bp.nsplit) 
+  //  return true;
+  //else if (nsplit < bp.nsplit)
+  //  return false;
   
-  if (tsplit > bp.tsplit)
-    return true;
-  else if (tsplit < bp.tsplit)
-    return false;
+  //if (tsplit > bp.tsplit)
+  //  return true;
+  //else if (tsplit < bp.tsplit)
+  //  return false;
   
-  if (dc.ncount > bp.dc.ncount)
-    return true;
-  else if (dc.ncount < bp.dc.ncount)
-    return false;
+  //if (dc.ncount > bp.dc.ncount)
+  //  return true;
+  //else if (dc.ncount < bp.dc.ncount)
+  //  return false;
   
-  if (dc.tcount > bp.dc.tcount)
-    return true;
-  else if (dc.tcount < bp.dc.tcount)
-    return false;
+  //if (dc.tcount > bp.dc.tcount)
+  // return true;
+  //else if (dc.tcount < bp.dc.tcount)
+  // return false;
 
   // break the tie somehow
   if (cname > bp.cname)

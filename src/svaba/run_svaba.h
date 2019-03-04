@@ -24,6 +24,8 @@
 
 #include "workqueue.h"
 
+#define SVABA_VERSION "1.1.0"
+
 // typedefs
 typedef std::map<std::string, std::string> BamMap;
 typedef std::pair<int, int> CountPair;

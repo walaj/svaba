@@ -70,7 +70,7 @@ static struct timespec start;
 
 // learned value 
 static int max_mapq_possible;
-static std::string args = "svaba "; // hold string of what the input args were
+static std::string args = "svaba"; // hold string of what the input args were
 static int32_t readlen = 0;
 
 namespace opt {
@@ -122,6 +122,7 @@ namespace opt {
   static size_t mate_region_lookup_limit = 400;
   static bool interchrom_lookup = true;
   static int32_t max_reads_per_assembly = -1; // set default of 50000 in parseRunOptions
+  static bool no_bad_avoid = true; // if true, don't avoid previously bad regions
 
   // additional optional params
   static int chunk = 25000;
@@ -646,6 +647,7 @@ afterlearn:
   os_discordant << DiscordantCluster::header() << std::endl;
 
   // put args into string for VCF later
+  args += "(v" + std::string(SVABA_VERSION) + ") ";
   for (int i = 0; i < argc; ++i)
     args += std::string(argv[i]) + " ";
 
@@ -930,7 +932,6 @@ bool runWorkItem(const SeqLib::GenomicRegion& region, svabaThreadUnit& wu, long 
     wu.badd.Concat(w.second.readBam(&log_file)); 
     wu.badd.MergeOverlappingIntervals();
     wu.badd.CreateTreeMap();
-
     
     // adjust the counts
     if (w.first.at(0) == 't') {
@@ -1475,7 +1476,7 @@ CountPair run_mate_collection_loop(const SeqLib::GenomicRegion& region, WalkerMa
     for (auto& s : tmp_somatic_mate_regions) {
       
       // check if its not bad from mate region
-      if (badd.size())
+      if (badd.size() && !opt::no_bad_avoid)
 	if (badd.CountOverlaps(s))
 	  continue;
 
@@ -1847,7 +1848,7 @@ void collect_and_clear_reads(WalkerMap& walkers, svabaReadVector& brv, std::vect
         dedupe.insert(sr);
       }
     }
-
+    
     // concat together all of the learning sequences
     if (opt::ec_correct_type != "s")
       assert(!w.second.all_seqs.size());
@@ -1855,7 +1856,7 @@ void collect_and_clear_reads(WalkerMap& walkers, svabaReadVector& brv, std::vect
       learn_seqs.push_back(strdup(r));
       free(r); // free what was alloced in 
     }
-
+    
     w.second.all_seqs.clear();
     w.second.reads.clear();
   }

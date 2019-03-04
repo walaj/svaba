@@ -137,8 +137,9 @@ struct ReducedBreakEnd {
    double somatic_lod = 0; // LogOdds that variant not in normal
    double true_lod = 0;
 
-   uint32_t nsplit:8, tsplit:8, af_n:7, num_align:5, secondary:1, dbsnp:1, pass:1, blacklist:1, indel:1, imprecise:1;
-   uint32_t tcov_support:8, ncov_support:8, tcov:8, ncov:8;
+   //uint32_t nsplit:8, tsplit:8, 
+   //uint32_t tcov_support:8, ncov_support:8, tcov:8, ncov:8;
+   uint32_t cov:16, af_n:7, num_align:5, secondary:1, dbsnp:1, pass:1, blacklist:1, indel:1, imprecise:1;
    uint32_t tcigar:8, ncigar:8, dummy:8, af_t:8; 
    float quality;
    uint8_t pon;
@@ -196,7 +197,7 @@ struct ReducedBreakEnd {
  struct BreakPoint {
    
    static std::string header() { 
-     return "chr1\tpos1\tstrand1\tchr2\tpos2\tstrand2\tref\talt\tspan\tmapq1\tmapq2\tnm1\tnm2\tdisc_mapq1\tdisc_mapq2\tsub_n1\tsub_n2\thomology\tinsertion\tcontig\tnumalign\tconfidence\tevidence\tquality\tsecondary_alignment\tsomatic_score\tsomatic_lod\ttrue_lod\tpon_samples\trepeat_seq\tgraylist\tDBSNP\treads\tbxtags"; 
+     return "chr1\tpos1\tstrand1\tchr2\tpos2\tstrand2\tref\talt\tspan\tmapq1\tmapq2\tnm1\tnm2\tdisc_mapq1\tdisc_mapq2\tsplit\tcigar\talt\tcov\tsub_n1\tsub_n2\thomology\tinsertion\tcontig\tnumalign\tconfidence\tevidence\tquality\tsecondary_alignment\tsomatic_score\tsomatic_lod\ttlod\tpon_samples\trepeat_seq\tgraylist\tDBSNP\treads\tbxtags"; 
    }
 
    double somatic_score = 0;

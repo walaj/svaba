@@ -68,7 +68,6 @@ SeqLib::GRC svabaBamWalker::readBam(std::ofstream * log) {
   // keep track of regions where we hit the weird-read limit
   SeqLib::GRC bad_regions;
 
-
   // buffer to store reads from a region
   // if we don't hit the limit, then add them to be assembled
   svabaReadVector this_reads;
@@ -135,7 +134,6 @@ SeqLib::GRC svabaBamWalker::readBam(std::ofstream * log) {
 	       << " weird reads. Limit: " << SeqLib::AddCommas(m_limit) << std::endl;
       if (log)
 	(*log) << ss.str();
-      std::cerr << ss.str();
       
       if (m_region.size())  
 	bad_regions.add(m_region[tb->m_region_idx]);
