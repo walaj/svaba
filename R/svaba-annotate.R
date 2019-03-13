@@ -24,7 +24,7 @@ if (!tolower(opt$genome) %in% c("hg38","hg19"))
 
 write("...loading required packages\n", stderr())
 library(roverlaps) ## can find at https://github.com/walaj/roverlaps
-library(plyr)
+##library(plyr)
 library(RMySQL)
 library(data.table)
 
