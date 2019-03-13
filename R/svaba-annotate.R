@@ -1,20 +1,13 @@
 #!/usr/bin/env Rscript
 
-## set the right library paths
-.libPaths(c("/xchip/gistic/Jeremiah/R", "/broad/software/free/Linux/redhat_6_x86_64/pkgs/r_3.1.1-bioconductor-3.0/lib64/R/library"))
-
 library(optparse)
 
 option_list = list(
-  make_option(c("-i", "--input"),  type = "character", default = NULL,  help = "Input bps.txt.gz file"),
-  make_option(c("-o", "--output"), type = "character", default = "no_id",  help = "Output annotation name"),
-  make_option(c("-t", "--splitsupport"), type = "numeric", default = 4,  help = "Minimum number of tumor supporting reads for ASSMB"),
-  make_option(c("-d", "--discsupport"), type = "numeric", default = 10,  help = "Minimum number of tumor support discordant for DSCRD"),
-  make_option(c("-g", "--genes"), type = "numeric", default = 1,  help = "Add genes to the plot?"),
-  make_option(c("-H", "--height"), type = "numeric", default = 10,  help = "Height"),
-  make_option(c("-W", "--width"), type = "numeric", default = 10,  help = "Width"),
-  make_option(c("-s", "--minsize"), type = "numeric", default = 0,  help = "Minimum size to plot for SV"),
-  make_option(c("-S", "--snowman"), type = "numeric", default = 1,  help = "This is a snowman run. 0 for generic SV VCF") 
+  make_option(c("-i", "--input"),  type = "character", default = NULL,  help = "Input VCF file"),
+  make_option(c("-s", "--style"),  type = "character", default = "ncbi", help = "[nbci] for 1,2,...X, or [ucsc] for chr1, chr2, ...chrX"),
+  make_option(c("-g", "--genome"),  type = "character", default = NULL, help = "genome build (hg19 or hg38)"),
+  make_option(c("-b", "--db"),  type = "character", default = "refseq", help = "[refseq] gene database to use (must be refseq or gencode)"),
+  make_option(c("-o", "--output"), type = "character", default = "no_id",  help = "Output annotation name")
 )
 
 parseobj = OptionParser(option_list=option_list)
@@ -23,324 +16,337 @@ opt = parse_args(parseobj)
 if (is.null(opt$input))
   stop(print_help(parseobj))
 
-print("...loading required packages")
-library(gUtils)
-library(gplots)
-library(plyr)
-source("/xchip/gistic/Jeremiah/GIT/SnowmanSV/Snowman/batch.functions.R")
+if (!tolower(opt$style) %in% c("ncbi","ucsc")) 
+  stop("Must specify style as ncbi or ucsc")
 
-print("...importing tracks")
-basedir <- "/xchip/gistic/Jeremiah/tracks"
-genes <- readRDS(file.path(basedir, 'gr.allgenes.rds'))
-genes <- genes[width(genes) < 2e6] 
-#cgc <- readRDS(file.path(basedir, 'gr.allgenes.rds'))
-#cgc = read.delim('/home/unix/marcin/DB/COSMIC/cancer_gene_census.tsv', strings = FALSE)
-#cgc <- genes[genes$gene %in% cgc$Symbol]
+if (!tolower(opt$genome) %in% c("hg38","hg19")) 
+  stop("Must specify --genome as hg19 or hg38")
+
+write("...loading required packages\n", stderr())
+library(roverlaps) ## can find at https://github.com/walaj/roverlaps
+library(plyr)
+library(RMySQL)
+library(data.table)
+
+## setup the connect to UCSC
+write("...downloading annotation tracks from UCSC\n", stderr())
+assembly <- opt$genome
+mychannel <- dbConnect(MySQL(), user="genome", host="genome-mysql.cse.ucsc.edu")
+query <- function(...) dbGetQuery(mychannel, ...)
+
+if (tolower(opt$db) == tolower("refseq")) {
+  ## download the exons and their gene names from RefSeq (UCSC track)
+  ## - reminder that refseq ids can be interpreted:
+  ##                 https://www.ncbi.nlm.nih.gov/books/NBK50679/#RefSeqFAQ.what_is_the_difference_between
+  ## - (from above): Accession numbers that begin with the prefix XM_ (mRNA), XR_ (non-coding RNA), and XP_ (protein)
+  ##                 are model RefSeqs produced either by NCBIs genome annotation pipeline or copied from
+  ##                 computationally annotated submissions to the INSDC.NCBI
+  ##                 ...subsequently curated RefSeq records (with NM_, NR_, or NP_ accession prefixes)
+  genes <- suppressWarnings(data.table::as.data.table(query(paste0("SELECT name, name2, chrom, txStart, txEnd, strand, exonStarts, exonEnds, exonCount, exonFrames FROM ", assembly, ".refGene"))))
+  genes[, prefix := gsub("([A-Z]+)_.*","\\1", name)]
+  genes[, longest := { a=rep(FALSE, .N); a[which.max(txEnd - txStart)] <- TRUE; a }, by=name2]
+  genes[, numTranscriptAnnotations := .N, by=name2]
+  genes <- genes[txEnd - txStart >= 100] ## only genes longer than 100 bp
+  genes <- genes[genes$longest] ## just take the longest transcriopt
+  write('...defaulting to annotating only the longest transcript')
+  genes[, longest := NULL]
+
+  setnames(genes, c("name2","name"), c("geneSymbol","id"))
+  
+} else if (tolower(opt$db) == "gencode") {
+  
+  ## if want to use GENCODE instead, need to get table to convert GENCODE ids to gene names
+  genes <- suppressWarnings(data.table::as.data.table(query(paste0("SELECT name, name2, chrom, txStart, txEnd, strand, exonStarts, exonEnds, exonCount FROM ", assembly, ".knownGene"))))  
+  codes <- suppressWarnings(data.table::as.data.table(query(paste0("SELECT kgID, mRNA, geneSymbol, spID, refSeq FROM ", assembly, ".kgXref"))))
+  
+  ## merge the gene ids to gene names
+  setnames(genes, c("name"), c("kgID"))
+  setkey(genes, kgID)
+  setkey(codes, kgID)
+  genes <- codes[genes]
+  stopifnot(!any(duplicated(genes$kgID)))
+  genes[, geneSymbol := toupper(geneSymbol)]
+
+  setnames(genes, "kgID", "id")
+} else {
+  stop("db option must be either GENCODE or RefSeq")
+}
+
+write("...parsing downloaded annotation data\n", stderr())
+
+## convert to key'ed format
+setnames(genes, c("chrom", "txStart","txEnd"), c("seqnames","start","end"))
+if (tolower(opt$style) == "ncbi")
+  genes[, seqnames := gsub("^chr", "", seqnames)]
+
+## make the exons structure
+starts <- strsplit(genes[, exonStarts], ",")
+ends   <- strsplit(genes[, exonStarts], ",")
+frames   <- strsplit(genes[, exonFrames], ",")
+stopifnot(sum(sapply(starts, length)) == sum(sapply(ends, length)))
+stopifnot(sum(sapply(starts, length)) == sum(sapply(frames, length)))
+stopifnot(sum(sapply(starts, length)) == sum(genes$exonCount))
+exons <- data.table(id = genes[, rep(id, exonCount)],
+           geneSymbol = genes[, rep(geneSymbol, exonCount)],
+           exonCount = genes[, rep(exonCount, exonCount)],
+           seqnames = genes[, rep(seqnames, exonCount)],
+           frames = as.numeric(unlist(frames)),
+           start = as.numeric(unlist(starts)),
+           end = as.numeric(unlist(ends)),
+           strand = genes[, rep(strand, exonCount)])
+exons[, exonNum := ifelse(strand=="+", seq(.N), rev(seq(.N))), by=id]
+
+## make an introns track
+## for the frames, define the intron from as the one of the previous exon, respecting strand
+## EEEEiiiiiiiEEEEiiiiiiiiEEEEEiiiiiEEE <<< intron frame is frame of RIGHT exon (iiiiEEEE)
+## EEEEiiiiiiiEEEEiiiiiiiiEEEEEiiiiiEEE >>> intron from is frame of LEFT exon (EEEEiii)
+ends   <- exons[exonCount > 1, start[seq(2, .N)], by=id]
+starts <- exons[exonCount > 1, end[seq(1, .N-1)], by=id]
+if ("exonFrames" %in% colnames(genes)) {
+  frames <- exons[exonCount > 1, {
+    if (strand[1]=="+")
+      frames[seq(1,.N-1)]
+    else
+      frames[seq(2,.N)]
+  }, by=id]
+  stopifnot(nrow(ends) == nrow(frames))
+}
+stopifnot(nrow(ends) == nrow(starts))
+stopifnot(all(ends$id == starts$id))
+stopifnot(min(as.numeric(names(table(exons[exonCount>1, exonCount])))) > 1)
+
+if ("exonFrames" %in% colnames(genes)) {
+  introns <- data.table(id=ends$id, start=starts$V1, end=ends$V1, frame=frames$V1)
+} else {
+  introns <- data.table(id=ends$id, start=starts$V1, end=ends$V1)
+}
+short <- exons[!duplicated(id), .(id, geneSymbol, seqnames, strand, exonCount)]
+setkey(introns, id)
+setkey(short, id)
+introns <- short[introns]
+introns[, intronCount := exonCount - 1]
+introns[, exonCount := NULL]
+introns[, intronNum := ifelse(strand == "+", seq(.N), rev(seq(.N))), by=id]
+
+## make the inter-genic trackk
+#ro <- roverlaps(genes, genes)
+#ro[,max(end), by=query.id]$V1
+#setkey(genes, seqnames, start)
+#starts <- genes[,end[seq(2,.N)], by=seqnames]$V1
+#ends   <- genes[,start[seq(1,.N-1)], by=seqnames]$V1
 
 ## read in file
-print("...reading VCF file")
-
-if (opt$snowman) {
-  suppressWarnings(bks <- load_snowman(opt$input)[[1]])
-  mcols(bks)$tdisc  <- as.integer(gsub(".*?/.*?:.*?:.*?:.*?:.*?:.*?:(.*?):.*", "\\1", mcols(bks)$TUMOR))
-  mcols(bks)$tsplit <- as.integer(gsub(".*?/.*?:.*?:.*?:.*?:.*?:(.*?):.*", "\\1", mcols(bks)$TUMOR))
-
-  ## filter out discorant only with low support
-  if (length(bks)) {
-    print(paste("...filtering DSCRD breakpoints with < min support", opt$discsupport))
-    bks <- bks[mcols(bks)$EVDNC != "DSCRD" | (mcols(bks)$EVDNC == "DSCRD" & mcols(bks)$tdisc >= opt$discsupport)]
-  }
-  
-  ## filter out based on size
-  if (length(bks)) {
-    print(paste("...filtering breakpoints with < min span of", opt$minsize))
-    bks <- bks[mcols(bks)$SPAN >= opt$minsize | mcols(bks)$SPAN < 0]
-  }
-  
-  ## filter out assembly-only with low split support
-  if (length(bks) && sum(bks$evidence == "ASSMB" & bks$tsplit < opt$splitsupport)) {
-    print(paste("...filtering ASSMB with < min split support of", opt$minsize))
-    bks <- bks[-(bks$evidence == "ASSMB" & bks$tsplit < opt$splitsupport)]
-  }
-  
-} else {
-  dt <- fread(paste("grep -v ^#", opt$input), sep="\t")
-  setnames(dt, c("V1","V2","V3","V4","V5"), c("seqnames","start", "id","REF","ALT"))
-  dt[, end := start]
-  dt[, strand := ifelse(grepl("^\\[", ALT) | grepl("^\\]", ALT), '-', '+')]
-  dt[, uid := gsub("(,*?)_.*","\\1",id)]
-  dt[, altstrand := rev(strand), by=uid]
-  dt[, altpos := as.integer(gsub(".*?:([0-9]+).*", "\\1", ALT))]
-  dt[, altchr := gsub(".*?(\\[|\\])(.*?):([0-9A-Z]+).*", "\\2", ALT)]
-
-  dt[, V8 := NULL]
-  gg <- dt2gr(dt)
-  bks <- split(gg, gg$uid)
-  mcols(bks)$INSERTION = ""
-  mcols(bks)$HOMSEQ = ""
-  mcols(bks)$sample = gsub("(.*?)\\..*", "\\1", basename(opt$input))
-}
+write("...reading VCF file\n", stderr())
+vcf <- data.table::fread(cmd=paste("grep -v ^#", opt$input))
+setnames(vcf, paste0("V", seq(9)), c("seqnames","start","id","ref","alt","qual","filter","info","geno"))
 
 ## bail early if nothing found
-if (length(bks) == 0) {
-  print("No rearrangements found")
+if (nrow(vcf) == 0) {
+  write("No rearrangements found\n", stderr())
   quit(status=0)
 } else {
-  print(paste("Found", length(bks), "rearrangements"))
+  write(paste("Found", nrow(vcf), "rearrangements\n"), stderr())
 }
+
+## grl.ix is unique ID for each rearrangement
+## grl.iix is either 1 or 2 (for each side of the rearrangement)
+vcf[, grl.ix  := gsub("([0-9]+):[0-9]","\\1",id)]
+vcf[, grl.iix := as.numeric(gsub("[0-9]+:([0-9])","\\1",id))]
+
+## set the strand info for BND format
+vcf[grepl("SVTYPE=BND", info), strand := ifelse(grepl("^\\[", alt) | grepl("^\\]", alt), '-', '+')]
+vcf[, inv := strand[1] == strand[2], by=grl.ix]
+vcf[, altstrand := rev(strand), by=grl.ix]
+vcf[, altpos := as.integer(gsub(".*?:([0-9]+).*", "\\1", alt))]
+vcf[, altchr := gsub(".*?(\\[|\\])(.*?):([0-9]+).*", "\\2", alt)]
+vcf[, span := ifelse(seqnames==altchr, abs(start - altpos), -1)]
 
 ## annotate with gene overlaps
-suppressWarnings(gru <- gr.val(grl.unlist(bks), genes, "gene"))
-mcols(bks)$gene1 <- mcols(bks)$gene2 <- "Intergenic"
-mcols(bks)$gene1 <- gru$gene[gru$grl.iix == 1]
-mcols(bks)$gene2 <- gru$gene[gru$grl.iix == 2]                     
+ro <- roverlaps::roverlaps(vcf, genes)
+ro[, geneSymbol := genes$geneSymbol[subject.id]]
+ro[, geneSymbol := paste(unique(geneSymbol), collapse="_"), by=query.id]
+ro[, geneTranscriptCount := genes$numTranscriptAnnotations[subject.id]]
+ro[, geneStrand := genes$strand[subject.id]]
+vcf[ro$query.id, geneSymbol := ro$geneSymbol]
+vcf[ro$query.id, geneStrand := ro$geneStrand]
+vcf[, geneSymbolAlt := geneSymbol[rev(grl.iix)], by=grl.ix]
+vcf[, geneStrandAlt := geneStrand[rev(grl.iix)], by=grl.ix]
+vcf[ro$query.id, geneTranscriptCount := ro$geneTranscriptCount]
 
-## annotate with genes within 100kb
-suppressWarnings(gru <- gr.val(grl.unlist(bks), genes + 100e3, "gene"))
-mcols(bks)$gene1_100kb <- gru$gene[gru$grl.iix == 1]
-mcols(bks)$gene2_100kb <- gru$gene[gru$grl.iix == 2]
+## annotate with genes within 20kb
+PAD <- 20e3
+genes20 <- data.table::copy(genes)
+genes20[, start := start - PAD/2]
+genes20[, end   := end + PAD/2]
 
-if (!"gene1" %in% colnames(mcols(bks)))
-  mcols(bks)$gene1 <- ""
-if (!"gene2" %in% colnames(mcols(bks)))
-  mcols(bks)$gene2 <- ""
-if (!"gene1_100kb" %in% colnames(mcols(bks)))
-  mcols(bks)$gene1_100kb <- ""
-if (!"gene2_100kb" %in% colnames(mcols(bks)))
-  mcols(bks)$gene2_100kb <- ""
-
-gr <- grl.unlist(bks)
-llr <- gr2dt(gr)
-llr$bk_msg <- llr$gstrand <- llr$gene <- llr$msg <- ""
-llr$elem_num <- -1
-
-gr.introns <- readRDS("/xchip/gistic/Jeremiah/tracks/gr.introns.rds")
-gr.exons <- readRDS("/xchip/gistic/Jeremiah/tracks/gr.exons.rds")
-gene.comp <- readRDS("/xchip/gistic/Jeremiah/tracks/gr.intergenic.rds") 
-gr.tub <- readRDS("/xchip/gistic/Jeremiah/tracks/master_db_29062016_ranges.rds")
-
-##
-print("...annotating L1")
-gr <- gr.val(gr, gr.tub, "type", ignore.strand=TRUE)
-if ('type' %in% colnames(mcols(gr))) {
-  llr$suspect_L1_retrotransposition <- nchar(gr$type) > 0
-} else { 
-  llr$suspect_L1_retrotransposition <- FALSE
-}
+ro <- roverlaps::roverlaps(vcf, genes20)
+ro[, geneSymbol20kb := genes$geneSymbol[subject.id]]
+ro[, geneSymbol20kb := paste(unique(geneSymbol20kb), collapse="_"), by=query.id]
+vcf[ro$query.id, geneSymbol20kb := ro$geneSymbol20kb]
+vcf[, geneSymbol20kbAlt := geneSymbol20kb[rev(grl.iix)], by=grl.ix]
 
 ## overlap introns
-print("...annotating introns")
-fo <- gr2dt(gr.findoverlaps(gr, gr.introns))
-if (nrow(fo)) {
-  fo[, intron_num   := gr.introns$num[subject.id], by=subject.id]
-  fo[, intron_str   := as.character(strand(gr.introns))[subject.id], by=subject.id]
-  fo[, intron_frm   := gr.introns$frame[subject.id], by=subject.id]
-  fo[, intron_gene  := gr.introns$gene[subject.id], by=subject.id]
-  fo[, intron_start := start(gr.introns)[subject.id], by=subject.id]
-  fo[, dist_after   := start - intron_start, by=subject.id]
-  fo[, bk_msg := paste0(dist_after, " bp into intron ", intron_num, " of ", intron_gene, "(", intron_str, ")")]
-  fo[, frame  := gr.introns$frame[subject.id], by=subject.id]
-  llr$bk_msg[fo$query.id] <- fo$bk_msg
-  llr$frame[fo$query.id] <- fo$frame
-  llr$gene[fo$query.id] <- fo$intron_gene
-  llr$gstrand[fo$query.id] <- fo$intron_str
-  llr$elem_num[fo$query.id] <- fo$intron_num
+ro <- roverlaps::roverlaps(vcf, introns)
+ro[, intronNum  := introns$intronNum[subject.id]]
+ro[, intronGene := introns$geneSymbol[subject.id]]
+ro[, intronStart := ifelse(introns$strand[subject.id] == "+", introns$start[subject.id], introns$end[subject.id])]
+ro[, intronGene := paste(unique(intronGene), collapse="_"), by=query.id]
+vcf[ro$query.id, intronGene := ro$intronGene]
+vcf[ro$query.id, intronNum := ro$intronNum]
+vcf[ro$query.id, intronStart := ro$intronStart]
+vcf[, intronGeneAlt := intronGene[rev(grl.iix)], by=grl.ix]
+vcf[, intronNum := intronNum[rev(grl.iix)], by=grl.ix]
+vcf[, intronIn  := abs(intronStart - start)]
+if ("frame" %in% colnames(introns)) {
+  ro[, cdsFrame := introns$frame[subject.id]]
+  vcf[ro$query.id, cdsFrame  := ro$cdsFrame]
 }
+vcf[!is.na(intronNum), bk_msg := paste(intronIn, "bp_into_intron", intronNum, "of", intronGene, sep="_")]
 
 ## overlap exons
-print("...annotating exons")
-fo <- gr2dt(gr.findoverlaps(gr, gr.exons))
-if (nrow(fo)) {
-  fo[, exon_num := gr.exons$num[subject.id], by=subject.id]
-  fo[, exon_str := as.character(strand(gr.exons))[subject.id], by=subject.id]
-  fo[, exon_frm := gr.exons$frame[subject.id], by=subject.id]
-  fo[, exon_gene := gr.exons$gene[subject.id], by=subject.id]
-  fo[, exon_start := ifelse(strand(gr.exons)[subject.id] == '+', start(gr.exons)[subject.id], end(gr.exons)[subject.id]), by=subject.id]
-  fo[, dist_after := abs(start - exon_start) + 1, by=subject.id]
-  fo[, bk_msg := paste0(dist_after, " bp into exon ", exon_num, " of ", exon_gene, "(", exon_str, ")")]
-  fo[, frame  := gr.introns$frame[subject.id], by=subject.id]
-  llr$bk_msg[fo$query.id] <- fo$bk_msg
-  llr$frame[fo$query.id] <- fo$frame
-  llr$gene[fo$query.id] <- fo$exon_gene
-  llr$gstrand[fo$query.id] <- fo$exon_str
-  llr$elem_num[fo$query.id] <- fo$exon_num
-}
+ro <- roverlaps(vcf, exons)
+ro[, exonNum  := exons$exonNum[subject.id]]
+ro[, exonGene := exons$geneSymbol[subject.id]]
+ro[, exonStart := ifelse(exons$strand[subject.id] == "+", exons$start[subject.id], exons$end[subject.id])]
+ro[, exonGene := paste(unique(exonGene), collapse="_"), by=query.id]
+vcf[ro$query.id, exonGene := ro$exonGene]
+vcf[ro$query.id, exonNum := ro$exonNum]
+vcf[ro$query.id, exonStart := ro$exonStart]
+vcf[, exonGeneAlt := exonGene[rev(grl.iix)], by=grl.ix]
+vcf[, exonNum := exonNum[rev(grl.iix)], by=grl.ix]
+vcf[, exonIn  := abs(exonStart - start)]
+vcf[!is.na(exonNum), bk_msg := paste(exonIn, "bp_into_exon", exonNum, "of", exonGene, sep="_")]
 
 ## annotate fusions
-print("...annotating fusions")
-llr[, fusion := { f <- sum(grepl("intron|exon", bk_msg)) == 2 && (gene[1] != gene[2]); if (is.na(f)) { FALSE } else { f } } , by = uid]
-llr[, sense  := all(gstrand != "") && ((strand[1] == strand[2] && gstrand[1] != gstrand[2]) || (strand[1] != strand[2] && gstrand[1] == gstrand[2])), by = uid]
+vcf[, fusion := {
+  f <- sum(grepl("intron|exon", bk_msg)) == 2 && (geneSymbol[1] != geneSymbol[2]);
+  if (is.na(f)) { FALSE } else { f }
+} , by = grl.ix]
+vcf[, sense  :=
+    all(geneStrand != "") &&
+    ((geneStrand[1] == geneStrand[2] && geneStrand[1] != geneStrand[2]) || (strand[1] != strand[2] && geneStrand[1] == geneStrand[2])),
+    by = grl.ix]
 
 ## DECIDE WHICH PIECE IS "first" in the fusion gene (where Tx starts)
 ## RAR_STRAND        GENE_STRAND
 ## ++ or --          must be +- or -+. Starts on +
 ## +- or --          msut be -- or ++. Starts on side where gstrand == rarstrand
-llr[, gorder := {
-
+vcf[vcf$fusion, gorder := {
+  
   mk <- c(NA,NA)
   ## inversion
   if (strand[1] == strand[2]) {
-    if (gstrand[1] == '+')
+    if (geneStrand[1] == '+')
       mk <- c(2,1)
     else
       mk <- c(1,2)
   }
-
+  
   ## non type
-  if (gstrand[1] == strand[1])
+  if (geneStrand[1] == geneStrand[1])
     mk <- c(1,2)
   else
     mk <- c(2,1)
-
+  
   mk
-
-  }, by=uid]
+  
+}, by=grl.ix]
 
 ## decide if in frame
-if ("frame" %in% colnames(llr)) {
-  llr[, in_frame := {
-    f = (frame[gorder[2]] - frame[gorder[1]]);
-    xbases <- nchar(INSERTION[1]) - nchar(HOMSEQ[1]);
+if ("cdsFrame" %in% colnames(vcf)) {
+  vcf[, in_frame := {
+    f = (cdsFrame[gorder[2]] - cdsFrame[gorder[1]]);
+    xbases <- 0; ##xbases <- nchar(INSERTION[1]) - nchar(HOMSEQ[1]);
+    
     if (is.na(f))
       FALSE
-    else if (all(grepl('intron', bk_msg))) ## intron to intron
+    else if (all(grepl('intron', bk_msg)) && sense[1]) ## intron to intron
       f == 0
     else
       f + xbases %% 3 == 0
-  }, by=uid]
-  
+  }, by=grl.ix]
+
   ## make the fusion messages
-  llr[, in_frame_fusion := in_frame && fusion && sense, by=uid]
-  llr[llr$in_frame_fusion, msg := paste("In-frame sense fusion from:", bk_msg[gorder[1]], "to", bk_msg[gorder[2]]), by=uid]
-  llr[!llr$in_frame_fusion & llr$fusion & llr$sense, msg := paste("Out-of-frame sense fusion between:", bk_msg[1], "and", bk_msg[2]), by=uid]
-  llr[!llr$in_frame_fusion & llr$fusion & !llr$sense, msg := paste("Anti-sense fusion between:", bk_msg[1], "and", bk_msg[2]), by=uid]
-
-}
-#### look for UTR overlap
-## load refseq
-                                        #gr.ref <- readRDS("/xchip/gistic/Jeremiah/tracks/gr.refseq.all.rds")
-                                        #fo <- gr.findoverlaps(gr, gr.ref[gr.ref$type == "UTR"])
-                                        #llr$bk_msg[intersect(fo$query.id, which(!nchar(llr$bk_msg)))] <- "UTR"
-
-
-##llr$bk_msg[!grepl("intron|exon", llr$bk_msg)] <- ""
-print("...annotating intergenic")
-fo <- gr.findoverlaps(llr, gene.comp)
-if (nrow(fo)) {
-  fo[, left  := gene.comp$left[subject.id],  by=query.id]
-  fo[, right := gene.comp$right[subject.id], by=query.id]
-  fo[, right_start  := end(gene.comp)[subject.id], by=subject.id]
-  fo[, left_end := start(gene.comp)[subject.id], by=subject.id]
-  fo[, left_dist  := start - left_end, by=query.id]
-  fo[, right_dist := right_start - end, by=query.id]
-  fo[, mmm := paste(left_dist, "bp to right of", left, "and", right_dist, "bp to left of", right)]
-  llr$msg[!nchar(llr$msg)] <- ""
-  llr$bk_msg[fo$query.id] <- ifelse(!nchar(llr$bk_msg[fo$query.id]), fo$mmm, llr$bk_msg[fo$query.id])
+  vcf[, in_frame_fusion := in_frame && fusion && sense, by=grl.ix]
+  vcf[vcf$in_frame_fusion, msg := paste("In-frame sense fusion from:", bk_msg[gorder[1]], "to", bk_msg[gorder[2]]), by=grl.ix]
+  vcf[!vcf$in_frame_fusion & vcf$fusion & vcf$sense, msg := paste("Out-of-frame sense fusion between:", bk_msg[1], "and", bk_msg[2]), by=grl.ix]
+  vcf[!vcf$in_frame_fusion & vcf$fusion & !vcf$sense, msg := paste("Anti-sense fusion between:", bk_msg[1], "and", bk_msg[2]), by=grl.ix]
 }
 
-## annotate genes withn 100kb
-llr$gene100kb <- gr.val(dt2gr(llr), genes + 100e3, 'gene', sep="_")$gene
-if (!"gene100kb" %in% colnames(llr))
-  llr$gene100kb <- ""
+vcf[, c("fusion","gorder") := NULL]
 
-if ("bk_msg" %in% colnames(llr)) {
-  mcols(bks)$break1 <- llr[grl.iix==1, bk_msg]
-  mcols(bks)$break2 <- llr[grl.iix==2, bk_msg]
-} else {
-  mcols(bks)$break1 <- mcols(bks)$break2 <- ""
-}
+## writing to stdout
+write.table(vcf[,.(seqnames, start, start, altchr, altpos, altpos, strand, altstrand, id, ref, alt, qual, filter, info, grl.ix, grl.iix, span, geneSymbol, geneStrand, geneSymbol20kb, intronGene, intronNum, bk_msg, exonGene, exonNum, in_frame, in_frame_fusion, msg)],
+            row.names=FALSE, col.names=TRUE, quote=FALSE, sep="\t", file=stdout())
 
-if ("msg" %in% colnames(llr)) {
-  mcols(bks)$fusion <- llr[grl.iix==1, msg]
-} else {
-  mcols(bks)$fusion <- ""
-}
+## ##llr$bk_msg[!grepl("intron|exon", llr$bk_msg)] <- ""
+## write("...annotating intergenic")
+## fo <- gr.findoverlaps(llr, gene.comp)
+## if (nrow(fo)) {
+##   fo[, left  := gene.comp$left[subject.id],  by=query.id]
+##   fo[, right := gene.comp$right[subject.id], by=query.id]
+##   fo[, right_start  := end(gene.comp)[subject.id], by=subject.id]
+##   fo[, left_end := start(gene.comp)[subject.id], by=subject.id]
+##   fo[, left_dist  := start - left_end, by=query.id]
+##   fo[, right_dist := right_start - end, by=query.id]
+##   fo[, mmm := paste(left_dist, "bp to right of", left, "and", right_dist, "bp to left of", right)]
+##   llr$msg[!nchar(llr$msg)] <- ""
+##   llr$bk_msg[fo$query.id] <- ifelse(!nchar(llr$bk_msg[fo$query.id]), fo$mmm, llr$bk_msg[fo$query.id])
+## }
 
-if ("suspect_L1_retrotranspotiion" %in% colnames(llr)) {
-  mcols(bks)$suspect_L1_retrotransposition <- llr[grl.iix==1, suspect_L1_retrotransposition]
-} else {
-  mcols(bks)$suspect_L1_retrotransposition <- ""
-}
+## ############## make the circos plot
+## write("...making Circos plot")
+## library(RCircos)
+## data(UCSC.HG19.Human.CytoBandIdeogram);
+## chr.exclude <- NULL;
+## cyto.info <- UCSC.HG19.Human.CytoBandIdeogram;
+## tracks.inside <- 10;
+## tracks.outside <- 0;
+## RCircos.Set.Core.Components(cyto.info, chr.exclude, tracks.inside, tracks.outside);
 
+## ## get the gene label dat
+## #genes <- genes[width(genes) < 2e6]
+## #fo1 <- gr.findoverlaps(gr1+10e3, genes)
+## #fo2 <- gr.findoverlaps(gr2+10e3, genes)
 
-## convert to data frame
-print("...writing data")
-dt.bks <- as.data.frame(gr2dt(grl.unlist(bks)))
-dt.bks <- rename(dt.bks, c("seqnames"="chr1", "start"="pos1", "strand"="strand1","altchr"="chr2","altpos"="pos2","altstrand"="strand2"))
-print(dt.bks)
+## ## annoying bug with seqinfo clash on 'c'
+## #if (length(fo1) && length(fo2)) {
+## #  fo <- c(fo1,fo2)
+## #} else if (length(fo1)) { 
+## #  fo <- fo1
+## #} else {
+## #  fo <- fo2
+## #}
 
-if (opt$snowman) {
-  dt.bks <- dt.bks[dt.bks$grl.iix==1, c("grl.ix", "chr1","pos1","strand1", "chr2","pos2","strand2", "FILTER","NORMAL","TUMOR","SPAN","sample","uid",
-                     "EVDNC","NUMPARTS","SCTG","DISC_MAPQ","NM","MATENM","MAPQ","REPSEQ",
-                     "HOMSEQ","INSERTION","TUMALT","TUMCOV","TUMLOD","NORMCOV","NORMALT",
-                     "NORMLOD","gene1","gene2","gene1_100kb","gene2_100kb", "fusion","break1", "break2",
-                     "suspect_L1_retrotransposition")]
-} else {
-  dt.bks <- dt.bks[dt.bks$grl.iix==1, c("grl.ix", "chr1","pos1","strand1", "chr2","pos2","strand2",
-                     "sample","uid",
-                     "gene1","gene2","gene1_100kb","gene2_100kb",
-                     "fusion","break1", "break2",
-                     "suspect_L1_retrotransposition")]
-}
+## write("...constructing Circos plot")
 
+## ## set the gene labels
+## gene.dat <- data.frame(Chromsome=c(dt.bks$chr1, dt.bks$chr2), chromStart=c(dt.bks$pos1, dt.bks$pos2),
+##                        chromEnd=c(dt.bks$pos1,dt.bks$pos2), Gene=as.character(c(dt.bks$gene1, dt.bks$gene2)),
+##                        stringsAsFactors=FALSE)
+## if (nrow(gene.dat))
+##   gene.dat <- gene.dat[nchar(gene.dat$Gene) > 0,]
+## if (nrow(gene.dat))
+##   gene.dat <- gene.dat[!duplicated(gene.dat$Gene),]
 
-## write the output
-write.table(dt.bks, file=paste0(opt$output, ".csv"), quote=FALSE, sep='\t', row.names=FALSE)
-##skitools::write.htab(dt.bks, file=paste0(opt$output, ".html"))
+## links = data.frame()
+## if (length(bks))
+##   links = with(dt.bks, data.frame(Chromosome=chr1, chromStart=pos1, chromEnd=pos1, Chromsome.1=chr2, chromStart.1=pos2, chromEnd.1=pos2))
 
-############## make the circos plot
-print("...making Circos plot")
-library(RCircos)
-data(UCSC.HG19.Human.CytoBandIdeogram);
-chr.exclude <- NULL;
-cyto.info <- UCSC.HG19.Human.CytoBandIdeogram;
-tracks.inside <- 10;
-tracks.outside <- 0;
-RCircos.Set.Core.Components(cyto.info, chr.exclude, tracks.inside, tracks.outside);
-
-## get the gene label dat
-#genes <- genes[width(genes) < 2e6]
-#fo1 <- gr.findoverlaps(gr1+10e3, genes)
-#fo2 <- gr.findoverlaps(gr2+10e3, genes)
-
-## annoying bug with seqinfo clash on 'c'
-#if (length(fo1) && length(fo2)) {
-#  fo <- c(fo1,fo2)
-#} else if (length(fo1)) { 
-#  fo <- fo1
-#} else {
-#  fo <- fo2
-#}
-
-print("...constructing Circos plot")
-
-## set the gene labels
-gene.dat <- data.frame(Chromsome=c(dt.bks$chr1, dt.bks$chr2), chromStart=c(dt.bks$pos1, dt.bks$pos2),
-                       chromEnd=c(dt.bks$pos1,dt.bks$pos2), Gene=as.character(c(dt.bks$gene1, dt.bks$gene2)),
-                       stringsAsFactors=FALSE)
-if (nrow(gene.dat))
-  gene.dat <- gene.dat[nchar(gene.dat$Gene) > 0,]
-if (nrow(gene.dat))
-  gene.dat <- gene.dat[!duplicated(gene.dat$Gene),]
-
-links = data.frame()
-if (length(bks))
-  links = with(dt.bks, data.frame(Chromosome=chr1, chromStart=pos1, chromEnd=pos1, Chromsome.1=chr2, chromStart.1=pos2, chromEnd.1=pos2))
-
-## plot the PDF
-pdf(file=paste0(opt$output,".pdf"), height=opt$height, width=opt$width, compress=TRUE);
-RCircos.Set.Plot.Area();
-RCircos.Chromosome.Ideogram.Plot();
-if (opt$genes != 0 && nrow(gene.dat) > 0) {
-  track.num <- 1
-  RCircos.Gene.Connector.Plot(gene.dat, track.num, "in");
-  track.num <- 2;
-  name.col <- 4;
-  RCircos.Gene.Name.Plot(gene.dat, name.col, track.num, "in");
-}
-if (nrow(links) > 0) {
-  track.num = 1
-  RCircos.Link.Plot(links, track.num, by.chromosome=TRUE) ## by.chromosome is for color
-}
-dev.off()
+## ## plot the PDF
+## pdf(file=paste0(opt$output,".pdf"), height=opt$height, width=opt$width, compress=TRUE);
+## RCircos.Set.Plot.Area();
+## RCircos.Chromosome.Ideogram.Plot();
+## if (opt$genes != 0 && nrow(gene.dat) > 0) {
+##   track.num <- 1
+##   RCircos.Gene.Connector.Plot(gene.dat, track.num, "in");
+##   track.num <- 2;
+##   name.col <- 4;
+##   RCircos.Gene.Name.Plot(gene.dat, name.col, track.num, "in");
+## }
+## if (nrow(links) > 0) {
+##   track.num = 1
+##   RCircos.Link.Plot(links, track.num, by.chromosome=TRUE) ## by.chromosome is for color
+## }
+## dev.off()
 
