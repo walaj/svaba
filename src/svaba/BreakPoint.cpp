@@ -1254,9 +1254,9 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
 	case 13: b2.nm = INTNSTOI(val,255); break;
 	case 14: dc.mapq1 = INTNSTOI(val, 255); break;
 	case 15: dc.mapq2 = INTNSTOI(val, 255); break;
-	  //case 16: split (not needed, since in genotype) 
-	  //case 17: cigar (not needed, since in genotype) 
-	  //case 18: alt (not needed, since in genotype)
+	case 16: break; //split (not needed, since in genotype) 
+	case 17: break; //cigar (not needed, since in genotype) 
+	case 18: break; //alt (not needed, since in genotype)
 	case 19: cov = INTNSTOI(val,65535); break;
 	case 20: b1.sub_n = INTNSTOI(val,255); break;
 	case 21: b2.sub_n = INTNSTOI(val,255); break;

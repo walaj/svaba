@@ -24,7 +24,7 @@
 
 #include "workqueue.h"
 
-#define SVABA_VERSION "1.1.0"
+#define SVABA_VERSION "1.1.1"
 
 // typedefs
 typedef std::map<std::string, std::string> BamMap;
