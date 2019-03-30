@@ -137,7 +137,13 @@ introns[, intronNum := ifelse(strand == "+", seq(.N), rev(seq(.N))), by=id]
 
 ## read in file
 write("...reading VCF file\n", stderr())
-vcf <- data.table::fread(cmd=paste("grep -v ^#", opt$input))
+if (grepl("gz$", opt$input)) {
+    print(paste("gunzip -c", opt$input, "| grep -v ^#"))
+    vcf <- data.table::fread(cmd=paste("gunzip -c", opt$input, "| grep -v ^#"))
+} else {
+    vcf <- data.table::fread(cmd=paste("grep -v ^#", opt$input))    
+}
+
 setnames(vcf, paste0("V", seq(9)), c("seqnames","start","id","ref","alt","qual","filter","info","geno"))
 
 ## bail early if nothing found
