@@ -1727,6 +1727,8 @@ void run_assembly(const SeqLib::GenomicRegion& region, svabaReadVector& bav_this
       if (svabaUtils::overlapSize(j, ct_plus_microbe) < 0.5 * j.Length() && j.NumMatchBases() >= MIN_CONTIG_MATCH) { 
 	human_alignments.push_back(j);
         master_contigs.push_back(j);
+      } else if (opt::all_contigs) { // if all contigs, we want to keep everything
+        master_contigs.push_back(j);	
       }
     }
     
