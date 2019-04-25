@@ -108,7 +108,7 @@ SeqLib::GRC svabaBamWalker::readBam(std::ofstream * log) {
 
     svabaRead s(r, prefix);
 
-    // quality score trim read. Stores in GV tag
+    // quality score trim read
     QualityTrimRead(s);
     
     // if its less than 20, dont even mess with it

@@ -168,14 +168,14 @@ std::string AlignedContig::print(const SeqLib::BamHeader& h) const {
   // print the global breakpoint
   if (!m_global_bp.isEmpty())
     out << "Global BP: " << m_global_bp.print(h) << 
-      " ins_aginst_contig " << insertion_against_contig_read_count << 
+      " ins_against_contig " << insertion_against_contig_read_count << 
       " del_against_contig " << deletion_against_contig_read_count << "  " << 
       getContigName() << std::endl;       
   
   // print the global breakpoint for secondaries
   if (m_global_bp_secondaries.size())
     out << "SECONDARY Global BP: " << m_global_bp.print(h) << 
-      " ins_aginst_contig " << insertion_against_contig_read_count << 
+      " ins_against_contig " << insertion_against_contig_read_count << 
       " del_against_contig " << deletion_against_contig_read_count << "  " << 
       getContigName() << std::endl;       
   
@@ -224,50 +224,19 @@ std::string AlignedContig::print(const SeqLib::BamHeader& h) const {
     // print out the individual reads
     for (auto& i : m_bamreads) {
       
-      //std::string seq = i.QualitySequence();
       std::string seq = i.Seq(); 
-      //std::string sr = SRTAG(i);
       std::string sr = i.SR();
       
-      // get the more complex tags (since there can be multiple annotations per tag)
-      /*      std::vector<int> posvec = i.GetSmartIntTag("SL"); // start positions ON CONTIG
-      std::vector<int> alnvec = i.GetSmartIntTag("TS"); // start positions ON READ
-      std::vector<int> rcvec = i.GetSmartIntTag("RC"); // read reverse complmented relative to contig
-      std::vector<std::string> cigvec = i.GetSmartStringTag("SC"); // read against contig CIGAR
-      std::vector<std::string> cnvec = i.GetSmartStringTag("CN");
-      
-      if (posvec.size() != alnvec.size() ||
-	  posvec.size() != rcvec.size() ||
-	  cigvec.size() != posvec.size() ||
-	  cnvec.size() != posvec.size())
-	continue;
-      
-      assert(cnvec.size() == posvec.size());
-      size_t kk = 0;
-      for (; kk < cnvec.size(); kk++) 
-	if (cnvec[kk] == getContigName()) {
-	  pos = posvec[kk];
-	  aln = alnvec[kk];
-	  rc = rcvec[kk];
-	  this_cig = cigvec[kk];
-	  break;
-	}
-
-      // reverse complement if need be
-      if (rc)
-	SeqLib::rcomplement(seq);      
-      */
-
       // get the read to contig alignment information
       r2c this_r2c = i.GetR2C(getContigName());
       
       int pos = this_r2c.start_on_contig;
-      int aln = this_r2c.start_on_read;
 
       if (this_r2c.rc)
 	SeqLib::rcomplement(seq);
   
-      // edit the string to reflect gapped alignments
+      // edit the string to reflect gapped and clipped alignments
+      // that is, only show the match portion, and put "-" on reads for deletions wrt contig
       size_t p = 0; // move along on sequence, starting at first non-clipped base
       std::string gapped_seq;
       for (SeqLib::Cigar::const_iterator c = this_r2c.cig.begin(); c != this_r2c.cig.end(); ++c) {
@@ -278,31 +247,11 @@ std::string AlignedContig::print(const SeqLib::BamHeader& h) const {
 	  gapped_seq += std::string(c->Length(), '-');
 	}
 	
-	if (c->Type() == 'I' || c->Type() == 'M')
+	if (c->ConsumesQuery()) //c->Type() == 'I' || c->Type() == 'M' || c->Type() == 'S') // consumes query
 	  p += c->Length();
       }
       seq = gapped_seq;
-      
-      
-      if (aln > 0)
-	try {
-	  seq = seq.substr(aln, seq.length() - aln);
-	} catch (...) {
-	  std::cerr << "AlignedContig::operator<< error: substring out of bounds. seqlen " << 
-	    seq.length() << " start " << aln << " length " << (seq.length() - aln) << std::endl;
-	}
-      
-      if ( (pos + seq.length() ) > getSequence().length()) 
-	try { 
-	  seq = seq.substr(0, getSequence().length() - pos);
-	} catch (...) {
-	  std::cerr << "AlignedContig::operator<< (2) error: substring out of bounds. seqlen " << 
-	    seq.length() << " start " << 0 << " pos " << pos << " getSequence().length() " << 
-	    getSequence().length() << std::endl;
 
-	}
-      
-      //assert(kk != cnvec.size()); // assure that we found something
       pos = abs(pos);
       int padlen = getSequence().size() - pos - seq.size() + 5;
       padlen = std::max(5, padlen);

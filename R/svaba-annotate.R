@@ -56,7 +56,7 @@ if (tolower(opt$db) == tolower("refseq")) {
 } else if (tolower(opt$db) == "gencode") {
   
   ## if want to use GENCODE instead, need to get table to convert GENCODE ids to gene names
-  genes <- suppressWarnings(data.table::as.data.table(query(paste0("SELECT name, name2, chrom, txStart, txEnd, strand, exonStarts, exonEnds, exonCount FROM ", assembly, ".knownGene"))))  
+  genes <- suppressWarnings(data.table::as.data.table(query(paste0("SELECT name, chrom, txStart, txEnd, strand, exonStarts, exonEnds, exonCount FROM ", assembly, ".knownGene"))))  
   codes <- suppressWarnings(data.table::as.data.table(query(paste0("SELECT kgID, mRNA, geneSymbol, spID, refSeq FROM ", assembly, ".kgXref"))))
   
   ## merge the gene ids to gene names

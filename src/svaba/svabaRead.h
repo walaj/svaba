@@ -17,6 +17,8 @@ struct r2c {
   SeqLib::Cigar cig; // cigar of read to contig
   bool supports_var = false; // does this support a variant?
   bool is_split = false; // is this a split read?
+  int left_or_right = 0; //-1 read aligns on left of contig, 1 on right
+  bool supports_discordant = false; // true if this is part of a discordant pair that supports the break
 
   void AddAlignment (const SeqLib::BamRecord& b) {
     start_on_contig = b.Position();
@@ -52,20 +54,11 @@ class svabaRead : public SeqLib::BamRecord {
 
   bool Tumor() const { return p[0] == 't'; }
 
-  int SeqLength() const { return strlen(seq.get()); }
+  int SeqLength() const; 
 
-  void AddR2C(const std::string& contig_name, const r2c& r) {
-    if (!m_r2c) 
-      m_r2c = SeqPointer<R2CMap>(new R2CMap());
-    m_r2c->insert({contig_name, r});
-  }
+  void AddR2C(const std::string& contig_name, const r2c& r);
 
-  r2c& GetR2C(const std::string& contig_name) const {
-    assert(m_r2c);
-    R2CMap::const_iterator ff = m_r2c->find(contig_name);
-    assert(ff != m_r2c->end());
-    return m_r2c->find(contig_name)->second;
-  }
+  r2c& GetR2C(const std::string& contig_name) const;
 
  private:
 

@@ -1386,7 +1386,7 @@ void alignReadsToContigs(SeqLib::BWAWrapper& bw, const SeqLib::UnalignedSequence
     // check which ones pass
     SeqLib::BamRecordVector bpass;
     for (auto& r : brv_svaba) {
-
+      
       // make sure alignment score is OK
       int thisas = 0;
       r.GetIntTag("AS", thisas);
@@ -1394,7 +1394,7 @@ void alignReadsToContigs(SeqLib::BWAWrapper& bw, const SeqLib::UnalignedSequence
       	continue;
       
       bool length_pass = (r.PositionEnd() - r.Position()) >= ((double)seqr.length() * 0.75);
-
+      
       if (length_pass && !cc.count(usv[r.ChrID()].Name)) {
 	bpass.push_back(r);
 	cc.insert(usv[r.ChrID()].Name);
@@ -1407,23 +1407,10 @@ void alignReadsToContigs(SeqLib::BWAWrapper& bw, const SeqLib::UnalignedSequence
       r2c this_r2c; // alignment of this read to this contig
       if (r.ReverseFlag())
 	this_r2c.rc = true;
-      //i.SmartAddTag("RC","1");
-      //else 
-      //i.SmartAddTag("RC","0");
 
       this_r2c.AddAlignment(r);
       i.AddR2C(usv[r.ChrID()].Name, this_r2c);
       
-      //i.SmartAddTag("SL", std::to_string(r.Position()));
-      //i.SmartAddTag("SE", std::to_string(r.PositionEnd()));
-      //i.SmartAddTag("TS", std::to_string(r.AlignmentPosition()));
-      //i.SmartAddTag("TE", std::to_string(r.AlignmentEndPosition()));
-      //i.SmartAddTag("SC", r.CigarString());
-      //i.SmartAddTag("CN", usv[r.ChrID()].Name);
-
-      //i.AddZTag("SR", i.SR().substr(0,4));
-      //i.AddZTag("GV", i.Seq());
-
       // add the read to the right contig (loop to check for right contig)
       for (auto& a : this_alc) {
 	if (a.getContigName() != usv[r.ChrID()].Name)
