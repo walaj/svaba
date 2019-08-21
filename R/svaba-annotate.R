@@ -81,7 +81,7 @@ if (tolower(opt$style) == "ncbi")
 
 ## make the exons structure
 starts <- strsplit(genes[, exonStarts], ",")
-ends   <- strsplit(genes[, exonStarts], ",")
+ends   <- strsplit(genes[, exonEnds], ",")
 frames   <- strsplit(genes[, exonFrames], ",")
 stopifnot(sum(sapply(starts, length)) == sum(sapply(ends, length)))
 stopifnot(sum(sapply(starts, length)) == sum(sapply(frames, length)))
@@ -230,7 +230,7 @@ vcf[, fusion := {
 } , by = grl.ix]
 vcf[, sense  :=
     all(geneStrand != "") &&
-    ((geneStrand[1] == geneStrand[2] && geneStrand[1] != geneStrand[2]) || (strand[1] != strand[2] && geneStrand[1] == geneStrand[2])),
+    ((geneStrand[1] == geneStrand[2] && strand[1] != strand[2]) || (strand[1] != strand[2] && geneStrand[1] == geneStrand[2])),
     by = grl.ix]
 
 ## DECIDE WHICH PIECE IS "first" in the fusion gene (where Tx starts)
@@ -276,7 +276,7 @@ if ("cdsFrame" %in% colnames(vcf)) {
   vcf[, in_frame_fusion := in_frame && fusion && sense, by=grl.ix]
   vcf[vcf$in_frame_fusion, msg := paste("In-frame sense fusion from:", bk_msg[gorder[1]], "to", bk_msg[gorder[2]]), by=grl.ix]
   vcf[!vcf$in_frame_fusion & vcf$fusion & vcf$sense, msg := paste("Out-of-frame sense fusion between:", bk_msg[1], "and", bk_msg[2]), by=grl.ix]
-  vcf[!vcf$in_frame_fusion & vcf$fusion & !vcf$sense, msg := paste("Anti-sense fusion between:", bk_msg[1], "and", bk_msg[2]), by=grl.ix]
+  vcf[!vcf$sense, msg := paste("Anti-sense fusion between:", bk_msg[1], "and", bk_msg[2]), by=grl.ix]
 }
 
 vcf[, c("fusion","gorder") := NULL]
