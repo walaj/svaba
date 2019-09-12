@@ -16,10 +16,10 @@ opt = parse_args(parseobj)
 if (is.null(opt$input))
   stop(print_help(parseobj))
 
-if (!tolower(opt$style) %in% c("ncbi","ucsc")) 
+if (!tolower(opt$style) %in% c("ncbi","ucsc"))
   stop("Must specify style as ncbi or ucsc")
 
-if (!tolower(opt$genome) %in% c("hg38","hg19")) 
+if (!tolower(opt$genome) %in% c("hg38","hg19"))
   stop("Must specify --genome as hg19 or hg38")
 
 write("...loading required packages\n", stderr())
@@ -52,13 +52,13 @@ if (tolower(opt$db) == tolower("refseq")) {
   genes[, longest := NULL]
 
   setnames(genes, c("name2","name"), c("geneSymbol","id"))
-  
+
 } else if (tolower(opt$db) == "gencode") {
-  
+
   ## if want to use GENCODE instead, need to get table to convert GENCODE ids to gene names
-  genes <- suppressWarnings(data.table::as.data.table(query(paste0("SELECT name, chrom, txStart, txEnd, strand, exonStarts, exonEnds, exonCount FROM ", assembly, ".knownGene"))))  
+  genes <- suppressWarnings(data.table::as.data.table(query(paste0("SELECT name, chrom, txStart, txEnd, strand, exonStarts, exonEnds, exonCount FROM ", assembly, ".knownGene"))))
   codes <- suppressWarnings(data.table::as.data.table(query(paste0("SELECT kgID, mRNA, geneSymbol, spID, refSeq FROM ", assembly, ".kgXref"))))
-  
+
   ## merge the gene ids to gene names
   setnames(genes, c("name"), c("kgID"))
   setkey(genes, kgID)
@@ -87,13 +87,13 @@ stopifnot(sum(sapply(starts, length)) == sum(sapply(ends, length)))
 stopifnot(sum(sapply(starts, length)) == sum(sapply(frames, length)))
 stopifnot(sum(sapply(starts, length)) == sum(genes$exonCount))
 exons <- data.table(id = genes[, rep(id, exonCount)],
-           geneSymbol = genes[, rep(geneSymbol, exonCount)],
-           exonCount = genes[, rep(exonCount, exonCount)],
-           seqnames = genes[, rep(seqnames, exonCount)],
-           frames = as.numeric(unlist(frames)),
-           start = as.numeric(unlist(starts)),
-           end = as.numeric(unlist(ends)),
-           strand = genes[, rep(strand, exonCount)])
+                    geneSymbol = genes[, rep(geneSymbol, exonCount)],
+                    exonCount = genes[, rep(exonCount, exonCount)],
+                    seqnames = genes[, rep(seqnames, exonCount)],
+                    frames = as.numeric(unlist(frames)),
+                    start = as.numeric(unlist(starts)),
+                    end = as.numeric(unlist(ends)),
+                    strand = genes[, rep(strand, exonCount)])
 exons[, exonNum := ifelse(strand=="+", seq(.N), rev(seq(.N))), by=id]
 
 ## make an introns track
@@ -138,10 +138,10 @@ introns[, intronNum := ifelse(strand == "+", seq(.N), rev(seq(.N))), by=id]
 ## read in file
 write("...reading VCF file\n", stderr())
 if (grepl("gz$", opt$input)) {
-    print(paste("gunzip -c", opt$input, "| grep -v ^#"))
-    vcf <- data.table::fread(cmd=paste("gunzip -c", opt$input, "| grep -v ^#"))
+  print(paste("gunzip -c", opt$input, "| grep -v ^#"))
+  vcf <- data.table::fread(cmd=paste("gunzip -c", opt$input, "| grep -v ^#"), sep="\t")
 } else {
-    vcf <- data.table::fread(cmd=paste("grep -v ^#", opt$input))    
+  vcf <- data.table::fread(cmd=paste("grep -v ^#", opt$input), sep="\t")
 }
 
 setnames(vcf, paste0("V", seq(9)), c("seqnames","start","id","ref","alt","qual","filter","info","geno"))
@@ -201,13 +201,13 @@ vcf[ro$query.id, intronGene := ro$intronGene]
 vcf[ro$query.id, intronNum := ro$intronNum]
 vcf[ro$query.id, intronStart := ro$intronStart]
 vcf[, intronGeneAlt := intronGene[rev(grl.iix)], by=grl.ix]
-vcf[, intronNum := intronNum[rev(grl.iix)], by=grl.ix]
-vcf[, intronIn  := abs(intronStart - start)]
+vcf[, intronNumAlt := intronNum[rev(grl.iix)], by=grl.ix]
+vcf[, intronBpsIn  := abs(intronStart - start)]
 if ("frame" %in% colnames(introns)) {
   ro[, cdsFrame := introns$frame[subject.id]]
   vcf[ro$query.id, cdsFrame  := ro$cdsFrame]
 }
-vcf[!is.na(intronNum), bk_msg := paste(intronIn, "bp_into_intron", intronNum, "of", intronGene, sep="_")]
+vcf[!is.na(intronNum), bk_msg := paste(intronBpsIn, "bp_into_intron", intronNum, "of", intronGene, sep="_")]
 
 ## overlap exons
 ro <- roverlaps(vcf, exons)
@@ -219,9 +219,9 @@ vcf[ro$query.id, exonGene := ro$exonGene]
 vcf[ro$query.id, exonNum := ro$exonNum]
 vcf[ro$query.id, exonStart := ro$exonStart]
 vcf[, exonGeneAlt := exonGene[rev(grl.iix)], by=grl.ix]
-vcf[, exonNum := exonNum[rev(grl.iix)], by=grl.ix]
-vcf[, exonIn  := abs(exonStart - start)]
-vcf[!is.na(exonNum), bk_msg := paste(exonIn, "bp_into_exon", exonNum, "of", exonGene, sep="_")]
+vcf[, exonNumAlt := exonNum[rev(grl.iix)], by=grl.ix]
+vcf[, exonBpsIn  := abs(exonStart - start)]
+vcf[!is.na(exonNum), bk_msg := paste(exonBpsIn, "bp_into_exon", exonNum, "of", exonGene, sep="_")]
 
 ## annotate fusions
 vcf[, fusion := {
@@ -229,16 +229,17 @@ vcf[, fusion := {
   if (is.na(f)) { FALSE } else { f }
 } , by = grl.ix]
 vcf[, sense  :=
-    all(geneStrand != "") &&
-    ((geneStrand[1] == geneStrand[2] && strand[1] != strand[2]) || (strand[1] != strand[2] && geneStrand[1] == geneStrand[2])),
+      all(geneStrand != "") &&
+      ((geneStrand[1] == geneStrand[2] && strand[1] != strand[2]) || (strand[1] != strand[2] && geneStrand[1] == geneStrand[2])),
     by = grl.ix]
 
 ## DECIDE WHICH PIECE IS "first" in the fusion gene (where Tx starts)
 ## RAR_STRAND        GENE_STRAND
 ## ++ or --          must be +- or -+. Starts on +
 ## +- or --          msut be -- or ++. Starts on side where gstrand == rarstrand
+if (any(vcf$fusion)) {
 vcf[vcf$fusion, gorder := {
-  
+
   mk <- c(NA,NA)
   ## inversion
   if (strand[1] == strand[2]) {
@@ -247,24 +248,27 @@ vcf[vcf$fusion, gorder := {
     else
       mk <- c(1,2)
   }
-  
+
   ## non type
   if (geneStrand[1] == geneStrand[1])
     mk <- c(1,2)
   else
     mk <- c(2,1)
-  
+
   mk
-  
+
 }, by=grl.ix]
+} else {
+  vcf[, gorder := 1] ##dummy
+}
 
 ## decide if in frame
 if ("cdsFrame" %in% colnames(vcf)) {
   vcf[, in_frame := {
     f = (cdsFrame[gorder[2]] - cdsFrame[gorder[1]]);
     xbases <- 0; ##xbases <- nchar(INSERTION[1]) - nchar(HOMSEQ[1]);
-    
-    if (is.na(f))
+
+    if (is.na(f[1]))
       FALSE
     else if (all(grepl('intron', bk_msg)) && sense[1]) ## intron to intron
       f == 0
@@ -318,7 +322,7 @@ write.table(vcf[,.(seqnames, start, start, altchr, altpos, altpos, strand, altst
 ## ## annoying bug with seqinfo clash on 'c'
 ## #if (length(fo1) && length(fo2)) {
 ## #  fo <- c(fo1,fo2)
-## #} else if (length(fo1)) { 
+## #} else if (length(fo1)) {
 ## #  fo <- fo1
 ## #} else {
 ## #  fo <- fo2
@@ -355,4 +359,3 @@ write.table(vcf[,.(seqnames, start, start, altchr, altpos, altpos, strand, altst
 ##   RCircos.Link.Plot(links, track.num, by.chromosome=TRUE) ## by.chromosome is for color
 ## }
 ## dev.off()
-
