@@ -12,8 +12,6 @@
 #define MIN_PER_CLUST 2
 #define DEFAULT_ISIZE_THRESHOLD 800 // shouldn't be hit if isize was learned
 
-#define REGPOS1 500000000
-
 //#define DEBUG_CLUSTER 1
 
 using namespace SeqLib;
@@ -266,9 +264,9 @@ using namespace SeqLib;
 
     // set the regions
     m_reg1 = GenomicRegion(-1, -1, -1);
-    m_reg1.pos1 = REGPOS1;
+    m_reg1.pos1 = INT_MAX;
     m_reg2 = GenomicRegion(-1, -1, -1); // mate region
-    m_reg2.pos1 = REGPOS1;
+    m_reg2.pos1 = INT_MAX;
     for (auto& i : reads) 
       {
 	m_reg1.strand = i.second.ReverseFlag() ? '-' : '+'; //r_strand(i.second) == '+'; //(!i.second->IsReverseStrand()) ? '+' : '-';
