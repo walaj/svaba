@@ -606,7 +606,7 @@ afterlearn:
     if (!string_rules.empty()) // cut last comma
       string_rules = string_rules.substr(0, string_rules.length() - 1);
     else
-      string_rules = "[0,0]";
+      string_rules = "{}";
     opt::rules = myreplace(opt::rules, "FRRULES", string_rules);
   }
 
