@@ -5,11 +5,17 @@
 #include "svabaUtils.h"
 
 std::ostream& operator<<(std::ostream& out, const BamParams& p) {
- 
-  out << "@@@ READ GROUP " << p.read_group << " Insert Size: " << p.mean_isize 
-      << "(" << p.sd_isize << ") [0.025%,97.5%] [" << p.lp << "," 
-      << p.hp << "], Mean Coverage: " << p.mean_cov << " Read Length: " 
-      << p.readlen << " Max MapQ:" << p.max_mapq;
+
+  float frac_clip = (float)p.num_clip/p.visited;
+  
+  out << "\t@@@ READ GROUP: " << p.read_group << " - Insert Size: " << p.mean_isize 
+      << "(SD: " << p.sd_isize << ") [0.025%,97.5%] [" << p.lp << "," 
+      << p.hp << "]" << std::endl
+      << " Mean Coverage: " << p.mean_cov << " Read Length: " 
+      << p.readlen << " Max MapQ:" << p.max_mapq << std::endl;
+  out << "\t\tReads Sampled: " << SeqLib::AddCommas(p.visited) << " Num Clipped(frac): "
+      << SeqLib::AddCommas(p.num_clip) << "(" << frac_clip << ")" << std::endl;
+    
   // out << "@@@ Estimated fraction of reads that are discordant: " << p.frac_disc << std::endl;
   // out << "@@@ Estimated fraction of reads that are clipped:    " << p.frac_clip << std::endl;
   // out << "@@@ Estimated fraction of low quality alignments:    " << p.frac_bad << std::endl;
@@ -21,32 +27,24 @@ std::ostream& operator<<(std::ostream& out, const BamParams& p) {
 
 void LearnBamParams::learnParams(BamParamsMap& p, int max_count) {
 
-  SeqLib::GRC grv;
-  //grv.add(SeqLib::GenomicRegion(0, 1000000,2000000));
-  //grv.add(SeqLib::GenomicRegion(1,1000000,2000000));
   SeqLib::BamReader bwalker;
   assert(bwalker.Open(bam));
 
   SeqLib::BamRecord r;
 
-  int wid = 0;
+  int wid = 0; // Total span of genome tested
   double pos1 = 0, pos2 = 0, chr = -1;
 
-  // loop through a bunch of reads
-  // first, try some predefined regions in middle of BAM
-  //int count = 0;
-  //while (bwalker.GetNextRecord(r) && ++count < max_count) {
-  //  process_read(r, count, pos1, pos2, chr, wid);
-  //}
-  
   // read from the beginning until hit max_count
+  // pos1 is set by process_read as lowest position on chr, pos2 is highest
+  // wid is the max span tested and is updated with each chr
   size_t count = 0;
   pos1 = 0; pos2 = 0; chr = -1; wid = 0;
   bwalker.Reset();
-  while (bwalker.GetNextRecord(r) && ++count < max_count) 
+  while (bwalker.GetNextRecord(r) && ++count < max_count)
     process_read(r, count, p, pos1, pos2, chr, wid);
-
-  wid += pos2 - pos1;
+  wid += pos2 - pos1; // add in the last chr width
+  
   // get the summary stats
   for (auto& i : p) {
     i.second.collectStats();
@@ -55,11 +53,45 @@ void LearnBamParams::learnParams(BamParamsMap& p, int max_count) {
   
 }
 
+// go back through and estimate how many read pairs will be labeled as discordant in this BAM file
+void LearnBamParams::estimateDiscordant(BamParamsMap& p, int max_count, int il_cutoff) {
+
+  SeqLib::BamReader bwalker;
+  assert(bwalker.Open(bam));
+
+  SeqLib::BamRecord r;
+  size_t count = 0;
+  
+  while (bwalker.GetNextRecord(r) && ++count < max_count) {
+    if (r.DuplicateFlag() || r.QCFailFlag() || r.SecondaryFlag() || !r.MappedFlag())
+      return;
+
+    std::string RG;
+    get_rg(RG, r);
+    
+    BamParamsMap::iterator ff = p.find(RG);
+    
+    // new read group, make a new object here
+    if (ff == p.end()) {
+      p[RG] = BamParams(RG);
+      ff = p.find(RG);
+    }
+
+    if (r.InsertSize() >= il_cutoff)
+      ff->second.num_disc++;
+  }
+  
+}
+
+float BamParams::discFrac() {
+  return (float)num_disc / visited;
+}
+
 void BamParams::collectStats() {
 
   if (isize_vec.size() < 100) {
     std::cerr << "not enough paired-end reads to get insert-size distribution. skipping discordant analysis" << std::endl;
-    std::cerr << "\read group: " << read_group << " Insert-sizes sampled: " << isize_vec.size() << " visited " << visited << std::endl;
+    std::cerr << "read group: " << read_group << " Insert-sizes sampled: " << isize_vec.size() << " visited " << visited << std::endl;
     return;
   }
     
@@ -116,17 +148,7 @@ void LearnBamParams::process_read(const SeqLib::BamRecord& r, size_t count, BamP
      pos2 = r.Position();
    
    std::string RG;
-   if (!r.GetZTag("RG", RG))
-     RG = "NA";
-   // hack for simulated data
-   if (RG.find("tumor") != std::string::npos) {
-     std::string qn = r.Qname();
-     size_t posr = qn.find(":", 0);
-      RG = (posr != std::string::npos) ? qn.substr(0, posr) : RG;
-   } else {
-     // best practice without "tumor" hack
-     //RG = r.ParseReadGroup();
-   }
+   get_rg(RG, r);
    
    BamParamsMap::iterator ff = p.find(RG);
    
@@ -149,4 +171,26 @@ void LearnBamParams::process_read(const SeqLib::BamRecord& r, size_t count, BamP
    
    ff->second.visited++;
    
+}
+
+void LearnBamParams::get_rg(std::string& rg, const SeqLib::BamRecord& r) const {
+  if (!r.GetZTag("RG", rg))
+    rg = "NA";
+  
+  //debug
+  //std::cerr << "RG " << rg << std::endl;
+  
+  // hack for simulated data
+  if (rg.find("tumor") != std::string::npos) {
+    std::string qn = r.Qname();
+    size_t posr = qn.find(":", 0);
+    rg = (posr != std::string::npos) ? qn.substr(0, posr) : rg;
+  } else {
+    // best practice without "tumor" hack
+    //rg = r.ParseReadGroup();
+  }
+  
+  //debug
+  //std::cerr << "   RG " << rg << std::endl; //debug
+  
 }

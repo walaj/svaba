@@ -13,6 +13,7 @@ Table of contents
   * [Description](#description)
   * [Output file description](#output-file-description)
   * [Filtering and refiltering](#filtering-and-refiltering)
+  * [Troubleshooting]
   * [Recipes and examples](#recipes-and-examples)
     * [Whole genome somatic SV and indel detection](#whole-genome-somatic-sv-and-indel-detection)
     * [Whole genome germline SV and indel detection](#whole-genome-germline-sv-and-indel-detection)
@@ -117,6 +118,19 @@ and then to determine if the variant is somatic or germline. These log-likelihoo
 SvABA can refilter the bps.txt.gz file to produce new VCFs with different stringency cutoffs. To run, the following are required:
 * ``-b`` - a BAM from the original run, which is used just for its header
 * ``-i`` - input bps.txt.gz file
+
+Troubleshooting
+---------------
+
+#### Too many DSCRD variants
+If there are too many discordant-only variants, it is possible that your insert size
+distributions is too skewed or wide. This can be remedied by increasing the threshold for
+how "abnormal" an insert size must be to be considered discordant. The default is to label
+read pairs as discordant if their insert length is > 3.92 SD from the greatest deviation across
+all gread groups. To increase this (making discordant label more strict), run with:
+```
+--disc-sd-cutoff 10
+```
 
 Examples and recipes
 --------------------

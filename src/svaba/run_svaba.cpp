@@ -128,13 +128,14 @@ namespace opt {
   static int chunk = 25000;
   static std::string regionFile;  // region to run on
   static std::string analysis_id = "no_id";
-  static int num_to_sample = 2000000;  // num to learn from (eg isize distribution)
+  static int num_to_sample = 10000000;  // num to learn from (eg isize distribution)
 
   // runtime parameters
   static int verbose = 0;
   static int numThreads = 1;
   static bool hp = false; // should run in highly-parallel mode? (no file dump til end)
 
+  
   // data
   static BamMap bam;
   static std::string refgenome = "/seq/references/Homo_sapiens_assembly19/v1/Homo_sapiens_assembly19.fasta";
@@ -318,7 +319,6 @@ void runsvaba(int argc, char** argv) {
 
   // open the output streams
   svabaUtils::fopen(opt::analysis_id + ".log", log_file);
-  //  svabaUtils::fopen(opt::analysis_id + ".bad_mate_regions.bed", bad_bed);
 
   // will check later if reads have different max mapq or readlen
   bool diff_read_len = false;
@@ -393,7 +393,6 @@ void runsvaba(int argc, char** argv) {
   microbe_bwa = nullptr;
   
   // open the microbe genome
-  
   if (!opt::microbegenome.empty()) {
     WRITELOG("...loading the microbe reference sequence", opt::verbose > 0, true)
     microbe_bwa = new SeqLib::BWAWrapper();
@@ -460,9 +459,16 @@ void runsvaba(int argc, char** argv) {
   // learn bam
   min_dscrd_size_for_variant = 0; // set a min size for what we can call with discordant reads only. 
   for (auto& b : opt::bam) {
+    WRITELOG("--- Learning " + b.first + " - " + b.second, true, true);
     LearnBamParams parm(b.second);
+
+    // Each BamParam is unique to bam and read-group dyad
+    // A BamParamMap contains all the BamParams (for each RG) for a BAM
+    // params_map contains the BamParamMap for each bam
     params_map[b.first] = BamParamsMap();
     parm.learnParams(params_map[b.first], opt::num_to_sample);
+
+    // set the discordant read cutoff as max among all read groups across all BAMs
     for (auto& i : params_map[b.first]) {
       readlen = std::max(readlen, i.second.readlen);
       max_mapq_possible = std::max(max_mapq_possible, i.second.max_mapq);
@@ -475,6 +481,17 @@ void runsvaba(int argc, char** argv) {
     ss << " min_dscrd_size_for_variant " << min_dscrd_size_for_variant << std::endl;
   }
 
+  // Estimate fraction of discordant reads that will be identified
+  for (auto& b : opt::bam) {
+    WRITELOG("--- Estimating discordant read load " + b.first + " - " + b.second, true, true);
+    LearnBamParams parm(b.second);
+    ss << "\t" << b.first << " - " << b.second << std::endl;
+    parm.estimateDiscordant(params_map[b.first], opt::num_to_sample, min_dscrd_size_for_variant);
+    for (auto& bp : params_map[b.first]) // loop through the RG for this BAM
+      ss << "\t" << bp.second.read_group << " fraction discordant: " << bp.second.discFrac() << std::endl;
+  }
+    
+  
   // check if differing read lengths or max mapq
   for (auto& a : params_map) {
     for (auto& i : a.second) {

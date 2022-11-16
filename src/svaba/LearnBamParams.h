@@ -18,6 +18,8 @@ struct BamParams {
 
   void collectStats();
 
+  float discFrac();
+
   friend std::ostream& operator<<(std::ostream& out, const BamParams& p);
   
   int visited = 0;
@@ -56,11 +58,15 @@ class LearnBamParams {
 
   void learnParams(BamParamsMap& p, int max_count);
 
- private:
+  void estimateDiscordant(BamParamsMap& p, int max_count, int il_cutoff);
+
+private:
   std::string bam;
 
   void process_read(const SeqLib::BamRecord& r, size_t count, 
 		    BamParamsMap& p, double& pos1, double& pos2, double& chr, int& wid) const;
+
+  void get_rg(std::string& rg, const SeqLib::BamRecord& r) const;
 
 };
 
