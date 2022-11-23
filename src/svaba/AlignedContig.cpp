@@ -302,7 +302,7 @@ std::string AlignedContig::print(const SeqLib::BamHeader& h) const {
     // initialize the breakpoint, fill with basic info
     BreakPoint bp;
     for (auto& i : prefixes) 
-      bp.allele[i].indel = false;
+      bp.samples[i].indel = false;
 
     bp.seq = getSequence();
     bp.aligned_covered = aligned_covered;
@@ -543,7 +543,7 @@ void AlignedContig::checkAgainstCigarMatches(const std::unordered_map<std::strin
     std::vector<int> scounts(m_local_breaks.size(), 0);
 
     for (size_t i = 0; i < scounts.size() ; ++i) {
-      for (auto& j : m_local_breaks[i].allele)
+      for (auto& j : m_local_breaks[i].samples)
 	scounts[i] += j.second.split;
     }
 

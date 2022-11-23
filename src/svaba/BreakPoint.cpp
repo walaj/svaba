@@ -37,8 +37,9 @@ bool __check_homopolymer(const std::string& s) {
 }
 
 double scale_factor = 5.0;
-static std::unordered_map<int, double> ERROR_RATES = {{0, scale_factor * 1e-4}, {1, scale_factor * 1e-4}, {2,  scale_factor * 1e-4}, {3,  scale_factor * 1e-4}, {4,  scale_factor * 1e-4}, {5, scale_factor * 2e-4}, {6, scale_factor * 5e-4}, {7, scale_factor * 1e-3},
-						      {8, scale_factor * 2e-3}, {9, scale_factor * 3e-3}, {10, scale_factor * 1e-2}, {11, scale_factor * 2e-2}, {12, scale_factor * 3e-5}};
+static std::unordered_map<int, double> ERROR_RATES = {{0, scale_factor * 1e-4}, {1, scale_factor * 1e-4}, {2,  scale_factor * 1e-4}, {3,  scale_factor * 1e-4}, {4,  scale_factor * 1e-4},
+						      {5, scale_factor * 2e-4}, {6, scale_factor * 5e-4}, {7, scale_factor * 1e-3},
+						      {8, scale_factor * 2e-3}, {9, scale_factor * 3e-3}, {10, scale_factor * 1e-2}, {11, scale_factor * 2e-2}, {12, scale_factor * 3e-2}};
 
 
 using namespace SeqLib;
@@ -63,7 +64,7 @@ using namespace SeqLib;
     format_bx_string();
 
     double max_lod = 0;
-    for (auto& s : allele) 
+    for (auto& s : samples) 
       max_lod = std::max(max_lod, s.second.LO);
 
     ss << b1.chr_name << sep << b1.gr.pos1 << sep << b1.gr.strand << sep //1-3
@@ -89,7 +90,7 @@ using namespace SeqLib;
        << (read_names.length() ? read_names : "x") << sep
        << (!bxtable.empty() ? bxtable : "x");
 
-    for (auto& a : allele)
+    for (auto& a : samples)
       ss << sep << a.second.toFileString();
 
     return ss.str();
@@ -149,19 +150,19 @@ BreakPoint::BreakPoint(DiscordantCluster& tdc, const BWAWrapper * bwa, Discordan
     for (auto& rr : dc.reads) {
       //std::string sr = SRTAG(rr.second);
       std::string sr = rr.second.SR();
-      allele[rr.second.Prefix()].supporting_reads.insert(sr);
+      samples[rr.second.Prefix()].supporting_reads.insert(sr);
       alt_counts[rr.second.Prefix()].insert(rr.second.Qname());
     }
     for (auto& rr : dc.mates) {
       std::string sr = rr.second.SR();
-      allele[rr.second.Prefix()].supporting_reads.insert(rr.second.Qname());
+      samples[rr.second.Prefix()].supporting_reads.insert(rr.second.Qname());
       alt_counts[rr.second.Prefix()].insert(rr.second.Qname());
     }
     
     // add the alt counts
-    for (auto& i : allele) {
+    for (auto& i : samples) {
       i.second.indel = false;
-      i.second.disc = alt_counts[i.first].size(); //allele[i.first].supporting_reads.size();
+      i.second.disc = alt_counts[i.first].size(); //samples[i.first].supporting_reads.size();
       i.second.adjust_alt_counts();
       //i.second.alt = i.second.disc;
     }
@@ -290,7 +291,7 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h) {
 	  aaa.indel = evidence == "INDEL";
 	  aaa.fromString(val);
 	  id += "A";
-	  allele[id] = aaa; //id is dummy. just keep in order as came in;
+	  samples[id] = aaa; //id is dummy. just keep in order as came in;
 	  // fill in the discordant info
 	  //if (id == "A") // tumor
 	  //  dc.tcount = aaa.disc;
@@ -489,14 +490,14 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h) {
 
 	// keep track of qnames of split reads
 	qnames.insert(qn);
-	allele[i.Prefix()].supporting_reads.insert(i.SR());
+	samples[i.Prefix()].supporting_reads.insert(i.SR());
 	
-      	++allele[i.Prefix()].split;
+      	++samples[i.Prefix()].split;
       }
     }
 
       // adjust the alt count
-    for (auto& i : allele) {
+    for (auto& i : samples) {
       i.second.indel = num_align == 1;
       i.second.adjust_alt_counts();
     }
@@ -550,63 +551,37 @@ std::string BreakPoint::print(const SeqLib::BamHeader& h) const {
   if (isindel) {
     out << ">" << (insertion.size() ? "INS: " : "DEL: ") << getSpan() << " " << 
       b1.gr.ToString(h) << " " << cname << " " << evidence;
-    for (auto& i : allele)
+    for (auto& i : samples)
       out << " " << i.first << ":" << i.second.split;  
   } else {
     out << ": " << b1.gr.PointString(h) << " to " << b2.gr.PointString(h) << " SPAN " << getSpan() << " " << cname
 	<< " " << evidence;
-    for (auto& i : allele)
+    for (auto& i : samples)
       out << " " << i.first << ":" << i.second.split;  
   }
   
   return out.str();
   
-}
-  
+}  
 
-/*std::ostream& operator<<(std::ostream& out, const BreakPoint& b) {
-  
-  if (b.isindel) {
-	out << ">" << (b.insertion.size() ? "INS: " : "DEL: ") << b.getSpan() << " " << 
-	  b.b1.gr << " " << b.cname << " " << b.evidence;
-	//<< " T/N split: " << b.t.split << "/" << b.n.split << " T/N cigar: " 
-          //  << b.t.cigar << "/" << b.n.cigar << " T/N Cov " << b.t.cov << "/" << b.n.cov << " DBSNP: " << rs_t;
-	for (auto& i : b.allele)
-	  out << " " << i.first << ":" << i.second.split;  
-      } else {
-	out << ": " << b.b1.gr.PointString() << " to " << b.b2.gr.PointString() << " SPAN " << b.getSpan() << " " << b.cname << " " << b.evidence;
-	//<< " T/N split: " << b.t.split << "/" << b.n.split << " T/N disc: " 
-	  //  << b.dc.tcount << "/" << b.dc.ncount << " " << b.evidence;
-	for (auto& i : b.allele)
-	  out << " " << i.first << ":" << i.second.split;  
-      }
-      
-      return out;
-      
-      }*/
-  
-  void BreakPoint::checkBlacklist(GRC &grv) {
+void BreakPoint::checkBlacklist(GRC &grv) {
     if (grv.CountOverlaps(b1.gr) || grv.CountOverlaps(b2.gr)) 
       blacklist = true;
+}
+
+void BreakPoint::set_homologies_insertions() {
+  try { 
+    if (b1.cpos > b2.cpos)
+      homology = seq.substr(b2.cpos, b1.cpos-b2.cpos);
+    else if (b2.cpos > b1.cpos)
+      insertion = seq.substr(b1.cpos, b2.cpos-b1.cpos);
+  } catch (...) {
+    std::cerr << "cname: " << cname << " b1.cpos " << b1.cpos << " b2.cpos " << b2.cpos << " seq.length " << seq.length() << std::endl;
+    std::cerr << "Caught error with contig on global-getBreakPairs: " << cname << std::endl;
+    std::cerr << b1.cpos << " " << b2.cpos << " seq.length() " << seq.length() << " num_align " << num_align << std::endl;
   }
-  
-  void BreakPoint::set_homologies_insertions() {
-    try { 
-      if (b1.cpos > b2.cpos)
-	homology = seq.substr(b2.cpos, b1.cpos-b2.cpos);
-      else if (b2.cpos > b1.cpos)
-	insertion = seq.substr(b1.cpos, b2.cpos-b1.cpos);
-      //if (insertion.length() == 0)
-      //	;//insertion = "x";
-      //if (homology.length() == 0)
-      //;//homology = "x";
-    } catch (...) {
-      std::cerr << "cname: " << cname << " b1.cpos " << b1.cpos << " b2.cpos " << b2.cpos << " seq.length " << seq.length() << std::endl;
-      std::cerr << "Caught error with contig on global-getBreakPairs: " << cname << std::endl;
-      std::cerr << b1.cpos << " " << b2.cpos << " seq.length() " << seq.length() << " num_align " << num_align << std::endl;
-    }
-  }
-  
+}
+
 BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
   b.GetIntTag("SQ", sub_n);
   gr.chr = b.ChrID(); 
@@ -625,112 +600,112 @@ BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
   as_frac = (double)thisas / (double) b.NumMatchBases();
 }
 
-  void BreakPoint::__combine_with_discordant_cluster(DiscordantClusterMap& dmap)
-  {
-    const int PAD = 50;
-    GenomicRegion bp1 = b1.gr;
-    GenomicRegion bp2 = b2.gr;
-    bp1.Pad(PAD);
-    bp2.Pad(PAD);
-
-    for (auto& d : dmap) {
-
-	if (!d.second.valid())
-	  continue;
-
-	bool bp1reg1 = bp1.GetOverlap(d.second.m_reg1) > 0;
-	bool bp2reg2 = bp2.GetOverlap(d.second.m_reg2) > 0;
-
-	bool s1 = bp1.strand == d.second.m_reg1.strand;
-	bool s2 = bp2.strand == d.second.m_reg2.strand;
-	
-	int pos1 = d.second.m_reg1.strand == '+' ? d.second.m_reg1.pos2 : d.second.m_reg1.pos1; // get the edge of the cluster
-	int pos2 = d.second.m_reg2.strand == '+' ? d.second.m_reg2.pos2 : d.second.m_reg2.pos1;
-
-	bool pass = bp1reg1 && bp2reg2 && s1 && s2;
-
-	// check that the ends are not way off
-	if (std::abs(pos1 - b1.gr.pos1) > PAD || std::abs(pos2 - b2.gr.pos1) > PAD)
-	  pass = false;
-	
-	//std::cerr << " cname " << cname << " pad " << PAD << " pass " << pass << " DC pos1 " << pos1 << " DC pos2 " << pos2 << 
+void BreakPoint::__combine_with_discordant_cluster(DiscordantClusterMap& dmap)
+{
+  const int PAD = 50;
+  GenomicRegion bp1 = b1.gr;
+  GenomicRegion bp2 = b2.gr;
+  bp1.Pad(PAD);
+  bp2.Pad(PAD);
+  
+  for (auto& d : dmap) {
+    
+    if (!d.second.valid())
+      continue;
+    
+    bool bp1reg1 = bp1.GetOverlap(d.second.m_reg1) > 0;
+    bool bp2reg2 = bp2.GetOverlap(d.second.m_reg2) > 0;
+    
+    bool s1 = bp1.strand == d.second.m_reg1.strand;
+    bool s2 = bp2.strand == d.second.m_reg2.strand;
+    
+    int pos1 = d.second.m_reg1.strand == '+' ? d.second.m_reg1.pos2 : d.second.m_reg1.pos1; // get the edge of the cluster
+    int pos2 = d.second.m_reg2.strand == '+' ? d.second.m_reg2.pos2 : d.second.m_reg2.pos1;
+    
+    bool pass = bp1reg1 && bp2reg2 && s1 && s2;
+    
+    // check that the ends are not way off
+    if (std::abs(pos1 - b1.gr.pos1) > PAD || std::abs(pos2 - b2.gr.pos1) > PAD)
+      pass = false;
+    
+    //std::cerr << " cname " << cname << " pad " << PAD << " pass " << pass << " DC pos1 " << pos1 << " DC pos2 " << pos2 << 
 	//  " s1 " << s1 << " s2 " << s2 << " bp1reg1 " << bp1reg1 << " bp2reg2 " << bp2reg2 << " diff1 " << std::abs(pos1 - b1.gr.pos1) <<
 	//  " diff2 " << std::abs(pos2 - b2.gr.pos1) << " bp pos1 " << b1.gr.pos1 << " bp pos2 " << b2.gr.pos1 << std::endl;
-
+	
 	if (pass)
 	  // check that we haven't already added a cluster to this breakpoint
 	  // if so, chose the one with more tumor support
 	  if (dc.isEmpty() || dc.tcount < d.second.tcount) {
-	      dc = d.second;
-	      d.second.m_contig = cname;
-
-	      // add the read counts
-	      for (auto& c : d.second.counts) {
-		allele[c.first].disc = c.second;
-		allele[c.first].indel = num_align == 1;
-	      }
-
-	      // add the discordant reads names to supporting reads for each sampleinfo
-	      for (auto& rr : d.second.reads) {
-		allele[rr.second.Prefix()].supporting_reads.insert(rr.second.SR());
-
-	      }
-	      for (auto& rr : d.second.mates) {
-		allele[rr.second.Prefix()].supporting_reads.insert(rr.second.SR());
-	      }
-
-	      // adjust the alt counts
-	      for (auto& aa : allele)
-		aa.second.adjust_alt_counts();
-	      //aa.second.alt = aa.second.supporting_reads.size();
+	    dc = d.second;
+	    d.second.m_contig = cname;
+	    
+	    // add the read counts
+	    for (auto& c : d.second.counts) {
+	      samples[c.first].disc = c.second;
+	      samples[c.first].indel = num_align == 1;
+	    }
+	    
+	    // add the discordant reads names to supporting reads for each sampleinfo
+	    for (auto& rr : d.second.reads) {
+	      samples[rr.second.Prefix()].supporting_reads.insert(rr.second.SR());
+	      
+	    }
+	    for (auto& rr : d.second.mates) {
+	      samples[rr.second.Prefix()].supporting_reads.insert(rr.second.SR());
+	    }
+	    
+	    // adjust the alt counts
+	    for (auto& aa : samples)
+	      aa.second.adjust_alt_counts();
+	    //aa.second.alt = aa.second.supporting_reads.size();
 	  } 
-	
-      }
     
   }
+  
+}
 
-  void BreakPoint::set_evidence() {
+void BreakPoint::set_evidence() {
+  
+  // if we are in refilter, then this is already set
+  if (!evidence.empty())
+    return;
+  
+  bool isdisc = (dc.tcount + dc.ncount) != 0;
+  
+  if (num_align == 1)
+    evidence = "INDEL";
+  else if ( isdisc && !complex && num_align > 0)
+    evidence = "ASDIS";
+  else if ( isdisc && num_align < 3)
+    evidence = "DSCRD";
+  else if (!complex) 
+    evidence = "ASSMB";
+  else if (complex && !complex_local) // is A-C of an ABC
+    evidence = "TSI_G";
+  else if (complex && complex_local) // is AB or BC of an ABC 
+					  evidence = "TSI_L";
+  
+  assert(evidence.length());
+  
+}
 
-    // if we are in refilter, then this is already set
-    if (!evidence.empty())
-      return;
-
-    bool isdisc = (dc.tcount + dc.ncount) != 0;
-
-    if (num_align == 1)
-      evidence = "INDEL";
-    else if ( isdisc && !complex && num_align > 0)
-      evidence = "ASDIS";
-    else if ( isdisc && num_align < 3)
-      evidence = "DSCRD";
-    else if (!complex) 
-      evidence = "ASSMB";
-    else if (complex && !complex_local) // is A-C of an ABC
-      evidence = "TSI_G";
-    else if (complex && complex_local) // is AB or BC of an ABC 
-      evidence = "TSI_L";
-
-    assert(evidence.length());
-
-  }
-
-  void BreakPoint::score_assembly_only() {
-
-    int span = getSpan();
-    int num_split = t.split + n.split;
-    int cov_span = split_cov_bounds.second - split_cov_bounds.first ;
-
-    // check for high repeats
-    bool hi_rep = false;
-    for (auto& rr : hirepr)
-      if (seq.find(rr) != std::string::npos)
-	hi_rep = true;
-
-    if (!b1.local && !b2.local && !complex_local) // added this back in v71
-      // issue is that if a read is secondary aligned, it could be 
-      // aligned to way off region. Saw cases where this happend in tumor
-      // and not normal, so false-called germline event as somatic.
-      confidence = "NOLOCAL";
+void BreakPoint::score_assembly_only() {
+  
+  int span = getSpan();
+  int num_split = t.split + n.split;
+  int cov_span = split_cov_bounds.second - split_cov_bounds.first ;
+  
+  // check for high repeats
+  bool hi_rep = false;
+  for (auto& rr : hirepr)
+    if (seq.find(rr) != std::string::npos)
+      hi_rep = true;
+  
+  if (!b1.local && !b2.local && !complex_local) // added this back in v71
+    // issue is that if a read is secondary aligned, it could be 
+			    // aligned to way off region. Saw cases where this happend in tumor
+			    // and not normal, so false-called germline event as somatic.
+			    confidence = "NOLOCAL";
     else if (has_local_alignment)
       confidence = "LOCALMATCH";
     else if ( num_split > 1 && ( (cov_span <= (readlen + 5 ) && cov_span > 0) || cov_span < 0) )
@@ -785,47 +760,42 @@ BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
       confidence = "HIGHHOMOLOGY";
     else
       confidence = "PASS";
-
-    assert(confidence.length());
-
-  }
   
-  void BreakPoint::score_somatic(double NODBCUTOFF, double DBCUTOFF) {
+  assert(confidence.length());
+  
+}
 
-    // this is LOD of normal being REF vs AF = 0.5+
-    // We want this to be high for a somatic call
-    somatic_lod = n.LO_n;
-
-    // find the somatic to normal ratio
-    double ratio = n.alt > 0 ? (double)t.alt / (double)n.alt : 100;    
+void BreakPoint::score_somatic(double NODBCUTOFF, double DBCUTOFF) {
+  
+  // this is LOD of normal being REF vs AF = 0.5+
+  // We want this to be high for a somatic call
+  somatic_lod = n.LO_n;
+  
+  // find the somatic to normal ratio
+  double ratio = n.alt > 0 ? (double)t.alt / (double)n.alt : 100;    
+  
+  if (evidence == "INDEL") {
     
-    if (evidence == "INDEL") {
-      
-      // somatic score is just true or false for now
-      // use the specified cutoff for indels, taking into account whether at dbsnp site
-      somatic_score = somatic_lod > ( (rs.empty() || rs=="x") ? NODBCUTOFF : DBCUTOFF);
-
-    // can't call somatic with 5+ normal reads or <5x more tum than norm ALT
-    //if ((ratio <= 12 && n.cov > 10) || n.alt > 5)
-    //if (n.alt > 5)
-    //  somatic_score = 0;
-
-  // for SVs, just use a hard cutoff for gauging somatic vs germline
+    // somatic score is just true or false for now
+    // use the specified cutoff for indels, taking into account whether at dbsnp site
+    somatic_score = somatic_lod > ( (rs.empty() || rs=="x") ? NODBCUTOFF : DBCUTOFF);
+    
+    // for SVs, just use a hard cutoff for gauging somatic vs germline
   } else {
-
+    
     // require no reads in normal or 1 read and tons of tumor reads
-
+    
     somatic_score = ratio >= MIN_SOMATIC_RATIO && n.split < 2 && dc.ncount < 2;
   }
-    
+  
   // set germline if single normal read in discordant clsuter
   if (evidence == "DSCRD" && n.alt > 0)
     somatic_score = 0;
   
-  }
+}
 
-  void BreakPoint::score_assembly_dscrd() {
-
+void BreakPoint::score_assembly_dscrd() {
+  
     int this_mapq1 = b1.mapq;
     int this_mapq2 = b2.mapq;
     int span = getSpan();
@@ -841,7 +811,7 @@ BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
     // these alt counts should already be one qname per alt (ie no dupes)
     int t_reads = 0;
     int n_reads = 0;
-    for (auto& a : allele) {
+    for (auto& a : samples) {
       if (a.first.at(0) == 't')
 	t_reads += a.second.alt;
       else
@@ -915,12 +885,12 @@ void BreakPoint::score_indel(double LOD_CUTOFF, double LOD_CUTOFF_DBSNP) {
       return;
     
     double max_lod = 0;
-    for (auto& s : allele) 
+    for (auto& s : samples) 
       max_lod = std::max(max_lod, s.second.LO);
 
     // check if homozygous reference is most likely GT
     bool homozygous_ref = true;
-    for (auto& s : allele) {
+    for (auto& s : samples) {
       if (s.second.genotype_likelihoods[0] > s.second.genotype_likelihoods[1] ||
 	  s.second.genotype_likelihoods[0] > s.second.genotype_likelihoods[2])
 	homozygous_ref = false;
@@ -962,11 +932,13 @@ void BreakPoint::scoreBreakpoint(double LOD_CUTOFF, double LOD_CUTOFF_DBSNP, dou
     // set the evidence (INDEL, DSCRD, etc)
     set_evidence();
 
-    __combine_alleles();
+    // make a tumor cgomposite sample (add all of the different tumor bams together)
+    // same for normal and then make an ALL "sample"
+    __combine_samples();
 
-    // 
+    // genotype EACH bam
     error_rate = repeat_seq.length() > 10 ? MAX_ERROR : ERROR_RATES[repeat_seq.length()];
-    for (auto& i : allele) {
+    for (auto& i : samples) {
       i.second.readlen = readlen;
       i.second.modelSelection(error_rate);
     }
@@ -977,19 +949,9 @@ void BreakPoint::scoreBreakpoint(double LOD_CUTOFF, double LOD_CUTOFF_DBSNP, dou
       n.disc = dc.ncount;
     }
 
-    // provide a scaled LOD that accounts for MAPQ. Heuristic, not really used
-    //int mapqr1 = b1.local ? std::max(30, b1.mapq) : b1.mapq; // if local, don't drop below 30
-    //int mapqr2 = b2.local ? std::max(30, b2.mapq) : b2.mapq; // if local (aligns to within window), don't drop below 30
-    //double scale = (double)( std::min(mapqr1, mapqr2) - 2 * b1.nm) / (double)60;
-    //for (auto& i : allele) 
-    //  i.second.SLO = i.second.LO * scale;
-    //t.SLO = t.LO * scale;
-    //n.SLO = n.LO * scale;
-    //a.SLO = a.LO * scale;
-    
     // sanity check
     int split =0;
-    for (auto& i : allele) 
+    for (auto& i : samples) 
       split += i.second.split;
     assert( (split == 0 && t.split == 0 && n.split==0) || (split > 0 && (t.split + n.split > 0)));
 
@@ -1023,7 +985,7 @@ void BreakPoint::scoreBreakpoint(double LOD_CUTOFF, double LOD_CUTOFF_DBSNP, dou
 
     // quality score is odds that read is non-homozygous reference (max 99)
     quality = 0;
-    for (auto& a : allele)
+    for (auto& a : samples)
       quality = std::max(a.second.NH_GQ, (double)quality); 
     
   }
@@ -1090,12 +1052,10 @@ void BreakPoint::format_bx_string() {
     //add the discordant reads
     for (auto& r : dc.reads) 
       supp_reads.insert(r.second.SR());
-    //supp_reads.insert(SRTAG(r.second));
-
+    
     //add the reads from the breakpoint
     for (auto& r : reads) 
-      //supp_reads.insert(SRTAG(r)); // BamRecords (not svabaBamRead)
-    supp_reads.insert(r.SR());
+      supp_reads.insert(r.SR());
     
     // print reads to a string, delimit with a ,
     size_t lim = 0;
@@ -1391,7 +1351,7 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
     double ll_err = __log_likelihood(a_cov - scaled_alt, scaled_alt, 0 , er);
     LO = ll_alt - ll_err; 
 
-    //mutetct log likelihood normal
+    // mutect log likelihood normal
     // er = 0.0005; // make this low, so that ALT in REF is rare and NORM in TUM gives low somatic prob
     // actually, dont' worry about it too much. 3+ alt in ref excludes somatic anyways.
     // so a high LO_n for the normal means that we are very confident that site is REF only in 
@@ -1456,10 +1416,7 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
 	c +=  i.second->getCoverageAtPosition(b1.gr.chr, b1.gr.pos1 + j);
 	c +=  i.second->getCoverageAtPosition(b2.gr.chr, b2.gr.pos1 + j);
       }
-      allele[i.first].cov = c / 2 / (COVERAGE_AVG_BUFF*2 + 1); // std::max(i.second->getCoverageAtPosition(b1.gr.chr, b1.gr.pos1), i.second->getCoverageAtPosition(b2.gr.chr, b2.gr.pos1));
-
-      if (cname=="c_22_16905001_16930001_191C") //debug
-	std::cerr << i.first << " COV " << allele[i.first].cov << std::endl;
+      samples[i.first].cov = c / 2 / (COVERAGE_AVG_BUFF*2 + 1); // std::max(i.second->getCoverageAtPosition(b1.gr.chr, b1.gr.pos1), i.second->getCoverageAtPosition(b2.gr.chr, b2.gr.pos1));
     }
     
   }
@@ -1503,9 +1460,10 @@ std::string BreakEnd::print(const SeqLib::BamHeader& h) const {
     return a;
   }
 
-  void BreakPoint::__combine_alleles() {
+// add together all of the tumor samples, normal samples
+  void BreakPoint::__combine_samples() {
 
-    for (auto& s : allele) {
+    for (auto& s : samples) {
       if (s.first.at(0) == 't') {
 	t = t + s.second;
       } else {
@@ -1519,6 +1477,7 @@ std::string BreakEnd::print(const SeqLib::BamHeader& h) const {
     t.readlen = readlen;
     n.readlen = readlen;
     error_rate = (repeat_seq.length() > 10) ? MAX_ERROR : ERROR_RATES[repeat_seq.length()];
+
     t.modelSelection(error_rate);
     n.modelSelection(error_rate);
   }
@@ -1666,7 +1625,7 @@ std::string BreakEnd::print(const SeqLib::BamHeader& h) const {
 
   }
 
-  // g is the number of reference alleles (e.g. g = 2 is homozygous reference)
+  // g is the zygosity (e.g. g = 2 is homozygous reference)
   // assumes biallelic model
   // http://bioinformatics.oxfordjournals.org/content/early/2011/09/08/bioinformatics.btr509.full.pdf+html
   double SampleInfo::__genotype_likelihoods(int g, double er, int alt, int cov) {

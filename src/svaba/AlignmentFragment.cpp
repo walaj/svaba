@@ -100,7 +100,7 @@ void AlignmentFragment::SetIndels(const AlignedContig * c) {
       bp.aligned_covered = c->aligned_covered;
       assert(bp.aligned_covered);
       for (auto& i : c->prefixes)
-	bp.allele[i].indel = true;
+	bp.samples[i].indel = true;
       m_indel_breaks.push_back(bp);
       assert(bp.num_align == 1);
     }
@@ -152,7 +152,7 @@ void AlignmentFragment::indelCigarMatches(const std::unordered_map<std::string, 
 	SeqLib::CigarMap::const_iterator ff = c.second.find(st);
 	// if it is, add it
 	if (ff != c.second.end()) {
-	  i.allele[c.first].cigar = ff->second;	  
+	  i.samples[c.first].cigar = ff->second;	  
 	}
       }
     }      

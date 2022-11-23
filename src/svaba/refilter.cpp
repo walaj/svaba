@@ -186,8 +186,8 @@ void runRefilterBreakpoints(int argc, char** argv) {
   svabaUtils::fopen(new_bps_file, os_allbps_r);
 
   // read in the BPS
-  std::vector<std::string> allele_names; // store with real name
-  std::map<std::string, SampleInfo> tmp_alleles;
+  std::vector<std::string> sample_names; // store with real name
+  std::map<std::string, SampleInfo> tmp_samples;
   std::string line, line2, val;
   igzstream infile(opt::input_file.c_str(), std::ios::in);
   size_t line_count = 0;
@@ -204,7 +204,7 @@ void runRefilterBreakpoints(int argc, char** argv) {
 	++scount;
 	if (scount > 34) { // 35th column should be first sample ID
 	  assert(val.at(0) == 't' || val.at(0) == 'n');
-	    allele_names.push_back(val);
+	    sample_names.push_back(val);
 	}
       }
 
@@ -213,14 +213,14 @@ void runRefilterBreakpoints(int argc, char** argv) {
 
 	// fill in with the correct names from the header of bps.txt
 	std::string id ;
-	for (auto& i : allele_names) {
+	for (auto& i : sample_names) {
 	  id += "A";
-	  tmp_alleles[i] = bp->allele[id];
+	  tmp_samples[i] = bp->samples[id];
 	}
-	bp->allele = tmp_alleles;
+	bp->samples = tmp_samples;
 
 	// fill in discordant info
-	for (auto& i : bp->allele) {
+	for (auto& i : bp->samples) {
 	  if (i.first.at(0) == 't')
 	    bp->dc.tcount += i.second.disc;
 	  else
@@ -251,13 +251,13 @@ void runRefilterBreakpoints(int argc, char** argv) {
  
     std::string basename = opt::analysis_id + ".svaba.unfiltered.";
     snowvcf.include_nonpass = true;
-    snowvcf.writeIndels(basename, false, allele_names.size() == 1);
-    snowvcf.writeSVs(basename, false, allele_names.size() == 1);
+    snowvcf.writeIndels(basename, false, sample_names.size() == 1);
+    snowvcf.writeSVs(basename, false, sample_names.size() == 1);
 
     basename = opt::analysis_id + ".svaba.";
     snowvcf.include_nonpass = false;
-    snowvcf.writeIndels(basename, false, allele_names.size() == 1);
-    snowvcf.writeSVs(basename, false, allele_names.size() == 1);
+    snowvcf.writeIndels(basename, false, sample_names.size() == 1);
+    snowvcf.writeSVs(basename, false, sample_names.size() == 1);
 
   } else {
     std::cerr << "Failed to make VCF. Could not file bps file " << opt::input_file << std::endl;

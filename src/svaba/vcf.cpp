@@ -281,7 +281,7 @@ VCFFile::VCFFile(std::string file, std::string id, const SeqLib::BamHeader& h, c
   indel_header.addFormatField("GT", "1","String", "Most likely genotype");
   indel_header.addFormatField("AD", "1","Integer", "Allele depth: Number of reads supporting the variant");
   indel_header.addFormatField("DP","1","Integer","Depth of coverage: Number of reads covering site.");
-  indel_header.addFormatField("GQ", "1","String", "Genotype quality (currently not supported. Always 0)");
+  indel_header.addFormatField("GQ", "1","String", "Genotype quality (diff between most and second-most GQ)");
   indel_header.addFormatField("PL",".","Float","Normalized likelihood of the current genotype");
   indel_header.addFormatField("SR","1","Integer","Number of spanning reads for this variants");
   indel_header.addFormatField("CR","1","Integer","Number of cigar-supported reads for this variant");

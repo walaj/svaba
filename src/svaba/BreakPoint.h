@@ -219,7 +219,10 @@ struct ReducedBreakEnd {
    // dont want indel matches where there is not confidence alignment
    // because indel is too close to end
    int left_match = 0, right_match = 0;
-   
+
+   // create an artificial "tumor", "normal" and "combined" sample
+   // this is only relevant if there are multiple tumors or multiple normals
+   // in the svaba run
    SampleInfo t, n, a;
 
    // reads spanning this breakpoint
@@ -228,15 +231,13 @@ struct ReducedBreakEnd {
    // store if it has a non-clipped local alignment
    bool has_local_alignment = false;
 
-   //int t_reads = 0, n_reads = 0;
-
    // discordant reads supporting this aseembly bp
    DiscordantCluster dc;
    
    int quality = 0;
 
    // total coverage at that position
-   std::map<std::string, SampleInfo> allele; // ordered to keep in alphabetical order by prefix (e.g. n001)
+   std::map<std::string, SampleInfo> samples; // ordered to keep in alphabetical order by prefix (e.g. n001)
 
    bool secondary = false;
 
@@ -256,7 +257,7 @@ struct ReducedBreakEnd {
    // keep track of how much of contig is covered by split
    std::pair<int,int> split_cov_bounds = std::pair<int, int>(1e5, -1); // dummy to extreme opposite vals
 
-   void __combine_alleles();
+   void __combine_samples();
 
    void __rep(int rep_num, std::string& rseq, bool fwd = true);
    
