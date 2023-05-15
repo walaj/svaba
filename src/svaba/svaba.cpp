@@ -24,7 +24,6 @@ static const char *SVABA_USAGE_MESSAGE =
 "Usage: svaba <command> [options]\n\n"
 "Commands:\n"
 "           run            Run SvABA SV and Indel detection on BAM(s)\n"
-"           refilter       Refilter the SvABA breakpoints with additional/different criteria to created filtered VCF and breakpoints file.\n"
 "\nReport bugs to jwala@broadinstitute.org \n\n";
 
 int main(int argc, char** argv) {
@@ -39,10 +38,9 @@ int main(int argc, char** argv) {
       return 0;
     } else if (command == "run") {
       runsvaba(argc -1, argv + 1);
-    } else if (command == "refilter") {
-      runRefilterBreakpoints(argc-1, argv+1);
-    }
-    else {
+      /*    } else if (command == "refilter") {
+	    runRefilterBreakpoints(argc-1, argv+1); */
+    } else {
       std::cerr << SVABA_USAGE_MESSAGE;
       return 0;
     }
