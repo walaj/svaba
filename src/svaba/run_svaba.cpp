@@ -195,13 +195,13 @@ enum {
 static const char* shortopts = "hzIAt:n:p:v:r:G:e:k:c:a:m:B:D:Y:S:L:s:V:R:K:E:C:x:M:";
 static const struct option longopts[] = {
   { "help",                    no_argument, NULL, 'h' },
-  { "tumor-bam",               required_argument, NULL, 't' },
+  { "case-bam",               required_argument, NULL, 't' },
   { "germline",                no_argument, NULL, OPT_GERMLINE },  
   { "all-contigs",             no_argument, NULL, 'A' },  
   { "panel-of-normals",        required_argument, NULL, 'P' },
   { "id-string",               required_argument, NULL, 'a' },
   { "hp",                      no_argument, NULL, OPT_HP },
-  { "normal-bam",              required_argument, NULL, 'n' },
+  { "control-bam",              required_argument, NULL, 'n' },
   { "threads",                 required_argument, NULL, 'p' },
   { "no-unfiltered",           no_argument, NULL, OPT_NO_UNFILTERED },
   { "chunk-size",              required_argument, NULL, 'c' },
