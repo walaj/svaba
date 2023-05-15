@@ -6,4 +6,4 @@ RUN apt-get update && apt-get install -y git g++ zlib1g-dev cmake libbz2-dev lib
 
 RUN git clone --recursive https://github.com/walaj/svaba
 RUN cd svaba && ./configure && make -j$(nproc) && make -j$(nproc) install
-RUN PATH=$PATH:/svaba/bin
+ENV PATH "$PATH:/svaba/bin"
