@@ -132,6 +132,8 @@ class AlignedContig {
 
   BreakPoint m_global_bp;  // store the single spanning BreakPoing for this contig e
 
+  //size_t m_index_of_stored_seq = 0; // which alignment did mseq come from?
+  
   std::vector<BreakPoint> m_global_bp_secondaries;  // store the single spanning BreakPoing for this contig e
 
   std::string m_seq; // sequence of contig as it came off of assembler

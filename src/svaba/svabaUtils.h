@@ -33,7 +33,11 @@ struct svabaTimer {
   friend std::ostream& operator<<(std::ostream &out, const svabaTimer st);
 };
 
- double CalcMHWScore(std::vector<int>& scores);
+  std::string myreplace(std::string &s,
+			std::string toReplace,
+			std::string replaceWith);
+  
+  double CalcMHWScore(std::vector<int>& scores);
  
  int overlapSize(const SeqLib::BamRecord& query, const SeqLib::BamRecordVector& subject);
  bool hasRepeat(const std::string& seq);

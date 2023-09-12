@@ -75,7 +75,14 @@ static std::string POLYTC = "TCTCTCTCTCTCTCTCTCTCTCTC";
   }
 
 
-
+// useful replace function
+  std::string myreplace(std::string &s,
+			std::string toReplace,
+			std::string replaceWith)
+  {
+    return(s.replace(s.find(toReplace), toReplace.length(), replaceWith));
+  }
+  
 bool hasRepeat(const std::string& seq) {
   
   if ((seq.find(POLYT) == std::string::npos) && 

@@ -3,54 +3,56 @@
 #include "svabaUtils.h"
 
 AlignedContig::AlignedContig(const SeqLib::BamRecordVector& bav, const std::set<std::string>& pref) {
-    
-    if (!bav.size())
-      return;
-
-    // find the longest sequence, taking the first one. 
-    // make sure sequence dir is set to same as first alignment
-    for (auto& i : bav) {
-      if (i.Sequence().length() > m_seq.length()) {
-	if (i.ReverseFlag() == bav.begin()->ReverseFlag()) {
-	  m_seq = i.Sequence();
-	} else {
-	  m_seq = i.Sequence();
-	  SeqLib::rcomplement(m_seq);
-	}
+  
+  if (!bav.size())
+    return;
+  
+  // find the longest sequence, taking the first one.
+  // make sure sequence dir is set to same as first alignment
+  //size_t j = 0;
+  //m_index_of_store_seq = 0;
+  for (auto& i : bav) {
+    if (i.Sequence().length() > m_seq.length()) {
+      if (i.ReverseFlag() == bav.begin()->ReverseFlag()) {
+	m_seq = i.Sequence();
+      } else {
+	m_seq = i.Sequence();
+	SeqLib::rcomplement(m_seq);
       }
     }
-
-    // set the sequence. Convention is store as it came off assembler for first alignment
-    if (bav.begin()->ReverseFlag()) 
-      SeqLib::rcomplement(m_seq);
-
-    prefixes = pref;
-
-    for (size_t i = 0; i < m_seq.length(); ++i)
-      aligned_coverage.push_back(0);
-    
-    // find the number of primary alignments
-    size_t num_align = 0;
-    for (auto& i : bav)
-      if (!i.SecondaryFlag())
+  }
+  
+  // set the sequence. Convention is store as it came off assembler for first alignment
+  if (bav.begin()->ReverseFlag()) 
+    SeqLib::rcomplement(m_seq);
+  
+  prefixes = pref;
+  
+  for (size_t i = 0; i < m_seq.length(); ++i)
+    aligned_coverage.push_back(0);
+  
+  // find the number of primary alignments
+  size_t num_align = 0;
+  for (auto& i : bav)
+    if (!i.SecondaryFlag())
 	++num_align;
-
-    // make the individual alignments and add
-    for (auto& i : bav) {
-      if (!i.SecondaryFlag()) {
-	bool flip = (m_seq != i.Sequence()); // if the seq was flipped, need to flip the AlignmentFragment
-	m_frag_v.push_back(AlignmentFragment(i, flip));
-	m_frag_v.back().num_align = num_align;
-      } else {
-	bool flip = (m_seq != i.Sequence()); // if the seq was flipped, need to flip the AlignmentFragment
-	if (m_frag_v.size())
-	  m_frag_v.back().secondaries.push_back(AlignmentFragment(i, flip));
-      }      
-
-      // set the aligned coverage
-      SeqLib::Cigar cig = i.GetCigar();
-      size_t p = 0;
-      if (!i.SecondaryFlag())
+  
+  // make the individual alignments and add
+  for (auto& i : bav) {
+    if (!i.SecondaryFlag()) {
+      bool flip = (m_seq != i.Sequence()); // if the seq was flipped, need to flip the AlignmentFragment
+      m_frag_v.push_back(AlignmentFragment(i, flip));
+      m_frag_v.back().num_align = num_align;
+    } else {
+      bool flip = (m_seq != i.Sequence()); // if the seq was flipped, need to flip the AlignmentFragment
+      if (m_frag_v.size())
+	m_frag_v.back().secondaries.push_back(AlignmentFragment(i, flip));
+    }      
+    
+    // set the aligned coverage
+    SeqLib::Cigar cig = i.GetCigar();
+    size_t p = 0;
+    if (!i.SecondaryFlag())
       for (auto& c : cig) {
 	for (size_t j = 0; j < c.Length(); ++j) {
 	  if (c.Type() == 'M' || c.Type() == 'I')  // consumes contig and not clip
@@ -59,41 +61,41 @@ AlignedContig::AlignedContig(const SeqLib::BamRecordVector& bav, const std::set<
 	    ++p;
 	}
       }
-    }
-
-    // find the total aligned coverage
-    for (const auto& i : aligned_coverage)
-      if (i) // 0 for no cov at this base, 1 is single cov, 2 double, etc
-	++aligned_covered;
- 
-    // extract the indels on primary alignments
-    for (auto& f : m_frag_v) 
-      f.SetIndels(this);
-   
-    // sort fragments by order on fwd-strand contig
-    if (m_frag_v.size() > 1) 
-      std::sort(m_frag_v.begin(), m_frag_v.end());
-
-    if (!m_frag_v.size())
-      return;
-
-    // get breaks out of it
-    setMultiMapBreakPairs();
-
-    // filter indels that land too close to a multi-map break
-    filterIndelsAtMultiMapSites(5);
   }
+  
+  // find the total aligned coverage
+  for (const auto& i : aligned_coverage)
+    if (i) // 0 for no cov at this base, 1 is single cov, 2 double, etc
+      ++aligned_covered;
+  
+  // extract the indels on primary alignments
+  for (auto& f : m_frag_v) 
+    f.SetIndels(this);
+  
+  // sort fragments by order on fwd-strand contig
+  if (m_frag_v.size() > 1) 
+    std::sort(m_frag_v.begin(), m_frag_v.end());
+  
+  if (!m_frag_v.size())
+    return;
+  
+  // get breaks out of it
+  setMultiMapBreakPairs();
+  
+  // filter indels that land too close to a multi-map break
+  filterIndelsAtMultiMapSites(5);
+}
 
-  void AlignedContig::filterIndelsAtMultiMapSites(size_t buff) {
-    
-    if (m_frag_v.size() < 2)
-      return;
-
-    // make the ranges ON CONIG for the multimaps
-    SeqLib::GRC grc;
-    if (m_global_bp.b1.cpos > m_global_bp.b2.cpos) {
-      grc.add(SeqLib::GenomicRegion(0, m_global_bp.b2.cpos-buff, m_global_bp.b1.cpos+buff)); // homology
-    }
+void AlignedContig::filterIndelsAtMultiMapSites(size_t buff) {
+  
+  if (m_frag_v.size() < 2)
+    return;
+  
+  // make the ranges ON CONIG for the multimaps
+  SeqLib::GRC grc;
+  if (m_global_bp.b1.cpos > m_global_bp.b2.cpos) {
+    grc.add(SeqLib::GenomicRegion(0, m_global_bp.b2.cpos-buff, m_global_bp.b1.cpos+buff)); // homology
+  }
     else {
       grc.add(SeqLib::GenomicRegion(0, m_global_bp.b1.cpos-buff, m_global_bp.b2.cpos+buff)); // insertion	
     }    
@@ -462,7 +464,9 @@ void AlignedContig::checkAgainstCigarMatches(const std::unordered_map<std::strin
       out.push_back(m_global_bp);
     
     out.insert(out.end(), m_local_breaks.begin(), m_local_breaks.end());
-    out.insert(out.end(), m_global_bp_secondaries.begin(), m_global_bp_secondaries.end());
+
+    // removing secondary breakpoints, too much noise - 2023
+    //out.insert(out.end(), m_global_bp_secondaries.begin(), m_global_bp_secondaries.end());
     
     return out;
   }

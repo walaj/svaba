@@ -17,14 +17,6 @@
 #include "SeqLib/BFC.h"
 #include "svaba_params.h"
 
-// useful replace function
-std::string myreplace(std::string &s,
-                      std::string toReplace,
-                      std::string replaceWith)
-{
-  return(s.replace(s.find(toReplace), toReplace.length(), replaceWith));
-}
-
 // output files
 static ogzstream all_align, os_allbps, os_discordant, os_corrected;
 static std::ofstream log_file, bad_bed;
@@ -35,13 +27,6 @@ static std::stringstream ss; // initalize a string stream once
     if (toerr) std::cerr << (msg) << std::endl; };
 
 #define ERROR_EXIT(msg) { std::cerr << (msg) << std::endl; exit(EXIT_FAILURE); }
-
-// if a local alignment has < MIN_CLIP_FOR_LOCAL clips
-// then it has a good local (and is not an SV candidate contig)
-#define MIN_CLIP_FOR_LOCAL 40
-// if local alignment to assembly has > MAX_NM_FOR_LOCAL
-// NM, then dont' consider it a strong local match
-#define MAX_NM_FOR_LOCAL 10 
 
 static SeqLib::RefGenome * ref_genome, * ref_genome_viral;
 static std::unordered_map<std::string, BamParamsMap> params_map; // key is bam id (t000), value is map with read group as key
@@ -137,12 +122,12 @@ namespace opt {
 
   // data
   static BamMap bam;
-  static std::string refgenome = "/seq/references/Homo_sapiens_assembly19/v1/Homo_sapiens_assembly19.fasta";
-  static std::string microbegenome; // = "/xchip/gistic/Jeremiah/Projects/SnowmanFilters/viral.1.1.genomic_ns.fna";
+  static std::string refgenome; // = "/seq/references/Homo_sapiens_assembly19/v1/Homo_sapiens_assembly19.fasta";
+  static std::string microbegenome; 
   static std::string simple_file; //  file of simple repeats as a filter
-  static std::string blacklist; // = "/xchip/gistic/Jeremiah/Projects/HengLiMask/um75-hs37d5.bed.gz";
+  static std::string blacklist; 
   static std::string germline_sv_file;
-  static std::string dbsnp; // = "/xchip/gistic/Jeremiah/SnowmanFilters/dbsnp_138.b37_indel.vcf";
+  static std::string dbsnp; 
   static std::string main_bam = "-"; // the main bam
 
   // optimize defaults for single sample mode
@@ -318,7 +303,6 @@ void runsvaba(int argc, char** argv) {
 
   // open the output streams
   svabaUtils::fopen(opt::analysis_id + ".log", log_file);
-  //  svabaUtils::fopen(opt::analysis_id + ".bad_mate_regions.bed", bad_bed);
 
   // will check later if reads have different max mapq or readlen
   bool diff_read_len = false;
@@ -393,7 +377,6 @@ void runsvaba(int argc, char** argv) {
   microbe_bwa = nullptr;
   
   // open the microbe genome
-  
   if (!opt::microbegenome.empty()) {
     WRITELOG("...loading the microbe reference sequence", opt::verbose > 0, true)
     microbe_bwa = new SeqLib::BWAWrapper();
@@ -607,14 +590,14 @@ afterlearn:
       string_rules = string_rules.substr(0, string_rules.length() - 1);
     else
       string_rules = "{}";
-    opt::rules = myreplace(opt::rules, "FRRULES", string_rules);
+    opt::rules = svabaUtils::myreplace(opt::rules, "FRRULES", string_rules);
   }
 
   // set min length for clips
   if (opt::rules.find("READLENLIM") != std::string::npos) {
     if (readlen == 0)
       readlen = 30; // set some small default, in case we didn't learn the bam
-    opt::rules = myreplace(opt::rules, "READLENLIM", std::to_string((int) (readlen * 0.4)));
+    opt::rules = svabaUtils::myreplace(opt::rules, "READLENLIM", std::to_string((int) (readlen * 0.4)));
   }
 
   // set the ReadFilterCollection to be applied to each region
@@ -1663,8 +1646,13 @@ void run_assembly(const SeqLib::GenomicRegion& region, svabaReadVector& bav_this
     
     // do the main realignment
     SeqLib::BamRecordVector ct_alignments;
+    //std::cerr << "NAME" << i. Name << std::endl;
     main_bwa->AlignSequence(i.Seq, i.Name, ct_alignments, hardclip, SECONDARY_FRAC, SECONDARY_CAP);	
-
+    //std::cerr << "DONE" << std::endl;
+    //for (const auto& rrr : ct_alignments)
+    //  std::cerr << rrr << std::endl;
+    //std::cerr << " ALIGNMENTS DONE" << std::endl;
+    
     if (opt::verbose > 3)
       for (auto& i : ct_alignments)
 	std::cerr << " aligned contig: " << i << std::endl;
@@ -1742,8 +1730,21 @@ void run_assembly(const SeqLib::GenomicRegion& region, svabaReadVector& bav_this
 	k.AddIntTag("SZ", msize);
       }
 
+    // 2023 addition -- sort the contigs by position
+    std::sort(human_alignments.begin(), human_alignments.end());
+
+    //debug
+    /*for (const auto& rr : human_alignments) {
+      if (rr.Qname() == "c_22_16945501_16946001_17C")
+	std::cerr << rr << std::endl;
+	}*/
+    
     // make the aligned contigs
     AlignedContig ac(human_alignments, prefixes);
+
+    //debug
+    //if (human_alignments.begin()->Qname() == "c_22_16945501_16946001_17C")
+    //  std::cerr << ac.print(b_header) << std::endl;
     
     // assign the local variable to each
     ac.checkLocal(region);

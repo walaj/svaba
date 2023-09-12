@@ -396,8 +396,10 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h) {
       bool both_split = issplit1 && issplit2;
       bool one_split = issplit1 || issplit2;
 
+      
       // be more permissive for NORMAL, so keep out FPs
       bool valid  = (both_split && (j.Tumor() || homlen > 0)) || (one_split && !j.Tumor() && homlen == 0) || (one_split && insertion.length() >= INSERT_SIZE_TOO_BIG_SPAN_READS);
+
       // requiring both break ends to be split for homlen > 0 is for situation beow
       // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>A..........................
       // ............................B>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
@@ -417,13 +419,6 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h) {
 	  p += c->Length();
       }
 
-      //debug
-      /*if (sr == "t000_163_H01PEALXX140819:2:2202:14804:18907")
-	std::cerr << " te " << te << " pos " << pos << " CIG " << j.GetZTag("SC") << " SL " << j.GetZTag("SL") << " SE " << j.GetZTag("SE") << 
-	  " leftbreak " << leftbreak1 << " rightbreak " << rightbreak1 << " leftbreak2 " << leftbreak2 << " rightbreak2 " << rightbreak2 << 
-	  " issplit1 " << issplit1 << " issplit2 " << issplit2 << " valid " << valid << std::endl;
-      */
-
       // add the split reads for each end of the break
       // a read is split if it is spans both break ends for tumor, one break end for normal (to
       // be more sensitive to germline) and if it spans both ends for deletion (should be next to 
@@ -432,12 +427,17 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h) {
       if (valid) { 
 	std::string qn = j.Qname();
 
+	
 	// if read seen and other read was other mate, then reject
 	if (num_align > 1 && qname_and_num.count(qn) && qname_and_num[qn] != j.FirstFlag()) {
+	  
 	  // need to reject all reads of this qname
 	  // because we saw both first and second in pair hit same split
-	  reject_qnames.insert(qn);
-	  
+
+	  // 2023 - turning this off -- why? Beacuse for very short
+	  // insert size distributions, this can still be possible
+	  //reject_qnames.insert(qn);
+
 	} else {
 
 	  // if haven't seen this read, add here. If have, then dont because want to avoid re-setting first/second convention
@@ -1457,9 +1457,6 @@ ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamH
 	c +=  i.second->getCoverageAtPosition(b2.gr.chr, b2.gr.pos1 + j);
       }
       allele[i.first].cov = c / 2 / (COVERAGE_AVG_BUFF*2 + 1); // std::max(i.second->getCoverageAtPosition(b1.gr.chr, b1.gr.pos1), i.second->getCoverageAtPosition(b2.gr.chr, b2.gr.pos1));
-
-      if (cname=="c_22_16905001_16930001_191C") //debug
-	std::cerr << i.first << " COV " << allele[i.first].cov << std::endl;
     }
     
   }

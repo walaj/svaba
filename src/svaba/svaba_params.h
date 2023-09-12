@@ -5,6 +5,17 @@
 /////////////////////////////////
 #define MAX_CONTIG_SIZE 5000000
 
+// moved from run_svaba.cpp
+///////////////////////////
+
+// if a local alignment has < MIN_CLIP_FOR_LOCAL clips
+// then it has a good local (and is not an SV candidate contig)
+#define MIN_CLIP_FOR_LOCAL 40
+
+// if local alignment to assembly has > MAX_NM_FOR_LOCAL
+// NM, then dont' consider it a strong local match
+#define MAX_NM_FOR_LOCAL 10 
+
 // moved from BreakPoint
 ////////////////////////
 #define MAX_ERROR 0.04
