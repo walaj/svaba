@@ -12,7 +12,7 @@ Table of contents
   * [Installation](#gh-md-toc)
   * [Description](#description)
   * [Output file description](#output-file-description)
-  * [Filtering](#filtering-and-refiltering)
+  * [Filtering and refiltering](#filtering-and-refiltering)
   * [Recipes and examples](#recipes-and-examples)
     * [Whole genome somatic SV and indel detection](#whole-genome-somatic-sv-and-indel-detection)
     * [Whole genome germline SV and indel detection](#whole-genome-germline-sv-and-indel-detection)
@@ -75,7 +75,8 @@ Output file description
 -----------------------
 
 ##### ``*.bps.txt.gz``
-Raw, unfiltered variants. This file is parsed at the end to produce the VCF files. 
+Raw, unfiltered variants. This file is parsed at the end to produce the VCF files. With the bps.txt.gz,
+one can define a new set of filteirng criteria (depending on sensitivity/specificity needs) using ``svaba refilter``. 
 
 ##### ``*.contigs.bam``
 All assembly contigs as aligned to the reference with BWA-MEM. Note that this is an unsorted file. To view in IGV,
@@ -104,7 +105,7 @@ the cutoff for rearrangement vs indel is taken from BWA-MEM, whether it produces
 or two separate alignments. This is an arbitrary cutoff, just as there is no clear consensus distinction between what 
 constitutes an "indel" and a "structural variant". The unfiltered VCF files include non-PASS variants. 
 
-Filtering
+Filtering and Refiltering
 -----------------------
 
 SvABA performs a series of log-likelihood calculations for each variant. The purpose is to first classify a variant as real vs artifact, 
@@ -113,6 +114,9 @@ and then to determine if the variant is somatic or germline. These log-likelihoo
 * ``LR`` - Log of the odds that the variant has allelic fraction (AF) of 0 or >=0.5. This is used for somatic vs germline classification
 * ``SL`` - Scaled LOD. LOD scores is heuristically scaled as: (min(Mapping quality #1, Mapping quality #2) - 2 * NM) / 60 * LOD
 
+SvABA can refilter the bps.txt.gz file to produce new VCFs with different stringency cutoffs. To run, the following are required:
+* ``-b`` - a BAM from the original run, which is used just for its header
+* ``-i`` - input bps.txt.gz file
 
 Examples and recipes
 --------------------
