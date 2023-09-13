@@ -11,7 +11,8 @@
 #ifndef HASHMAP_H
 #define HASHMAP_H
 
-#include "config.h"
+//#include "config.h"
+#define HAVE_UNORDERED_MAP 1
 
 #if HAVE_UNORDERED_MAP
 

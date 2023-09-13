@@ -190,7 +190,7 @@ void SampledSuffixArray::buildLexicoIndex(const BWT* pBWT, int num_threads)
 }
 
 // Validate the sampled suffix array values are correct
-void SampledSuffixArray::validate(const std::string filename, const BWT* pBWT)
+/*void SampledSuffixArray::validate(const std::string filename, const BWT* pBWT)
 {
     ReadTable* pRT = new ReadTable(filename);
     SuffixArray* pSA = new SuffixArray(pRT, 1);
@@ -215,6 +215,7 @@ void SampledSuffixArray::validate(const std::string filename, const BWT* pBWT)
     delete pRT;
     delete pSA;
 }
+*/
 
 // Save the SA to disc
 void SampledSuffixArray::writeSSA(std::string filename)

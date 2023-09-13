@@ -9,7 +9,7 @@
 #ifndef SVABA_ASSEMBLE_H
 #define SVABA_ASSEMBLE_H
 #include <getopt.h>
-#include "config.h"
+//#include "config.h"
 #include <iostream>
 #include <fstream>
 #include <sstream>
