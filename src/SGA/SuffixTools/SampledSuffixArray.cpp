@@ -12,7 +12,7 @@
 #include "SampledSuffixArray.h"
 #include "SAReader.h"
 #include "SAWriter.h"
-#include "config.h"
+//#include "config.h"
 
 #if HAVE_OPENMP
 #include <omp.h>
