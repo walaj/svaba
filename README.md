@@ -29,17 +29,19 @@ Table of contents
 
 Installation
 ------------
-We recommend compiling with GCC-4.8 or greater. We have successfully compiled on RHEL6, CentOS with GCC-4.8, 4.9 and 5.1, and MacOSX with Clang (Apple LLVM version 7.0.2 (clang-700.1.81))
-
+We recommend compiling with GCC-4.8 or greater. svaba now uses CMake instead of autotools.
+Note: svaba no longer bundles htslib. A system version of htslib needs to be pointed to during compilation
 ```
 git clone --recursive https://github.com/walaj/svaba
 cd svaba
-./configure
+mkdir build
+cd build
+## replace the paths below with the paths on your own system
+cmake .. -DHTSLIB_INCLUDE_DIR=/home/jaw34/software/htslib-1.16/include -DHTSLIB_LIBRARY=/home/jaw34/software/htslib-1.16/lib/libhts.so
 make
-make install
 
 ## QUICK START (eg run tumor / normal on Chr22, with 4 cores)
-bin/svaba -t tumor.bam -n normal.bam -k 22 -G ref.fa -a test_id -p -4
+build/svaba -t tumor.bam -n normal.bam -k 22 -G ref.fa -a test_id -p -4
 
 ## get help
 svaba --help
