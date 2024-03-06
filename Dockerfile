@@ -1,9 +1,48 @@
+# Start with an Ubuntu image
 FROM ubuntu:20.04
 
-ARG DEBIAN_FRONTEND=noninteractive
+# Avoid prompts with tzdata (timezones)
+ENV DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update && apt-get install -y git g++ zlib1g-dev cmake libbz2-dev liblzma-dev
+# Install dependencies for htslib and svaba
+RUN apt update && apt install -y \
+    autoconf \
+    automake \
+    make \
+    gcc \
+    g++ \
+    git \
+    perl \
+    zlib1g-dev \
+    libbz2-dev \
+    liblzma-dev \
+    libcurl4-gnutls-dev \
+    libssl-dev \
+    cmake \
+    && rm -rf /var/lib/apt/lists/*
 
-RUN git clone --recursive https://github.com/walaj/svaba
-RUN cd svaba && ./configure && make -j$(nproc) && make -j$(nproc) install
-ENV PATH "$PATH:/svaba/bin"
+# Clone and install htslib
+WORKDIR /opt
+RUN git clone --recursive https://github.com/samtools/htslib.git && \
+    cd htslib && \
+    autoheader && \
+    autoconf && \
+    ./configure && \
+    make && \
+    make install
+
+# Ensure shared libraries are noticed
+RUN ldconfig
+
+# Clone svaba
+WORKDIR /opt
+RUN git clone --recursive https://github.com/walaj/svaba.git && cd svaba && mkdir build
+
+# Compile svaba with htslib
+WORKDIR /opt/svaba/build
+RUN cmake .. \
+    -DHTSLIB_DIR=/usr/local
+
+# Default command can be your application run command or just an interactive shell for testing
+ENV PATH "$PATH:/svaba/build"
+
