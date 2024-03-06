@@ -10,7 +10,9 @@
 #ifndef OVERLAPALGORITHM_H
 #define OVERLAPALGORITHM_H
 
-#include "BWT.h"
+// be explicit because there are two bwt.h (in bwa) and BWT.h (in SGA)
+#include "SuffixTools/BWT.h"
+
 #include "OverlapBlock.h"
 #include "SearchSeed.h"
 #include "BWTAlgorithms.h"

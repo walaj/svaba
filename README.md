@@ -37,7 +37,7 @@ cd svaba
 mkdir build
 cd build
 ## replace the paths below with the paths on your own system
-cmake .. -DHTSLIB_INCLUDE_DIR=/home/jaw34/software/htslib-1.16/include -DHTSLIB_LIBRARY=/home/jaw34/software/htslib-1.16/lib/libhts.so
+cmake .. -DHTSLIB_DIR=/home/jaw34/software/htslib-1.16
 make
 
 ## QUICK START (eg run tumor / normal on Chr22, with 4 cores)

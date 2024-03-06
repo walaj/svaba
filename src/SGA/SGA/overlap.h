@@ -10,7 +10,7 @@
 #define OVERLAP_H
 #include <getopt.h>
 //#include "config.h"
-#include "BWT.h"
+#include "SuffixTools/BWT.h"
 #include "Match.h"
 #include "BWTAlgorithms.h"
 #include "OverlapAlgorithm.h"

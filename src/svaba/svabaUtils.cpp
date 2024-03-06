@@ -61,7 +61,7 @@ static std::string POLYTC = "TCTCTCTCTCTCTCTCTCTCTCTC";
     auto itp = st.times.find("pp");
 
     if (total_time)
-      sprintf (buffer, "R: %2d%% M: %2d%% T: %2d%% C: %2d%% A: %2d%% P: %2d%%", 
+      snprintf (buffer, 140, "R: %2d%% M: %2d%% T: %2d%% C: %2d%% A: %2d%% P: %2d%%", 
 	       SeqLib::percentCalc<double>(itr->second, total_time),
 	       SeqLib::percentCalc<double>(itm->second, total_time),
 	       SeqLib::percentCalc<double>(itt->second, total_time),
@@ -69,7 +69,7 @@ static std::string POLYTC = "TCTCTCTCTCTCTCTCTCTCTCTC";
 	       SeqLib::percentCalc<double>(ita->second, total_time),
 	       SeqLib::percentCalc<double>(itp->second, total_time));
     else
-      sprintf (buffer, "NO TIME");
+      snprintf (buffer, 140, "NO TIME");
     out << std::string(buffer);
     return out;
   }
@@ -151,7 +151,7 @@ int overlapSize(const SeqLib::BamRecord& query, const SeqLib::BamRecordVector& s
       std::string print1 = SeqLib::AddCommas<int>(region.pos1);
       std::string print2 = SeqLib::AddCommas<int>(region.pos2);
       char buffer[180];
-      sprintf (buffer, "Ran %2s:%11s-%11s | T: %5d N: %5d C: %5d | ", 
+      snprintf (buffer, 180, "Ran %2s:%11s-%11s | T: %5d N: %5d C: %5d | ", 
 	       h.IDtoName(region.chr).c_str(),
 	       print1.c_str(),print2.c_str(),
 	       (int)num_t_reads, (int)num_n_reads, 
@@ -162,7 +162,7 @@ int overlapSize(const SeqLib::BamRecord& query, const SeqLib::BamRecordVector& s
 #endif
     } else if (num_t_reads + num_n_reads > 0) {
       char buffer[180];
-      sprintf (buffer, "Ran Whole Genome | T: %5d N: %5d C: %5d | ", 
+      snprintf (buffer, 180, "Ran Whole Genome | T: %5d N: %5d C: %5d | ", 
 	       (int)num_t_reads, (int)num_n_reads, 
 	       (int)contig_counter);
       

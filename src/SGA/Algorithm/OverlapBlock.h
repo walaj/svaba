@@ -14,7 +14,7 @@
 #include "BWTInterval.h"
 #include "SearchHistory.h"
 #include "BitChar.h"
-#include "BWT.h"
+#include "SuffixTools/BWT.h"
 #include "SearchHistory.h"
 #include "GraphCommon.h"
 #include "MultiOverlap.h"

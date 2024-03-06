@@ -10,7 +10,7 @@
 #ifndef SVABA_OVERLAPALGORITHM_H
 #define SVABA_OVERLAPALGORITHM_H
 
-#include "BWT.h"
+#include "SuffixTools/BWT.h"
 #include "OverlapBlock.h"
 #include "OverlapAlgorithm.h"
 #include "SearchSeed.h"
