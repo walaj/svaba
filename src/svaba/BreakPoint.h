@@ -24,6 +24,8 @@ struct ReducedBreakEnd {
   ReducedBreakEnd() {}
   
   ReducedBreakEnd(const SeqLib::GenomicRegion& g, int mq, const std::string & chr_n);
+
+  friend std::ostream& operator<<(std::ostream& os, const ReducedBreakEnd& rbe);
   
   std::string chr_name;
   SeqLib::GenomicRegion gr;
@@ -197,7 +199,7 @@ struct ReducedBreakEnd {
  struct BreakPoint {
    
    static std::string header() { 
-     return "chr1\tpos1\tstrand1\tchr2\tpos2\tstrand2\tref\talt\tspan\tmapq1\tmapq2\tnm1\tnm2\tdisc_mapq1\tdisc_mapq2\tsplit\tcigar\talt\tcov\tsub_n1\tsub_n2\thomology\tinsertion\tcontig\tnumalign\tconfidence\tevidence\tquality\tsecondary_alignment\tsomatic_score\tsomatic_lod\ttlod\tpon_samples\trepeat_seq\tgraylist\tDBSNP\treads\tbxtags"; 
+     return "#chr1\tpos1\tstrand1\tchr2\tpos2\tstrand2\tref\talt\tspan\tmapq1\tmapq2\tnm1\tnm2\tdisc_mapq1\tdisc_mapq2\tsplit\tcigar\talt\tcov\tsub_n1\tsub_n2\thomology\tinsertion\tcontig\tnumalign\tconfidence\tevidence\tquality\tsecondary_alignment\tsomatic_score\tsomatic_lod\ttlod\tpon_samples\trepeat_seq\tgraylist\tDBSNP\treads\tbxtags"; 
    }
 
    double somatic_score = 0;

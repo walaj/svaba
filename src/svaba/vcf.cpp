@@ -6,7 +6,7 @@
 #include <iomanip>
 #include <sstream>
 #include <iostream>
-#include <unordered_set> 
+#include <unordered_set>
 
 #include "htslib/tbx.h"
 #include "htslib/bgzf.h"
@@ -28,6 +28,9 @@ static std::stringstream lod_ss;
 static std::unordered_map<std::string, int> cname_count;
 
 static std::unordered_set<uint32_t> hash_avoid; // being extra careful for hash collisions
+
+#define HIGH_OVERLAP_LIMIT 500
+#define BAD_REGION_PAD 200
 
 void __write_to_zip_vcf(const VCFEntry& v, BGZF * f) {
   std::stringstream ss;
@@ -188,8 +191,10 @@ bool VCFEntry::operator<(const VCFEntry &v) const {
 }
 
 // create a VCFFile from a svaba breakpoints file
-VCFFile::VCFFile(std::string file, std::string id, const SeqLib::BamHeader& h, const VCFHeader& vheader, bool nopass) {
+VCFFile::VCFFile(std::string file, std::string id, const SeqLib::BamHeader& h, const VCFHeader& vheader, bool nopass,
+		 bool m_verbose) {
 
+  verbose = m_verbose;
   analysis_id = id;
 
   //open the file
@@ -309,18 +314,26 @@ VCFFile::VCFFile(std::string file, std::string id, const SeqLib::BamHeader& h, c
 
   // keep track of exact positions to keep from duplicating
   // read the reference if not open
-  cerr << "...vcf - reading in the breakpoints file" << endl;
+  cerr << "...vcf - reading breakpoints: " << file << endl;
   
   include_nonpass = nopass;
 
   // read it in line by line
   getline(infile, line, '\n'); // skip first line
-  size_t line_count = 0;
+  int line_count = -1;
   while (getline(infile, line, '\n')) {
 
-    if (line.find("mapq") != std::string::npos)
+    // skip the header
+    if (line_count == -1) {
+      line_count++;
       continue;
-
+    }
+    if (line.size() && line.at(0) == '#') {
+      continue;
+    }
+    
+    // skip chromosomes that aren't in reference
+    // shouldn't get here if didn't have reference mismatch
     if (line.find("Unknown") != std::string::npos)
       continue;
 
@@ -328,13 +341,12 @@ VCFFile::VCFFile(std::string file, std::string id, const SeqLib::BamHeader& h, c
     std::shared_ptr<ReducedBreakPoint> bp(new ReducedBreakPoint(line, h));
 
     // add the VCFentry Pair
-    ++line_count;
     std::shared_ptr<VCFEntryPair> vpair(new VCFEntryPair(bp));
 
     // skip non pass if not emitting unfiltered
     if (!include_nonpass && !bp->pass)
       continue;
-
+    
     ++cname_count[std::string(bp->cname)];
     if (cname_count[std::string(bp->cname)] >= VCF_SECONDARY_CAP)
       {
@@ -353,16 +365,16 @@ VCFFile::VCFFile(std::string file, std::string id, const SeqLib::BamHeader& h, c
     else  {
       entry_pairs.insert(pair<int, std::shared_ptr<VCFEntryPair>>(line_count, vpair));
     }
-   
+
+    ++line_count;
   }
-  
+
   cname_count.clear();
-  std::cerr << "...vcf sizeof empty VCFEntryPair " << sizeof(VCFEntryPair) << " bytes " << std::endl;
-  std::cerr << "...read in " << SeqLib::AddCommas(indels.size()) << " indels and " << SeqLib::AddCommas(entry_pairs.size()) << " SVs " << std::endl;
-  
-  std::cerr << "...vcf - deduplicating " << SeqLib::AddCommas(entry_pairs.size()) << " events" << std::endl;
+
+  std::cerr << "...vcf - read in " << SeqLib::AddCommas(indels.size()) << " indels and " << SeqLib::AddCommas(entry_pairs.size()) << " SVs " << std::endl;
+  std::cerr << "...vcf - SV deduplicating " << SeqLib::AddCommas(entry_pairs.size()) << " events" << std::endl;
   deduplicate();
-  std::cerr << "...vcf - deduplicated down to " << SeqLib::AddCommas((entry_pairs.size() - dups.size())) << " break pairs" << std::endl;
+  std::cerr << "...vcf - SV deduplicated down to " << SeqLib::AddCommas((entry_pairs.size() - dups.size())) << " break pairs" << std::endl;
   
 }
 
@@ -382,26 +394,59 @@ void VCFFile::deduplicate() {
   // keep it sorted so grv1 always has left most
   SeqLib::GenomicRegionCollection<GenomicRegionWithID> grv1;
   SeqLib::GenomicRegionCollection<GenomicRegionWithID> grv2;
+
   for (auto& i : entry_pairs) {
-    grv1.add(GenomicRegionWithID(i.second->bp->b1.gr.chr, i.second->bp->b1.gr.pos1, i.second->bp->b1.gr.pos2, i.first, i.second->e1.bp->pass)); 
+    // add a GenomicRegionWithID, which is just an extension of GenomicRegion
+    // but with a numeric ID and pass flag
+    grv1.add(GenomicRegionWithID(i.second->bp->b1.gr.chr, i.second->bp->b1.gr.pos1, i.second->bp->b1.gr.pos2, i.first, i.second->e1.bp->pass));
     grv2.add(GenomicRegionWithID(i.second->bp->b2.gr.chr, i.second->bp->b2.gr.pos1, i.second->bp->b2.gr.pos2, i.first, i.second->e2.bp->pass)); 
   }
+  
   grv1.CreateTreeMap();
   grv2.CreateTreeMap();
   assert(grv1.size() == grv2.size());
 
   int pad = 1;
   size_t count = 0;
-  
-  for (auto& i : entry_pairs) {
 
-    if (count % 250000 == 0)
-      std::cerr << "...dedupe at " << SeqLib::AddCommas(count) << " of " << SeqLib::AddCommas(entry_pairs.size()) << std::endl;
+  // setup a blacklist for SVs that have extreme overlaps
+  // that is, SVs in highly redundant regions
+  SeqLib::GenomicRegionCollection<SeqLib::GenomicRegion> high_overlap_blacklist;
+
+  // loop through all of the SVs
+
+  for (auto& i : entry_pairs) {
 
     // if both ends are close then they match
     pad = (i.second->bp->b1.gr.chr != i.second->bp->b2.gr.chr) || std::abs(i.second->bp->b1.gr.pos1 - i.second->bp->b2.gr.pos1) > DEDUPEPAD*2 ? DEDUPEPAD : 10;
 
+    if (count % 20000 == 0 && verbose)
+      std::cerr << "...deduping at " << SeqLib::AddCommas(count) << std::endl;
     ++count;
+
+    // check against bad list
+    SeqLib::GenomicIntervalVector bad1, bad2;
+    SeqLib::GenomicIntervalTreeMap::const_iterator fb1 = high_overlap_blacklist.GetTree()->find(i.second->bp->b1.gr.chr);
+    SeqLib::GenomicIntervalTreeMap::const_iterator fb2 = high_overlap_blacklist.GetTree()->find(i.second->bp->b2.gr.chr);
+    if (fb1 != high_overlap_blacklist.GetTree()->end()) {
+      auto start1 = std::chrono::high_resolution_clock::now();
+      fb1->second.findOverlapping(i.second->bp->b1.gr.pos1-pad, i.second->bp->b1.gr.pos1+pad, bad1);
+      if (bad1.size()) {
+	dups.insert(i.first);
+	continue;
+      }
+    } 
+    if (fb2 != high_overlap_blacklist.GetTree()->end()) {
+      auto start1 = std::chrono::high_resolution_clock::now();      
+      fb2->second.findOverlapping(i.second->bp->b2.gr.pos1-pad, i.second->bp->b2.gr.pos1+pad, bad2);
+      if (bad2.size()) {
+	dups.insert(i.first);
+	continue;
+      }
+    }
+
+
+    // do the interval overlaps
     SeqLib::GenomicIntervalVector giv1, giv2;
     SeqLib::GenomicIntervalTreeMap::const_iterator ff1 = grv1.GetTree()->find(i.second->bp->b1.gr.chr);
     SeqLib::GenomicIntervalTreeMap::const_iterator ff2 = grv2.GetTree()->find(i.second->bp->b2.gr.chr);
@@ -422,8 +467,54 @@ void VCFFile::deduplicate() {
 
     std::unordered_map<int, std::pair<size_t, size_t>> key_count; // left and right is pair
 
+    // a member of giv1 or giv2 is an interval with a value.
+    // That value is the index of the grv1 or grv2 respoectively
+    // j.value is an index of grv1
+    
+    // the ID stored in an element of grv1 (elements of grv1 are GenomicRegionWithID)
+    // is the ID that is the KEY to the entrypair map
+    
+    // build a blacklist of high overlaps to skip
+    if (giv1.size() > HIGH_OVERLAP_LIMIT) {
+      // add this region to the r
+      SeqLib::GenomicRegion gr_bad = i.second->bp->b1.gr;
+      std::cerr << "...added " << gr_bad << " with " << giv1.size() <<
+	" overlaps to SV-pileup blacklist at dedupe" << std::endl;
+      std::cerr << "NB: Any SV with one breakend occuring more than " << HIGH_OVERLAP_LIMIT <<
+	" times will be removed. To change this behavior, adjust HIGH_OVERLAPLIMIT define in vcf.cpp and recompile/run" << std::endl;
+      gr_bad.Pad(BAD_REGION_PAD);
+      high_overlap_blacklist.add(gr_bad);
+      // update the interval tree map
+      high_overlap_blacklist.CreateTreeMap();
+      
+      //debug
+      for (const auto& v : high_overlap_blacklist)
+	std::cerr << "---blacklist " << v << std::endl;
+      
+      dups.insert(i.first);
+      continue;
+
+    }
+    if (giv2.size() > HIGH_OVERLAP_LIMIT) {
+      // add this region to the r
+      SeqLib::GenomicRegion gr_bad = i.second->bp->b2.gr;
+      std::cerr << "...added " << gr_bad << " with " << giv2.size() <<
+	" overlaps to SV-pileup blacklist at dedupe" << std::endl;
+      gr_bad.Pad(BAD_REGION_PAD);
+      high_overlap_blacklist.add(gr_bad);
+      // update the interval tree map
+      high_overlap_blacklist.CreateTreeMap();
+      
+      dups.insert(i.first);
+      continue;
+
+    }
+
+    assert(giv1.size() <= HIGH_OVERLAP_LIMIT);
+    assert(giv2.size() <= HIGH_OVERLAP_LIMIT);    
+    
     // loop hits to left end
-    for (auto& j : giv1) 
+    for (auto& j : giv1)
       if (grv1.at(j.value).id != i.first && ( is_pass == (grv1.at(j.value).pass) ) &&
 	  entry_pairs[grv1.at(j.value).id]->bp->b1.gr.strand == i.second->bp->b1.gr.strand) //j is hit. Make sure have same pass status
 	++key_count[grv1.at(j.value).id].first;
@@ -435,23 +526,28 @@ void VCFFile::deduplicate() {
 
     // loop through hit keys and if key is hit twice (1 left, 1 right), it is an overlap
     for (auto& j : key_count) {
-      //assert(*i.second->bp < *entry_pairs[j.first]->bp + *entry_pairs[j.first]->bp < *i.second->bp == 1); // comparator is working
-      if (j.second.first && j.second.second) { // left and right hit for this key
- 	if (*i.second->bp < *entry_pairs[j.first]->bp) { // this has worst read coverage that what it overlaps, so mark as dup. If tie, take left-most break
-	  // check that its not a local clashing with a global, because they're supposed to be two annotations for one event
-	  if ( (!strcmp(i.second->bp->evidence, "TSI_L") && !strcmp(entry_pairs[j.first]->bp->evidence, "TSI_G")) || // strcmp of 0 is match 
-	       (!strcmp(i.second->bp->evidence, "TSI_G") && !strcmp(entry_pairs[j.first]->bp->evidence, "TSI_L")) ) 
-	    ; // don't add as a duplicate
-	  else {
-	    dups.insert(j.first); 
-	  }
+
+      // skip if either left or right didn't hit
+      if (j.second.first == 0 || j.second.second == 0) {
+	continue;
+      }
+
+      // this has worst read coverage that what it overlaps, so mark as dup. If tie, take left-most break
+      if (*i.second->bp < *entry_pairs[j.first]->bp) { 
+	// check that its not a local clashing with a global, because they're supposed to be two annotations for one event
+	if ( (!strcmp(i.second->bp->evidence, "TSI_L") && !strcmp(entry_pairs[j.first]->bp->evidence, "TSI_G")) || // strcmp of 0 is match 
+	     (!strcmp(i.second->bp->evidence, "TSI_G") && !strcmp(entry_pairs[j.first]->bp->evidence, "TSI_L")) ) 
+	  ; // don't add as a duplicate
+	else {
+	  dups.insert(j.first); 
 	}
       }
     }
   }
-
+  
   // dedupe the indels
-  std::cerr << "...hashing " << SeqLib::AddCommas(indels.size()) << " indels for dedupe" << std::endl;
+  if (verbose)
+  std::cerr << "...vcf - hashing " << SeqLib::AddCommas(indels.size()) << " indels for dedupe" << std::endl;
   std::unordered_set<std::string> hashr;
   VCFEntryPairMap tmp_indels;
 
@@ -469,7 +565,6 @@ void VCFFile::deduplicate() {
       tmp_indels.insert(pair<int, std::shared_ptr<VCFEntryPair>>(i.first, i.second));
     }
   }
-  std::cerr << "...done deduping indels" << std::endl;
   indels = tmp_indels;
 }
 

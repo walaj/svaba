@@ -1209,243 +1209,243 @@ void BreakPoint::format_bx_string() {
 ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamHeader& h) {
     
   if (h.isEmpty()) {
-      std::cerr << "ReducedBreakPoint::ReducedBreakPoint - Must supply non-empty header" << std::endl;
-      exit(EXIT_FAILURE);
-    }
-
-    std::istringstream iss(line);
-    std::string val;
-    size_t count = 0;
-
-    ref = nullptr;
-    alt = nullptr;
-    cname = nullptr;
-    evidence = nullptr;
-    confidence = nullptr;
-    insertion = nullptr;
-    homology = nullptr;
-
-    //float afn, aft;
-    std::string ref_s, alt_s, cname_s, insertion_s, homology_s, evidence_s, confidence_s, read_names_s, bxtable_s;
-    
-    std::string chr1, pos1, chr2, pos2, chr_name1, chr_name2, repeat_s; 
-    char strand1 = '*', strand2 = '*';
-    while (std::getline(iss, val, '\t')) {
-      try{
-	switch(++count) {
-	case 1: chr1 = val; chr_name1 = val; break;
-	case 2: pos1 = val; break; 
-	case 3: assert(val.length()); strand1 = val.at(0); break;
-	case 4: chr2 = val; chr_name2 = val; break;
-	case 5: pos2 = val; break; 
-	case 6: assert(val.length()); strand2 = val.at(0); break;
-	case 7: 
-	  ref_s = val;
-	  break; 
-	case 8: 
-	  alt_s = val;
-	  break;
-	case 9: break; //span = stoi(val); break; // automatically calculated
-	case 10: //mapq1
-	  b1 = ReducedBreakEnd(GenomicRegion(chr1, pos1, pos1, h), std::stoi(val), chr_name1); b1.gr.strand = strand1; break;
-	case 11: //mapq2
-	  b2 = ReducedBreakEnd(GenomicRegion(chr2, pos2, pos2, h), std::stoi(val), chr_name2); b2.gr.strand = strand2; break;
-	case 12: b1.nm = INTNSTOI(val,255); break;
-	case 13: b2.nm = INTNSTOI(val,255); break;
-	case 14: dc.mapq1 = INTNSTOI(val, 255); break;
-	case 15: dc.mapq2 = INTNSTOI(val, 255); break;
-	case 16: break; //split (not needed, since in genotype) 
-	case 17: break; //cigar (not needed, since in genotype) 
-	case 18: break; //alt (not needed, since in genotype)
-	case 19: cov = INTNSTOI(val,65535); break;
-	case 20: b1.sub_n = INTNSTOI(val,255); break;
-	case 21: b2.sub_n = INTNSTOI(val,255); break;
-	case 22: 
-	  homology_s = val;
-	  break; 
-	case 23: 
-	  insertion_s = val;
-	  break; 
-	case 24: cname_s = val; break;
-	case 25: num_align = std::min((int)31, std::stoi(val)); break;
-	case 26: 
-	  pass = val == "PASS";
-	  confidence_s = val;
-	  break;
-	case 27: 
-	  evidence_s = val;
-	  indel = val == "INDEL"; 
-	  imprecise = val == "DSCRD"; 
-	  break; 
-	case 28: quality = std::stod(val); break; //std::min((int)255,std::stoi(val)); break;
-	case 29: secondary = val == "1" ? 1 : 0;
-	case 30: somatic_score = std::stod(val); break;
-	case 31: somatic_lod = std::stod(val); break;
-	case 32: true_lod = std::stod(val); break;
-	case 33: pon = std::min(255,std::stoi(val)); break;
-	case 34: repeat_s = val; break; // repeat_seq
-	case 35: blacklist = (val=="1" ? 1 : 0); break;
-	case 36: dbsnp = val != "x"; break;
-	case 37: read_names_s = val; break; //reads
-	case 38: bxtable_s = val; break; //bx tags
-	default:
-	  format_s.push_back(val);
-	}
-
-      } catch(...) {
-	std::cerr << "caught stoi/stod/stof error on: " << val << " for count " << count << std::endl;
-	std::cerr << line << std::endl;
-	exit(1);
+    std::cerr << "ReducedBreakPoint::ReducedBreakPoint - Must supply non-empty header" << std::endl;
+    exit(EXIT_FAILURE);
+  }
+  
+  std::istringstream iss(line);
+  std::string val;
+  size_t count = 0;
+  
+  ref = nullptr;
+  alt = nullptr;
+  cname = nullptr;
+  evidence = nullptr;
+  confidence = nullptr;
+  insertion = nullptr;
+  homology = nullptr;
+  
+  //float afn, aft;
+  std::string ref_s, alt_s, cname_s, insertion_s, homology_s, evidence_s, confidence_s, read_names_s, bxtable_s;
+  
+  std::string chr1, pos1, chr2, pos2, chr_name1, chr_name2, repeat_s; 
+  char strand1 = '*', strand2 = '*';
+  while (std::getline(iss, val, '\t')) {
+    try{
+      switch(++count) {
+      case 1: chr1 = val; chr_name1 = val; break;
+      case 2: pos1 = val; break; 
+      case 3: assert(val.length()); strand1 = val.at(0); break;
+      case 4: chr2 = val; chr_name2 = val; break;
+      case 5: pos2 = val; break; 
+      case 6: assert(val.length()); strand2 = val.at(0); break;
+      case 7: 
+	ref_s = val;
+	break; 
+      case 8: 
+	alt_s = val;
+	break;
+      case 9: break; //span = stoi(val); break; // automatically calculated
+      case 10: //mapq1
+	b1 = ReducedBreakEnd(GenomicRegion(chr1, pos1, pos1, h), std::stoi(val), chr_name1); b1.gr.strand = strand1; break;
+      case 11: //mapq2
+	b2 = ReducedBreakEnd(GenomicRegion(chr2, pos2, pos2, h), std::stoi(val), chr_name2); b2.gr.strand = strand2; break;
+      case 12: b1.nm = INTNSTOI(val,255); break;
+      case 13: b2.nm = INTNSTOI(val,255); break;
+      case 14: dc.mapq1 = INTNSTOI(val, 255); break;
+      case 15: dc.mapq2 = INTNSTOI(val, 255); break;
+      case 16: break; //split (not needed, since in genotype) 
+      case 17: break; //cigar (not needed, since in genotype) 
+      case 18: break; //alt (not needed, since in genotype)
+      case 19: cov = INTNSTOI(val,65535); break;
+      case 20: b1.sub_n = INTNSTOI(val,255); break;
+      case 21: b2.sub_n = INTNSTOI(val,255); break;
+      case 22: 
+	homology_s = val;
+	break; 
+      case 23: 
+	insertion_s = val;
+	break; 
+      case 24: cname_s = val; break;
+      case 25: num_align = std::min((int)31, std::stoi(val)); break;
+      case 26: 
+	pass = val == "PASS";
+	confidence_s = val;
+	break;
+      case 27: 
+	evidence_s = val;
+	indel = val == "INDEL"; 
+	imprecise = val == "DSCRD"; 
+	break; 
+      case 28: quality = std::stod(val); break; //std::min((int)255,std::stoi(val)); break;
+      case 29: secondary = val == "1" ? 1 : 0;
+      case 30: somatic_score = std::stod(val); break;
+      case 31: somatic_lod = std::stod(val); break;
+      case 32: true_lod = std::stod(val); break;
+      case 33: pon = std::min(255,std::stoi(val)); break;
+      case 34: repeat_s = val; break; // repeat_seq
+      case 35: blacklist = (val=="1" ? 1 : 0); break;
+      case 36: dbsnp = val != "x"; break;
+      case 37: read_names_s = val; break; //reads
+      case 38: bxtable_s = val; break; //bx tags
+      default:
+	format_s.push_back(val);
       }
+      
+    } catch(...) {
+      std::cerr << "caught stoi/stod/stof error on: " << val << " for count " << count << std::endl;
+      std::cerr << line << std::endl;
+      exit(1);
     }
-    
-    confidence = __string_alloc2char(confidence_s, confidence);
-    evidence   = __string_alloc2char(evidence_s, evidence);
-    insertion  = __string_alloc2char(insertion_s, insertion);
-    homology   = __string_alloc2char(homology_s, homology);
-    cname      = __string_alloc2char(cname_s, cname);
-    ref        = __string_alloc2char(ref_s, ref);
-    alt        = __string_alloc2char(alt_s, alt);
-    repeat     = repeat_s.empty() ? nullptr : __string_alloc2char(repeat_s, repeat);
-    if (somatic_score && confidence_s == "PASS")
-      read_names     = read_names_s; // == "x" ? nullptr : __string_alloc2char(read_names_s, read_names);
-    bxtable = bxtable_s;
-
   }
+  
+  confidence = __string_alloc2char(confidence_s, confidence);
+  evidence   = __string_alloc2char(evidence_s, evidence);
+  insertion  = __string_alloc2char(insertion_s, insertion);
+  homology   = __string_alloc2char(homology_s, homology);
+  cname      = __string_alloc2char(cname_s, cname);
+  ref        = __string_alloc2char(ref_s, ref);
+  alt        = __string_alloc2char(alt_s, alt);
+  repeat     = repeat_s.empty() ? nullptr : __string_alloc2char(repeat_s, repeat);
+  if (somatic_score && confidence_s == "PASS")
+    read_names     = read_names_s; // == "x" ? nullptr : __string_alloc2char(read_names_s, read_names);
+  bxtable = bxtable_s;
+  
+}
 
-  double SampleInfo::__log_likelihood(double ref, double alt, double f, double e) {
-    
-    // less negative log-likelihoods means more likely
-    // eg for low error rate, odds that you see 5 ALT and 5 REF
-    // if you are testing for AF = 0 is going to be very low (eg -40)
-    // To test if something is true, we want to test the log-likelihood that
-    // it's AF is != 0, so we test LL(ref, alt, AF=0, er). If this is 
-    // a large negative number, it means that AF = 0 is very unlikely.
-    // If we use a larger error rate, then it is more likely that we will
-    // see ALT reads even if true AF = 0, so as ER goes up, then 
-    // LL(ref, alt, AF=0, er) becomes less negative.
+double SampleInfo::__log_likelihood(double ref, double alt, double f, double e) {
+  
+  // less negative log-likelihoods means more likely
+  // eg for low error rate, odds that you see 5 ALT and 5 REF
+  // if you are testing for AF = 0 is going to be very low (eg -40)
+  // To test if something is true, we want to test the log-likelihood that
+  // it's AF is != 0, so we test LL(ref, alt, AF=0, er). If this is 
+  // a large negative number, it means that AF = 0 is very unlikely.
+  // If we use a larger error rate, then it is more likely that we will
+  // see ALT reads even if true AF = 0, so as ER goes up, then 
+  // LL(ref, alt, AF=0, er) becomes less negative.
+  
+  // mutect log liklihood against error
+  double ll = 0;
+  const double back_mutate_chance = 0; // this should be zero? assume indel never accidentally back mutates
+  ref = ref <= 0 ? 0 : ref;
+  
+  double arg1 = f * e * back_mutate_chance  /* p(alt mut to ref) */ + (1-f)  * (1-e); /* p(ref not mutated) */ 
+  if (arg1 > 0)
+    ll += ref * log10(arg1); // ref
+  //else //if (ref == 0)// get rid of NaN issue
+  //  ll = 0;
+  
+  arg1 = f * (1 - e) /* p(alt not mut) */ + (1-f) * e; /* p (ref mut to alt) */
+  if (arg1 > 0)
+    ll += alt * log10(arg1); // alt
+  else if (alt > 0)
+    ll = -10000000 ; // error is zero, but have artifact so impossible
+  
+  return ll;
+  
+}
 
-    // mutect log liklihood against error
-    double ll = 0;
-    const double back_mutate_chance = 0; // this should be zero? assume indel never accidentally back mutates
-    ref = ref <= 0 ? 0 : ref;
-
-    double arg1 = f * e * back_mutate_chance  /* p(alt mut to ref) */ + (1-f)  * (1-e); /* p(ref not mutated) */ 
-    if (arg1 > 0)
-      ll += ref * log10(arg1); // ref
-    //else //if (ref == 0)// get rid of NaN issue
-    //  ll = 0;
-
-    arg1 = f * (1 - e) /* p(alt not mut) */ + (1-f) * e; /* p (ref mut to alt) */
-    if (arg1 > 0)
-      ll += alt * log10(arg1); // alt
-    else if (alt > 0)
-      ll = -10000000 ; // error is zero, but have artifact so impossible
-
-    return ll;
-
+void SampleInfo::modelSelection(double er) {
+  
+  // can't have more alt reads than total reads
+  // well you can for SVs...
+  int thiscov = cov;
+  if (alt >= cov)  
+    thiscov = alt;
+  
+  // adjust the alt count 
+  if (alt < cigar)
+    alt = cigar;
+  if (alt < split)
+    alt = split;
+  
+  // adjust the coverage to be more in line with restrictions on ALT.
+  // namely that ALT reads must overlap the variant site by more than T_SPLIT_BUFF
+  // bases, but the raw cov calc does not take this into account. Therefore, adjust here
+  double a_cov;
+  if (readlen) {
+    a_cov = (double)thiscov * (double)(readlen - 2 * T_SPLIT_BUFF)/readlen;
+    a_cov = a_cov < 0 ? 0 : a_cov;
+  } else {
+    a_cov = thiscov;
   }
-
-  void SampleInfo::modelSelection(double er) {
-
-    // can't have more alt reads than total reads
-    // well you can for SVs...
-    int thiscov = cov;
-    if (alt >= cov)  
-      thiscov = alt;
-
-    // adjust the alt count 
-    if (alt < cigar)
-      alt = cigar;
-    if (alt < split)
-      alt = split;
-
-    // adjust the coverage to be more in line with restrictions on ALT.
-    // namely that ALT reads must overlap the variant site by more than T_SPLIT_BUFF
-    // bases, but the raw cov calc does not take this into account. Therefore, adjust here
-    double a_cov;
-    if (readlen) {
-      a_cov = (double)thiscov * (double)(readlen - 2 * T_SPLIT_BUFF)/readlen;
-      a_cov = a_cov < 0 ? 0 : a_cov;
-    } else {
-      a_cov = thiscov;
-    }
-    af = a_cov > 0 ? (double)alt / (double)a_cov : 1;
-    af = af > 1 ? 1 : af;
-
-    int scaled_alt = std::min(alt, (int)a_cov);
-
-    // mutect log liklihood against error
-    // how likely to see these ALT counts if true AF is af
-    // vs how likely to see these ALT counts if true AF is 0
-    // and all the ALTs are just errors. 
-    // The higher the error rate, the more negative ll_alt will go,
-    // which will drive LO lower and decrease our confidence.
-    // A high er will also drive ll_err up (or less negative), since
-    // it will be more likely to see ALT reads generated by errors
-    // As ALT and COV go higher, we should see LO go higher because
-    // the indiviual calcs will have more confidence. Ultimately,
-    // LO will represent the log likeihood that the variant is AF = af
-    // vs AF = 0 
-    double ll_alt = __log_likelihood(a_cov - scaled_alt, scaled_alt, af, er);
-    double ll_err = __log_likelihood(a_cov - scaled_alt, scaled_alt, 0 , er);
-    LO = ll_alt - ll_err; 
-
-    //mutetct log likelihood normal
-    // er = 0.0005; // make this low, so that ALT in REF is rare and NORM in TUM gives low somatic prob
-    // actually, dont' worry about it too much. 3+ alt in ref excludes somatic anyways.
-    // so a high LO_n for the normal means that we are very confident that site is REF only in 
-    // normal sample. This is why LO_n from the normal can be used as a discriminant for 
-    // germline vs somatic. eg if somatic_lod = normal.LO_n is above a threshold X
-    // or above a larger threshold XX if at DBSNP site, then we accept as somatic
-    // LO_n should not be used for setting the confidence that something is real, just the 
-    // confidence that it is somatic
-    double ll_ref_norm = __log_likelihood(a_cov - scaled_alt, scaled_alt, 0 , er); // likelihood that varaint is actually true REF
-    double ll_alt_norm = __log_likelihood(a_cov - scaled_alt, scaled_alt, std::max(af, 0.5), er); // likelihood that variant is 0.5
-    //std::cerr << " COV " << a_cov << " ALT " << scaled_alt << " LL ALT " << ll_alt_norm << " LL REF " << ll_ref_norm << " ER " << er << " LL TOTAL " << (ll_ref_norm - ll_alt_norm) << std::endl;
-    LO_n = ll_ref_norm - ll_alt_norm; // higher number means more likely to be AF = 0 (ref) than AF = 0.5 (alt). 
-
-    // genotype calculation as provided in 
-    // http://bioinformatics.oxfordjournals.org/content/early/2011/09/08/bioinformatics.btr509.full.pdf+html
-    //int scaled_cov = std::floor((double)cov * 0.90);
-    //int this_alt = std::min(alt, scaled_cov);
-    genotype_likelihoods[0] = __genotype_likelihoods(2, er, scaled_alt, a_cov); // 0/0
-    genotype_likelihoods[1] = __genotype_likelihoods(1, er, scaled_alt, a_cov); // 0/1
-    genotype_likelihoods[2] = __genotype_likelihoods(0, er, scaled_alt, a_cov); // 1/1
-
-    //debug
-    //std::cerr << " ALT " << alt << " scaled alt " << scaled_alt << " ER " << er << " A_COV " << a_cov << 
-    //  " 0/0 " << genotype_likelihoods[0] << " 0/1 " << genotype_likelihoods[1] << 
-    //  " 1/1 " << genotype_likelihoods[2] << " LOD " << LO << " LO_n " << LO_n << 
-    //  " af " << af << std::endl;
-
-    double max_likelihood = *std::max_element(genotype_likelihoods.begin(), genotype_likelihoods.end());
-    if (max_likelihood == genotype_likelihoods[0])
-      genotype = "0/0";
-    else if (max_likelihood == genotype_likelihoods[1])
-      genotype = "0/1";
-    else 
-      genotype = "1/1";
-
-    // scale GT likelihoods to max
-    genotype_likelihoods[0] = max_likelihood - genotype_likelihoods[0];
-    genotype_likelihoods[1] = max_likelihood - genotype_likelihoods[1];
-    genotype_likelihoods[2] = max_likelihood - genotype_likelihoods[2];
-
-    // get the genotype quality
-    GQ = 99;
-    for (auto& g : genotype_likelihoods)
-      if (g != 0)
-	GQ = std::min(GQ, __myround(g));
-
-    // get the genotype quality that it is not hom ref
-    NH_GQ = std::min((double)99, __myround(genotype_likelihoods[0]));
-
-    // set the PL string
-    std::stringstream sss;
-    sss << std::setprecision(4) << __myround(genotype_likelihoods[0]) << "," << __myround(genotype_likelihoods[1]) << "," << __myround(genotype_likelihoods[2]);
-    PL = sss.str();
-
+  af = a_cov > 0 ? (double)alt / (double)a_cov : 1;
+  af = af > 1 ? 1 : af;
+  
+  int scaled_alt = std::min(alt, (int)a_cov);
+  
+  // mutect log liklihood against error
+  // how likely to see these ALT counts if true AF is af
+  // vs how likely to see these ALT counts if true AF is 0
+  // and all the ALTs are just errors. 
+  // The higher the error rate, the more negative ll_alt will go,
+  // which will drive LO lower and decrease our confidence.
+  // A high er will also drive ll_err up (or less negative), since
+  // it will be more likely to see ALT reads generated by errors
+  // As ALT and COV go higher, we should see LO go higher because
+  // the indiviual calcs will have more confidence. Ultimately,
+  // LO will represent the log likeihood that the variant is AF = af
+  // vs AF = 0 
+  double ll_alt = __log_likelihood(a_cov - scaled_alt, scaled_alt, af, er);
+  double ll_err = __log_likelihood(a_cov - scaled_alt, scaled_alt, 0 , er);
+  LO = ll_alt - ll_err; 
+  
+  //mutetct log likelihood normal
+  // er = 0.0005; // make this low, so that ALT in REF is rare and NORM in TUM gives low somatic prob
+  // actually, dont' worry about it too much. 3+ alt in ref excludes somatic anyways.
+  // so a high LO_n for the normal means that we are very confident that site is REF only in 
+  // normal sample. This is why LO_n from the normal can be used as a discriminant for 
+  // germline vs somatic. eg if somatic_lod = normal.LO_n is above a threshold X
+  // or above a larger threshold XX if at DBSNP site, then we accept as somatic
+  // LO_n should not be used for setting the confidence that something is real, just the 
+  // confidence that it is somatic
+  double ll_ref_norm = __log_likelihood(a_cov - scaled_alt, scaled_alt, 0 , er); // likelihood that varaint is actually true REF
+  double ll_alt_norm = __log_likelihood(a_cov - scaled_alt, scaled_alt, std::max(af, 0.5), er); // likelihood that variant is 0.5
+  //std::cerr << " COV " << a_cov << " ALT " << scaled_alt << " LL ALT " << ll_alt_norm << " LL REF " << ll_ref_norm << " ER " << er << " LL TOTAL " << (ll_ref_norm - ll_alt_norm) << std::endl;
+  LO_n = ll_ref_norm - ll_alt_norm; // higher number means more likely to be AF = 0 (ref) than AF = 0.5 (alt). 
+  
+  // genotype calculation as provided in 
+  // http://bioinformatics.oxfordjournals.org/content/early/2011/09/08/bioinformatics.btr509.full.pdf+html
+  //int scaled_cov = std::floor((double)cov * 0.90);
+  //int this_alt = std::min(alt, scaled_cov);
+  genotype_likelihoods[0] = __genotype_likelihoods(2, er, scaled_alt, a_cov); // 0/0
+  genotype_likelihoods[1] = __genotype_likelihoods(1, er, scaled_alt, a_cov); // 0/1
+  genotype_likelihoods[2] = __genotype_likelihoods(0, er, scaled_alt, a_cov); // 1/1
+  
+  //debug
+  //std::cerr << " ALT " << alt << " scaled alt " << scaled_alt << " ER " << er << " A_COV " << a_cov << 
+  //  " 0/0 " << genotype_likelihoods[0] << " 0/1 " << genotype_likelihoods[1] << 
+  //  " 1/1 " << genotype_likelihoods[2] << " LOD " << LO << " LO_n " << LO_n << 
+  //  " af " << af << std::endl;
+  
+  double max_likelihood = *std::max_element(genotype_likelihoods.begin(), genotype_likelihoods.end());
+  if (max_likelihood == genotype_likelihoods[0])
+    genotype = "0/0";
+  else if (max_likelihood == genotype_likelihoods[1])
+    genotype = "0/1";
+  else 
+    genotype = "1/1";
+  
+  // scale GT likelihoods to max
+  genotype_likelihoods[0] = max_likelihood - genotype_likelihoods[0];
+  genotype_likelihoods[1] = max_likelihood - genotype_likelihoods[1];
+  genotype_likelihoods[2] = max_likelihood - genotype_likelihoods[2];
+  
+  // get the genotype quality
+  GQ = 99;
+  for (auto& g : genotype_likelihoods)
+    if (g != 0)
+      GQ = std::min(GQ, __myround(g));
+  
+  // get the genotype quality that it is not hom ref
+  NH_GQ = std::min((double)99, __myround(genotype_likelihoods[0]));
+  
+  // set the PL string
+  std::stringstream sss;
+  sss << std::setprecision(4) << __myround(genotype_likelihoods[0]) << "," << __myround(genotype_likelihoods[1]) << "," << __myround(genotype_likelihoods[2]);
+  PL = sss.str();
+  
   }
 
   void BreakPoint::addCovs(const std::unordered_map<std::string, STCoverage*>& covs) {
@@ -1711,4 +1711,15 @@ bool ReducedBreakPoint::operator<(const ReducedBreakPoint& bp) const {
     return false;
   
   return false;
+}
+
+std::ostream& operator<<(std::ostream& os, const ReducedBreakEnd& rbe) {
+    // Example format: [Chr Name: genomic_region (MapQ, SubN, NM)]
+    // Adjust formatting as needed
+    os << rbe.chr_name << ", "
+       << rbe.gr << " ("
+       << "MapQ: " << static_cast<int>(rbe.mapq) << ", "
+       << "SubN: " << static_cast<int>(rbe.sub_n) << ", "
+       << "NM: " << static_cast<int>(rbe.nm) << ")]";
+    return os;
 }

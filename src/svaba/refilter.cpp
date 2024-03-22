@@ -25,8 +25,6 @@ namespace opt {
   static bool read_tracking = false;
   static std::string indel_mask;
 
-  static std::string ref_index = "/seq/references/Homo_sapiens_assembly19/v1/Homo_sapiens_assembly19.fasta";
-
   static std::string normal_bam;
   static std::string tumor_bam;
 
@@ -54,14 +52,14 @@ enum {
 };
 
 
-static const char* shortopts = "hi:a:v:g:D:b:";
+static const char* shortopts = "hi:a:v:G:D:b:";
 static const struct option longopts[] = {
   { "help",                    no_argument, NULL, 'h' },
   { "input-bps",               required_argument, NULL, 'i'},
   { "bam",                     required_argument, NULL, 'b'},
   { "case-bam",                required_argument, NULL, 't' },
   { "control-bam",             required_argument, NULL, 'n' },
-  { "reference-genome",        required_argument, NULL, 'g'},
+  { "reference-genome",        required_argument, NULL, 'G'},
   { "analysis-id",             required_argument, NULL, 'a'},
   { "verbose",                 required_argument, NULL, 'v' },
   { "lod",                     required_argument, NULL, OPT_LOD },
@@ -74,16 +72,13 @@ static const struct option longopts[] = {
   { NULL, 0, NULL, 0 }
 };
 
-
 static const char *BP_USAGE_MESSAGE =
-"Usage: svaba refilter [OPTION] -i bps.txt.gz -o bps.new.txt.gz\n\n"
+"Usage: svaba refilter [OPTION] -i bps.txt.gz -b <bam>\n\n"
 "  Description: \n"
 "\n"
 "  General options\n"
 "  -v, --verbose                        Select verbosity level (0-4). Default: 1 \n"
 "  -h, --help                           Display this help and exit\n"
-"  -g, --reference-genome               Path to indexed reference genome to be used by BWA-MEM. Default is Broad hg19 (/seq/reference/...)\n"
-"  -b, --opt-bam                        Input BAM file to get header from\n"
 "  -a, --id-string                      String specifying the analysis ID to be used as part of ID common.\n"
 "  Required input\n"
 "  -i, --input-bps                      Original bps.txt.gz file\n"
@@ -91,7 +86,7 @@ static const char *BP_USAGE_MESSAGE =
 "  Optional external database\n"
 "  -D, --dbsnp-vcf                      DBsnp database (VCF) to compare indels against\n"
 "  Variant filtering and classification\n"
-"      --lod                            LOD cutoff to classify indel as non-REF (tests AF=0 vs AF=MaxLikelihood(AF)) [8]\n"
+  "      --lod                            LOD cutoff to classify indel as non-REF (tests AF=0 vs AF=MaxLikelihood(AF)) [8]\n"
 "      --lod-dbsnp                      LOD cutoff to classify indel as non-REF (tests AF=0 vs AF=MaxLikelihood(AF)) at DBSnp indel site [5]\n"
 "      --lod-somatic                    LOD cutoff to classify indel as somatic (tests AF=0 in normal vs AF=ML(0.5)) [2.5]\n"
 "      --lod-somatic-dbsnp              LOD cutoff to classify indel as somatic (tests AF=0 in normal vs AF=ML(0.5)) at DBSnp indel site [4]\n"
@@ -112,7 +107,6 @@ void parseBreakOptions(int argc, char** argv) {
     std::istringstream arg(optarg != NULL ? optarg : "");
     switch (c) {
     case 'h': die = true; break;
-    case 'g': arg >> opt::ref_index; break;
     case 'i': arg >> opt::input_file; break;
     case 'v': arg >> opt::verbose; break;
     case 'a': arg >> opt::analysis_id; break;
@@ -126,7 +120,8 @@ void parseBreakOptions(int argc, char** argv) {
     case 'b': arg >> opt::bam; break; 
     }
   }
-  
+
+  // just check if input here. Check later if readable
   if (opt::input_file.length() == 0)
     die = true;
   
@@ -160,7 +155,6 @@ void runRefilterBreakpoints(int argc, char** argv) {
       "    DBSNP Database file: " << opt::dbsnp << std::endl;
   }
 
-    
   if (!SeqLib::read_access_test(opt::input_file)) {
     std::cerr << "ERROR: Cannot read file " << opt::input_file  << std::endl;
     exit(EXIT_FAILURE);
@@ -168,97 +162,106 @@ void runRefilterBreakpoints(int argc, char** argv) {
   
   SeqLib::BamReader bwalker;
   assert(bwalker.Open(opt::bam));
-
+  
   // open the DBSnpFilter
   if (opt::dbsnp.length()) {
     std::cerr << "...loading the DBsnp database" << std::endl;
     dbsnp_filter = new DBSnpFilter(opt::dbsnp, bwalker.Header());
     std::cerr << "...loaded DBsnp database" << std::endl;
   }
-
+  
+  // start a new VCF file
   VCFHeader header;
   header.filedate = svabaUtils::fileDateString();
   header.source = "";//opt::args;
   header.reference = "";//opt::refgenome;
-
+  
   // open bps file
   std::string new_bps_file = opt::analysis_id + ".bps.txt.gz";
   svabaUtils::fopen(new_bps_file, os_allbps_r);
 
-  // read in the BPS
+  SeqLib::BamHeader hdr = bwalker.Header();  
+
+    
+  // read in the bps.txt.gz file
   std::vector<std::string> allele_names; // store with real name
   std::map<std::string, SampleInfo> tmp_alleles;
-  std::string line, line2, val;
   igzstream infile(opt::input_file.c_str(), std::ios::in);
   size_t line_count = 0;
-  SeqLib::BamHeader hdr = bwalker.Header();
-  while (getline(infile, line, '\n')) {
-    if (line_count % 100000 == 0) 
-      std::cerr << "...read input bps / write output bps file at line " << SeqLib::AddCommas(line_count) << std::endl;
-      
-    if (line_count == 0) { // read the header
-      os_allbps_r << line << std::endl;
-      std::istringstream f(line);
-      size_t scount = 0;
-      while (std::getline(f, val, '\t')) {
-	++scount;
-	if (scount > 34) { // 35th column should be first sample ID
-	  assert(val.at(0) == 't' || val.at(0) == 'n');
-	    allele_names.push_back(val);
-	}
-      }
 
-    } else {
-	BreakPoint * bp = new BreakPoint(line, hdr);
+  // Read the header line first
+  std::string headerLine;
+  if (std::getline(infile, headerLine)) {
+    std::vector<std::string> headerv = svabaUtils::tokenize_delimited(headerLine, '\t');
 
-	// fill in with the correct names from the header of bps.txt
-	std::string id ;
-	for (auto& i : allele_names) {
-	  id += "A";
-	  tmp_alleles[i] = bp->allele[id];
-	}
-	bp->allele = tmp_alleles;
-
-	// fill in discordant info
-	for (auto& i : bp->allele) {
-	  if (i.first.at(0) == 't')
-	    bp->dc.tcount += i.second.disc;
-	  else
-	    bp->dc.ncount += i.second.disc;
-
-	}
-
-	// match against DBsnp database. Modify bp in place
-	if (dbsnp_filter && opt::dbsnp.length()) 
-	  dbsnp_filter->queryBreakpoint(*bp);
-
-	// score them
-	bp->scoreBreakpoint(opt::lod, opt::lod_db, opt::lod_somatic, opt::lod_somatic_db, opt::scale_error, 0);
-	os_allbps_r << bp->toFileString(!opt::read_tracking) << std::endl;
-	delete bp;
-      }
-    ++line_count;
+    // assume a certain format for bps.txt
+    assert(headerv.size() >= 39);
+    // everything at (0-based) 38 and above is a sample id
+    for (size_t i = 38; i < headerv.size(); i++) {
+      assert(headerv[i].at(0) == 't' || headerv[i].at(0) == 'n');
+      allele_names.push_back(headerv[i]);
+    }
   }
-
+  
+  // Now read the rest of the lines
+  std::string line;
+  while (std::getline(infile, line)) {
+    
+    if (line_count % 100000 == 0) 
+      std::cerr << "...read " << opt::input_file << " at line " << SeqLib::AddCommas(line_count) << std::endl;
+    
+    BreakPoint * bp = new BreakPoint(line, hdr);
+    
+    // fill in with the correct names from the header of bps.txt
+    std::string id ;
+    for (auto& i : allele_names) {
+      id += "A";
+      tmp_alleles[i] = bp->allele[id];
+    }
+    bp->allele = tmp_alleles;
+    
+    // fill in discordant info
+    for (auto& i : bp->allele) {
+      if (i.first.at(0) == 't')
+	bp->dc.tcount += i.second.disc;
+      else
+	bp->dc.ncount += i.second.disc;
+    }
+    
+    // match against DBsnp database. Modify bp in place
+    if (dbsnp_filter && opt::dbsnp.length()) 
+      dbsnp_filter->queryBreakpoint(*bp);
+    
+    // score them
+    bp->scoreBreakpoint(opt::lod, opt::lod_db, opt::lod_somatic, opt::lod_somatic_db, opt::scale_error, 0);
+    os_allbps_r << bp->toFileString(!opt::read_tracking) << std::endl;
+    delete bp;
+    
+    ++line_count;
+  } // end the main bps read loop
+  
+  // close the bps read file
   os_allbps_r.close();
   
   // primary VCFs
-  std::cerr << " input file " << opt::input_file << std::endl;
   if (SeqLib::read_access_test(new_bps_file)) {
+    
     if (opt::verbose)
       std::cerr << "...making the primary VCFs (unfiltered and filtered) from file " << new_bps_file << std::endl;
-    VCFFile snowvcf(new_bps_file, opt::analysis_id, bwalker.Header(), header, true);
- 
+    
+    VCFFile snowvcf(new_bps_file, opt::analysis_id, bwalker.Header(), header, true,
+		    opt::verbose > 0);
+    
     std::string basename = opt::analysis_id + ".svaba.unfiltered.";
     snowvcf.include_nonpass = true;
     snowvcf.writeIndels(basename, false, allele_names.size() == 1);
     snowvcf.writeSVs(basename, false, allele_names.size() == 1);
-
+    
     basename = opt::analysis_id + ".svaba.";
     snowvcf.include_nonpass = false;
     snowvcf.writeIndels(basename, false, allele_names.size() == 1);
     snowvcf.writeSVs(basename, false, allele_names.size() == 1);
-
+    
   } else {
     std::cerr << "Failed to make VCF. Could not file bps file " << opt::input_file << std::endl;
   }

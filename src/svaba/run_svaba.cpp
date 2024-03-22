@@ -727,7 +727,8 @@ void makeVCFs() {
   // primary VCFs
   if (SeqLib::read_access_test(file)) {
     WRITELOG("...making the primary VCFs (unfiltered and filtered) from file " + file, opt::verbose, true);
-    VCFFile snowvcf(file, opt::analysis_id, b_header, header, !opt::no_unfiltered);
+    VCFFile snowvcf(file, opt::analysis_id, b_header, header, !opt::no_unfiltered,
+		    opt::verbose > 0);
 
     if (!opt::no_unfiltered) {
       std::string basename = opt::analysis_id + ".svaba.unfiltered.";

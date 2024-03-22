@@ -78,6 +78,7 @@ src/svaba/PONFilter.cpp
 src/svaba/svabaUtils.cpp
 src/svaba/svaba.cpp
 src/svaba/svabaAssemblerEngine.cpp
+src/svaba/tovcf.cpp
 src/svaba/vcf.cpp
 src/svaba/DiscordantRealigner.cpp
 src/svaba/svabaOverlapAlgorithm.cpp

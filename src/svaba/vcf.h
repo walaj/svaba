@@ -128,7 +128,9 @@ struct VCFFile {
   VCFFile(std::string file, std::string tmethod);
 
   // create a VCFFile from a csv
-  VCFFile(std::string file, std::string id, const SeqLib::BamHeader& h, const VCFHeader& vheader, bool nopass);
+  VCFFile(std::string file, std::string id, const SeqLib::BamHeader& h,
+	  const VCFHeader& vheader, bool nopass,
+	  bool verbose);
 
   std::string filename;
   std::string method;
@@ -137,6 +139,8 @@ struct VCFFile {
 
   std::unordered_set<int> dups;
 
+  bool verbose = false;
+  
   //  VCFHeader header;
   VCFHeader indel_header;
   VCFHeader sv_header;

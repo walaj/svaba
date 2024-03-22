@@ -71,7 +71,8 @@ struct svabaTimer {
    * @return Random integer bounded on [0,cs.size())
    */
   int weightedRandom(const std::vector<double>& cs);
-  
+
+  std::vector<std::string> tokenize_delimited(const std::string& str, char delim);
 }
 
 

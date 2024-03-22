@@ -12,6 +12,8 @@
 #include "refilter.h"
 #include "run_svaba.h"
 
+void runToVCF(int argc, char** argv);
+
 #define AUTHOR "Jeremiah Wala <jeremiah.wala@gmail.com"
 
 static const char *SVABA_USAGE_MESSAGE =
@@ -19,12 +21,13 @@ static const char *SVABA_USAGE_MESSAGE =
 "-------- SvABA - SV and indel detection by assembly --------\n"
 "------------------------------------------------------------\n"
 "Program: SvABA \n"
-"Version: " SVABA_VERSION "\n"
+"Version: " SVABA_VERSION " - March 2024\n"
 "Contact: Jeremiah Wala [ jeremiah.wala@gmail.org ]\n"
 "Usage: svaba <command> [options]\n\n"
 "Commands:\n"
 "           run            Run SvABA SV and Indel detection on BAM(s)\n"
 "           refilter       Refilter the SvABA breakpoints with additional/different criteria to created filtered VCF and breakpoints file.\n"
+"           tovcf          Convert the bps.txt.gz file to a VCF\n"
 "\nReport bugs to jwala@broadinstitute.org \n\n";
 
 int main(int argc, char** argv) {
@@ -41,6 +44,8 @@ int main(int argc, char** argv) {
       runsvaba(argc -1, argv + 1);
     } else if (command == "refilter") {
       runRefilterBreakpoints(argc-1, argv+1);
+    } else if (command == "tovcf") {
+      runToVCF(argc-1, argv+1);
     }
     else {
       std::cerr << SVABA_USAGE_MESSAGE;
