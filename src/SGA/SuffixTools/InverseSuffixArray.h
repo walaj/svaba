@@ -8,7 +8,7 @@
 // Implemented as a Vector of Vectors
 //
 #ifndef INVERSESUFFIXARRAY_H
-#define INVERSESUFFIXARRAH_H
+#define INVERSESUFFIXARRAY_H
 #include "STCommon.h"
 #include "SuffixArray.h"
 

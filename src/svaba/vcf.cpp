@@ -429,7 +429,6 @@ void VCFFile::deduplicate() {
     SeqLib::GenomicIntervalTreeMap::const_iterator fb1 = high_overlap_blacklist.GetTree()->find(i.second->bp->b1.gr.chr);
     SeqLib::GenomicIntervalTreeMap::const_iterator fb2 = high_overlap_blacklist.GetTree()->find(i.second->bp->b2.gr.chr);
     if (fb1 != high_overlap_blacklist.GetTree()->end()) {
-      auto start1 = std::chrono::high_resolution_clock::now();
       fb1->second.findOverlapping(i.second->bp->b1.gr.pos1-pad, i.second->bp->b1.gr.pos1+pad, bad1);
       if (bad1.size()) {
 	dups.insert(i.first);
@@ -437,7 +436,6 @@ void VCFFile::deduplicate() {
       }
     } 
     if (fb2 != high_overlap_blacklist.GetTree()->end()) {
-      auto start1 = std::chrono::high_resolution_clock::now();      
       fb2->second.findOverlapping(i.second->bp->b2.gr.pos1-pad, i.second->bp->b2.gr.pos1+pad, bad2);
       if (bad2.size()) {
 	dups.insert(i.first);
