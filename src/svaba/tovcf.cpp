@@ -25,7 +25,7 @@ static const struct option longopts[] = {
   { "input-bps",               required_argument, NULL, 'i'},
   { "bam",                     required_argument, NULL, 'b'},
   { "verbose",                 no_argument, NULL, 'v' },
-  { "analysis-id",             required_argument, NULL, 'a'},  
+  { "id-string",               required_argument, NULL, 'a'},  
   { NULL, 0, NULL, 0 }
 };
 

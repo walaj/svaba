@@ -17,6 +17,8 @@
 #include "SeqLib/BFC.h"
 #include "svaba_params.h"
 
+#define DEBUG 1
+
 // output files
 static ogzstream all_align, os_allbps, os_discordant, os_corrected;
 static std::ofstream log_file, bad_bed;
@@ -879,6 +881,10 @@ bool runWorkItem(const SeqLib::GenomicRegion& region, svabaThreadUnit& wu, long 
   for (auto& w : wu.walkers)
     set_walker_params(w.second);
 
+#ifdef DEBUG
+  WRITELOG("Creating a new BFC error corrector on region " + region.ToString(bwa_header) , false, true);
+#endif  
+  
   // create a new BFC read error corrector for this
   SeqPointer<SeqLib::BFC> bfc;
   if (opt::ec_correct_type == "f") {
@@ -891,6 +897,10 @@ bool runWorkItem(const SeqLib::GenomicRegion& region, svabaThreadUnit& wu, long 
   std::vector<AlignedContig> alc;
   SeqLib::BamRecordVector all_contigs, all_microbial_contigs;
 
+#ifdef DEBUG
+  WRITELOG("Starting timer " + region.ToString(bwa_header) , false, true);
+#endif  
+
   // start a timer
   svabaUtils::svabaTimer st;
   st.start();
@@ -901,6 +911,10 @@ bool runWorkItem(const SeqLib::GenomicRegion& region, svabaThreadUnit& wu, long 
   // read in alignments from the main region
   for (auto& w : wu.walkers) {
 
+#ifdef DEBUG
+    WRITELOG("Setting region -- Getting reads from BAM with prefix " + w.first + " on region " + region.ToString(bwa_header) , false, true);
+#endif  
+    
     // set the region to jump to
     if (!region.IsEmpty()) {
       w.second.SetRegion(region);
@@ -912,9 +926,23 @@ bool runWorkItem(const SeqLib::GenomicRegion& region, svabaThreadUnit& wu, long 
       }
     }
 
+#ifdef DEBUG
+    WRITELOG("Concatenating reads from BAM with prefix " + w.first + " on region " + region.ToString(bwa_header) , false, true);
+#endif  
+    
     // do the reading, and store the bad mate regions
-    wu.badd.Concat(w.second.readBam(&log_file)); 
+    wu.badd.Concat(w.second.readBam(&log_file));
+
+#ifdef DEBUG
+    WRITELOG("Merging Overlapping Intervals from BAM with prefix " + w.first + " on region " + region.ToString(bwa_header) , false, true);
+#endif  
+    
     wu.badd.MergeOverlappingIntervals();
+    
+#ifdef DEBUG
+    WRITELOG("Creating tree map from BAM with prefix " + w.first + " on region " + region.ToString(bwa_header) , false, true);
+#endif  
+    
     wu.badd.CreateTreeMap();
     
     // adjust the counts
@@ -926,6 +954,10 @@ bool runWorkItem(const SeqLib::GenomicRegion& region, svabaThreadUnit& wu, long 
 
   }
 
+#ifdef DEBUG
+    WRITELOG("Collecting cigar strings on region " + region.ToString(bwa_header) , false, true);
+#endif  
+  
   // collect all of the cigar strings in a hash
   std::unordered_map<std::string, SeqLib::CigarMap> cigmap;
   for (const auto& w : wu.walkers) 
@@ -936,6 +968,10 @@ bool runWorkItem(const SeqLib::GenomicRegion& region, svabaThreadUnit& wu, long 
   //SeqLib::BamRecordVector bav_this;
   svabaReadVector bav_this;
 
+#ifdef DEBUG
+    WRITELOG("Collecting and clearing reads " + region.ToString(bwa_header) , false, true);
+#endif  
+  
   // collect and clear reads from main round
   std::unordered_set<std::string> dedupe;
   collect_and_clear_reads(wu.walkers, bav_this, all_seqs, dedupe);
@@ -945,13 +981,15 @@ bool runWorkItem(const SeqLib::GenomicRegion& region, svabaThreadUnit& wu, long 
 
   // get the mate reads, if this is local assembly and has insert-size distro
   if (!region.IsEmpty() && !opt::single_end && min_dscrd_size_for_variant) {
+#ifdef DEBUG
+    WRITELOG("Running mate collection loops " + region.ToString(bwa_header) , false, true);
+#endif  
     run_mate_collection_loop(region, wu.walkers, wu.badd);
     // collect the reads together from the mate walkers
     collect_and_clear_reads(wu.walkers, bav_this, all_seqs, dedupe);
     st.stop("m");
   }
   
-
   // do the discordant read clustering
   DiscordantClusterMap dmap, dmap_tmp;
   
@@ -990,6 +1028,9 @@ bool runWorkItem(const SeqLib::GenomicRegion& region, svabaThreadUnit& wu, long 
   /////////////////////
   //// ASSEMBLY 
   /////////////////////
+#ifdef DEBUG
+    WRITELOG("Removing hardclips " + region.ToString(bwa_header) , false, true);
+#endif    
 
   // remove the hardclips, don't assemble them
   remove_hardclips(bav_this);
@@ -1012,6 +1053,11 @@ bool runWorkItem(const SeqLib::GenomicRegion& region, svabaThreadUnit& wu, long 
     goto afterassembly;
   }
 
+#ifdef DEBUG
+    WRITELOG("Doing kmer correction " + region.ToString(bwa_header) , false, true);
+#endif    
+
+  
   // do the kmer correction, in place
   if (opt::ec_correct_type == "s") {
     correct_reads(all_seqs, bav_this);
@@ -1020,15 +1066,27 @@ bool runWorkItem(const SeqLib::GenomicRegion& region, svabaThreadUnit& wu, long 
     assert(bfc);
     int learn_reads_count = bfc->NumSequences();
     
-    bfc->Train();
+#ifdef DEBUG
+    WRITELOG("BFC Train " + region.ToString(bwa_header) , false, true);
+#endif    
+    
+    bfc->Train();    
     bfc->clear();  // clear memory and reads. Keeps training data
-
+    
+#ifdef DEBUG
+    WRITELOG("BFC training " + region.ToString(bwa_header) , false, true);
+#endif    
+    
     st.stop("t");
 
     // reload with the reads to be corrected
     for (auto& s : bav_this)
       bfc->AddSequence(s.Seq().c_str(), "", "");
 
+#ifdef DEBUG
+    WRITELOG("BFC Error correcting " + region.ToString(bwa_header) , false, true);
+#endif    
+    
     // error correct 
     bfc->ErrorCorrect();
 
@@ -1052,6 +1110,10 @@ bool runWorkItem(const SeqLib::GenomicRegion& region, svabaThreadUnit& wu, long 
   
   // do the assembly, contig realignment, contig local realignment, and read realignment
   // modifes bav_this, alc, all_contigs and all_microbial_contigs
+#ifdef DEBUG
+    WRITELOG("Running assembly " + region.ToString(bwa_header) , false, true);
+#endif    
+  
   run_assembly(region, bav_this, alc, all_contigs, all_microbial_contigs, dmap, cigmap, wu.ref_genome);
 
 afterassembly:
@@ -1077,10 +1139,19 @@ afterassembly:
       dbsnp_filter->queryBreakpoint(i);
   }
 
+#ifdef DEBUG
+    WRITELOG("filtering against blacklist " + region.ToString(bwa_header) , false, true);
+#endif    
+
+  
   // filter against blacklist
   for (auto& i : bp_glob) 
     i.checkBlacklist(blacklist);
 
+#ifdef DEBUG
+    WRITELOG("Add in discordant clusters " + region.ToString(bwa_header) , false, true);
+#endif    
+  
   // add in the discordant clusters as breakpoints
   for (auto& i : dmap) {
     // dont send DSCRD if FR and below size
@@ -1094,11 +1165,19 @@ afterassembly:
       bp_glob.push_back(tmpbp);
     }
   }
+
+#ifdef DEBUG
+    WRITELOG("Deduplicate breakpoints " + region.ToString(bwa_header) , false, true);
+#endif    
   
-  // de duplicate the breakpoints
+    // de duplicate the breakpoints
   std::sort(bp_glob.begin(), bp_glob.end());
   bp_glob.erase( std::unique( bp_glob.begin(), bp_glob.end() ), bp_glob.end() );
 
+#ifdef DEBUG
+    WRITELOG("Adding coverage data " + region.ToString(bwa_header) , false, true);
+#endif    
+  
   // add the coverage data to breaks for allelic fraction computation
   std::unordered_map<std::string, STCoverage*> covs;
   for (auto& i : opt::bam) 
@@ -1106,12 +1185,21 @@ afterassembly:
 
   for (auto& i : bp_glob)
     i.addCovs(covs);
-
+  
+#ifdef DEBUG
+    WRITELOG("Scoring breakpoints " + region.ToString(bwa_header) , false, true);
+#endif    
+  
   for (auto& i : bp_glob) {
     i.readlen = readlen; // set the readlength
     i.scoreBreakpoint(opt::lod, opt::lod_db, opt::lod_somatic, opt::lod_somatic_db, opt::scale_error, min_dscrd_size_for_variant);
   }
 
+#ifdef DEBUG
+    WRITELOG("Labeling somatic breakpoints " + region.ToString(bwa_header) , false, true);
+#endif    
+
+  
   // label somatic breakpoints that intersect directly with normal as NOT somatic
   std::unordered_set<std::string> norm_hash;
   for (auto& i : bp_glob) // hash the normals
@@ -1153,6 +1241,8 @@ afterassembly:
       i.somatic_score = -2;
     }
 
+
+  
   // remove somatic SVs that overlap with germline svs
   if (germline_svs.size()) {
     for (auto& i : bp_glob) {
@@ -1169,6 +1259,11 @@ afterassembly:
       
   }
 
+#ifdef DEBUG
+    WRITELOG("Set ref and alt tags  " + region.ToString(bwa_header) , false, true);
+#endif    
+
+  
   // add the ref and alt tags
   // WHY IS THIS NOT THREAD SAFE?
   for (auto& i : bp_glob)
