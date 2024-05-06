@@ -112,7 +112,7 @@ void runToVCF(int argc, char** argv) {
   std::map<std::string, SampleInfo> tmp_alleles;
   igzstream infile(opt::input_file.c_str(), std::ios::in);
   size_t line_count = 0;
-
+  
   // Read the header line first
   std::string headerLine;
   if (std::getline(infile, headerLine)) {
@@ -124,9 +124,11 @@ void runToVCF(int argc, char** argv) {
     for (size_t i = 38; i < headerv.size(); i++) {
       assert(headerv[i].at(0) == 't' || headerv[i].at(0) == 'n');
       allele_names.push_back(headerv[i]);
+      header.colnames += "\t" + headerv[i].substr(5);
     }
   }
 
+  
   // convert to VCF
   VCFFile snowvcf(opt::input_file, opt::analysis_id, bwalker.Header(), header, true,
 		  opt::verbose > 0);
