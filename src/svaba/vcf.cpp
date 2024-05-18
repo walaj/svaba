@@ -323,11 +323,6 @@ VCFFile::VCFFile(std::string file, std::string id, const SeqLib::BamHeader& h, c
   int line_count = -1;
   while (getline(infile, line, '\n')) {
 
-    // skip the header
-    if (line_count == -1) {
-      line_count++;
-      continue;
-    }
     if (line.size() && line.at(0) == '#') {
       continue;
     }
