@@ -320,7 +320,7 @@ VCFFile::VCFFile(std::string file, std::string id, const SeqLib::BamHeader& h, c
 
   // read it in line by line
   getline(infile, line, '\n'); // skip first line
-  int line_count = -1;
+  int line_count = 0;
   while (getline(infile, line, '\n')) {
 
     if (line.size() && line.at(0) == '#') {
