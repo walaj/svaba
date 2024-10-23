@@ -7,6 +7,7 @@
 #include <utility>
 #include <vector>
 #include <fstream>
+#include <cstdint>
 
 #include "SeqLib/IntervalTree.h"
 
