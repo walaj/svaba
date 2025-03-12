@@ -41,8 +41,9 @@ RUN git clone --recursive https://github.com/walaj/svaba.git && cd svaba && mkdi
 # Compile svaba with htslib
 WORKDIR /opt/svaba/build
 RUN cmake .. \
-    -DHTSLIB_DIR=/usr/local
+    -DHTSLIB_DIR=/usr/local && \
+    make
 
-# Default command can be your application run command or just an interactive shell for testing
-ENV PATH "$PATH:/svaba/build"
+# Add svaba to system PATH
+ENV PATH="/opt/svaba/build:${PATH}"
 
