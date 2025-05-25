@@ -1,3 +1,106 @@
+#pragma once
+
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <deque>
+#include <vector>
+#include <memory>
+#include <atomic>
+#include <map>
+#include "svabaThreadUnit.h"
+#include "SeqLib/RefGenome.h"
+
+// A simple thread-safe queue for unique_ptr jobs
+template<typename Job>
+class WorkQueue {
+public:
+  void push(std::unique_ptr<Job> job) {
+    {
+      std::lock_guard<std::mutex> lk(mtx_);
+      queue_.push_back(std::move(job));
+    }
+    cv_.notify_one();
+  }
+
+  std::unique_ptr<Job> pop() {
+    std::unique_lock<std::mutex> lk(mtx_);
+    cv_.wait(lk, [this]{ return !queue_.empty(); });
+    auto job = std::move(queue_.front());
+    queue_.pop_front();
+    return job;
+  }
+
+  bool empty() const {
+    std::lock_guard<std::mutex> lk(mtx_);
+    return queue_.empty();
+  }
+
+private:
+  mutable std::mutex mtx_;
+  std::condition_variable cv_;
+  std::deque<std::unique_ptr<Job>> queue_;
+};
+
+// A pool of worker threads that pull WorkItems from the queue
+template<typename WorkItem>
+class ThreadPool {
+public:
+  using JobPtr = std::unique_ptr<WorkItem>;
+
+  ThreadPool(size_t numThreads,
+             const std::string& refIndex,
+             const std::string& virIndex,
+             const std::map<std::string,std::string>& bamFiles)
+    : running_(true)
+  {
+    for (size_t i = 0; i < numThreads; ++i) {
+      workers_.emplace_back([=]{
+        // Thread-local setup:
+        svabaThreadUnit wu;
+        wu.ref_genome = new SeqLib::RefGenome();
+        wu.ref_genome->LoadIndex(refIndex);
+        if (!virIndex.empty()) {
+          wu.vir_genome = new SeqLib::RefGenome();
+          wu.vir_genome->LoadIndex(virIndex);
+        }
+        for (auto& p : bamFiles) {
+          wu.walkers[p.first].Open(p.second);
+          wu.walkers[p.first].prefix = p.first;
+        }
+
+        // Main loop:
+        while (running_) {
+          auto job = queue_.pop();
+          if (!job) break;            // nullptr sentinel to exit
+          job->run(wu, std::this_thread::get_id());
+        }
+      });
+    }
+  }
+
+  // Submit a new WorkItem to the queue
+  void enqueue(JobPtr job) {
+    queue_.push(std::move(job));
+  }
+
+  // Gracefully shut down the pool: send sentinel and join
+  void shutdown() {
+    running_ = false;
+    // push one null job per thread to unblock
+    for (size_t i = 0; i < workers_.size(); ++i)
+      queue_.push(nullptr);
+    for (auto& t : workers_)
+      t.join();
+  }
+
+private:
+  std::atomic<bool> running_;
+  WorkQueue<WorkItem> queue_;
+  std::vector<std::thread> workers_;
+};
+
+/*
 #ifndef WORKQUEUE_SVABA_H
 #define WORKQUEUE_SVABA_H
 
@@ -179,3 +282,4 @@ public:
 };
 
 #endif
+*/

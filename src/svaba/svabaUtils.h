@@ -64,8 +64,6 @@ struct svabaTimer {
 
   bool __header_has_chr_prefix(bam_hdr_t * h);
 
-  bool __open_index_and_writer(const std::string& index, SeqLib::BWAWrapper * b, const std::string& wname, SeqLib::BamWriter& writer, SeqLib::RefGenome *& r, SeqLib::BamHeader& bwa_header);
-
   /** Generate a weighed random integer 
    * @param cs Weighting for each integer (values must sum to one) 
    * @return Random integer bounded on [0,cs.size())

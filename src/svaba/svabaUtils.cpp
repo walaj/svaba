@@ -2,6 +2,9 @@
 
 #include <iomanip>
 
+#include <filesystem>  // C++17
+namespace fs = std::filesystem;
+
 namespace svabaUtils {
 
 static std::string POLYA = "AAAAAAAAAAAAAAAAAAA";
@@ -151,7 +154,7 @@ int overlapSize(const SeqLib::BamRecord& query, const SeqLib::BamRecordVector& s
       std::string print1 = SeqLib::AddCommas<int>(region.pos1);
       std::string print2 = SeqLib::AddCommas<int>(region.pos2);
       char buffer[180];
-      snprintf (buffer, 180, "Ran %2s:%11s-%11s | T: %5d N: %5d C: %5d | ", 
+      snprintf (buffer, 180, "***Ran %2s:%11s-%11s | T: %5d N: %5d C: %5d | ", 
 	       h.IDtoName(region.chr).c_str(),
 	       print1.c_str(),print2.c_str(),
 	       (int)num_t_reads, (int)num_n_reads, 
@@ -179,13 +182,15 @@ int overlapSize(const SeqLib::BamRecord& query, const SeqLib::BamRecordVector& s
 		const SeqLib::BamHeader& h, int chunk, int window_pad) {
     
     // open the region file if it exists
-    bool rgfile = SeqLib::read_access_test(regionFile);
-    if (rgfile) {
+    if (!regionFile.empty() && fs::exists(regionFile)) {
       try {
 	file_regions = SeqLib::GRC(regionFile, h);
-      } catch (const std::exception &exc) {
-	std::cerr << "Found chromosome in region file " << regionFile << " not in reference genome. Skipping." << std::endl;
-	std::cerr << "     Caught error: " << exc.what() << std::endl;
+      }
+      catch (const std::exception &exc) {
+	std::cerr
+	  << "Found chromosome in region file " << regionFile
+	  << " not in reference genome. Skipping.\n"
+	  << "    Caught error: " << exc.what() << "\n";
       }
     }
     
@@ -205,11 +210,12 @@ int overlapSize(const SeqLib::BamRecord& query, const SeqLib::BamRecordVector& s
 	file_regions.add(gr);
       }
     }
+
+    // its empty, so cover whole genome
     else { 
       // add all chromosomes
       for (int i = 0; i < h.NumSequences(); i++) {
-	//if (i < 23) // don't add outsdie of 1-X
-	  file_regions.add(SeqLib::GenomicRegion(i, 1, h.GetSequenceLength(i))); //h.get()_->target_len[i]));
+	file_regions.add(SeqLib::GenomicRegion(i, 1, h.GetSequenceLength(i))); //h.get()_->target_len[i]));
       }
     }
     
@@ -272,28 +278,6 @@ int overlapSize(const SeqLib::BamRecord& query, const SeqLib::BamRecordVector& s
       return;
     b = SeqLib::GRC(f, h);
     b.CreateTreeMap();
-  }
-  
-  bool __open_index_and_writer(const std::string& index, SeqLib::BWAWrapper * b, const std::string& wname, SeqLib::BamWriter& writer, SeqLib::RefGenome *& r, SeqLib::BamHeader& bwa_header) {
-    
-    // load the BWA index
-    if (!b->LoadIndex(index))
-      return false;
-
-    // load the same index, but for querying seq from ref
-    if (!r->LoadIndex(index))
-      return false;
-
-    // get the dictionary from reference
-    bwa_header = b->HeaderFromIndex();
-    
-    // open the bam for writing  
-    writer.SetHeader(bwa_header);
-    if (!writer.Open(wname)) // open and write header
-      return false;
-    writer.WriteHeader();
-
-    return true;
   }
 
 //http://stackoverflow.com/questions/2114797/compute-median-of-values-stored-in-vector-c

@@ -1,12 +1,14 @@
 cmake_minimum_required(VERSION 3.10)
 
 # Set the C++ standard required for the project
-set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 # Set O2 optimization
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2")
+
+set(CMAKE_BUILD_TYPE Debug)
 
 project(svaba)
 
@@ -69,6 +71,7 @@ endif()
 # Find all source files
 set(SOURCES
 src/svaba/run_svaba.cpp
+src/svaba/svabaOutputWriter.cpp
 src/svaba/BreakPoint.cpp
 src/svaba/AlignedContig.cpp
 src/svaba/AlignmentFragment.cpp

@@ -16,19 +16,19 @@ void runToVCF(int argc, char** argv);
 
 #define AUTHOR "Jeremiah Wala <jeremiah.wala@gmail.com"
 
-static const char *SVABA_USAGE_MESSAGE =
-"------------------------------------------------------------\n"
-"-------- SvABA - SV and indel detection by assembly --------\n"
-"------------------------------------------------------------\n"
-"Program: SvABA \n"
-"Version: " SVABA_VERSION " - March 2024\n"
-"Contact: Jeremiah Wala [ jeremiah.wala@gmail.org ]\n"
-"Usage: svaba <command> [options]\n\n"
-"Commands:\n"
-"           run            Run SvABA SV and Indel detection on BAM(s)\n"
-"           refilter       Refilter the SvABA breakpoints with additional/different criteria to created filtered VCF and breakpoints file.\n"
-"           tovcf          Convert the bps.txt.gz file to a VCF\n"
-"\nReport bugs to jwala@broadinstitute.org \n\n";
+static const std::string SVABA_USAGE_MESSAGE =
+    "------------------------------------------------------------\n"
+    "-------- SvABA - SV and indel detection by assembly --------\n"
+    "------------------------------------------------------------\n"
+    "Program: SvABA\n"
+  + std::string("Version: ") + SVABA_VERSION + " - " + SVABA_DATE + "\n"
+    "Contact: Jeremiah Wala [ jeremiah.wala@gmail.org ]\n"
+    "Usage: svaba <command> [options]\n\n"
+    "Commands:\n"
+    "           run            Run SvABA SV and Indel detection on BAM(s)\n"
+    "           refilter       Refilter the SvABA breakpoints with additional/different criteria to create filtered VCF and breakpoints file.\n"
+    "           tovcf          Convert the bps.txt.gz file to a VCF\n"
+    "\nReport bugs to jeremiah.wala@gmail.com\n\n";
 
 int main(int argc, char** argv) {
 

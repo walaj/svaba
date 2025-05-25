@@ -95,9 +95,6 @@ class svabaBamWalker: public SeqLib::BamReader {
   // mate regions to lookup
   MateRegionVector mate_regions; //c
 
-  // filter out reads at simple repeats?
-  SeqLib::GRC * simple_seq;
-  
   // object for realigning discordant reads
   DiscordantRealigner dr; //c
   

@@ -1114,7 +1114,7 @@ void BreakPoint::format_bx_string() {
 
   }
 
-  void BreakPoint::setRefAlt(const RefGenome * main_rg, const RefGenome * viral) {
+void BreakPoint::setRefAlt(const SeqLib::RefGenome* main_rg) {
 
     assert(!main_rg->IsEmpty());
     assert(ref.empty());
@@ -1124,37 +1124,13 @@ void BreakPoint::format_bx_string() {
 
       try {
 	// get the reference for BP1
-	if (b1.chr_name.find("gi|") == std::string::npos) {
-	  ref = main_rg->QueryRegion(b1.chr_name, b1.gr.pos1-1, b1.gr.pos1-1);
-	} else {
-	  throw std::invalid_argument("dummy to get to viral");
-	}
+	ref = main_rg->QueryRegion(b1.chr_name, b1.gr.pos1-1, b1.gr.pos1-1);
       } catch (const std::invalid_argument& ia) {}
-      
-      // try viral approach
-      if (viral && ref.empty() && !viral->IsEmpty())
-	try {
-	  ref = viral->QueryRegion(b1.chr_name, b1.gr.pos1-1, b1.gr.pos1-1); 
-	} catch (const std::invalid_argument& ia) {
-	  ref = "N";
-	  std::cerr << "Caught exception in BreakPoint:setRefAlt for SV Ref: " << ia.what() << std::endl;
-	}
       
       try {
-	if (b2.chr_name.find("gi|") == std::string::npos)
 	  alt = main_rg->QueryRegion(b2.chr_name, b2.gr.pos1-1, b2.gr.pos1-1);
-	else
-	  throw std::invalid_argument("dummy to get to viral");
       } catch (const std::invalid_argument& ia) {}
 
-      // try viral alt
-      if (viral && alt.empty() && !viral->IsEmpty())
-	try {
-	  alt = viral->QueryRegion(b2.chr_name, b2.gr.pos1-1, b2.gr.pos1-1);
-	} catch (const std::invalid_argument& ia) {
-	  alt = "N";
-	  std::cerr << "Caught exception in BreakPoint:setRefAlt for SV Alt: " << ia.what() << std::endl;
-	}
       
     } else {
 

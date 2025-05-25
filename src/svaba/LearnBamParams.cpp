@@ -4,6 +4,30 @@
 #include "SeqLib/BamReader.h"
 #include "svabaUtils.h"
 
+std::vector<std::string> extractReadGroups(const SeqLib::BamHeader& hdr) {
+  std::vector<std::string> rgs;
+  std::string text = hdr.AsString();               // full header, newline separated
+  std::istringstream lines(text);
+  std::string line;
+
+  while (std::getline(lines, line)) {
+    // look for lines that start with "@RG"
+    if (line.rfind("@RG", 0) == 0) {
+      // split on tabs to find the ID: field
+      std::istringstream fields(line);
+      std::string field;
+      while (std::getline(fields, field, '\t')) {
+        if (field.rfind("ID:", 0) == 0) {
+          rgs.push_back(field.substr(3));  // drop the "ID:" prefix
+          break;
+        }
+      }
+    }
+  }
+
+  return rgs;
+}
+
 std::ostream& operator<<(std::ostream& out, const BamParams& p) {
  
   out << "@@@ READ GROUP " << p.read_group << " Insert Size: " << p.mean_isize 
@@ -19,38 +43,44 @@ std::ostream& operator<<(std::ostream& out, const BamParams& p) {
   return out;
 }
 
-void LearnBamParams::learnParams(BamParamsMap& p, int max_count) {
+void LearnBamParams::learnParams(BamParamsMap& p) {
 
+  // make sure the bam is open
   SeqLib::GRC grv;
-  //grv.add(SeqLib::GenomicRegion(0, 1000000,2000000));
-  //grv.add(SeqLib::GenomicRegion(1,1000000,2000000));
   SeqLib::BamReader bwalker;
   assert(bwalker.Open(bam));
 
-  SeqLib::BamRecord r;
+  // find all of the read groups in the header
+  std::vector<std::string> all_rgs = extractReadGroups(bwalker.Header());
 
-  int wid = 0;
-  double pos1 = 0, pos2 = 0, chr = -1;
-
-  // loop through a bunch of reads
-  // first, try some predefined regions in middle of BAM
-  //int count = 0;
-  //while (bwalker.GetNextRecord(r) && ++count < max_count) {
-  //  process_read(r, count, pos1, pos2, chr, wid);
-  //}
+  // initialize a counter for each RG
+  for (auto& rg : all_rgs) {
+    rg_counts[rg] = 0;
+  }
+  size_t satisfied = 0; // how many RGs have hit learning limit
   
   // read from the beginning until hit max_count
-  size_t count = 0;
-  pos1 = 0; pos2 = 0; chr = -1; wid = 0;
   bwalker.Reset();
-  while (bwalker.GetNextRecord(r) && ++count < max_count) 
-    process_read(r, count, p, pos1, pos2, chr, wid);
+  SeqLib::BamRecord r;  
+  while (bwalker.GetNextRecord(r)) {
+    ++num_reads_seen;
+    process_read(r, p, satisfied);
 
-  wid += pos2 - pos1;
+    // if this is taking a while, let user know
+    if (num_reads_seen > 200000000 && num_reads_seen % 200000000 == 0) {
+      std::cerr << "...extensive BAM reading for insert size learning, RGs not homogenous - " << std::endl << 
+	"    " << SeqLib::AddCommas(num_reads_seen) << " reads viewed on bam: " << bam << std::endl;
+    }
+    
+    // if we hit all the learning limits, break
+    if (satisfied == rg_counts.size()) {
+      break;
+    }
+  }
+
   // get the summary stats
   for (auto& i : p) {
     i.second.collectStats();
-    i.second.mean_cov = (wid > 0) ? i.second.visited * i.second.readlen / wid : 0;
   }
   
 }
@@ -90,63 +120,62 @@ void BamParams::collectStats() {
   double sq_sum = std::inner_product(diff.begin(), diff.end(), diff.begin(), 0.0);
   sd_isize = std::sqrt(sq_sum / isize_vec.size());
 
-  //frac_disc = num_disc / (double)visited;
-  //frac_bad  = num_bad / (double)visited;
-  //frac_clip = num_clip / (double)visited;
-
-
 }
 
-void LearnBamParams::process_read(const SeqLib::BamRecord& r, size_t count, BamParamsMap& p,
-				  double& pos1, double& pos2, double& chr, int& wid) const {
-   
-   if (r.DuplicateFlag() || r.QCFailFlag() || r.SecondaryFlag() || !r.MappedFlag())
-     return;
-   
-   // get the first read position
-   if (count == 1 || r.ChrID() != chr) {
-     chr = r.ChrID();
-     if (count > 1)
-       wid += pos2 - pos1;
-     pos1 = r.Position();
-   }
-   
-   // update last read position (stay on same chrom as first)
-   if (chr == r.ChrID())
-     pos2 = r.Position();
-   
-   std::string RG;
-   if (!r.GetZTag("RG", RG))
-     RG = "NA";
-   // hack for simulated data
-   if (RG.find("tumor") != std::string::npos) {
-     std::string qn = r.Qname();
-     size_t posr = qn.find(":", 0);
-      RG = (posr != std::string::npos) ? qn.substr(0, posr) : RG;
-   } else {
-     // best practice without "tumor" hack
-     //RG = r.ParseReadGroup();
-   }
-   
-   BamParamsMap::iterator ff = p.find(RG);
-   
-   // new read group, make a new object here
-   if (ff == p.end()) {
-     p[RG] = BamParams(RG);
-     ff = p.find(RG);
-    }
-   
-   // max readlen and mapq
-   ff->second.readlen = std::max(r.Length(), ff->second.readlen);
-   ff->second.max_mapq = std::max(r.MapQuality(), ff->second.max_mapq);
-   
-   // count number of clips
-   if (r.NumClip() >= 5) ff->second.num_clip++;
-   
-   // collect all of the insert sizes
-   if (r.InsertSize() > 0 && r.ProperOrientation())
-     ff->second.isize_vec.push_back(r.FullInsertSize());
-   
-   ff->second.visited++;
-   
+void LearnBamParams::process_read(const SeqLib::BamRecord& r, BamParamsMap& p, size_t& satisfied) {
+
+  // exclude some read types
+  if (r.DuplicateFlag() || r.QCFailFlag() || r.SecondaryFlag() || !r.MappedFlag())
+    return;
+  
+  // get the RG
+  std::string RG;
+  if (!r.GetZTag("RG", RG))
+    RG = "NA";
+  
+  // update the read group seen counter
+  auto it = rg_counts.find(RG);
+
+  // warn user if read group in read is not in header
+  // but can proceed anyway afterwards
+  if (it == rg_counts.end()) {
+    std::cerr << "[WARNING] saw unexpected read group \"" << RG << "\"; known RGs:";
+    for (auto const & kv : rg_counts)
+      std::cerr << " " << kv.first;
+    std::cerr << "\n";
+    
+    // add it in since missing
+    rg_counts[RG] = 0;
+    it = rg_counts.find(RG); // and find the new slot
+  }
+
+  // now count the read group and check if past limit
+  assert(it != rg_counts.end());
+  if (it->second == per_rg_limit)
+    return; // we've already learned enough for this RG
+  ++(it->second);
+  if (it->second == per_rg_limit)
+    satisfied++;
+  
+  // find which RG and make new if needed
+  BamParamsMap::iterator ff = p.find(RG);
+  if (ff == p.end()) {
+    p[RG] = BamParams(RG);
+    ff = p.find(RG);
+  }
+  
+  // reacheck the max readlen and mapq for that readgroup
+  ff->second.readlen = std::max(r.Length(), ff->second.readlen);
+  ff->second.max_mapq = std::max(r.MapQuality(), ff->second.max_mapq);
+  
+  // count number of clips
+  if (r.NumClip() >= 5) ff->second.num_clip++;
+  
+  // add the insert size to the collection for stats later
+  if (r.InsertSize() > 0 && r.ProperOrientation())
+    ff->second.isize_vec.push_back(r.FullInsertSize());
+
+  // record visited
+  ff->second.visited++;
+  
 }

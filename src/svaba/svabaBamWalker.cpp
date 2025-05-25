@@ -58,6 +58,7 @@ bool svabaBamWalker::isDuplicate(const SeqLib::BamRecord &r) {
   return true;
 }
 
+// returns a bad mate region
 SeqLib::GRC svabaBamWalker::readBam(std::ofstream * log) {
 
   // these are setup to only use one bam, so just shortcut it
@@ -84,21 +85,20 @@ SeqLib::GRC svabaBamWalker::readBam(std::ofstream * log) {
   // loop the reads
   while (GetNextRecord(r)) {
 
-    // when we more regions, save the reads from last region
+    // when we move regions, save the reads from last region
     if (tb->m_region_idx != current_region) {
       current_region = tb->m_region_idx;
       reads.insert(reads.end(), this_reads.begin(), this_reads.end());
       this_reads.clear();
     }
 
-    // check if it passed blacklist
+    // check if it its blacklist region, and skip if so
     if (blacklist.size() && blacklist.CountOverlaps(r.AsGenomicRegion())) {
       continue;
     }
 
-    // dont even mess with them
-    if (r.CountNBases())
-      continue;
+    //if (r.CountNBases())
+    //  continue;
 
     // set some things to check later
     bool is_dup = false;
@@ -106,25 +106,25 @@ SeqLib::GRC svabaBamWalker::readBam(std::ofstream * log) {
     bool qcpass = !r.DuplicateFlag() && !r.QCFailFlag();
     bool pass_all = true;
 
+    // make a svabaRead, which is a BamReader with extra features
     svabaRead s(r, prefix);
 
     // quality score trim read
     QualityTrimRead(s);
     
-    // if its less than 20, dont even mess with it
-    //if (s.QualitySequence().length() < 20)
-    if (s.SeqLength() < 20)
-      //if (s.QualitySequence().length() < 20)
+    // if its less than 40, dont even mess with it
+    if (s.SeqLength() < 40)
       continue;
 
+    // so GV is the quality trimmed sequence
     s.AddZTag("GV", s.Seq()); 
 
+    // check if this read passes the rules for potential SV reads
     rule_pass = m_mr->isValid(r); 
       
-    DEBUG("SBW read seen", r);
+    DEBUG("SvabaBamWalker read seen", r);
 
     // if hit the limit of reads, log it and try next region
-    //if (countr > m_limit && m_limit > 0) {
     if (this_reads.size() > m_limit && m_limit > 0) {
 
       std::stringstream ss; 
@@ -134,14 +134,13 @@ SeqLib::GRC svabaBamWalker::readBam(std::ofstream * log) {
 	       << " weird reads. Limit: " << SeqLib::AddCommas(m_limit) << std::endl;
       if (log)
 	(*log) << ss.str();
-      
+
+      // add this region to the bad regions list
       if (m_region.size())  
 	bad_regions.add(m_region[tb->m_region_idx]);
 
-      // clear these reads out
-      //if ((int)reads.size() - countr > 0)
+      // clear these reads out, not a good region
       this_reads.clear();
-      //reads.erase(reads.begin(), reads.begin() + countr);
       
       // force it to try the next region, or return if none left
       ++tb->m_region_idx; // increment to next region
@@ -159,23 +158,6 @@ SeqLib::GRC svabaBamWalker::readBam(std::ofstream * log) {
       cov.addRead(r, INFORMATIVE_COVERAGE_BUFFER, false); 
     }
     
-    // check if in simple-seq
-    if (simple_seq->size()) {
-      
-      // check simple sequence overlaps
-      SeqLib::GRC ovl = simple_seq->FindOverlaps(r.AsGenomicRegion(), true);
-      
-      int msize = 0;
-      for (auto& j: ovl) {
-	int nsize = j.Width() - r.MaxDeletionBases() - 1;
-	if (nsize > msize && nsize > 0)
-	  msize = nsize;
-      }
-      
-      if (msize > 30)
-        qcpass = false;
-    }
-    
     pass_all = pass_all && qcpass && rule_pass;
     
     // check if has adapter
@@ -185,8 +167,7 @@ SeqLib::GRC svabaBamWalker::readBam(std::ofstream * log) {
     pass_all = pass_all && !adapter.count(hashed);
 
     // check if duplicated
-    //is_dup = isDuplicate(r); 
-    pass_all = !is_dup && pass_all;
+    pass_all = !isDuplicate(r) && pass_all;
 
     // add to weird coverage
     if (pass_all && get_coverage) 
@@ -202,7 +183,8 @@ SeqLib::GRC svabaBamWalker::readBam(std::ofstream * log) {
     DEBUG("SBW pass all? " + std::to_string(pass_all), r);
    
     // add all the reads for kmer correction
-    if (qcpass && do_kmer_filtering && all_seqs.size() < (m_limit * 5) && qcpass && !r.NumHardClip()) {
+    if (qcpass && do_kmer_filtering && all_seqs.size() < (m_limit * 5) &&
+	qcpass && !r.NumHardClip()) {
       bool train = pass_all && s.SeqLength() > 40;
 
       // if not 

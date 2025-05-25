@@ -10,13 +10,17 @@
 
 #define DISC_PAD 150
 #define MIN_PER_CLUST 2
-#define DEFAULT_ISIZE_THRESHOLD 800 // shouldn't be hit if isize was learned
+#define DEFAULT_ISIZE_THRESHOLD 2000 // shouldn't be hit if isize was learned
 
 //#define DEBUG_CLUSTER 1
 
 using namespace SeqLib;
 
   DiscordantClusterMap DiscordantCluster::clusterReads(const svabaReadVector& bav, const GenomicRegion& interval, int max_mapq_possible, const std::unordered_map<std::string, int> * min_isize_for_disc) {
+
+    // only warn about missing information once per read grouip
+    static std::unordered_set<std::string> warned_rgs;
+
 
 #ifdef DEBUG_CLUSTER    
     //for (auto& i : bav)
@@ -53,7 +57,9 @@ using namespace SeqLib;
 	if (ff != min_isize_for_disc->end()) {
 	  cutoff = ff->second;
 	} else {
-	  std::cerr << "Couldn't find RG " << RG << " Setting cutoff to default (800) " << std::endl;
+	  if (warned_rgs.insert(RG).second) {
+            std::cerr << "DiscordantCluster -- Couldn't find RG " << RG << ". Need to learn insert-size from more reads? Setting isize cutoff to default (2000)" << std::endl;
+	  }
 	}
 
       }

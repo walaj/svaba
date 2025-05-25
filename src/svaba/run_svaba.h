@@ -1,3 +1,106 @@
+#pragma once
+
+//#define STR_HELPER(x) #x
+//#define STR(x)        STR_HELPER(x)
+//#pragma message ("C++ standard is " STR(__cplusplus))
+//static_assert(__cplusplus >= 201703L, "C++17 or later is required");
+
+#include <string>
+#include <vector>
+#include <ostream>
+#include <unordered_map>
+#include <unordered_set>
+#include <map>
+
+#include "SeqLib/BamReader.h"
+#include "SeqLib/BamWriter.h"
+#include "SeqLib/BWAWrapper.h"
+#include "SeqLib/RefGenome.h"
+#include "SeqLib/BFC.h"
+
+#include "svabaUtils.h"
+#include "AlignedContig.h"
+#include "svabaBamWalker.h"
+#include "DiscordantCluster.h"
+#include "svabaAssemblerEngine.h"
+
+// your new C++ style thread/queue abstraction
+//#include "workqueue.h"  
+#include "svabaThreadUnit.h"
+
+constexpr char SVABA_VERSION[] = "1.3.0";
+constexpr char SVABA_DATE[] = "05/2025";
+  
+// aliases
+using BamMap       = std::map<std::string, std::string>;
+using CountPair    = std::pair<int, int>;
+using HTSFileMap   = std::map<std::string, SeqLib::SharedHTSFile>;
+using WalkerMap    = std::map<std::string, svabaBamWalker>;
+
+// core API
+void learnBamParams(SeqLib::BamReader& reader, const std::string& sampleId);
+void makeVCFs();
+int overlapSize(const SeqLib::BamRecord& query, const SeqLib::BamRecordVector& subject);
+bool hasRepeat(const std::string& seq);
+void parseRunOptions(int argc, char** argv);
+void runsvaba(int argc, char** argv);
+void learnParameters(const SeqLib::GRC& regions);
+int countJobs(const SeqLib::GRC& fileRegions, SeqLib::GRC& runRegions);
+void sendThreads(const SeqLib::GRC& regionsToRun);
+bool runWorkItem(const SeqLib::GenomicRegion& region,
+		 svabaThreadUnit& unit,
+		 size_t threadId);
+SeqLib::GRC makeAssemblyRegions(const SeqLib::GenomicRegion& region);
+void alignReadsToContigs(SeqLib::BWAWrapper& bw,
+                         const SeqLib::UnalignedSequenceVector& usv,
+                         svabaReadVector& bavThis,
+                         std::vector<AlignedContig>& outputContigs,
+                         const SeqLib::RefGenome* rg);
+void setWalkerParams(svabaBamWalker& walker);
+MateRegionVector collectNormalMateRegions(const WalkerMap& walkers);
+MateRegionVector collectSomaticMateRegions(const WalkerMap& walkers,
+                                           const MateRegionVector& blacklist);
+SeqLib::GRC getExcludeRegionsOnBadness(WalkerMap& walkers,
+                                       const SeqLib::GenomicRegion& region);
+void correctReads(std::vector<char*>& learnSeqs, svabaReadVector& brv);
+void runAssembly(const SeqLib::GenomicRegion& region,
+                 svabaReadVector& bavThis,
+                 std::vector<AlignedContig>& masterAlc,
+                 SeqLib::BamRecordVector& masterContigs,
+                 DiscordantClusterMap& dmap,
+                 const std::unordered_map<std::string, SeqLib::CigarMap>& cigmap,
+                 SeqLib::RefGenome* ref);
+void removeHardClips(svabaReadVector& brv);
+CountPair collectMateReads(const WalkerMap& walkers,
+                           const MateRegionVector& regions,
+                           int round,
+                           SeqLib::GRC& badMateRegions);
+CountPair runMateCollectionLoop(const SeqLib::GenomicRegion& region,
+                                WalkerMap& walkers,
+                                SeqLib::GRC& badRegions);
+void collectAndClearReads(WalkerMap& walkers,
+                          svabaReadVector& brv,
+                          std::vector<char*>& learnSeqs,
+                          std::unordered_set<std::string>& dedupe);
+void writeFilesOut(svabaThreadUnit& unit);
+void runTestAssembly();
+
+// A single region thread work item:
+struct SvabaWorkItem {
+  SeqLib::GenomicRegion region;
+  int                   id;
+
+  SvabaWorkItem(const SeqLib::GenomicRegion& r, int n)
+    : region(r), id(n)
+  {}
+
+  /// invoked by a worker thread
+  bool operator()(svabaThreadUnit& unit, size_t threadId) const {
+    return runWorkItem(region, unit, threadId);
+  }
+};
+
+/*
 #ifndef SVABA_RUN_H__
 #define SVABA_RUN_H__
 
@@ -24,7 +127,8 @@
 
 #include "workqueue.h"
 
-#define SVABA_VERSION "1.2.0"
+#define SVABA_VERSION "1.3.0"
+#define SVABA_DATE "May 2025"
 
 // typedefs
 typedef std::map<std::string, std::string> BamMap;
@@ -78,3 +182,4 @@ class svabaWorkItem {
 
 
 #endif
+*/

@@ -403,7 +403,8 @@ struct ReducedBreakEnd {
    bool valid() const;
    void format_bx_string();
 
-   void setRefAlt(const SeqLib::RefGenome * main_rg, const SeqLib::RefGenome * viral); 
+   void setRefAlt(const SeqLib::RefGenome* main_rg);
+
 
 };
 

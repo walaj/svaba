@@ -1,59 +1,58 @@
-#ifndef SVABA_THREAD_UNIT_H__
-#define SVABA_THREAD_UNIT_H__
-
-// hold outputs for a single (or set on the same thread) of local assemblies
+#pragma once
 
 #include <map>
+#include <memory>
+#include <vector>
+#include <mutex>
+
 #include "svabaBamWalker.h"
 #include "AlignedContig.h"
 #include "DiscordantCluster.h"
 #include "BreakPoint.h"
-#include "DiscordantCluster.h"
 #include "SeqLib/RefGenome.h"
 
-typedef std::map<std::string, svabaBamWalker> WalkerMap;
+using WalkerMap = std::map<std::string, svabaBamWalker>;
+
+struct svabaThreadUnit;
+void WriteFilesOut(svabaThreadUnit&);
 
 struct svabaThreadUnit {
-  
-  // its own thread-safe versions of readers and genomes
-  WalkerMap walkers;
-  SeqLib::RefGenome * ref_genome = nullptr;
-  SeqLib::RefGenome * vir_genome = nullptr;
-  //SeqLib::GRC m_bad_regions;// bad region tracker for this thread
-  
-  // other structures to hold results
-  std::vector<AlignedContig> m_alc;
-  SeqLib::BamRecordVector m_contigs, m_vir_contigs;
-  BPVec m_bps;
-  DiscordantClusterMap m_disc;
-  size_t m_bamreads_count = 0;
-  size_t m_disc_reads = 0;
-  SeqLib::GRC badd;
+
+  // per-thread BAM walkers and reference genomes
+  WalkerMap                                  walkers;
+  std::unique_ptr<SeqLib::RefGenome>         ref_genome;
+
+  // results
+  std::vector<AlignedContig>                 m_alc;
+  SeqLib::BamRecordVector                    m_contigs;
+  BPVec                                      m_bps;
+  DiscordantClusterMap                       m_disc;
+  size_t                                     m_bamreads_count = 0;
+  size_t                                     m_disc_reads     = 0;
+  SeqLib::GRC                                badd; // bad regions
+
+  svabaThreadUnit() = default;
+  ~svabaThreadUnit() = default;
+
+  // non-copyable, movable
+  svabaThreadUnit(const svabaThreadUnit&) = delete;
+  svabaThreadUnit& operator=(const svabaThreadUnit&) = delete;
+  svabaThreadUnit(svabaThreadUnit&&) noexcept = default;
+  svabaThreadUnit& operator=(svabaThreadUnit&&) noexcept = default;
 
   void clear() {
     m_alc.clear();
     m_contigs.clear();
-    m_vir_contigs.clear();
     m_bps.clear();
     m_disc.clear();
     m_bamreads_count = 0;
+    m_disc_reads     = 0;
+    badd.clear();
   }
-  
-  bool MemoryLimit(size_t read, size_t cont) const {
-    const size_t readlim = read;
-    const size_t contlim = cont;
-    return m_bamreads_count > readlim || m_contigs.size() > contlim || m_vir_contigs.size() > contlim || m_disc_reads > readlim;
+
+  bool MemoryLimit(size_t readLimit, size_t contLimit) const {
+    return m_bamreads_count > readLimit
+        || m_contigs.size()   > contLimit
+        || m_disc_reads       > readLimit;
   }
-  
-  ~svabaThreadUnit() {
-    clear();
-    if (ref_genome)
-      delete ref_genome;
-    if (vir_genome)
-      delete vir_genome;
-  }
-  
 };
-
-
-#endif

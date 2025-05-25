@@ -50,18 +50,22 @@ typedef std::unordered_map<std::string, BamParams> BamParamsMap;
 class LearnBamParams {
 
  public:
- LearnBamParams(const std::string& b) : bam(b) { };
+  LearnBamParams(const std::string& b) : bam(b) { };
   
-  void learnParams(BamParams& p, int max_count);
+  void learnParams(BamParamsMap& p);
 
-  void learnParams(BamParamsMap& p, int max_count);
-
+  // universal limit to number reads to learn from per RG
+  size_t per_rg_limit = 1000000;
+  
  private:
+
   std::string bam;
+  
+  void process_read(const SeqLib::BamRecord& r, BamParamsMap& p,
+		    size_t& satisfied); 
 
-  void process_read(const SeqLib::BamRecord& r, size_t count, 
-		    BamParamsMap& p, double& pos1, double& pos2, double& chr, int& wid) const;
-
+  std::unordered_map<std::string, size_t> rg_counts;
+  size_t num_reads_seen = 0;
 };
 
 
