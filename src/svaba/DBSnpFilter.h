@@ -1,5 +1,4 @@
-#ifndef SNOWTOOLS_DBSNP_FILTER_H__
-#define SNOWTOOLS_DBSNP_FILTER_H__
+#pragma once
 
 #include <vector>
 #include <cstring>
@@ -61,4 +60,3 @@ typedef SeqLib::GenomicRegionCollection<DBSnpSite> DBC;
     
   };
 
-#endif

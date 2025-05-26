@@ -513,37 +513,6 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h) {
     return st;
   }
   
-/*  int BreakPoint::checkPon(const PONFilter * p) {
-    
-    // only built for indels for now
-    if (num_align != 1)
-      return 0;
-    
-    std::string chr = std::to_string(b1.gr.chr);
-    
-    std::string key1, key2, key3, key4, key5;
-    std::string type = (insertion != "") ? "I" : "D";
-
-    key1 = chr + "_" + std::to_string(b1.gr.pos1-1);// + "_" + std::to_string(span) + type;
-    key2 = chr + "_" + std::to_string(b1.gr.pos1  );// + "_" + std::to_string(span) + type;
-    key3 = chr + "_" + std::to_string(b1.gr.pos1+1);// + "_" + std::to_string(span) + type;
-    key4 = chr + "_" + std::to_string(b1.gr.pos1-2);// + "_" + std::to_string(span) + type;
-    key5 = chr + "_" + std::to_string(b1.gr.pos1+2);//+ "_" + std::to_string(span) + type;
-    
-    pon = std::max(p->NSamps(key1), pon);
-    pon = std::max(p->NSamps(key2), pon);
-    pon = std::max(p->NSamps(key3), pon);
-    pon = std::max(p->NSamps(key4), pon);
-    pon = std::max(p->NSamps(key5), pon);
-    
-    return pon;
-    
-  }
-*/
-
-
-
-
 std::string BreakPoint::print(const SeqLib::BamHeader& h) const {
   
   std::stringstream out;

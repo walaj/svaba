@@ -1,6 +1,6 @@
 /* SvABA - Somatic Structural Variation Dectection
  * Copyright 2014 Broad Institute 
- * Written by Jeremiah Wala (jwala@broadinstitute.org)
+ * Written by Jeremiah Wala (jeremiah.wala@gmail.com)
  * Released under the included license detailed below.
  *
  * SvABA incorportes the core of String Graph Assembler, 
@@ -9,51 +9,61 @@
  * -- Released under the GPL
  */
 
-#include "refilter.h"
-#include "run_svaba.h"
+// svaba.cpp
+#include <iostream>
+#include <string_view>
+#include "svaba_params.h"
 
 void runToVCF(int argc, char** argv);
+void runsvaba(int argc, char** argv);
+void runRefilterBreakpoints(int argc, char** argv);
 
-#define AUTHOR "Jeremiah Wala <jeremiah.wala@gmail.com"
+static void printUsage() {
+    constexpr std::string_view header =
+        "------------------------------------------------------------\n"
+        "-------- SvABA - SV and indel detection by assembly --------\n"
+        "------------------------------------------------------------\n";
+    std::cout << header
+              << "Program: SvABA\n"
+              << "Version: " << SVABA_VERSION << " - " << SVABA_DATE << "\n"
+              << "Contact: Jeremiah Wala <jeremiah.wala@gmail.com>\n\n"
+              << "Usage: svaba <command> [options]\n\n"
+              << "Commands:\n"
+              << "  run       Run SV and indel detection on BAM(s)\n"
+              << "  refilter  Refilter breakpoints into filtered VCF\n"
+              << "  tovcf     Convert bps.txt.gz into a VCF\n\n"
+              << "Report bugs to jeremiah.wala@gmail.com\n";
+}
 
-static const std::string SVABA_USAGE_MESSAGE =
-    "------------------------------------------------------------\n"
-    "-------- SvABA - SV and indel detection by assembly --------\n"
-    "------------------------------------------------------------\n"
-    "Program: SvABA\n"
-  + std::string("Version: ") + SVABA_VERSION + " - " + SVABA_DATE + "\n"
-    "Contact: Jeremiah Wala [ jeremiah.wala@gmail.org ]\n"
-    "Usage: svaba <command> [options]\n\n"
-    "Commands:\n"
-    "           run            Run SvABA SV and Indel detection on BAM(s)\n"
-    "           refilter       Refilter the SvABA breakpoints with additional/different criteria to create filtered VCF and breakpoints file.\n"
-    "           tovcf          Convert the bps.txt.gz file to a VCF\n"
-    "\nReport bugs to jeremiah.wala@gmail.com\n\n";
+int main(int argc, char* argv[]) {
+    if (argc < 2) {
+        printUsage();
+        return EXIT_SUCCESS;
+    }
 
-int main(int argc, char** argv) {
+    std::string_view cmd = argv[1];
 
-  if (argc <= 1) {
-    std::cerr << SVABA_USAGE_MESSAGE;
-    return 0;
-  } else {
-    std::string command(argv[1]);
-    if (command == "help" || command == "--help") {
-      std::cerr << SVABA_USAGE_MESSAGE;
-      return 0;
-    } else if (command == "run") {
-      runsvaba(argc -1, argv + 1);
-    } else if (command == "refilter") {
-      runRefilterBreakpoints(argc-1, argv+1);
-    } else if (command == "tovcf") {
-      runToVCF(argc-1, argv+1);
+    if (cmd == "help" || cmd == "--help") {
+        printUsage();
+        return EXIT_SUCCESS;
+    }
+    else if (cmd == "run") {
+        // strip off the run before passing to parser
+        return (runsvaba(argc - 1, argv + 1), EXIT_SUCCESS);
+    }
+    else if (cmd == "refilter") {
+        return (runRefilterBreakpoints(argc - 1, argv + 1), EXIT_SUCCESS);
+    }
+    else if (cmd == "tovcf") {
+        return (runToVCF(argc - 1, argv + 1), EXIT_SUCCESS);
     }
     else {
-      std::cerr << SVABA_USAGE_MESSAGE;
-      return 0;
+        std::cerr << "Unknown command: " << cmd << "\n\n";
+        printUsage();
+        return EXIT_FAILURE;
     }
-  } 
-  
-  std::cerr << "Done with SvABA" << std::endl;
-  return 0;
+    
+    std::cerr << "Done with SvABA" << std::endl;
+    return 0;
 
 }

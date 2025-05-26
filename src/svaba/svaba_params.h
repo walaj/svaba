@@ -1,92 +1,67 @@
-#ifndef SVABA_PARAMS_H__
-#define SVABA_PARAMS_H__
+// svaba_params.h
+#pragma once
 
-// moved from AlignmentFragment.h
-/////////////////////////////////
-#define MAX_CONTIG_SIZE 5000000
+#include <cstddef>
 
-// moved from run_svaba.cpp
-///////////////////////////
+// version & date
+inline constexpr char SVABA_VERSION[] = "1.3.0";
+inline constexpr char SVABA_DATE[]    = "05/2025";
 
-// if a local alignment has < MIN_CLIP_FOR_LOCAL clips
-// then it has a good local (and is not an SV candidate contig)
-#define MIN_CLIP_FOR_LOCAL 40
+// from AlignmentFragment.h
+inline constexpr std::size_t MAX_CONTIG_SIZE = 5'000'000;
 
-// if local alignment to assembly has > MAX_NM_FOR_LOCAL
-// NM, then dont' consider it a strong local match
-#define MAX_NM_FOR_LOCAL 10 
+// from run_svaba.cpp
+inline constexpr int MIN_CLIP_FOR_LOCAL           = 40;
+inline constexpr int MAX_NM_FOR_LOCAL             = 10;
 
-// moved from BreakPoint
-////////////////////////
-#define MAX_ERROR 0.04
-#define MIN_ERROR 0.0005
+// from BreakPoint
+inline constexpr double MAX_ERROR                   = 0.04;
+inline constexpr double MIN_ERROR                   = 0.0005;
+inline constexpr int    T_SPLIT_BUFF                = 5;
+inline constexpr int    N_SPLIT_BUFF                = 5;
+inline constexpr int    INSERT_SIZE_TOO_BIG_SPAN_READS = 16;
+inline constexpr int    HOMOLOGY_FACTOR             = 4;
+inline constexpr int    MIN_SOMATIC_RATIO           = 15;
+inline constexpr int    COVERAGE_AVG_BUFF           = 10;
 
-#define T_SPLIT_BUFF 5
-#define N_SPLIT_BUFF 5
+// from DiscordantCluster
+inline constexpr int DISC_PAD                 = 150;
+inline constexpr int MIN_PER_CLUST            = 2;
+inline constexpr int DEFAULT_ISIZE_THRESHOLD  = 800;
 
-// if the insertion is this big or larger, don't require splits to span both sides
-#define INSERT_SIZE_TOO_BIG_SPAN_READS 16
+// from run_svaba
+inline constexpr std::size_t THREAD_READ_LIMIT      = 20'000;
+inline constexpr int         THREAD_CONTIG_LIMIT    =   250;
+inline constexpr int         MIN_DSCRD_READS_DSCRD_ONLY = 3;
 
-// if homology is greater than homology / HOMOLOGY_FACTOR, then reject for assembly-only
-#define HOMOLOGY_FACTOR 4
-#define MIN_SOMATIC_RATIO 15
+// from svabaAssemblerEngine
+inline constexpr std::size_t MAX_OVERLAPS_PER_ASSEMBLY = 20'000;
+inline constexpr int         MIN_CONTIG_MATCH           =    35;
+inline constexpr int         MATE_LOOKUP_MIN            =     3;
+inline constexpr int         SECONDARY_CAP              =    10;
+inline constexpr int         MAX_MATE_ROUNDS            =     1;
+inline constexpr std::size_t MATE_REGION_LOOKUP_LIMIT  =   400;
+inline constexpr std::size_t MAX_NUM_MATE_WINDOWS      = 50'000'000;
+inline constexpr int         GERMLINE_CNV_PAD           =    10;
+inline constexpr int         WINDOW_PAD                 =   500;
+inline constexpr int         MICROBE_MATCH_MIN          =    50;
+inline constexpr int         GET_MATES                  =     1;
+inline constexpr int         MICROBE                    =     1;
+inline constexpr int         LARGE_INTRA_LOOKUP_LIMIT   = 50'000;
+inline constexpr double      SECONDARY_FRAC             =  0.90;
 
-// when calculating coverage at one base, average over bases (left and right)
-#define COVERAGE_AVG_BUFF 10
+// from svabaBamWalker
+inline constexpr int MIN_MAPQ_FOR_MATE_LOOKUP            =     0;
+inline constexpr int MIN_ISIZE_FOR_DISCORDANT_REALIGNMENT = 1'000;
+inline constexpr int DISC_REALIGN_MATE_PAD                =   100;
+inline constexpr int MAX_SECONDARY_HIT_DISC               =    10;
+inline constexpr int MATE_REGION_PAD                      =   250;
 
-// moved from DiscordantCluster
-///////////////////////////////
-#define DISC_PAD 150
-#define MIN_PER_CLUST 2
-#define DEFAULT_ISIZE_THRESHOLD 800 // shouldn't be hit if isize was learned
+// coverage buffer
+inline constexpr int INFORMATIVE_COVERAGE_BUFFER = 0;
 
-// moved from run_svaba
-///////////////////////
-#define THREAD_READ_LIMIT 20000
-#define THREAD_CONTIG_LIMIT 250
+// from vcf
+inline constexpr int VCF_SECONDARY_CAP = 200;
+inline constexpr int SOMATIC_LOD       =   1;
+inline constexpr int DEDUPEPAD         = 200;
 
-// minimum number of reads to support even reporting dscrd cluster 
-// (if not assocaited with assembly contig)
-#define MIN_DSCRD_READS_DSCRD_ONLY 3 
-
-// moved from svabaAssemblerEngine
-//////////////////////////////////
-#define MAX_OVERLAPS_PER_ASSEMBLY 20000
-
-#define MIN_CONTIG_MATCH 35
-#define MATE_LOOKUP_MIN 3
-#define SECONDARY_CAP 10
-#define MAX_MATE_ROUNDS 1
-#define MATE_REGION_LOOKUP_LIMIT 400
-#define MAX_NUM_MATE_WINDOWS 50000000
-
-#define GERMLINE_CNV_PAD 10
-#define WINDOW_PAD 500
-#define MICROBE_MATCH_MIN 50
-#define GET_MATES 1
-#define MICROBE 1
-#define LARGE_INTRA_LOOKUP_LIMIT 50000
-#define SECONDARY_FRAC 0.90
-
-// moved from svabaBamWalker
-////////////////////////////
-//#define DEBUG_SVABA_BAMWALKER 1
-#define MIN_MAPQ_FOR_MATE_LOOKUP 0
-//#define TRAIN_READS_FAIL_SAFE 50000
-#define MIN_ISIZE_FOR_DISCORDANT_REALIGNMENT 1000
-#define DISC_REALIGN_MATE_PAD 100
-#define MAX_SECONDARY_HIT_DISC 10
-#define MATE_REGION_PAD 250
-
-// trim this many bases from front and back of read when determining coverage
-// this should be synced with the split-read buffer in BreakPoint2 for more accurate 
-// representation of covearge of INFORMATIVE reads (eg ones that could be split)
-#define INFORMATIVE_COVERAGE_BUFFER 0
-
-// moved from vcf
-/////////////////
-#define VCF_SECONDARY_CAP 200
-#define SOMATIC_LOD 1 // just a dummy now. scoring is elsewhere, and output is 0 (germline) or 1 (somatic)
-#define DEDUPEPAD 200
-
-#endif

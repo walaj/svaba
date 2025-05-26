@@ -77,7 +77,6 @@ src/svaba/AlignedContig.cpp
 src/svaba/AlignmentFragment.cpp
 src/svaba/DiscordantCluster.cpp
 src/svaba/DBSnpFilter.cpp
-src/svaba/PONFilter.cpp
 src/svaba/svabaUtils.cpp
 src/svaba/svaba.cpp
 src/svaba/svabaAssemblerEngine.cpp

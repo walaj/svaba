@@ -1,5 +1,4 @@
-#ifndef SNOWMAN_KMER_FILTER
-#define SNOWMAN_KMER_FILTER
+#pragma once
 
 #include <map>
 #include <string>
@@ -40,5 +39,3 @@ class KmerFilter {
 
 
 };
-
-#endif
