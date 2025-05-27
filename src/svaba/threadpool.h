@@ -51,6 +51,7 @@ public:
   ThreadPool(size_t nThreads,
              const std::string& ref,
              const std::map<std::string,std::string>& bamFiles,
+	     BWAIndexPtr idx,
 	     SvabaOutputWriter& output_writer)
     : queue_(), workers_(), flushMutex_(), output_writer_(output_writer)
   {
@@ -60,9 +61,7 @@ public:
 	  
         // per-thread setup - each thread gets its own FASTA read and BAM readers
 	// these should not be shared across threads, even if using const functions only
-        svabaThreadUnit unit;
-        unit.ref_genome = std::make_unique<SeqLib::RefGenome>();
-        unit.ref_genome->LoadIndex(ref);
+        svabaThreadUnit unit(idx,ref,bamFiles); // give it the shared_ptr to the master index
 	
 	// open the BAM files
         for(auto &p : bamFiles){

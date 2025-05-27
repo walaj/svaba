@@ -94,6 +94,9 @@ src/svaba/STCoverage.cpp
 src/svaba/Histogram.cpp
 src/svaba/BamStats.cpp
 src/svaba/svabaRead.cpp
+src/svaba/svabaLogger.cpp
+src/svaba/svabaOptions.cpp
+src/svaba/svabaFileLoader.cpp
 
 src/SGA/SuffixTools/STCommon.cpp
 src/SGA/SuffixTools/Occurrence.cpp

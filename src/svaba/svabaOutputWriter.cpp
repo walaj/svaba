@@ -17,6 +17,10 @@ namespace {
 
 }
 
+SvabaOutputWriter::SvabaOutputWriter(SvabaLogger& logger, const SvabaOptions& opts)
+  : logger_(logger), opts_(opts)
+{ }
+
 // init(): call once, from run_svaba.cpp immediately after you've parsed
 // your opts and before you shoot off any threads.
 void SvabaOutputWriter::init(const string& analysis_id,

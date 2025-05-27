@@ -13,6 +13,7 @@ inline constexpr std::size_t MAX_CONTIG_SIZE = 5'000'000;
 // from run_svaba.cpp
 inline constexpr int MIN_CLIP_FOR_LOCAL           = 40;
 inline constexpr int MAX_NM_FOR_LOCAL             = 10;
+inline constexpr int PER_RG_LEARN_LIMIT           = 1'000'000;
 
 // from BreakPoint
 inline constexpr double MAX_ERROR                   = 0.04;
@@ -43,10 +44,7 @@ inline constexpr int         MAX_MATE_ROUNDS            =     1;
 inline constexpr std::size_t MATE_REGION_LOOKUP_LIMIT  =   400;
 inline constexpr std::size_t MAX_NUM_MATE_WINDOWS      = 50'000'000;
 inline constexpr int         GERMLINE_CNV_PAD           =    10;
-inline constexpr int         WINDOW_PAD                 =   500;
-inline constexpr int         MICROBE_MATCH_MIN          =    50;
 inline constexpr int         GET_MATES                  =     1;
-inline constexpr int         MICROBE                    =     1;
 inline constexpr int         LARGE_INTRA_LOOKUP_LIMIT   = 50'000;
 inline constexpr double      SECONDARY_FRAC             =  0.90;
 

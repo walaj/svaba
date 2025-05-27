@@ -1,5 +1,6 @@
 #include "DBSnpFilter.h"
 #include "gzstream.h"
+#include "SvabaLogger.h"
 
 using namespace SeqLib;
 
@@ -30,97 +31,88 @@ DBSnpSite::DBSnpSite(const std::string& tchr, const std::string& pos, const std:
     
   }
 
-DBSnpFilter::DBSnpFilter(const std::string& db, const BamHeader& h) {
-    
-    // read in the file
-    if (!read_access_test(db)) {
-      std::cerr << std::endl << "**** Cannot read DBSnp database " << db << "   Expecting a VCF file" << std::endl;
-      return;
+DBSnpFilter::DBSnpFilter(const std::string& db,
+                         const SeqLib::BamHeader& header,
+                         SvabaLogger& logger)
+{
+
+  logger.log(true, true "...loading the DBsnp database ", db); 
+  // First, try opening the file (gzipped or not)
+  igzstream in(db.c_str());
+  if (!in) {
+    logger.log(true,true, //toerr, tolog
+      "ERROR: Cannot open DBSNP database file '", db, "' for reading."
+    );
+    throw std::runtime_error("Cannot open DBSnp database: " + db);
+  }
+
+  std::string line;
+  std::ostringstream cig;
+  while (std::getline(in, line)) {
+    if (line.empty() || line[0] == '#')
+      continue;
+
+    std::istringstream  iss(line);
+    std::string        chr, pos, rs, ref, alt;
+    if (!(iss >> chr >> pos >> rs >> ref >> alt)) {
+      logger.log(
+        true, true,
+        "WARNING: malformed VCF line in ", db, ": '", line, "'. Skipping."
+      );
+      continue;
     }
 
-    // read it in
-    igzstream in(db.c_str());
-    if (!in) {
-      std::cerr << std::endl << "**** Cannot read DBSnp database " << db << "   Expecting a VCF file" << std::endl;
-      return;
-    }
+    // we only care about indels (ref+alt length > 2)
+    if (ref.size() + alt.size() <= 2)
+      continue;
 
-    std::string line;
-    while (std::getline(in, line)) {
+    DBSnpSite site(chr, pos, rs, ref, alt, header);
+    m_sites.add(site);
 
-      if (line.find("#") != std::string::npos || line.length() == 0)
-	continue;
-
-      std::istringstream thisline(line);
-      std::string val;
-      int this_count = -1;
-      std::string chr, pos, rs, ref, alt;
-      while (std::getline(thisline, val, '\t')) {
-	++this_count;
-	switch (this_count) { 
-	case 0: chr = val; break;
-	case 1: pos = val; break;
-	case 2: rs = val; break;
-	case 3: ref = val; break;
-	case 4: alt = val; break;
-	}
-      }
-
-      DBSnpSite db(chr, pos, rs, ref, alt, h);
-
-      // for now reject SNP sites
-      if (ref.length() + alt.length() > 2) {
-	m_sites.add(db);
-
-	// make the hash
-	cig.str(std::string());
-	//cig << db.chr << "_" << db.pos1 << "_" << (db.pos2-db.pos1) << (db.m_ref.length() == 1 ? "I" : "D");
-	cig << db.chr << "_" << db.pos1;
-	//m_hash.insert(cig.str());
-	
-	m_int_hash.insert(hasher(cig.str()));
-	//std::cerr << line << " hash " << cig.str() << std::endl;
-	
-      }
-    }
-    
-    // build the tree
-    m_sites.CreateTreeMap();
-
+    // build a simple chr_pos hash
+    cig.str("");
+    cig << chr << "_" << site.pos1;
+    m_int_hash.insert(m_hasher(cig.str()));
   }
 
-  std::ostream& operator<<(std::ostream& out, const DBSnpFilter& d) {
-    out << "DBSnpFilter with a total of " << AddCommas<size_t>(d.m_sites.size());
-    return out;
-  }
+  // finalize our index
+  m_sites.CreateTreeMap();
+  logger.log(true,true, "Loaded ", m_sites.size(), " indel sites from DBSNP file '", db, "'.")'
+}
 
-  std::ostream& operator<<(std::ostream& out, const DBSnpSite& d) {
-    //out << d.chr << ":" << d.pos1 << "-" << d.pos2 << "\t" << d.m_rs << " REF " << d.m_ref << " ALT " << d.m_alt;
-    out << d.chr << ":" << d.pos1 << "-" << d.pos2;;
-    return out;
-  }
 
-  bool DBSnpFilter::queryHash(const std::string& h) const {
-    //return m_hash.count(h);
-    return m_int_hash.count(hasher(h));
-  }
+std::ostream& operator<<(std::ostream& out, const DBSnpFilter& d) {
+  out << "DBSnpFilter with a total of " << AddCommas<size_t>(d.m_sites.size());
+  return out;
+}
 
-  bool DBSnpFilter::queryBreakpoint(BreakPoint& bp) {
-    
-    std::vector<int32_t> sub, que;
-    GenomicRegion gr = bp.b1.gr;
-    gr.Pad(2);
-    GRC subject(gr);
-    GRC out = subject.FindOverlaps(m_sites, sub, que, true); // true = ignore_strand
-    
-    if (que.size()) {
-      //bp.rs = m_sites[sub[0]].m_rs;
-      bp.rs = "D"; 
-      //for (auto& j : que) {
-      //bp.rs += m_sites[j].m_rs + "_";
-      //}
-      //bp.rs.pop_back(); // just drop the last comma
-      return true;
-    }
-    return false;
+std::ostream& operator<<(std::ostream& out, const DBSnpSite& d) {
+  //out << d.chr << ":" << d.pos1 << "-" << d.pos2 << "\t" << d.m_rs << " REF " << d.m_ref << " ALT " << d.m_alt;
+  out << d.chr << ":" << d.pos1 << "-" << d.pos2;;
+  return out;
+}
+
+bool DBSnpFilter::queryHash(const std::string& h) const {
+  //return m_hash.count(h);
+  return m_int_hash.count(hasher(h));
+}
+
+bool DBSnpFilter::queryBreakpoint(BreakPoint& bp) {
+  
+  std::vector<int32_t> sub, que;
+  GenomicRegion gr = bp.b1.gr;
+  gr.Pad(2);
+  GRC subject(gr);
+  GRC out = subject.FindOverlaps(m_sites, sub, que, true); // true = ignore_strand
+  
+  if (que.size()) {
+    //bp.rs = m_sites[sub[0]].m_rs;
+    bp.rs = "D"; 
+    //for (auto& j : que) {
+    //bp.rs += m_sites[j].m_rs + "_";
+    //}
+    //bp.rs.pop_back(); // just drop the last comma
+    return true;
   }
+  return false;
+}

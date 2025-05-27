@@ -6,8 +6,14 @@
 #include "svabaThreadUnit.h"
 #include "SeqLib/BamWriter.h"
 #include "gzstream.h"
+#include "svabaLogger.h"
+#include "svabaOptions.h"
 
 struct SvabaOutputWriter {
+
+public:
+  
+  SvabaOutputWriter(SvabaLogger& logger, const SvabaOptions& opts);
   
   // call this once at startup:
   void init(const std::string& analysis_id,
@@ -18,6 +24,10 @@ struct SvabaOutputWriter {
   void writeUnit(svabaThreadUnit& unit);
   
 private:
+
+  SvabaLogger&        logger_;
+  SvabaOptions&       opts_;
+  
   ogzstream           all_align_;
   ogzstream           os_allbps_;
   ogzstream           os_discordant_;

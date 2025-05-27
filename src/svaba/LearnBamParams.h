@@ -1,73 +1,75 @@
-#ifndef SVABA_LEARN_BAM_PARAMS_H__
-#define SVABA_LEARN_BAM_PARAMS_H__
+// LearnBamParams.h
+#pragma once
 
 #include <string>
+#include <map>
 #include <ostream>
-#include <unordered_map>
-#include <vector>
+#include "SvabaSharedConfig.h"
 
-#include "SeqLib/BamRecord.h"
-
+/**
+ * BamParams collects and stores basic summary statistics for a single read group:
+ *   - readlen:       the maximum read length observed
+ *   - max_mapq:      the maximum mapping quality observed
+ *   - mean_isize:    the mean insert size of properly paired reads
+ *   - sd_isize:      the standard deviation of the insert size distribution
+ *
+ * After reading through a BAM file, LearnBamParams::collectStats() fills
+ * these fields and they are used downstream to set thresholds for
+ * SV/indel calling (e.g., discordant read size cutoffs).
+ */
 struct BamParams {
-  
-  BamParams() {}
-
-  BamParams(int r, double fc, double fd, double fb, double m) : readlen(r), frac_clip(fc), frac_disc(fd), frac_bad(fb), max_mapq(m) {}
-
-  BamParams(const std::string& rg) : read_group(rg) {}
+  int readlen      = 0;
+  int max_mapq     = 0;
+  double mean_isize= 0.0, sd_isize = 0.0;
 
   void collectStats();
-
+  
   friend std::ostream& operator<<(std::ostream& out, const BamParams& p);
-  
-  int visited = 0;
-  int num_clip = 0;
-  int num_disc = 0;
-  int num_bad = 0;
+};
+using BamParamsMap = std::map<std::string,BamParams>;
 
-  std::vector<int> isize_vec;
 
-  int lp = 0; // 0.025%
-  int hp = 0; // 97.5%
-
-  int readlen = 0;
-  double frac_clip = 0;
-  double frac_disc = 0;
-  double frac_bad = 0;
-  int max_mapq = 0;
-  double mean_cov = 0;
-
-  double mean_isize = 0;
-  double median_isize = 0;
-  double sd_isize = 0; 
-
-  std::string read_group;
-  
+/**
+ * BamLearningResult aggregates the insert-size learning results for all input BAM files:
+ *   - perFile:                   maps each sample name to its BamParamsMap (per-read group statistics)
+ *   - globalReadLen:             the maximum read length observed across all files
+ *   - globalMaxMapQ:             the maximum mapping quality observed across all files
+ *   - globalMinDiscordantSize:   the highest discordant-read size cutoff computed 
+ *                               (mean+SD*cutoff) across all read groups in all files
+ */
+struct BamLearningResult {
+  std::map<std::string, BamParamsMap> perFile;
+  int globalReadLen             = 0;
+  int globalMaxMapQ             = 0;
+  int globalMinDiscordantSize   = 0;
 };
 
-typedef std::unordered_map<std::string, BamParams> BamParamsMap;
-
+/**
+ * LearnBamParams encapsulates logic to learn insert-size and related statistics
+ * from a single BAM file or across multiple BAM files. It:
+ *   - Opens and iterates through each read in the BAM (via SeqLib::BamReader)
+ *   - Groups reads by read-group and collects metrics (read length, MAPQ, insert-size distribution)
+ *   - Computes per-read-group statistics (mean, median, SD of insert size, coverage, clip fraction, etc.)
+ *   - Provides a static helper to run this process on a set of BAM files and
+ *     produce both per-file (per RG) and global summary statistics (max read length,
+ *     max mapQ, and a discordant read size cutoff).
+ */
 class LearnBamParams {
 
- public:
-  LearnBamParams(const std::string& b) : bam(b) { };
-  
-  void learnParams(BamParamsMap& p);
+public:
 
-  // universal limit to number reads to learn from per RG
-  size_t per_rg_limit = 1000000;
-  
- private:
+  /// Learn parameters from a single BAM file
+  LearnBamParams(const SvabaSharedConfig& sc,
+		 const std::string& bamPath);
 
-  std::string bam;
-  
-  void process_read(const SeqLib::BamRecord& r, BamParamsMap& p,
-		    size_t& satisfied); 
+  // map of RG : params, for a single bam
+  BamParamsMap learnParams();  // scan this->bam_, return per RG stats
 
-  std::unordered_map<std::string, size_t> rg_counts;
-  size_t num_reads_seen = 0;
+  /// Scan *all* the given BAMs and return both per-file and global summaries
+  static BamLearningResult learnAll(const SvabaSharedConfig& sc)
+    
+private:
+  std::string       bam_;
+  const SvabaSharedConfig&  sc_; 
+  SeqLib::BamReader reader_;
 };
-
-
-
-#endif

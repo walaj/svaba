@@ -1,8 +1,7 @@
-#ifndef DISCORDANT_REALIGNER_H__
-#define DISCORDANT_REALIGNER_H__
+#pragma once
 
 #include "SeqLib/BamRecord.h"
-#include "SeqLib/BWAWrapper.h"
+#include "SeqLib/BWAAligner.h"
 #include "svabaRead.h"
 
 // object that holds functions for re-aligning a discordant read
@@ -21,7 +20,7 @@ class DiscordantRealigner {
 
   // realign read
   //bool RealignRead(SeqLib::BamRecord& r, const SeqLib::BWAWrapper* bwa) const;
-  bool RealignRead(svabaRead& r, const SeqLib::BWAWrapper* bwa) const;
+  bool RealignRead(svabaRead& r, const SeqLib::BWAAligner& bwa) const;
 
   // reassign a read if it has a better mapping
   // r is the read to be reassigned, s source alignment is the new alignment

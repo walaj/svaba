@@ -15,6 +15,8 @@
 #include "SeqLib/GenomicRegion.h"
 #include "SeqLib/UnalignedSequence.h"
 #include "SeqLib/ReadFilter.h"
+
+#include "svabaLogger.h"
 #include "KmerFilter.h"
 #include "vcf.h"
 #include "DBSnpFilter.h"
@@ -30,24 +32,15 @@ using namespace SeqLib;
 using namespace std;
 
 // --- handy aliases ---
-using BamMap              = std::map<std::string, std::string>;
+using BamMap              = std::map<string, string>;
 using CountPair           = std::pair<int,int>;
-using HTSFileMap          = std::map<std::string, SeqLib::SharedHTSFile>;
-using WalkerMap           = std::map<std::string, svabaBamWalker>;
-//using svabaReadVector     = std::vector<svabaRead>;
-//using DiscordantClusterMap= std::unordered_map<std::string, DiscordantCluster>;
-
+using WalkerMap           = std::map<string, svabaBamWalker>;
 
 //#define DEBUG 1
-#define TCGA_ASSUME 1
 
-// log files
-static ofstream log_file;
-static stringstream ss; // initalize a string stream once
-
-#define WRITELOG(msg, toerr, tolog)   \
-  { if (tolog) log_file  << (msg) << endl;	\
-    if (toerr) cerr << (msg) << endl; };
+// 1 is normal logging
+// 2 is heavy
+constexpr inline int log_level = 1;
 
 static RefGenome * ref_genome;
 static unordered_map<string, BamParamsMap> params_map; // key is bam id (t000), value is map with read group as key
@@ -59,12 +52,11 @@ static int min_dscrd_size_for_variant = 0; // set a min size for what we can cal
 
 static unordered_map<string, int> min_isize_for_disc;
 
-static SvabaOutputWriter output_writer; // writes all the output files
-static BWAWrapper * main_bwa = nullptr;
+//static BWAWrapper * main_bwa = nullptr;
 static Filter::ReadFilterCollection * mr;
-static GRC blacklist, germline_svs;
+static GRC germline_svs;
 static DBSnpFilter * dbsnp_filter;
-static GRC file_regions, regions_torun;
+static GRC file_regions;
 
 // time
 static struct timespec start;
@@ -161,7 +153,6 @@ enum {
   OPT_EC_SUBSAMPLE,
   OPT_DISCORDANT_ONLY,
   OPT_NUM_ASSEMBLY_ROUNDS,
-  OPT_GERMLINE,
   OPT_SCALE_ERRORS,
   OPT_OVERRIDE_REFERENCE_CHECK
 };
@@ -170,7 +161,6 @@ static const char* shortopts = "hzIAt:n:p:v:r:G:e:k:c:a:m:B:D:Y:S:L:s:V:R:K:E:C:
 static const struct option longopts[] = {
   { "help",                    no_argument, NULL, 'h' },
   { "case-bam",               required_argument, NULL, 't' },
-  { "germline",                no_argument, NULL, OPT_GERMLINE },  
   { "all-contigs",             no_argument, NULL, 'A' },  
   { "id-string",               required_argument, NULL, 'a' },
   { "hp",                      no_argument, NULL, OPT_HP },
@@ -218,7 +208,6 @@ static const char *RUN_USAGE_MESSAGE =
 "  -t, --case-bam                       Case BAM/CRAM/SAM file (eg tumor). Can input multiple.\n"
 "  -n, --control-bam                    (optional) Control BAM/CRAM/SAM file (eg normal). Can input multiple.\n"
 "  -k, --region                         Run on targeted intervals. Accepts BED file or Samtools-style string\n"
-"      --germline                       Sets recommended settings for case-only analysis (eg germline). (-I, -L5, assembles NM >= 3 reads)\n"
 "  Variant filtering and classification\n"
 "      --lod                            LOD cutoff to classify indel as non-REF (tests AF=0 vs AF=MaxLikelihood(AF)) [8]\n"
 "      --lod-dbsnp                      LOD cutoff to classify indel as non-REF (tests AF=0 vs AF=MaxLikelihood(AF)) at DBSnp indel site [5]\n"
@@ -257,38 +246,7 @@ void  runsvaba       (int argc, char** argv);
 
 // foward declarations
 namespace {
-  
-  MateRegionVector   collectNormalMateRegions (const WalkerMap& walkers);
-  
-  MateRegionVector   collectSomaticMateRegions(const WalkerMap&   walkers,
-                                             const MateRegionVector& blacklist);
-  
-  void runAssembly(const SeqLib::GenomicRegion& region,
-                 svabaReadVector&            bavThis,
-                 std::vector<AlignedContig>& masterAlc,
-                 SeqLib::BamRecordVector&    masterContigs,
-                 DiscordantClusterMap&       dmap,
-                 const std::unordered_map<std::string,SeqLib::CigarMap>& cigmap,
-                 SeqLib::RefGenome*          ref);
-  
-  CountPair runMateCollectionLoop(const SeqLib::GenomicRegion& region,
-                                WalkerMap&                   walkers,
-                                SeqLib::GRC&                 badRegions);
-  
-  void writeFilesOut(svabaThreadUnit& unit);
-  
-  void runTestAssembly();
-
-  // --- one small helper functor ---
-  struct SvabaWorkItem {
-    SeqLib::GenomicRegion region;
-    int                   id;
-    SvabaWorkItem(const SeqLib::GenomicRegion& r, int n)
-      : region(r), id(n)
-    {}
-    bool operator()(svabaThreadUnit& unit, size_t threadId) const;
-  };
-  
+     
   void setWalkerParams(svabaBamWalker& walk) {
     
     walk.main_bwa = main_bwa; // set the pointer
@@ -500,7 +458,10 @@ MateRegionVector collectSomaticMateRegions(WalkerMap& walkers, MateRegionVector&
 
 }
 
-CountPair collectMateReads(WalkerMap& walkers, const MateRegionVector& mrv, int round, GRC& this_bad_mate_regions) {
+CountPair collectMateReads(WalkerMap& walkers,
+			   const MateRegionVector& mrv,
+			   int round,
+			   GRC& this_bad_mate_regions) {
 
   CountPair counts = {0,0};  
 
@@ -525,7 +486,7 @@ CountPair collectMateReads(WalkerMap& walkers, const MateRegionVector& mrv, int 
     // already added these to the to-do pile
     w.second.mate_regions.clear();
 
-    this_bad_mate_regions.Concat(w.second.readBam(&log_file)); 
+    this_bad_mate_regions.Concat(w.second.readBam()); 
     
     // update the counts
     if (w.first.at(0) == 't') 
@@ -537,60 +498,65 @@ CountPair collectMateReads(WalkerMap& walkers, const MateRegionVector& mrv, int 
   
   return counts;
 }
-
-  CountPair runMateCollectionLoop(const GenomicRegion& region, WalkerMap& wmap, GRC& badd) {
-
-  GRC this_bad_mate_regions; // store the newly found bad mate regions
   
-  CountPair counts = {0,0};
+  CountPair runMateCollectionLoop(const GenomicRegion& region,
+				  WalkerMap& wmap,
+				  GRC& badd,
+				  SvabaLogger& logger,
+				  const SvabaOptions& opts) {
 
-  MateRegionVector all_somatic_mate_regions;
-  all_somatic_mate_regions.add(MateRegion(region.chr, region.pos1, region.pos2)); // add the origional, don't want to double back
-  
-  for (int jjj = 0; jjj <  MAX_MATE_ROUNDS; ++jjj) {
+    GRC this_bad_mate_regions; // store the newly found bad mate regions
     
-    MateRegionVector normal_mate_regions;
-    if (wmap.size() > 1) // have at least one control bam
-      normal_mate_regions = collectNormalMateRegions(wmap);
+    CountPair counts = {0,0};
     
-    // get the mates from somatic 3+ mate regions
-    // that don't overlap with normal mate region
-    MateRegionVector tmp_somatic_mate_regions = collectSomaticMateRegions(wmap, normal_mate_regions);
+    MateRegionVector all_somatic_mate_regions;
+    all_somatic_mate_regions.add(MateRegion(region.chr, region.pos1, region.pos2)); // add the origional, don't want to double back
     
-    // no more regions to check
-    if (!tmp_somatic_mate_regions.size())
-      break;
-    
-    // keep regions that haven't been visited before
-    MateRegionVector somatic_mate_regions;
-    for (auto& s : tmp_somatic_mate_regions) {
+    for (int jjj = 0; jjj <  MAX_MATE_ROUNDS; ++jjj) {
       
-      // check if its not bad from mate region
-      if (badd.size() && !opt::no_bad_avoid)
-	if (badd.CountOverlaps(s))
-	  continue;
-
-      // new region overlaps with one already seen from another round
-      for (auto& ss : all_somatic_mate_regions) 
-	if (s.GetOverlap(ss)) 
-	  continue;
+      MateRegionVector normal_mate_regions;
+      if (wmap.size() > 1) // have at least one control bam
+	normal_mate_regions = collectNormalMateRegions(wmap);
       
-      if (s.count > opt::mate_lookup_min * 2 || (jjj == 0)) { // be more strict about higher rounds and inter-chr
-	somatic_mate_regions.add(s);
-	all_somatic_mate_regions.add(s);
-      }
+      // get the mates from somatic 3+ mate regions
+      // that don't overlap with normal mate region
+      MateRegionVector tmp_somatic_mate_regions = collectSomaticMateRegions(wmap, normal_mate_regions);
       
-      // don't add too many regions
-      if (all_somatic_mate_regions.size() > MAX_NUM_MATE_WINDOWS) {
-	all_somatic_mate_regions.clear(); // its a bad region. Don't even look up any
+      // no more regions to check
+      if (!tmp_somatic_mate_regions.size())
 	break;
-      }
+      
+      // keep regions that haven't been visited before
+      MateRegionVector somatic_mate_regions;
+      for (auto& s : tmp_somatic_mate_regions) {
+	
+	// check if its not bad from mate region
+	if (badd.size() && !opts.noBadAvoid)
+	  if (badd.CountOverlaps(s))
+	    continue;
+	
+	// new region overlaps with one already seen from another round
+	for (auto& ss : all_somatic_mate_regions) 
+	  if (s.GetOverlap(ss)) 
+	    continue;
+	
+	if (s.count > opt::mate_lookup_min * 2 || (jjj == 0)) { // be more strict about higher rounds and inter-chr
+	  somatic_mate_regions.add(s);
+	  all_somatic_mate_regions.add(s);
+	}
+	
+	// don't add too many regions
+	if (all_somatic_mate_regions.size() > MAX_NUM_MATE_WINDOWS) {
+	  all_somatic_mate_regions.clear(); // its a bad region. Don't even look up any
+	  break;
+	}
     }
     
     // print out to log
-    for (auto& i : somatic_mate_regions) 
-      WRITELOG("...mate region " + i.ToString(bwa_header) + " case read count that triggered lookup: " + 
-	       to_string(i.count) + " on mate-lookup round " + to_string(jjj+1), opt::verbose > 1, true);
+    for (auto& i : somatic_mate_regions)
+      logger.log(opt::verbose > 1, log_level > 1, "...mate region ", i.ToString(bwa_header) ,
+		 " case read count that triggered lookup: ", i.count, " on mate-lookup round ",
+		 jjj+1);
     
     // collect the reads for this round
     pair<int,int> mate_read_counts = collectMateReads(wmap, somatic_mate_regions, jjj, this_bad_mate_regions);
@@ -599,49 +565,54 @@ CountPair collectMateReads(WalkerMap& walkers, const MateRegionVector& mrv, int 
     counts.first += mate_read_counts.first;
     counts.second += mate_read_counts.second;
 
-    WRITELOG("\t<case found, control found>: <" + AddCommas(counts.first) +
-	     "," + AddCommas(counts.second) + "> on round " + to_string(jjj+1) , opt::verbose > 2, true);
+    logger.log(opts.verbose > 1, log_level > 1, "\t<case found, control found>: <",
+	       AddCommas(counts.first), ",", AddCommas(counts.second), "> on round ",
+	       jjj + 1);
     
     if (counts.first + counts.second == 0) // didn't get anything on first round, so quit
       break; 
 
-  } // mate collection round loop
-
-  // update this threads tally of bad mate regions
-  badd.Concat(this_bad_mate_regions);
+    } // mate collection round loop
+    
+    // update this threads tally of bad mate regions
+    badd.Concat(this_bad_mate_regions);
   badd.MergeOverlappingIntervals();
   badd.CreateTreeMap();
-  WRITELOG("\tTotal of " + AddCommas(badd.size()) + " bad mate regions for this thread", opt::verbose > 1, true);
-
+  logger.log(opts.verbose > 1, log_level > 1, "\tTotal of ", AddCommas(badd.size()), " bad mate regions for this thread");
+  
   return counts;
-}
+  }
 
-  void correctReads(vector<char*>& learn_seqs, svabaReadVector& brv) {
+  void correctReads(vector<char*>& learn_seqs,
+		    svabaReadVector& brv,
+		    SvabaLogger& logger,
+		    const SvabaOptions& opts) {
 
-  if (!learn_seqs.size())
-    return;
-
-  if (opt::ec_correct_type == "s") {
+    if (!learn_seqs.size())
+      return;
     
-    KmerFilter kmer;
-    int kmer_corrected = 0;
- 
-    // make the index for learning correction
-    kmer.makeIndex(learn_seqs);
-
-    // free the training sequences
-    // this memory was alloced w/strdup in collectAndClearReads
-    for (size_t i = 0; i < learn_seqs.size(); ++i)
-      if (learn_seqs[i]) 
-    	free(learn_seqs[i]);
-    
-    // do the correction
-    kmer_corrected = kmer.correctReads(brv); 
-    //kmer_corrected = kmer.correctReads(brv); 
-
-    WRITELOG("...SGA kmer corrected " + to_string(kmer_corrected) + " reads of " + to_string(brv.size()), opt::verbose > 1, true);  
-  } 
-}
+    if (opt::ec_correct_type == "s") {
+      
+      KmerFilter kmer;
+      int kmer_corrected = 0;
+      
+      // make the index for learning correction
+      kmer.makeIndex(learn_seqs);
+      
+      // free the training sequences
+      // this memory was alloced w/strdup in collectAndClearReads
+      for (size_t i = 0; i < learn_seqs.size(); ++i)
+	if (learn_seqs[i]) 
+	  free(learn_seqs[i]);
+      
+      // do the correction
+      kmer_corrected = kmer.correctReads(brv); 
+      //kmer_corrected = kmer.correctReads(brv); 
+      
+      logger.log(true/*TODO*/, false /*TODO*/, "...SGA kmer corrected ",
+		 kmer_corrected, " reads of ",brv.size());
+    } 
+  }
 
 
 void remove_hardclips(svabaReadVector& brv) {
@@ -828,7 +799,6 @@ void parseRunOptions(int argc, char** argv) {
     case 'x' : arg >> opt::max_reads_per_assembly; break;
     case 'M' : arg >> opt::mate_region_lookup_limit; break;
     case 'A' : opt::all_contigs = true; break;
-    case OPT_GERMLINE : opt::germline = true; break;
       case 'c': 
 	tmp = "";
 	arg >> tmp;
@@ -907,10 +877,6 @@ bool runWorkItem(const GenomicRegion& region,
 		 svabaThreadUnit& stu,
 		 size_t thread_id) {
   
-  WRITELOG("===Running region " + region.ToString(bwa_header) + " on thread " + to_string(thread_id), opt::verbose > 1, true);
-
-  for (auto& w : stu.walkers)
-    setWalkerParams(w.second);
 
 #ifdef DEBUG
   WRITELOG("Creating a new BFC error corrector on region " + region.ToString(bwa_header) , false, true);
@@ -1015,7 +981,7 @@ bool runWorkItem(const GenomicRegion& region,
 #ifdef DEBUG
     WRITELOG("...running mate collection loops " + region.ToString(bwa_header) , false, true);
 #endif  
-    runMateCollectionLoop(region, stu.walkers, stu.badd);
+    runMateCollectionLoop(region, stu.walkers, stu.badd, logger);
     // collect the reads together from the mate walkers
     collectAndClearReads(stu.walkers, input_reads, all_seqs, dedupe);
     st.stop("m");
@@ -1338,30 +1304,54 @@ afterassembly:
   return true;
 }
 
-void sendThreads(const GRC& regionsToRun) {
+  // --- one small helper functor ---
+  struct SvabaWorkItem {
+    
+    SeqLib::GenomicRegion region;
+    int                   id;
+    
+    SvabaWorkItem(const SeqLib::GenomicRegion& r, int n)
+      : region(r), id(n)
+    {}
 
-  // 1) construct a pool
-  ThreadPool<SvabaWorkItem> pool(
-    opt::numThreads,
-    opt::refgenome, 
-    opt::bam,
-    output_writer
-  );
+    /// invoked by a worker thread
+    bool operator()(svabaThreadUnit& unit, size_t threadId) const {
+      return runWorkItem(region, unit, threadId);
+    }
 
-// 2) submit one job per region
-  int count = 0;
-  for (auto& r : regionsToRun) {
-    pool.submit(make_unique<SvabaWorkItem>(r, ++count));
-  }
-  // if no intervals, submit a single wholegenome job
-  if (regionsToRun.IsEmpty()) {
-    pool.submit(make_unique<SvabaWorkItem>(GenomicRegion(), ++count));
-  }
+  };
+  
 
-  // 3) tell the pool were done and wait for everyone
+  void sendThreads(const SeqLib::GRC& regionsToRun,
+		   SvabaLogger& logger,
+		   const SvabaOpts& opts,
+		   const BamHeader& header,
+		   SvabaOutputWriter& writer,
+		   BWAIndexPtr idx) {
+    
+    // single shared processor:
+    SvabaRegionProcessor proc(logger, opts, header, writer);
+    
+    // our threadpool of work items:
+    ThreadPool<SvabaWorkItem> pool(
+				   opts.numThreads,
+				   opts.refGenome,
+				   opts.bamFiles,
+				   idx,
+				   writer
+				   );
+    
+  int count=0;
+  // submit one job per region  
+  for (auto& r : regionsToRun)
+    pool.submit(std::make_unique<SvabaWorkItem>(r, ++count, proc));
+  // if no intervals, submit a single wholegenome job  
+  if (regionsToRun.IsEmpty())
+    pool.submit(std::make_unique<SvabaWorkItem>(SeqLib::GenomicRegion(), ++count, proc));
+
   pool.shutdown();
 }
-
+  
 void makeVCFs() {
 
   if (opt::bam.size() == 0) {
@@ -1423,269 +1413,238 @@ void makeVCFs() {
     WRITELOG("ERROR: Failed to make VCF. Could not file bps file " + file, true, true);
   }
 
-}
-
+}  
   
 } //anonymous namespace
 
 void runsvaba(int argc, char** argv) {
 
-  // parse command line options
-  parseRunOptions(argc, argv);
+  // shared information to be passed around thread units
+  SvabaShardConfig sc;
 
-  // open the output log streams
-  svabaUtils::fopen(opt::analysis_id + ".log", log_file);
-
-  // open the output files for writing
-  output_writer.init(opt::analysis_id,
-		     opt::bam,
-		     bwa_header);
-  
-  // will check later if reads have different max mapq or readlen
-  bool diff_read_len = false;
-  bool diff_mapq = false;
-
-  // set the germline parameters 
-  if (opt::germline) {
-    if (!opt::rules.empty())
-      opt::rules = "{\"global\" : {\"duplicate\" : false, \"qcfail\" : false}, \"\" : { \"rules\" : [FRRULES,{\"rr\" : true},{\"ff\" : true}, {\"rf\" : true}, {\"ic\" : true}, {\"clip\" : 5, \"length\" : READLENLIM}, {\"ins\" : true}, {\"del\" : true}, {\"mapped\": true , \"mate_mapped\" : false}, {\"mate_mapped\" : true, \"mapped\" : false}, {\"nm\" : [3,0]}]}}";
-    opt::mate_lookup_min = 5;
-  } else {
-    if (opt::sd_disc_cutoff==3.96)
-      opt::sd_disc_cutoff=6;
+  // parse command line
+  try {
+    sc.opts = SvabaOptions::parse(argc, argv);
+    if (opts.help) {
+      SvabaOptions::printUsage();
+      return;
+    }
+  }
+  catch (const std::exception& e) {
+    std::cerr << "ERROR: " << e.what() << "\n";
+    return;
   }
 
-  // set the rules to skip read learning if doing stdin
-  if (opt::main_bam == "-" && !opt::rules.empty()) 
-    opt::rules = "{\"global\" : {\"duplicate\" : false, \"qcfail\" : false}, \"\" : { \"rules\" : [{\"isize\" : 2000}, {\"rr\" : true},{\"ff\" : true}, {\"rf\" : true}, {\"ic\" : true}, {\"clip\" : 5, \"length\" : 30}, {\"ins\" : true}, {\"del\" : true}, {\"mapped\": true , \"mate_mapped\" : false}, {\"mate_mapped\" : true, \"mapped\" : false}, {\"nm\" : [3,0]}]}}";
-
+  // open message logger
+  sc.logger.init(opts.analysis_id + ".log");
+  
   // write to log
-  cerr << 
-    "-----------------------------------------------------------" << endl << 
-    "---  Running svaba SV and indel detection on " << AddCommas(opt::numThreads) <<
-    " threads ---" <<(opt::numThreads >= 10 ? "" : "-") << endl <<
-    "---  Version: " << SVABA_VERSION << " - " << SVABA_DATE << "                           ---" << endl <<
-    "---    (inspect *.log for real-time progress updates)   ---" << endl << 
-    "-----------------------------------------------------------" << endl;
+  sc.logger.log(true, true, 
+	     "-----------------------------------------------------------\n",
+	     "---  Running svaba SV and indel detection on ",
+	     " threads ---", (sc.opts.numThreads >= 10 ? "\n" : "-\n"),
+	     "---  Version: ", SVABA_VERSION, " - ", SVABA_DATE, "                           ---\n",
+	     "---    (inspect *.log for real-time progress updates)   ---\n",
+	     "-----------------------------------------------------------");
   
-  ss << 
-    "***************************** PARAMS ****************************" << endl << 
-    "    DBSNP Database file: " << opt::dbsnp << endl << 
-    "    Max cov to assemble: " << opt::max_cov << endl <<
-    "    Error correction mode: " << opt::ec_correct_type << endl << 
-    "    Subsample-rate for correction learning: " + to_string(opt::ec_subsample) << endl;
-    ss << 
-      "    ErrorRate: " << (opt::sga::error_rate < 0.001f ? "EXACT (0)" : to_string(opt::sga::error_rate)) << endl << 
-      "    Num assembly rounds: " << opt::sga::num_assembly_rounds << endl;
-  ss << 
-    "    Discordant read extract SD cutoff:  " << opt::sd_disc_cutoff << endl << 
-    "    Discordant cluster std-dev cutoff:  " << opt::sd_disc_cutoff << endl << 
-    "    Minimum number of reads for mate lookup " << opt::mate_lookup_min << endl <<
-    "    LOD cutoff (non-REF):            " << opt::lod << endl << 
-    "    LOD cutoff (non-REF, at DBSNP):  " << opt::lod_db << endl << 
-    "    LOD somatic cutoff:              " << opt::lod_somatic << endl << 
-    "    LOD somatic cutoff (at DBSNP):   " << opt::lod_somatic_db << endl <<
-    "    BWA-MEM params:" << endl <<
-    "      Gap open penalty: " << opt::bwa::gap_open_penalty << endl << 
-    "      Gap extension penalty: " << opt::bwa::gap_extension_penalty << endl <<
-    "      Mismatch penalty: " << opt::bwa::mismatch_penalty << endl <<
-    "      Aligment bandwidth: " << opt::bwa::bandwidth << endl <<
-    "      Z-dropoff: " << opt::bwa::zdrop << endl <<
-    "      Clip 3 penalty: " << opt::bwa::clip3_pen << endl <<
-    "      Clip 5 penalty: " << opt::bwa::clip5_pen << endl <<
-    "      Reseed trigger: " << opt::bwa::reseed_trigger << endl <<
-    "      Sequence match score: " << opt::bwa::sequence_match_score << endl;
+  // print the options
+  sc.opts.printToLogger(sc.logger);
 
-  if (opt::disc_cluster_only)
-    ss << "    ######## ONLY DISCORDANT READ CLUSTERING. NO ASSEMBLY ##############" << endl;
-  ss <<
-    "*****************************************************************" << endl;	  
-  WRITELOG(ss.str(), opt::verbose >= 1, true);
-  ss.str(string());
-
-  SeqLib::BamReader first_tumor_bam_reader;
+  // open the human reference
+  sc.logger.log(true, true, "...loading the human reference sequence for BWA");
+  sc.bwa_idx = std::make_shared<SeqLib::BWAIndex>();
+  sc.bwa_idx->loadIndex(sc.opt.refGenome);
   
+  /*  main_bwa = new BWAWrapper();
+  main_bwa->SetAScore(opts.bwa.sequence_match_score);
+  main_bwa->SetGapOpen(opts.bwa.gap_open_penalty);
+  main_bwa->SetGapExtension(opts.bwa.gap_extension_penalty);
+  main_bwa->SetMismatchPenalty(opts.bwa.mismatch_penalty);
+  main_bwa->SetZDropoff(opts.bwa.zdrop);
+  main_bwa->SetBandwidth(opts.bwa.bandwidth);
+  main_bwa->SetReseedTrigger(opts.bwa.reseed_trigger);
+  main_bwa->Set3primeClippingPenalty(opts.bwa.clip3_pen);
+  main_bwa->Set5primeClippingPenalty(opts.bwa.clip5_pen);
+  */
+  
+  // load main BWA aligner reference genome
+  if (!sc.bwa_index->LoadIndex(opts.refgenome)) {
+    sc.logger.log(true, true, "Failed to load bwa index ",sc.opts.refgenome,"May need to run bwa index on reference fasta");
+    return;
+  }
+  
+  // get the dictionary from reference
+  sc.bwa_header = sc.bwa_idx->HeaderFromIndex();
+  
+  // load the same index, but for querying seq from ref
+  ref_genome = new RefGenome;  
+  if (!ref_genome->LoadIndex(opts.refgenome) || ref_genome->IsEmpty()) {
+    logger.log("Failed to load samtools index ",opts.refgenome, "May need to run samtools faidx on reference fasta");
+    return;
+  }
+
   // open the main bam to get header info
-  if (!first_tumor_bam_reader.Open(opt::main_bam)) {
-    if (opt::main_bam == "-")
+  SeqLib::BamReader first_tumor_bam_reader;  
+  if (!first_tumor_bam_reader.Open(sc.opts.main_bam)) {
+    if (sc.opts.main_bam == "-")
       cerr << "ERROR: Cannot read from stdin" << endl;
     else
       cerr << "ERROR: Cannot open main bam file: " << opt::main_bam << endl;
     exit(EXIT_FAILURE);
   }
-
+  SeqLib::BamHeader first_header = first_tumor_bam_reader.Header();
+  
   // then open the main header
-  if (first_tumor_bam_reader.Header().isEmpty()) {
+  if (sc.header.isEmpty()) {
     cerr << "ERROR: empty header in main bam file" << endl;
     exit(EXIT_FAILURE);
   }
-
-  // open the human reference
-  WRITELOG("...loading the human reference sequence for BWA", opt::verbose, true);
-  main_bwa = new BWAWrapper();
-  main_bwa->SetAScore(opt::bwa::sequence_match_score);
-  main_bwa->SetGapOpen(opt::bwa::gap_open_penalty);
-  main_bwa->SetGapExtension(opt::bwa::gap_extension_penalty);
-  main_bwa->SetMismatchPenalty(opt::bwa::mismatch_penalty);
-  main_bwa->SetZDropoff(opt::bwa::zdrop);
-  main_bwa->SetBandwidth(opt::bwa::bandwidth);
-  main_bwa->SetReseedTrigger(opt::bwa::reseed_trigger);
-  main_bwa->Set3primeClippingPenalty(opt::bwa::clip3_pen);
-  main_bwa->Set5primeClippingPenalty(opt::bwa::clip5_pen);
-
-  // open the reference for reading seqeuence
-  ref_genome = new RefGenome;
-
-  // load main BWA aligner reference genome
-  if (!main_bwa->LoadIndex(opt::refgenome)) {
-    cerr << "Failed to load bwa index " << opt::refgenome << endl;
-    cerr << "May need to run bwa index on reference fasta" << endl;    
-    assert(false);
-  }
-
-  // load the same index, but for querying seq from ref
-  if (!ref_genome->LoadIndex(opt::refgenome)) {
-    cerr << "Failed to load samtools index " << opt::refgenome << endl;
-    cerr << "May need to run samtools faidx on reference fasta" << endl;
-    assert(false);
-  }
   
-  // get the dictionary from reference
-  bwa_header = main_bwa->HeaderFromIndex();
-
-  // check that were able to load
-  if (ref_genome->IsEmpty()) {
-    cerr << "ERROR: Unable to open index file: " << opt::refgenome << endl;
-    exit(EXIT_FAILURE);
-   }
-
   // check that the two headers are equivalant
-  if (opt::override_reference_check) {
-    WRITELOG("!!! Will NOT perform check of reference compatability with BAM.\n!!! Only if *sure* that reference and BAM have same chr in same order.", true, true);
+  if (sc.opts.override_reference_check) {
+    sc.logger.log(true, true, "!!! Will NOT perform check of reference compatability with BAM");
+    sc.logger.log(true, true, "!!! Only if really *sure* that reference and BAM have same chr in same order");
   } else {
-    bool trigger_explain = false;
-    if (first_tumor_bam_reader.Header().NumSequences() != bwa_header.NumSequences()) {
-      trigger_explain = true;
-      stringstream ss;
-      ss << "!!!!!!!!!!! WARNING !!!!!!!!!!!" << endl 
-	 << "!!!!!! Number of sequences in BAM header mismatches reference" << endl
-	 << "!!!!!! BAM: " << first_tumor_bam_reader.Header().NumSequences() << " -- Ref: " << bwa_header.NumSequences();
-      WRITELOG(ss.str(), true, true);
-    }
-    
-    // check that the two headers are equivalant  
-    for (int i = 0; i < min(first_tumor_bam_reader.Header().NumSequences(), bwa_header.NumSequences()); ++i) {
-      if (first_tumor_bam_reader.Header().IDtoName(i) != bwa_header.IDtoName(i)) {
-	trigger_explain = true;
-	stringstream ss;
-	ss << "!!!!!! BAM sequence id " << i << ": \"" << first_tumor_bam_reader.Header().IDtoName(i) << "\"" 
-	   << " -- Ref sequence id " << i << ": \"" << bwa_header.IDtoName(i) << "\"";
-	WRITELOG(ss.str(), true, true);
-      }
-    }
-    if (trigger_explain) {
-      stringstream ss;
-      ss << "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" << endl
-	 << "!!! SvABA is being run with different reference genome than the reads were mapped to." << endl 
-	 << "!!! This can cause a massive failure in variant detection!" << endl 
-	 << "!!! If you are *sure* that the two references are functionally equivalent (e.g. chr1 vs 1)" << endl 
-	 << "!!! and that the order of the chromosomes is equivalent between the two," << endl 
-	 << "!!! you can override this error with option \"--override-reference-check\"" << endl 
-	 << "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!";
-      WRITELOG(ss.str(), true, true);
-      exit(EXIT_FAILURE);
-    }
+    svabaUtils::checkHeaderCompatibility(first_header, sc.header, sc.logger);
   }
 
+  // open file loader
+  SvabaFileLoader loader(sc.logger, sc.opts, sc.header);
   
-  // open the blacklists
-  svabaUtils::__open_bed(opt::blacklist, blacklist, bwa_header);
-  if (blacklist.size())
-    ss << "...loaded " << blacklist.size() << " blacklist regions from " << opt::blacklist << endl;
-
+  // open the blacklist
+  loader.loadBedRegions(sc.opts.blacklist, sc.blacklist);
+  
   // open the germline sv database
-  svabaUtils::__open_bed(opt::germline_sv_file, germline_svs, bwa_header);
-  if (germline_svs.size())
-    ss << "...loaded " << germline_svs.size() << " germline SVs from " << opt::germline_sv_file << endl;
-
+  loader.loadBedRegions(opts.germline_sv_file, germline_svs);
+  
   // open the DBSnpFilter
-  if (opt::dbsnp.length()) {
-    WRITELOG("...loading the DBsnp database", opt::verbose > 0, true)
-      dbsnp_filter = new DBSnpFilter(opt::dbsnp, bwa_header);
-    WRITELOG("...loaded DBsnp database", opt::verbose > 0, true)
+  if (opts.dbsnp.length()) {
+    dbsnp_filter = new DBSnpFilter(sc.opts.dbsnp, sc.header);
   }
 
   // needed for aligned contig
-  for (auto& b : opt::bam)
+  for (auto& b : opts.bam)
     prefixes.insert(b.first);
 
-  if (opt::main_bam == "-")
-    opt::single_end = true;
-
   // parse the region file, count number of jobs
-  int num_jobs = svabaUtils::countJobs(opt::regionFile, file_regions, regions_torun,
-				       bwa_header, opt::chunk, WINDOW_PAD); 
+  SeqLib::GRC regions_torun;
+  loader.countJobs(file_regions, regions_torun);  
+
+  // --- learn the insert-sizes ---
+  sc.logger.log(true, true,"... learning insert size distribution across all BAMs; this may take a while");
   
-  // no learning for stdin or single-end mode
-  if (opt::single_end) 
-    goto afterlearn;
+  // learn from the BAM files
+  BamLearningResult bamStats = LearnBamParams::learnAll(
+    opts.bamFiles,         // map<sampleName,bamPath>
+    PER_RG_LEARN_LIMIT,
+    opts.sdDiscCutoff,
+    logger
+  );
 
-  // learn bam
-  min_dscrd_size_for_variant = 0; // set a min size for what we can call with discordant reads only.
-#ifndef TCGA_ASSUME  
-  ss << "...learning insert size distribution across RGs. May take a while if RGs are not homogenously distributed";
-  WRITELOG(ss.str(), true, true);
-  for (auto& b : opt::bam) {
-    LearnBamParams parm(b.second);
-    params_map[b.first] = BamParamsMap();
-    parm.learnParams(params_map[b.first]);
-    for (auto& i : params_map[b.first]) {
-      readlen = max(readlen, i.second.readlen);
-      max_mapq_possible = max(max_mapq_possible, i.second.max_mapq);
-      min_dscrd_size_for_variant = max(min_dscrd_size_for_variant, (int)floor(i.second.mean_isize + i.second.sd_isize * opt::sd_disc_cutoff)); 
+  logger.log(true, true,"... done learning insert size distribution");
+
+  // --- set the SGA min overlap if user didn't ---
+  if (opts.sga.minOverlap == 0) {
+    opts.sga.minOverlap = std::max(30, int(0.6 * bamStats.globalReadLen));
+  }
+
+  // --- report what we learned ---
+  logger.log(true, true,
+    "... found max read length = ", bamStats.globalReadLen,
+    "; SGA minOverlap = ", opts.sga.minOverlap,
+    "; max MAPQ = ", bamStats.globalMaxMapQ
+  );
+
+  // --- compute seed parameters ---
+  int seedLength, seedStride;
+  {
+    svabaAssemblerEngine tester(
+      "test", opts.sga.error_rate, opts.sga.minOverlap, readlen
+    );
+    tester.calculateSeedParameters(
+      readlen, opts.sga.minOverlap, seedLength, seedStride
+    );
+  }
+  logger.log(false, true,
+    "... calculated seedLength = ", seedLength,
+    " (error_rate=", opts.sga.error_rate,
+    ", readlen=", bamStats.globalReadLen, ")"
+  );
+
+  // --- build per-RG discordant size rules ---
+  std::stringstream ssRules;
+  std::unordered_set<std::string> seenRG;
+  std::map<std::string,int> minIsizeForDisc;
+  for (auto const& [sample, pm] : bamStats.perFile) {
+    for (auto const& [rg, bp] : pm) {
+      if (!seenRG.count(rg)) {
+        int cutoff = int(
+          std::floor(bp.mean_isize + bp.sd_isize * opts.sd_disc_cutoff)
+        );
+        ssRules << R"({"isize":[)" << cutoff << R"(,0],"rg":")"
+                << rg << R"("})" << ",";
+        seenRG.insert(rg);
+        minIsizeForDisc[rg] = cutoff;
+      }
     }
+  }
+  if (!ssRules.str().empty())
+    ssRules.seekp(-1, ssRules.cur);  // drop trailing comma
 
-    ss << "BAM PARAMS FOR: " << b.first << "--" << b.second << endl;
-    for (auto& i : params_map[b.first])
-      ss << i.second << endl;
-    ss << " min_dscrd_size_for_variant " << min_dscrd_size_for_variant << endl;
+  logger.log(false, true, "[INFO] Learned discordant size cutoffs by RG:");
+  for (auto const& kv : minIsizeForDisc) {
+    logger.log(false, true,
+      "   RG=", kv.first, " -> cutoff=", kv.second
+    );
   }
-  ss << "...done learning insert size distribution across RGs"; 
-  WRITELOG(ss.str(), true, true);
 
-  // check if differing read lengths or max mapq
-  for (auto& a : params_map) {
-    for (auto& i : a.second) {
-      if (i.second.readlen != readlen)
-	diff_read_len = true;
-      if (i.second.max_mapq != max_mapq_possible)
-	diff_mapq = true;
-    } 
+  // plug into your JSON rules template
+  opts.rules = svabaUtils::myreplace(
+    opts.rules, "FRRULES", ssRules.str().empty()
+      ? "{}"
+      : ssRules.str()
+  );
+
+  // similarly replace any READLENLIM token
+  if (opts.rules.find("READLENLIM") != std::string::npos) {
+    int clipLen = std::max(30, int(0.3 * readlen));
+    opts.rules = svabaUtils::myreplace(
+      opts.rules, "READLENLIM", std::to_string(clipLen)
+    );
   }
-  for (auto& a : params_map) {
-    for (auto& i : a.second) {
-      if (diff_read_len)
-	cerr << "!!!! WARNING. Multiple readlengths mixed: " << i.first << "--" << i.second.readlen << " max readlen " << readlen << endl;
-      if (diff_mapq)
-	cerr << "!!!! WARNING. Multiple max mapq mixed: " << i.first << "--" << i.second.max_mapq << " max possible " << max_mapq_possible << endl;
-    }
-  }
-  ss << "...min discordant-only variant size " << min_dscrd_size_for_variant << endl;
+  
+  /*  
+  // learn the insert sizes
+#ifndef TCGA_ASSUME
+  logger.log(true,true,
+	     "...learning insert size distribution across all BAMs; this may take a while");
+  std::map<std::string,BamParamsMap> paramsMap;
+  int maxReadLen, maxMapQ, minDiscordantSize;
+  LearnBamParams::learnAll(
+    opts.bamFiles,
+    opts.sdDiscCutoff,
+    logger,
+    paramsMap,
+    maxReadLen,
+    maxMapQ,
+    minDiscordantSize
+  );
+  logger.log(false,true,
+    "...done learning insert size distribution");
 #else
-  ss << "...skipping insert size learning for speed, assuming 2000 as cutoff";
-  WRITELOG(ss.str(), true, true);
-#endif  
+  logger.log(true,true,
+    "...skipping insert size learning for speed, assuming cutoff=2000");
+  int minDiscordantSize = 2000;
+#endif
   
   // set the min overlap
-  if (!opt::sga::minOverlap) 
-    opt::sga::minOverlap = (0.6 * readlen) < 30 ? 30 : 0.6 * readlen;
+  if (!opts.sga.minOverlap) 
+    opts.sga.minOverlap = (0.6 * readlen) < 30 ? 30 : 0.6 * readlen;
 
   ss << "...found read length of " << readlen << ". Min Overlap is " << opt::sga::minOverlap << endl;
   ss << "...max read MAPQ detected: " << max_mapq_possible << endl;
   WRITELOG(ss.str(), opt::verbose > 1, true);
   ss.str(string());
-
-afterlearn: 
 
   // if didn't learn anything, then make sure we set an overlap
   if (!readlen && !opt::sga::minOverlap) {
@@ -1700,12 +1659,6 @@ afterlearn:
   WRITELOG("...calculated seed size for error rate of " + to_string(opt::sga::error_rate) + " and read length " +
 	   to_string(readlen) + " is " + to_string(seedLength), opt::verbose, true);
 
-  
-  if (num_jobs) {
-    WRITELOG("...running on " + AddCommas(num_jobs) + " chunks", opt::verbose, true);
-  } else {
-    WRITELOG("Chunk was <= 0: READING IN WHOLE GENOME AT ONCE", opt::verbose, true);
-  }
   
   // loop through and construct the readgroup rules
   stringstream ss_rules;
@@ -1746,15 +1699,12 @@ afterlearn:
       readlen = 30; // set some small default, in case we didn't learn the bam
     opt::rules = svabaUtils::myreplace(opt::rules, "READLENLIM", to_string((int) (readlen * 0.3)));
   }
+  */
 
   // set the ReadFilterCollection to be applied to each region
-  WRITELOG(opt::rules, opt::verbose > 1, true);
-  mr = new Filter::ReadFilterCollection(opt::rules, bwa_header);
-  WRITELOG(*mr, opt::verbose > 1, true);
-
-  // override the number of threads if need
-  num_jobs = (num_jobs == 0) ? 1 : num_jobs;
-  opt::numThreads = min(num_jobs, opt::numThreads);
+  logger.log(opts.verbose > 1, true, opts.rules);
+  mr = new Filter::ReadFilterCollection(opts.rules, bwa_header);
+  logger.log(opts.verbose > 1, true, *mr);
 
   // put args into string for VCF later
   args += "(v" + string(SVABA_VERSION) + ") ";
@@ -1767,10 +1717,8 @@ afterlearn:
 #endif
 
   // send the jobs to the queue
-  WRITELOG("--- Loaded non-read data. Starting detection pipeline", true, true);
-  sendThreads(regions_torun);
-
-  log_file.close();
+  logger.log(true, true, "Starting detection pipeline");
+  sendThreads(regions_torun, logger, opts, bwa_header, output_writer, bwaIndex);
 
   // more clean up 
   if (ref_genome)
@@ -1780,7 +1728,7 @@ afterlearn:
   makeVCFs();
   
 #ifndef __APPLE__
-  //  cerr << displayRuntime(start) << endl;
+    cerr << displayRuntime(start) << endl;
 #endif
 }
 

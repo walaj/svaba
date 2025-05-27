@@ -36,12 +36,12 @@ bool DiscordantRealigner::ShouldRealign(const svabaRead& r) const {
 }
 
 //bool DiscordantRealigner::RealignRead(SeqLib::BamRecord& r, const SeqLib::BWAWrapper* bwa) const {
-bool DiscordantRealigner::RealignRead(svabaRead& r, const SeqLib::BWAWrapper* bwa) const {
+bool DiscordantRealigner::RealignRead(svabaRead& r, const SeqLib::BWAAligner& bwa) const {
 
   DEBUG("Realigning original read", r);
 
   SeqLib::BamRecordVector als;
-  bwa->AlignSequence(r.Seq(), r.Qname(), als, false, 0.60, secondary_cap);
+  bwa.AlignSequence(r.Seq(), r.Qname(), als, false, 0.60, secondary_cap);
 
   // no alignments, so label as bad
   if (!als.size()) {

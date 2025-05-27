@@ -13,6 +13,8 @@
 #include "DiscordantRealigner.h"
 
 #include "SeqLib/BFC.h"
+#include "svabaLogger.h"
+#include "svabaOptions.h"
 
 // storage container for mate lookup-regions
 class MateRegion: public SeqLib::GenomicRegion
@@ -31,10 +33,10 @@ class svabaBamWalker: public SeqLib::BamReader {
   
  public:
   
-  svabaBamWalker() {}
+  svabaBamWalker(SvabaLogger& logger, const SvabaOptions& opts) : _logger(logger), _opts(opts) {}
 
   // for discordant read realignments
-  SeqLib::BWAWrapper * main_bwa = nullptr;
+  SeqLib::BWAAligner bwa_aligner;
 
   // for setting the SR tag
   std::string prefix; // eg. tumor, normal
@@ -43,7 +45,7 @@ class svabaBamWalker: public SeqLib::BamReader {
   SeqLib::GRC blacklist;
 
   // read in the reads
-  SeqLib::GRC readBam(std::ofstream* log = nullptr);
+  SeqLib::GRC readBam(); 
 
   // clear it out
   void clear() { 
@@ -96,7 +98,7 @@ class svabaBamWalker: public SeqLib::BamReader {
   MateRegionVector mate_regions; //c
 
   // object for realigning discordant reads
-  DiscordantRealigner dr; //c
+  DiscordantRealigner discordantRealigner; //c
   
   // maximum coverage of accepted reads, before subsampling
   size_t max_cov = 100;
@@ -132,6 +134,12 @@ class svabaBamWalker: public SeqLib::BamReader {
 
   // quality trim the readd
   void QualityTrimRead(svabaRead& r) const;
+
+  // for logging to console
+  SvabaLogger& _logger;
+
+  // for options
+  const SvabaOptions& _opts;
   
 };
 

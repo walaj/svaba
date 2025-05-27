@@ -1,10 +1,11 @@
-#ifndef SVABA_UTILS_H__
-#define SVABA_UTILS_H__
+#pragma once
 
 #include <ctime>
 #include <sstream>
 #include <unordered_map>
 #include <map>
+
+#include "svabaLogger.h"
 
 #include "SeqLib/BamReader.h"
 #include "SeqLib/BamWriter.h"
@@ -60,7 +61,7 @@ struct svabaTimer {
 
   bool __openWriterBam(const SeqLib::BamHeader& h, const std::string& name, SeqLib::BamWriter& wbam);
 
-  void __open_bed(const std::string& f, SeqLib::GRC& b, const SeqLib::BamHeader& h);
+  void openBed(const std::string& f, SeqLib::GRC& b, const SeqLib::BamHeader& h, SvabaLogger& logger);
 
   bool __header_has_chr_prefix(bam_hdr_t * h);
 
@@ -71,7 +72,10 @@ struct svabaTimer {
   int weightedRandom(const std::vector<double>& cs);
 
   std::vector<std::string> tokenize_delimited(const std::string& str, char delim);
+
+  void checkHeaderCompatibility(const SeqLib::BamHeader& bamHeader,
+			      const SeqLib::BamHeader& refHeader,
+				SvabaLogger& logger);
+
+  
 }
-
-
-#endif

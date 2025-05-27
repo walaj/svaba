@@ -273,13 +273,6 @@ int overlapSize(const SeqLib::BamRecord& query, const SeqLib::BamRecordVector& s
   }
   */
 
-  void __open_bed(const std::string& f, SeqLib::GRC& b, const SeqLib::BamHeader& h) {
-    if (f.empty())
-      return;
-    b = SeqLib::GRC(f, h);
-    b.CreateTreeMap();
-  }
-
 //http://stackoverflow.com/questions/2114797/compute-median-of-values-stored-in-vector-c
 double CalcMHWScore(std::vector<int>& scores)
 {
@@ -330,5 +323,58 @@ double CalcMHWScore(std::vector<int>& scores)
     return tokens;
   }
   
+/// Check that the BAM header and BWA reference header line up.
+void checkHeaderCompatibility(const SeqLib::BamHeader& bamHeader,
+			      const SeqLib::BamHeader& refHeader,
+			      SvabaLogger& logger)  {
   
+  bool triggerExplain = false;
+
+  if (bamHeader.NumSequences() != refHeader.NumSequences()) {
+    triggerExplain = true;
+    logger.log(
+	       true, true,  //toerr, tolog
+	       "!!!!!!!!!!! WARNING !!!!!!!!!!!\n",
+	       "!!!!!! Number of sequences in BAM header mismatches reference\n",
+	       "!!!!!! BAM: ", bamHeader.NumSequences(),
+	       " -- Ref: ", refHeader.NumSequences()
+	       );
+  }
+
+  
+  if (bamHeader.NumSequences() != refHeader.NumSequences()) {
+    triggerExplain = true;
+    logger.log(true, true, //toerr, tolog
+	       "!!!!!!!!!!! WARNING !!!!!!!!!!!\n",
+	       "!!!!!! Number of sequences in BAM header mismatches reference\n"
+	       "!!!!!! BAM: ", bamHeader.NumSequences(),
+	       " -- Ref: ", refHeader.NumSequences());
+  }
+  
+  const int n = std::min(bamHeader.NumSequences(), refHeader.NumSequences());
+  for (int i = 0; i < n; ++i) {
+    auto bamName = bamHeader.IDtoName(i);
+    auto refName = refHeader.IDtoName(i);
+    if (bamName != refName) {
+      triggerExplain = true;
+      logger.log(true, true,
+		 "!!!!!! BAM sequence id ", i, ": \"", bamName, "\"",
+		 " -- Ref sequence id ", i, ": \"", refName, "\"");
+    }
+  }
+  
+  if (triggerExplain) { 
+    logger.log(true, true, std::string(100, '!'), "\n",
+	       "!!! SvABA is being run with different reference genome than the reads were mapped to.\n",
+	       "!!! This can cause a massive failure in variant detection!\n",
+	       "!!! If you are *sure* that the two references are functionally equivalent (e.g. chr1 vs 1)\n",
+	       "!!! and that the order of the chromosomes is equivalent between the two,\n",
+	       "!!! you can override this error with option \"--override-reference-check\"\n"
+	       std::string(100, '!'));
+    std::exit(EXIT_FAILURE);
+  }
 }
+
+
+  
+} // end namespace svabaUtils

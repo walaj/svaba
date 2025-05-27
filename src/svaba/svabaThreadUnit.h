@@ -6,22 +6,56 @@
 #include <mutex>
 
 #include "svabaBamWalker.h"
+#include "svabaLogger.h"
+#include "svabaOptions.h"
 #include "AlignedContig.h"
 #include "DiscordantCluster.h"
 #include "BreakPoint.h"
 #include "SeqLib/RefGenome.h"
 
+#include "SeqLib/BWAIndex.h"
+#include "SeqLib/BWAAligner.h"
+
 using WalkerMap = std::map<std::string, svabaBamWalker>;
 
-struct svabaThreadUnit;
-void WriteFilesOut(svabaThreadUnit&);
+class svabaThreadUnit {
+  
+public:
+  
+  //svabaThreadUnit() = default;
+  ~svabaThreadUnit() = default;
+  
+  svabaThreadUnit(
+		  BWAIndexPtr idx,
+		  const std::string& reference,
+		  const std::map<std::string,std::string>& bamFiles,
+		  const SvabaOptions& opts
+		  ) {
 
-struct svabaThreadUnit {
+    // load the samtools faidx
+    ref_genome_ = std::make_unique<SeqLib::RefGenome>();
+    ref_genome_->LoadIndex(reference);
 
-  // per-thread BAM walkers and reference genomes
-  WalkerMap                                  walkers;
-  std::unique_ptr<SeqLib::RefGenome>         ref_genome;
+    // set the *shared* memory BWAIndex
+    bwa_aligner = SeqLib::BWAAligner(idx);
 
+    // load the .bai files for each bam
+    for (const auto&p : bamFiles) {
+      auto& walker = walkers_[p.first];
+      walker.Open(p.second);
+      walker.bwa_aligner = bwa_aligner;
+      
+      
+    }
+
+    // set the parameters
+    
+    
+  }
+
+  // local version of aligner class, but will hold shared memory index
+  SeqLib::BWAAligner bwa_aligner;
+  
   // results
   std::vector<AlignedContig>                 m_alc;
   SeqLib::BamRecordVector                    m_contigs;
@@ -30,9 +64,6 @@ struct svabaThreadUnit {
   size_t                                     m_bamreads_count = 0;
   size_t                                     m_disc_reads     = 0;
   SeqLib::GRC                                badd; // bad regions
-
-  svabaThreadUnit() = default;
-  ~svabaThreadUnit() = default;
 
   // non-copyable, movable
   svabaThreadUnit(const svabaThreadUnit&) = delete;
@@ -55,4 +86,12 @@ struct svabaThreadUnit {
         || m_contigs.size()   > contLimit
         || m_disc_reads       > readLimit;
   }
+
+private:
+
+  // store the BAM .bai indicies for for this thread
+  WalkerMap                            walkers_;
+
+  // store the faidx index for this thread
+  std::unique_ptr<SeqLib::RefGenome>   ref_genome_;  
 };

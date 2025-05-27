@@ -97,8 +97,8 @@ SeqLib::GRC svabaBamWalker::readBam(std::ofstream * log) {
       continue;
     }
 
-    //if (r.CountNBases())
-    //  continue;
+    if (r.CountNBases())
+      continue;
 
     // set some things to check later
     bool is_dup = false;
@@ -127,13 +127,10 @@ SeqLib::GRC svabaBamWalker::readBam(std::ofstream * log) {
     // if hit the limit of reads, log it and try next region
     if (this_reads.size() > m_limit && m_limit > 0) {
 
-      std::stringstream ss; 
-      ss << "\tstopping read lookup at " << r.Brief() << " in window " 
-	 << (m_region.size() ? m_region[tb->m_region_idx].ToString(tb->GetHeader()) : " whole BAM")
-	       << " with " << SeqLib::AddCommas(this_reads.size()) 
-	       << " weird reads. Limit: " << SeqLib::AddCommas(m_limit) << std::endl;
-      if (log)
-	(*log) << ss.str();
+      _logger.log(_opts > 1, false /*TODO*/, "\tstopping read lookup at ",
+		  r.Brief(), " in window ", (m_region.size() ? m_region[tb->m_region_idx].ToString(tb->GetHeader()) : " whole BAM"),
+		  "with ", SeqLib::AddCommas(this_reads.size()), " weird reads. Limit: ",
+		  SeqLib::AddCommas(m_limit));
 
       // add this region to the bad regions list
       if (m_region.size())  
@@ -208,8 +205,11 @@ SeqLib::GRC svabaBamWalker::readBam(std::ofstream * log) {
       continue;
     
     ++countr;
-    if (countr % 10000 == 0 && m_region.size() == 0 && log)
-      (*log) << "...read in " << SeqLib::AddCommas<size_t>(countr) << " weird reads for whole genome read-in. At pos " << r.Brief() << std::endl;
+    if (countr % 10000 == 0 && m_region.size() == 0 && log) {
+      _logger.log(_opts.verbose > 1, false/*TODO*/,
+		  "...read in ", SeqLib::AddCommas<size_t>(countr),
+		  " weird reads for whole genome read-in. At pos ",
+		  r.Brief());
     
     // for memory conservation
     s.RemoveTag("BQ");
@@ -255,7 +255,7 @@ SeqLib::GRC svabaBamWalker::readBam(std::ofstream * log) {
 #endif
 
   // realign discordants
-  if (main_bwa) 
+  if (!bwa_index->IsEmpty()) 
     realignDiscordants(reads);
   
   // calculate the mate region
@@ -405,26 +405,26 @@ bool svabaBamWalker::hasAdapter(const SeqLib::BamRecord& r) const {
 }
 
 //void svabaBamWalker::realignDiscordants(SeqLib::BamRecordVector& reads) {
-void svabaBamWalker::realignDiscordants(svabaReadVector& reads) {
-
-  size_t realigned_count = 0;
-  for (auto& r : reads) {
-    
-    if (!dr.ShouldRealign(r))
-      continue;
-
-    // modifies the read in place
-    if(dr.RealignRead(r, main_bwa)) {
-      ++realigned_count;
-      bad_discordant.insert(r.Qname());
-    }
-  }
-
-  // loop through and set DD < 0 for all read-pairs that have a bad discordant
-  for (auto& r : reads)
-    if (r.GetDD() >= 0 && bad_discordant.count(r.Qname()))
-      r.SetDD(DiscordantRealigner::MATE_BAD_DISC);
-
+ void svabaBamWalker::realignDiscordants(svabaReadVector& reads) {
+   
+   size_t realigned_count = 0;
+   for (auto& r : reads) {
+     
+     if (!discordantRealigner.ShouldRealign(r))
+       continue;
+     
+     // modifies the read in place
+     if(discordantRealigner.RealignRead(r, bwa_aligner)) {
+       ++realigned_count;
+       bad_discordant.insert(r.Qname());
+     }
+   }
+   
+   // loop through and set DD < 0 for all read-pairs that have a bad discordant
+   for (auto& r : reads)
+     if (r.GetDD() >= 0 && bad_discordant.count(r.Qname()))
+       r.SetDD(DiscordantRealigner::MATE_BAD_DISC);
+   
 }
 
 void svabaBamWalker::QualityTrimRead(svabaRead& r) const {
