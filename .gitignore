@@ -20,7 +20,6 @@ config.log
 config.status
 *.o
 bin
-svaba
 aclocal.m4
 html
 latex
