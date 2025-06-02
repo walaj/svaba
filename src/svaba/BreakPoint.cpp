@@ -6,8 +6,17 @@
 
 #include "gzstream.h"
 #include "svabaUtils.h"
-
+#include "STCoverage.h"
 #include "svaba_params.h"
+
+#include "SeqLib/GenomicRegionCollection.h"
+#include "SeqLib/GenomicRegion.h"
+#include "SeqLib/BamHeader.h"
+
+using SeqLib::GenomicRegion;
+using SeqLib::GRC;
+using SeqLib::BamHeader;
+
 
 // n is the max integer given the int size (e.g. 255). x is string with int
 #define INTNSTOI(x,n) std::min((int)n, std::stoi(x));
@@ -40,8 +49,6 @@ double scale_factor = 5.0;
 static std::unordered_map<int, double> ERROR_RATES = {{0, scale_factor * 1e-4}, {1, scale_factor * 1e-4}, {2,  scale_factor * 1e-4}, {3,  scale_factor * 1e-4}, {4,  scale_factor * 1e-4}, {5, scale_factor * 2e-4}, {6, scale_factor * 5e-4}, {7, scale_factor * 1e-3},
 						      {8, scale_factor * 2e-3}, {9, scale_factor * 3e-3}, {10, scale_factor * 1e-2}, {11, scale_factor * 2e-2}, {12, scale_factor * 3e-5}};
 
-
-using namespace SeqLib;
 
   double __myround(double x) { return std:: floor(x * 10) / 10; }
 
@@ -113,8 +120,11 @@ using namespace SeqLib;
 
 
 // make a breakpoint from a discordant cluster 
-BreakPoint::BreakPoint(DiscordantCluster& tdc, const BWAWrapper * bwa, DiscordantClusterMap& dmap, 
-		       const GenomicRegion& region, const SeqLib::BamHeader& h) {
+BreakPoint::BreakPoint(DiscordantCluster& tdc,
+		       DiscordantClusterMap& dmap, 
+		       const GenomicRegion& region,
+		       const SeqLib::BamHeader& h,
+		       SvabaSharedConfig& sc) {
     
     num_align = 0;
     dc = tdc;
@@ -124,8 +134,10 @@ BreakPoint::BreakPoint(DiscordantCluster& tdc, const BWAWrapper * bwa, Discordan
     try {
        // if this throw error, it means that there are more chr in 
        // reads than in reference
-       chr_name1 = bwa->ChrIDToName(dc.m_reg1.chr); //bwa->ChrIDToName(tdc.reads.begin()->second.ChrID());
-       chr_name2 = bwa->ChrIDToName(dc.m_reg2.chr); //bwa->ChrIDToName(tdc.reads.begin()->second.ChrID());
+      chr_name1 = sc.header.IDtoName(dc.m_reg1.chr);
+      chr_name2 = sc.header.IDtoName(dc.m_reg2.chr);      
+      //	chr_name1 = bwa->ChrIDToName(dc.m_reg1.chr); //bwa->ChrIDToName(tdc.reads.begin()->second.ChrID());
+      //      chr_name2 = bwa->ChrIDToName(dc.m_reg2.chr); //bwa->ChrIDToName(tdc.reads.begin()->second.ChrID());
     } catch (...) {
       std::cerr << "Warning: Found mismatch between reference genome and BAM genome for discordant cluster " << dc.print(h) << std::endl;
       chr_name1 = "Unknown";

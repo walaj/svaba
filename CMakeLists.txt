@@ -1,16 +1,10 @@
 cmake_minimum_required(VERSION 3.10)
 
 # Set the C++ standard required for the project
+project(svaba) # LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
-
-# Set O2 optimization
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2")
-
-set(CMAKE_BUILD_TYPE Debug)
-
-project(svaba)
 
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/SeqLib)
 
@@ -28,18 +22,6 @@ find_package(htslib QUIET)
 # Find required system level type libraries
 find_package(Threads REQUIRED)  
 find_package(ZLIB REQUIRED)
-
-## libcurl
-# Find libcurl or allow user-specified path
-find_package(CURL)
-
-if(CURL_FOUND)
-    message(STATUS "Found CURL: ${CURL_LIBRARIES}")
-else()
-    message(WARNING "CURL not found. You can specify the path with -DCURL_LIBRARY=<path_to_curl> and -DCURL_INCLUDE_DIR=<path_to_headers>.")
-    set(CURL_LIBRARY CACHE STRING "Path to libcurl library")
-    set(CURL_INCLUDE_DIR CACHE STRING "Path to libcurl include directory")
-endif()
 
 ## LZMA
 find_path(LZMA_INCLUDE_DIR NAMES lzma.h)
@@ -87,15 +69,17 @@ src/svaba/svabaOverlapAlgorithm.cpp
 src/svaba/svabaASQG.cpp
 src/svaba/svabaAssemble.cpp
 src/svaba/KmerFilter.cpp
+src/svaba/svabaThreadUnit.cpp
+src/svaba/SvabaRegionProcessor.cpp
 src/svaba/svabaBamWalker.cpp
-src/svaba/refilter.cpp
+#src/svaba/refilter.cpp
 src/svaba/LearnBamParams.cpp
 src/svaba/STCoverage.cpp
-src/svaba/Histogram.cpp
-src/svaba/BamStats.cpp
+##src/svaba/Histogram.cpp
+##src/svaba/BamStats.cpp
 src/svaba/svabaRead.cpp
-src/svaba/svabaLogger.cpp
 src/svaba/svabaOptions.cpp
+src/svaba/svabaLogger.cpp
 src/svaba/svabaFileLoader.cpp
 
 src/SGA/SuffixTools/STCommon.cpp

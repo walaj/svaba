@@ -1,5 +1,4 @@
-#ifndef SVABA_BAM_WALKER_H__
-#define SVABA_BAM_WALKER_H__
+#pragma once
 
 #include <vector>
 #include <sstream>
@@ -9,12 +8,12 @@
 #include "SeqLib/BamReader.h"
 #include "SeqLib/ReadFilter.h"
 #include "STCoverage.h"
-#include "SeqLib/BWAWrapper.h"
+#include "SeqLib/BWAAligner.h"
 #include "DiscordantRealigner.h"
 
 #include "SeqLib/BFC.h"
-#include "svabaLogger.h"
-#include "svabaOptions.h"
+
+class SvabaSharedConfig;
 
 // storage container for mate lookup-regions
 class MateRegion: public SeqLib::GenomicRegion
@@ -33,16 +32,10 @@ class svabaBamWalker: public SeqLib::BamReader {
   
  public:
   
-  svabaBamWalker(SvabaLogger& logger, const SvabaOptions& opts) : _logger(logger), _opts(opts) {}
-
-  // for discordant read realignments
-  SeqLib::BWAAligner bwa_aligner;
+  svabaBamWalker(SvabaSharedConfig& sc_);
 
   // for setting the SR tag
   std::string prefix; // eg. tumor, normal
-
-  // regions to blacklist
-  SeqLib::GRC blacklist;
 
   // read in the reads
   SeqLib::GRC readBam(); 
@@ -56,14 +49,13 @@ class svabaBamWalker: public SeqLib::BamReader {
     reads.clear();
     get_coverage = true;
     get_mate_regions = true;
-    all_seqs.clear();
     seq_set.clear();
     bad_discordant.clear();
   }
 
   void realignDiscordants(svabaReadVector& reads);
   
-  bool hasAdapter(const SeqLib::BamRecord& r) const;
+  ///bool hasAdapter(const SeqLib::BamRecord& r) const;
   
   void addCigar(SeqLib::BamRecord &r);
   
@@ -73,14 +65,13 @@ class svabaBamWalker: public SeqLib::BamReader {
   
   void calculateMateRegions();
 
+  void TagDiscordantReads();
+  
   // should we store the mate regions?
   bool get_mate_regions = true;
 
   // place to store reads when we get them
   svabaReadVector reads; //c
-
-  // store raw sequences for kmer correction learning
-  std::vector<char*> all_seqs; //c
 
   // cov is the all-read coverage tracker
   // weird-cov just tracks coverage of accepted (clip, disc, etc reads)
@@ -114,12 +105,8 @@ class svabaBamWalker: public SeqLib::BamReader {
   // set a hard limit on how many reads to accept
   size_t m_limit = 0;
 
-  // set a read filter
-  SeqLib::Filter::ReadFilterCollection * m_mr;
 
-  // 
   SeqPointer<SeqLib::BFC> bfc;
-  //  SeqLib::BFC * bfc = nullptr;
 
  private:
 
@@ -132,15 +119,7 @@ class svabaBamWalker: public SeqLib::BamReader {
   // seed for the kmer-learning subsampling
   uint32_t m_seed = 1337;
 
-  // quality trim the readd
-  void QualityTrimRead(svabaRead& r) const;
-
-  // for logging to console
-  SvabaLogger& _logger;
-
-  // for options
-  const SvabaOptions& _opts;
+  // for logging to console, options etc
+  SvabaSharedConfig& sc;
   
 };
-
-#endif

@@ -4,45 +4,51 @@
 #include <string>
 #include <map>
 #include <ostream>
-#include "SvabaSharedConfig.h"
+#include <vector>
+#include <unordered_map>
+#include <memory>
 
-/**
- * BamParams collects and stores basic summary statistics for a single read group:
- *   - readlen:       the maximum read length observed
- *   - max_mapq:      the maximum mapping quality observed
- *   - mean_isize:    the mean insert size of properly paired reads
- *   - sd_isize:      the standard deviation of the insert size distribution
+class SvabaSharedConfig;
+namespace SeqLib {
+  class BamRecord;
+  class BamReader;
+}
+
+/** Store information pertaining to a given read group *
  *
- * After reading through a BAM file, LearnBamParams::collectStats() fills
- * these fields and they are used downstream to set thresholds for
- * SV/indel calling (e.g., discordant read size cutoffs).
+ * This class will collect statistics on number of: read, supplementary reads, unmapped reads, qcfail reads, duplicate reads.
+ * It will also create Histogram objects to store counts of: mapq, nm, isize, clip, mean phred score, length
  */
-struct BamParams {
-  int readlen      = 0;
-  int max_mapq     = 0;
-  double mean_isize= 0.0, sd_isize = 0.0;
-
-  void collectStats();
+class BamReadGroup {
   
-  friend std::ostream& operator<<(std::ostream& out, const BamParams& p);
-};
-using BamParamsMap = std::map<std::string,BamParams>;
+ public:
 
+  /** Construct an empty BamReadGroup */
+  BamReadGroup() {}
 
-/**
- * BamLearningResult aggregates the insert-size learning results for all input BAM files:
- *   - perFile:                   maps each sample name to its BamParamsMap (per-read group statistics)
- *   - globalReadLen:             the maximum read length observed across all files
- *   - globalMaxMapQ:             the maximum mapping quality observed across all files
- *   - globalMinDiscordantSize:   the highest discordant-read size cutoff computed 
- *                               (mean+SD*cutoff) across all read groups in all files
- */
-struct BamLearningResult {
-  std::map<std::string, BamParamsMap> perFile;
-  int globalReadLen             = 0;
-  int globalMaxMapQ             = 0;
-  int globalMinDiscordantSize   = 0;
+  /** Add a BamRecord to this read group */
+  void addRead(const SeqLib::BamRecord &r);
+
+  void computeStats();
+  
+  // count number of reads 
+  size_t reads = 0;
+  size_t supp = 0;
+  size_t unmap = 0;  
+  size_t qcfail = 0;
+  size_t duplicate = 0;
+  size_t mate_unmap = 0;
+
+  int mapq_max = 0;
+  int readlen_max = 0;
+  std::vector<int> isize_vec;
+
+  // statistics
+  double isize_mean = 0;
+  double sd_isize = 0;
+  
 };
+
 
 /**
  * LearnBamParams encapsulates logic to learn insert-size and related statistics
@@ -59,17 +65,23 @@ class LearnBamParams {
 public:
 
   /// Learn parameters from a single BAM file
-  LearnBamParams(const SvabaSharedConfig& sc,
-		 const std::string& bamPath);
+  LearnBamParams(SvabaSharedConfig& sc_,
+		 const std::string& bamPath); // opens the BAM
 
   // map of RG : params, for a single bam
-  BamParamsMap learnParams();  // scan this->bam_, return per RG stats
+  void learnParams();  // learn the RGs
 
-  /// Scan *all* the given BAMs and return both per-file and global summaries
-  static BamLearningResult learnAll(const SvabaSharedConfig& sc)
-    
+  // this is map of RG-name : BamReadGroup
+  std::unordered_map<std::string, BamReadGroup> bam_read_groups;
+
+  // per BAM readlen / mapq max
+  int readlen_max = 0;
+  int mapq_max = 0;
+  
 private:
-  std::string       bam_;
-  const SvabaSharedConfig&  sc_; 
-  SeqLib::BamReader reader_;
+ 
+ std::string       bam_; // file path of the BAM
+ SvabaSharedConfig&  sc; 
+ std::shared_ptr<SeqLib::BamReader> reader_;
+
 };

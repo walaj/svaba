@@ -28,7 +28,7 @@ inline constexpr int    COVERAGE_AVG_BUFF           = 10;
 // from DiscordantCluster
 inline constexpr int DISC_PAD                 = 150;
 inline constexpr int MIN_PER_CLUST            = 2;
-inline constexpr int DEFAULT_ISIZE_THRESHOLD  = 800;
+inline constexpr int DEFAULT_ISIZE_THRESHOLD  = 2000;
 
 // from run_svaba
 inline constexpr std::size_t THREAD_READ_LIMIT      = 20'000;

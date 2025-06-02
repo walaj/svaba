@@ -1,5 +1,4 @@
-#ifndef SVABA_READ_H
-#define SVABA_READ_H
+#pragma once
 
 #include "SeqLib/BamRecord.h" 
 
@@ -42,9 +41,13 @@ class svabaRead : public SeqLib::BamRecord {
 
   std::string Seq() const;
 
+  std::string CorrectedSeq() const;  
+
   std::string Prefix() const;
 
   void SetSeq(const std::string& nseq);
+
+  void SetCorrectedSeq(const std::string& nseq);  
   
   std::string SR() const;
 
@@ -60,20 +63,29 @@ class svabaRead : public SeqLib::BamRecord {
 
   r2c& GetR2C(const std::string& contig_name) const;
 
+  /// Trim the read based on quality score and store seq in char
+  void QualityTrimRead();
+
+  // should this read be used for correction (incl training)?
+  bool train = false;
+
+  int dd = 0; // discordant read status 0 
+
  private:
 
   SeqLib::BamRecord r;
 
   SeqPointer<char> seq;
 
-  char p[4]; // prefix for file ID (e.g. t001)
-  
-  int dd = 0; // discordant read status 0 
+  SeqPointer<char> seq_corrected;
 
-  SeqPointer<R2CMap> m_r2c; // store the r2c alignment information. key is contig name
+  std::string p; // prefix for file ID (e.g. t001) 
+  //SeqPointer<char> p; // // prefix for file ID (e.g. t001)
+
+  // store the r2c alignment information. key is contig name
+  SeqPointer<R2CMap> m_r2c; 
 
 };
 
 typedef std::vector<svabaRead> svabaReadVector;
 
-#endif

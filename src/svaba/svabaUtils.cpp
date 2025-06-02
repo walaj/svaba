@@ -369,7 +369,7 @@ void checkHeaderCompatibility(const SeqLib::BamHeader& bamHeader,
 	       "!!! This can cause a massive failure in variant detection!\n",
 	       "!!! If you are *sure* that the two references are functionally equivalent (e.g. chr1 vs 1)\n",
 	       "!!! and that the order of the chromosomes is equivalent between the two,\n",
-	       "!!! you can override this error with option \"--override-reference-check\"\n"
+	       "!!! you can override this error with option \"--override-reference-check\"\n",
 	       std::string(100, '!'));
     std::exit(EXIT_FAILURE);
   }

@@ -14,127 +14,82 @@
 
 //#define DEBUG_CLUSTER 1
 
-using namespace SeqLib;
+namespace SeqLib {
+  class BamHeader;
+  class GenomicRegion;
+}
 
-  DiscordantClusterMap DiscordantCluster::clusterReads(const svabaReadVector& bav, const GenomicRegion& interval, int max_mapq_possible, const std::unordered_map<std::string, int> * min_isize_for_disc) {
+using SeqLib::GenomicRegion;
 
-    // only warn about missing information once per read grouip
-    static std::unordered_set<std::string> warned_rgs;
-
-
+DiscordantClusterMap DiscordantCluster::clusterReads(
+						     svabaReadVector& bav,
+						     const SeqLib::GenomicRegion& interval,
+						     int max_mapq_possible) {
+  
+  
 #ifdef DEBUG_CLUSTER    
-    //for (auto& i : bav)
-    //  std::cerr << " PRE DEDUPED CLUSTER " << i << std::endl;
+  //for (auto& i : bav)
+  //  std::cerr << " PRE DEDUPED CLUSTER " << i << std::endl;
 #endif
-
-    // only add the discordant reads, respecting diff size cutoffs for diff RG
-    svabaReadVector bav_dd;
-    for (auto& r : bav) {
-     
-      // if suspicious as discordant, remove from clustering
-      if (r.GetDD() < 0)
-	continue;
-
-      // find the discordant size cutoff for this read
-      int cutoff = DEFAULT_ISIZE_THRESHOLD;
-      if (min_isize_for_disc) {
-
-	std::string RG;
-	if (!r.GetZTag("RG", RG))
-	  RG = "NA";
-
-	// temporary hack for simulated data
-	if (RG.find("tumor") != std::string::npos) {
-	  std::string qn = r.Qname();
-	  size_t posr = qn.find(":", 0);
-	  RG = (posr != std::string::npos) ? qn.substr(0, posr) : RG;
-	} else {
-	  // best practice without "tumor" hack
-	  //RG = r.ParseReadGroup();
-	}
-
-	std::unordered_map<std::string, int>::const_iterator ff = min_isize_for_disc->find(RG);
-	if (ff != min_isize_for_disc->end()) {
-	  cutoff = ff->second;
-	} else {
-	  if (warned_rgs.insert(RG).second) {
-            std::cerr << "DiscordantCluster -- Couldn't find RG " << RG << ". Need to learn insert-size from more reads? Setting isize cutoff to default (2000)" << std::endl;
-	  }
-	}
-
-      }
-      // accept as discordant if not FR, has large enough isize, is inter-chromosomal, 
-      // and has both mates mapping. Also dont cluster on weird chr
-      if ( ( r.PairOrientation() != FRORIENTATION || r.FullInsertSize() >= cutoff || r.Interchromosomal()) && 
-	   r.PairMappedFlag() /* && r.ChrID() < 24 && r.MateChrID() < 24 */  &&
-           r.NumMatchBases() > r.NumHardClip()) // has to have mostly not-hardclip
-	bav_dd.push_back(r);
-    }
-    
-    if (!bav_dd.size())
-      return DiscordantClusterMap();
-
-    // sort by position
-    std::sort(bav_dd.begin(), bav_dd.end(), BamRecordSort::ByReadPosition());
-
+  
+  // sort by position
+  std::sort(bav.begin(), bav.end(), SeqLib::BamRecordSort::ByReadPosition());
+  
 #ifdef DEBUG_CLUSTER    
-    //for (auto& i : bav_dd)
-    //  std::cerr << " DEDUPED CLUSTER " << i << std::endl;
+  //for (auto& i : bav_dd)
+  //  std::cerr << " DEDUPED CLUSTER " << i << std::endl;
 #endif
-
-    // clear the tmp map. Now we want to use it to store if we already clustered read
-    //tmp_map.clear();
-    
-    svabaReadClusterVector fwd, rev, fwdfwd, revrev, fwdrev, revfwd;
-    std::pair<int, int> fwd_info, rev_info; // refid, pos
-    fwd_info = {-1,-1};
-    rev_info = {-1,-1};
-    
-    // make the fwd and reverse READ clusters. dont consider mate yet
-    __cluster_reads(bav_dd, fwd, rev, FRORIENTATION);
-    __cluster_reads(bav_dd, fwd, rev, FFORIENTATION);
-    __cluster_reads(bav_dd, fwd, rev, RFORIENTATION);
-    __cluster_reads(bav_dd, fwd, rev, RRORIENTATION);
-
-    // remove singletons
-    __remove_singletons(fwd);
-    __remove_singletons(rev);
-
+  
+  // clear the tmp map. Now we want to use it to store if we already clustered read
+  //tmp_map.clear();
+  
+  svabaReadClusterVector fwd, rev, fwdfwd, revrev, fwdrev, revfwd;
+  
+  // make the fwd and reverse READ clusters. dont consider mate yet
+  __cluster_reads(bav, fwd, rev, FRORIENTATION);
+  __cluster_reads(bav, fwd, rev, FFORIENTATION);
+  __cluster_reads(bav, fwd, rev, RFORIENTATION);
+  __cluster_reads(bav, fwd, rev, RRORIENTATION);
+  
+  // remove singletons
+  __remove_singletons(fwd);
+  __remove_singletons(rev);
+  
 #ifdef DEBUG_CLUSTER
-    for (auto& i : fwd) {
-      std::cerr << "fwd cluster " << std::endl;
-      for (auto& j : i)
-	std::cerr << "fwd " << j << std::endl;
-    }
-    for (auto& i : rev) {
-      std::cerr << "rev cluster " << std::endl;
-      for (auto& j : i)
-	std::cerr << "rev " << j << std::endl;
-    }
+  for (auto& i : fwd) {
+    std::cerr << "fwd cluster " << std::endl;
+    for (auto& j : i)
+      std::cerr << "fwd " << j << std::endl;
+  }
+  for (auto& i : rev) {
+    std::cerr << "rev cluster " << std::endl;
+    for (auto& j : i)
+      std::cerr << "rev " << j << std::endl;
+  }
 #endif
-
-    // within the forward read clusters, cluster mates on fwd and rev
-    __cluster_mate_reads(fwd, fwdfwd, fwdrev);
-    
-    // within the reverse read clusters, cluster mates on fwd and rev
-    __cluster_mate_reads(rev, revfwd, revrev); 
-
-    // remove singletons
-    __remove_singletons(fwdfwd);
-    __remove_singletons(revfwd);
-    __remove_singletons(fwdrev);
-    __remove_singletons(revrev);
-    
-    // we have the reads in their clusters. Just convert to discordant reads clusters
-    DiscordantClusterMap dd;
-    __convertToDiscordantCluster(dd, fwdfwd, bav_dd, max_mapq_possible);
-    __convertToDiscordantCluster(dd, fwdrev, bav_dd, max_mapq_possible);
-    __convertToDiscordantCluster(dd, revfwd, bav_dd, max_mapq_possible);
-    __convertToDiscordantCluster(dd, revrev, bav_dd, max_mapq_possible);
-
+  
+  // within the forward read clusters, cluster mates on fwd and rev
+  __cluster_mate_reads(fwd, fwdfwd, fwdrev);
+  
+  // within the reverse read clusters, cluster mates on fwd and rev
+  __cluster_mate_reads(rev, revfwd, revrev); 
+  
+  // remove singletons
+  __remove_singletons(fwdfwd);
+  __remove_singletons(revfwd);
+  __remove_singletons(fwdrev);
+  __remove_singletons(revrev);
+  
+  // we have the reads in their clusters. Just convert to discordant reads clusters
+  DiscordantClusterMap dcm;
+  __convertToDiscordantCluster(dcm, fwdfwd, bav, max_mapq_possible);
+  __convertToDiscordantCluster(dcm, fwdrev, bav, max_mapq_possible);
+  __convertToDiscordantCluster(dcm, revfwd, bav, max_mapq_possible);
+  __convertToDiscordantCluster(dcm, revrev, bav, max_mapq_possible);
+  
 #ifdef DEBUG_CLUSTER
-    std::cerr << "----fwd cluster count: " << fwd.size() << std::endl;
-    std::cerr << "----rev cluster count: " << rev.size() << std::endl;
+  std::cerr << "----fwd cluster count: " << fwd.size() << std::endl;
+  std::cerr << "----rev cluster count: " << rev.size() << std::endl;
     std::cerr << "----fwdfwd cluster count: " << fwdfwd.size() << std::endl;
     std::cerr << "----fwdrev cluster count: " << fwdrev.size() << std::endl;
     std::cerr << "----revfwd cluster count: " << revfwd.size() << std::endl;
@@ -150,103 +105,85 @@ using namespace SeqLib;
       for (auto& jj : ii)
 	std::cerr << "FWDREV _____ " << jj << std::endl;
     }
-      
-#endif    
 
-    // remove clusters that dont overlap with the window
-    DiscordantClusterMap dd_clean;
-    for (auto& i : dd) {
-      if (!i.second.isEmpty())
-	if (interval.IsEmpty() /* whole genome */ || i.second.m_reg1.GetOverlap(interval) > 0 || i.second.m_reg2.GetOverlap(interval))
-	  dd_clean[i.first] = i.second;
-    }
-
-#ifdef DEBUG_CLUSTER
-    for (auto& i : dd) 
-      std::cerr << "Before Clean: " << i.second << std::endl;
-    for (auto& i : dd_clean)  
-      std::cerr << "Clean: " << i.second << std::endl;
 #endif
 
-    // score by number of maps
-    for (auto d : dd_clean) {
-      for (auto& r : d.second.reads) {
-	double rr = r.second.GetDD();
-       d.second.read_score += (rr > 0) ? 1/rr : 1;
-      }
-      for (auto& r : d.second.mates) {
-	double rr = r.second.GetDD();
-	d.second.mate_score += (rr > 0) ? 1/rr : 1;
-      }
-    }
+    // // score by number of maps
+    // for (auto d : dd_clean) {
+    //   for (auto& r : d.second.reads) {
+    // 	double rr = r.second.GetDD();
+    // 	d.second.read_score += (rr > 0) ? 1/rr : 1;
+    //   }
+    //   for (auto& r : d.second.mates) {
+    // 	double rr = r.second.GetDD();
+    // 	d.second.mate_score += (rr > 0) ? 1/rr : 1;
+    //   }
+    // }
 
-    
-    return dd_clean;
+    return dcm;
     
   }
   
   // this reads is reads in the cluster. all_reads is big pile where all the clusters came from
-  DiscordantCluster::DiscordantCluster(const svabaReadVector& this_reads, const svabaReadVector& all_reads, int max_mapq_possible) {
+  DiscordantCluster::DiscordantCluster(const svabaReadVector& this_reads,
+				       const svabaReadVector& all_reads,
+				       int max_mapq_possible) {
     
     if (this_reads.size() == 0)
-      return;
-    if (all_reads.size() == 0)
       return;
     
     // check the orientations, fill the reads
     bool rev = this_reads[0].ReverseFlag();
     bool mrev = this_reads[0].MateReverseFlag();
     
-    // the ID is just the first reads Qname
+    // the ID of the discordant cluster is just the first reads Qname
     m_id = this_reads[0].Qname();
     assert(m_id.length());
     
     assert(this_reads.back().MatePosition() - this_reads[0].MatePosition() < 10000);
     assert(this_reads.back().Position() - this_reads[0].Position() < 10000);
-    
-    // get distribution of isizes. Reject outliers
     std::vector<int> isizer;
-    for (auto& i : this_reads)
-      isizer.push_back(std::abs(i.FullInsertSize()));
-    double sd = 0, mm = 0, medr = 0;
-    std::sort(isizer.begin(), isizer.end());
-    if (isizer.size() >= 5 && isizer.back() - isizer[0] > 400) {
-
-      medr = svabaUtils::CalcMHWScore(isizer);
-
-      // get the mean
-      double sum = std::accumulate(isizer.begin(), isizer.end(), 0.0);
-      mm = isizer.size() > 0 ? sum / isizer.size() : 0;
-
-      // get isize stdev
-      std::vector<double> diff(isizer.size());
-      std::transform(isizer.begin(), isizer.end(), diff.begin(), [mm](double x) { return x - mm; });
-      double sq_sum = std::inner_product(diff.begin(), diff.end(), diff.begin(), 0.0);
-      sd = std::sqrt(sq_sum / isizer.size());      
-    }
-
-    double min_isize = 0;
-    if (sd > 0) { // ? (medr / sd) < 4 : false) {
-      min_isize = medr - 2 * sd;
-
-      //std::cout << (*this ) << std::endl;
-      //std::cout << " MED " << medr << " SD " << sd << " MEAN " << mm << " CUTOFF " << min_isize << " medr/sd " << (medr/sd) << std::endl;;
-    }
-    min_isize = min_isize < 1000 ? min_isize : 0;
     
-    for (auto& i : this_reads) 
-      {
+    // // get distribution of isizes. Reject outliers
+
+    // for (auto& i : this_reads)
+    //   isizer.push_back(std::abs(i.FullInsertSize()));
+    // double sd = 0, mm = 0, medr = 0;
+    // std::sort(isizer.begin(), isizer.end());
+    // if (isizer.size() >= 5 && isizer.back() - isizer[0] > 400) {
+
+    //   medr = svabaUtils::CalcMHWScore(isizer);
+
+    //   // get the mean
+    //   double sum = std::accumulate(isizer.begin(), isizer.end(), 0.0);
+    //   mm = isizer.size() > 0 ? sum / isizer.size() : 0;
+
+    //   // get isize stdev
+    //   std::vector<double> diff(isizer.size());
+    //   std::transform(isizer.begin(), isizer.end(), diff.begin(), [mm](double x) { return x - mm; });
+    //   double sq_sum = std::inner_product(diff.begin(), diff.end(), diff.begin(), 0.0);
+    //   sd = std::sqrt(sq_sum / isizer.size());      
+    // }
+
+    // double min_isize = 0;
+    // if (sd > 0) { // ? (medr / sd) < 4 : false) {
+    //   min_isize = medr - 2 * sd;
+
+    //   //std::cout << (*this ) << std::endl;
+    //   //std::cout << " MED " << medr << " SD " << sd << " MEAN " << mm << " CUTOFF " << min_isize << " medr/sd " << (medr/sd) << std::endl;;
+    // }
+    // min_isize = min_isize < 1000 ? min_isize : 0;
+    
+    for (auto& i : this_reads) {
 	// double check that we did the clustering correctly. All read orientations should be same
 	assert(rev == i.ReverseFlag() && mrev == i.MateReverseFlag()); 
 
-	if (i.FullInsertSize() < min_isize && i.PairOrientation() == FRORIENTATION) 
-	  continue;
-	
 	// add the read to the read map
-	std::string tmp = i.SR();
+	std::string tmp = i.SR(); // this name like t001_165_qname
 	assert(tmp.length());
 	reads[tmp] = i;
-	
+
+	// count number of reads per BAM
 	++counts[i.Prefix()];
 	
 	// the ID is the lexographically lowest qname
@@ -517,7 +454,10 @@ std::string DiscordantCluster::print(const SeqLib::BamHeader& h) const {
    * @param mate Flag to specify if we should cluster on mate position instead of read position
    * @return Description of the return value
    */
-  bool DiscordantCluster::__add_read_to_cluster(svabaReadClusterVector &cvec, svabaReadVector &clust, const svabaRead &a, bool mate) {
+  bool DiscordantCluster::__add_read_to_cluster(svabaReadClusterVector &cvec,
+						svabaReadVector &clust,
+						const svabaRead &a,
+						bool mate) {
 
     // get the position of the previous read. If none, we're starting a new one so make a dummy
     std::pair<int,int> last_info;
@@ -575,11 +515,17 @@ std::string DiscordantCluster::print(const SeqLib::BamHeader& h) const {
     // loop through the clusters, and cluster within clusters based on mate read
     for (auto& v : brcv) 
       {
+	
 	svabaReadVector this_fwd, this_rev;
-	std::sort(v.begin(), v.end(), BamRecordSort::ByMatePosition());
+	std::sort(v.begin(), v.end(), SeqLib::BamRecordSort::ByMatePosition());
 
 	for (auto& r : v) 
 	  {
+	    
+	    // not a discordant read, ignore it
+	    if (r.dd <= 0)
+	      continue;
+
 	    // forward clustering
 	    if (!r.MateReverseFlag())
 	      __add_read_to_cluster(fwd, this_fwd, r, true);
@@ -596,7 +542,10 @@ std::string DiscordantCluster::print(const SeqLib::BamHeader& h) const {
       } // finish main cluster loop
   }
   
-  void DiscordantCluster::__cluster_reads(const svabaReadVector& brv, svabaReadClusterVector& fwd, svabaReadClusterVector& rev, int orientation) 
+  void DiscordantCluster::__cluster_reads(const svabaReadVector& brv,
+					  svabaReadClusterVector& fwd,
+					  svabaReadClusterVector& rev,
+					  int orientation) 
   {
 
     // hold the current cluster
@@ -607,6 +556,10 @@ std::string DiscordantCluster::print(const SeqLib::BamHeader& h) const {
     // cluster in the READ direction, separately for fwd and rev
     for (auto& i : brv) {
 
+      // not a discordant read, ignore it
+      if (i.dd <= 0)
+	continue;
+      
       // only cluster FR reads together, RF reads together, FF together and RR together
       if (i.PairOrientation() != orientation) {
 	continue;
@@ -636,18 +589,21 @@ std::string DiscordantCluster::print(const SeqLib::BamHeader& h) const {
 
   }
 
-  void DiscordantCluster::__convertToDiscordantCluster(DiscordantClusterMap &dd, const svabaReadClusterVector& cvec, const svabaReadVector& bav, int max_mapq_possible) {
-    
-    for (auto& v : cvec) {
-      if (v.size() > 1) {
-	DiscordantCluster d(v, bav, max_mapq_possible); /// slow but works (erm, not really slow)
-	dd[d.m_id] = d;
-      }
+void DiscordantCluster::__convertToDiscordantCluster(DiscordantClusterMap &dd,
+						     const svabaReadClusterVector& cvec,
+						     const svabaReadVector& bav,
+						     int max_mapq_possible) {
+  
+  for (auto& v : cvec) {
+    if (v.size() > 1) { // no clusters with just one read
+      DiscordantCluster d(v, bav, max_mapq_possible); /// slow but works (erm, not really slow)
+      dd[d.m_id] = d;
     }
   }
+}
+
+GenomicRegion DiscordantCluster::GetMateRegionOfOverlap(const GenomicRegion& gr) const {
   
-  GenomicRegion DiscordantCluster::GetMateRegionOfOverlap(const GenomicRegion& gr) const {
-    
     if (gr.GetOverlap(m_reg1))
       return m_reg2;
     if (gr.GetOverlap(m_reg2))
@@ -662,11 +618,10 @@ std::string DiscordantCluster::print(const SeqLib::BamHeader& h) const {
 
   void DiscordantCluster::__remove_singletons(svabaReadClusterVector& b)  {
 
-    svabaReadClusterVector tmp;
-    for (auto& f : b)
-      if (f.size() > 1)
-	tmp.push_back(f);
-    
-    b = tmp;
+    // remove cluster with only one read
+    b.erase(
+	    std::remove_if(b.begin(), b.end(),
+			   [](const auto& subvec) { return subvec.size() <= 1; }),
+	    b.end());
   }
 

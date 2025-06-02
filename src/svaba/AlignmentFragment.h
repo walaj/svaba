@@ -1,14 +1,18 @@
-#ifndef SVABA_ALIGNED_CONTIG_H__
-#define SVABA_ALIGNED_CONTIG_H__
+#pragma once
 
-#include "SeqLib/BamRecord.h"
-#include "SeqLib/BamWriter.h"
-#include "SeqLib/GenomicRegion.h"
 #include <unordered_map>
 #include <string>
 #include <set>
+
+#include "SeqLib/BamRecord.h"
+
 #include "BreakPoint.h"
 #include "svaba_params.h"
+
+namespace SeqLib {
+  class BamWriter;
+  class GenomicRegion;
+}
 
 #define MAX_CONTIG_SIZE 5000000
 
@@ -87,6 +91,3 @@ class AlignedContig;
   };
 
 typedef std::vector<AlignmentFragment> AlignmentFragmentVector;
-
-
-#endif

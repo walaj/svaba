@@ -1,5 +1,4 @@
-#ifndef SNOWMAN_SEQLIB_COVERAGE_H__
-#define SNOWMAN_SEQLIB_COVERAGE_H__
+#pragma once
 
 #include <memory>
 #include <unordered_map>
@@ -15,9 +14,12 @@
 #include "htslib/bgzf.h"
 #include "htslib/kstring.h"
 
-#include "SeqLib/BamRecord.h"
 #include "SeqLib/GenomicRegion.h"
 #include "SeqLib/GenomicRegionCollection.h"
+
+namespace SeqLib {
+  class BamRecord;
+}
 
 typedef std::shared_ptr<std::vector<uint16_t>> uint16_sp;
 typedef std::unordered_map<int,int> CovMap;
@@ -79,4 +81,3 @@ class STCoverage {
   
 };
 
-#endif

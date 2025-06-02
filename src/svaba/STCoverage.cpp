@@ -1,10 +1,12 @@
 #include "STCoverage.h"
 #include "SeqLib/SeqLibCommon.h"
+#include "SeqLib/BamRecord.h"
 #include <stdexcept>
 #include <algorithm>
 
-
-using namespace SeqLib;
+using SeqLib::BamRecord;
+using SeqLib::GenomicRegion;
+using SeqLib::Cigar;
 
   void STCoverage::clear() {
     m_map.clear();
@@ -15,7 +17,7 @@ using namespace SeqLib;
     //m_grc.MergeOverlappingIntervals();
   }
   
-  STCoverage::STCoverage(const SeqLib::GenomicRegion& gr) {
+  STCoverage::STCoverage(const GenomicRegion& gr) {
     m_gr = gr;
     //v = uint16_sp(new std::vector<uint16_t>(gr.Width(),0));
   }

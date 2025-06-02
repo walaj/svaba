@@ -9,7 +9,10 @@
 #include <vector>
 #include <atomic>
 
+#include "SvabaSharedConfig.h"
 #include "svabaOutputWriter.h"
+#include "svabaOptions.h"
+#include "svabaThreadUnit.h"
 
 // A simple thread safe queue for unique_ptr jobs
 template<typename Job>
@@ -48,43 +51,52 @@ private:
 template<typename WorkItem>
 class ThreadPool {
 public:
-  ThreadPool(size_t nThreads,
-             const std::string& ref,
-             const std::map<std::string,std::string>& bamFiles,
-	     BWAIndexPtr idx,
-	     SvabaOutputWriter& output_writer)
-    : queue_(), workers_(), flushMutex_(), output_writer_(output_writer)
+  ThreadPool(SvabaSharedConfig& sc)
+    : queue_(), workers_(), flushMutex_(), sc_(sc)
   {
-    workers_.reserve(nThreads);
-    for(size_t i=0;i<nThreads;++i){
-      workers_.emplace_back([=,&bamFiles,&flushMutex=this->flushMutex_](){
-	  
-        // per-thread setup - each thread gets its own FASTA read and BAM readers
-	// these should not be shared across threads, even if using const functions only
-        svabaThreadUnit unit(idx,ref,bamFiles); // give it the shared_ptr to the master index
-	
-	// open the BAM files
-        for(auto &p : bamFiles){
-          unit.walkers[p.first].Open(p.second);
-          unit.walkers[p.first].prefix = p.first;
-        }
+    
+    workers_.reserve(sc.opts.numThreads);
+    for(size_t i=0;i<sc.opts.numThreads;++i){
 
-        // consume jobs
-        while(auto job = queue_.pop()){
-          (*job)(unit, std::hash<std::thread::id>{}(std::this_thread::get_id()));
-        }
-
-        // final flush
-	output_writer_.writeUnit(unit); // this does the flush and mutex in it
-	});
+      workers_.emplace_back(
+			    [=, &flushMutex = this->flushMutex_, &sc_ref = sc_]() mutable {
+			      // per-thread setup - each thread gets its own FASTA read and BAM readers
+			      // these should not be shared across threads, even if using const functions only
+			      svabaThreadUnit unit(sc); // give it the shared_ptr to the master index
+			      unit.threadId = i + 1;
+			      
+			      // open the BAM files
+			      for(const auto& [pref, path] : sc.opts.bams) { 
+				unit.walkers.emplace( // construct the svabaBamWalkers
+						      std::piecewise_construct,
+						      std::forward_as_tuple(pref),
+						      std::forward_as_tuple(sc_ref)
+						      );
+			      }
+			      
+			      // Open bams
+			      for (auto const& [pref, path] : sc_ref.opts.bams) {
+				auto& walker = unit.walkers.at(pref);
+				walker.Open(path);
+				walker.prefix = pref;
+			      }
+			      
+			      // consume jobs
+			      while(auto job = queue_.pop()){
+				(*job)(unit, std::hash<std::thread::id>{}(std::this_thread::get_id()));
+			      }
+			      
+			      // final flush
+			      sc_.writer.writeUnit(unit); // this does the flush and mutex in it
+			    });
     }
   }
-
+  
   // submit a new work item
   void submit(std::unique_ptr<WorkItem> job){
     queue_.push(std::move(job));
   }
-
+  
   // tell threads no more work, then join
   void shutdown(){
     queue_.shutdown(workers_.size());
@@ -95,6 +107,5 @@ private:
   WorkQueue<WorkItem>      queue_;
   std::vector<std::thread> workers_;
   std::mutex               flushMutex_;
-  SvabaOutputWriter&       output_writer_; 
-
+  SvabaSharedConfig&       sc_;
 };

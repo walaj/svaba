@@ -1,8 +1,16 @@
 #include "DBSnpFilter.h"
 #include "gzstream.h"
-#include "SvabaLogger.h"
 
-using namespace SeqLib;
+#include "svabaLogger.h"
+#include "BreakPoint.h"
+
+#include "SeqLib/BamHeader.h"
+#include "SeqLib/GenomicRegion.h"
+
+using SeqLib::BamHeader;
+using SeqLib::AddCommas;
+using SeqLib::GenomicRegion;
+using SeqLib::GRC;
 
 DBSnpSite::DBSnpSite(const std::string& tchr, const std::string& pos, const std::string& rs, const std::string& ref, const std::string& alt, const BamHeader& h) {
     
@@ -36,7 +44,7 @@ DBSnpFilter::DBSnpFilter(const std::string& db,
                          SvabaLogger& logger)
 {
 
-  logger.log(true, true "...loading the DBsnp database ", db); 
+  logger.log(true, true, "...loading the DBsnp database ", db); 
   // First, try opening the file (gzipped or not)
   igzstream in(db.c_str());
   if (!in) {
@@ -72,12 +80,13 @@ DBSnpFilter::DBSnpFilter(const std::string& db,
     // build a simple chr_pos hash
     cig.str("");
     cig << chr << "_" << site.pos1;
-    m_int_hash.insert(m_hasher(cig.str()));
+    m_int_hash.insert(hasher(cig.str()));
   }
 
   // finalize our index
   m_sites.CreateTreeMap();
-  logger.log(true,true, "Loaded ", m_sites.size(), " indel sites from DBSNP file '", db, "'.")'
+  logger.log(true,true, "Loaded ", m_sites.size(),
+	     " indel sites from DBSNP file '", db, "'.");
 }
 
 

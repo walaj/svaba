@@ -1,24 +1,29 @@
 #include "svabaBamWalker.h"
 #include "svabaRead.h"
 #include "svaba_params.h"
+#include "SvabaSharedConfig.h"
+#include "svabaOptions.h"
+#include "svabaLogger.h"
 
 //#define QNAME "H01PEALXX140819:3:2218:11657:19504"
 //#define QFLAG -1
 
 #ifdef QNAME
-#define DEBUG(msg, read)				\
+#define DEBUG(msg, read)						\
   { if (read.Qname() == QNAME && (read.AlignmentFlag() == QFLAG || QFLAG == -1)) { std::cerr << (msg) << " read " << (read) << std::endl; } }
 #else
 #define DEBUG(msg, read)
 #endif
 
-static const std::string ILLUMINA_PE_PRIMER_2p0 = "CAAGCAGAAGACGGCAT";
-static const std::string FWD_ADAPTER_A = "AGATCGGAAGAGC";
-static const std::string FWD_ADAPTER_B = "AGATCGGAAAGCA";
-static const std::string REV_ADAPTER = "GCTCTTCCGATCT";
+//static const std::string ILLUMINA_PE_PRIMER_2p0 = "CAAGCAGAAGACGGCAT";
+//static const std::string FWD_ADAPTER_A = "AGATCGGAAGAGC";
+//static const std::string FWD_ADAPTER_B = "AGATCGGAAAGCA";
+//static const std::string REV_ADAPTER = "GCTCTTCCGATCT";
+
+svabaBamWalker::svabaBamWalker(SvabaSharedConfig& sc_) : sc(sc_) {}
 
 void svabaBamWalker::addCigar(SeqLib::BamRecord &r) {
-
+  
   // this is a 100% match
   if (r.CigarSize() == 1)
     return;
@@ -27,28 +32,28 @@ void svabaBamWalker::addCigar(SeqLib::BamRecord &r) {
   int pos = r.Position(); // position ON REFERENCE
   
   for (auto& i : r.GetCigar()) {
-
-       // if it's a D or I, add it to the list
-      if (i.Type() == 'D' || i.Type() == 'I') {	
-
-	cigar_ss << r.ChrID() << "_" << pos << "_" << i.Length() << i.Type();
-	++cigmap[cigar_ss.str()];
-
-	cigar_ss.str(std::string());
-      }
+    
+    // if it's a D or I, add it to the list
+    if (i.Type() == 'D' || i.Type() == 'I') {	
       
-      // move along the REFERENCE
-      if (!(i.Type() == 'I') && !(i.Type() == 'S') && !(i.Type() == 'H'))
-	pos += i.Length();
+      cigar_ss << r.ChrID() << "_" << pos << "_" << i.Length() << i.Type();
+      ++cigmap[cigar_ss.str()];
+      
+      cigar_ss.str(std::string());
+    }
+    
+    // move along the REFERENCE
+    if (!(i.Type() == 'I') && !(i.Type() == 'S') && !(i.Type() == 'H'))
+      pos += i.Length();
   }
   
 }
 
 bool svabaBamWalker::isDuplicate(const SeqLib::BamRecord &r) {
-
+  
   // deduplicate by query-bases / position
   std::string key = r.Sequence() + std::to_string(r.Position()) + "_" + std::to_string(r.MatePosition()); 
-
+  
   // its not already add, insert
   if (!seq_set.count(key)) {
     seq_set.insert(key);
@@ -59,83 +64,143 @@ bool svabaBamWalker::isDuplicate(const SeqLib::BamRecord &r) {
 }
 
 // returns a bad mate region
-SeqLib::GRC svabaBamWalker::readBam(std::ofstream * log) {
-
+SeqLib::GRC svabaBamWalker::readBam() {
+  
   // these are setup to only use one bam, so just shortcut it
   SeqLib::_Bam * tb = &m_bams.begin()->second;
-
+  
   SeqLib::BamRecord r;
-
+  
   // keep track of regions where we hit the weird-read limit
   SeqLib::GRC bad_regions;
-
+  
   // buffer to store reads from a region
   // if we don't hit the limit, then add them to be assembled
   svabaReadVector this_reads;
-
+  
   // if we have a LOT of reads (aka whole genome run), keep track for printing
   size_t countr = 0;
-
+  
   // keep track of which region we are in 
   int current_region = tb->m_region_idx;
-
-  // store qnames of reads have read into adapter
-  std::unordered_set<uint32_t> adapter;
-
+  
   // loop the reads
   while (GetNextRecord(r)) {
-
+    
     // when we move regions, save the reads from last region
     if (tb->m_region_idx != current_region) {
+      
       current_region = tb->m_region_idx;
+      // cache the reads from the last region into BamWalker cache
       reads.insert(reads.end(), this_reads.begin(), this_reads.end());
       this_reads.clear();
+      
+      
     }
-
+    
     // check if it its blacklist region, and skip if so
-    if (blacklist.size() && blacklist.CountOverlaps(r.AsGenomicRegion())) {
+    if (sc.blacklist.size() &&
+	sc.blacklist.CountOverlaps(r.AsGenomicRegion())) {
       continue;
     }
-
+    
     if (r.CountNBases())
       continue;
-
-    // set some things to check later
-    bool is_dup = false;
-    bool rule_pass = false;
-    bool qcpass = !r.DuplicateFlag() && !r.QCFailFlag();
-    bool pass_all = true;
-
-    // make a svabaRead, which is a BamReader with extra features
-    svabaRead s(r, prefix);
-
+    
+    // make a svabaRead, which is a BamRecord with extra features
+    svabaRead s(r, prefix); // no memory copied
+    
     // quality score trim read
-    QualityTrimRead(s);
+    s.QualityTrimRead(); // copies sequence into svabaRead.seq
     
     // if its less than 40, dont even mess with it
     if (s.SeqLength() < 40)
       continue;
-
-    // so GV is the quality trimmed sequence
-    s.AddZTag("GV", s.Seq()); 
-
+    
+    // for memory conservation, delete unused tags
+    s.RemoveTag("BQ"); //TODO - just remove all tags
+    s.RemoveTag("OQ");
+    
     // check if this read passes the rules for potential SV reads
-    rule_pass = m_mr->isValid(r); 
-      
+    bool qcpass = !r.DuplicateFlag() && !r.QCFailFlag() && !r.NumHardClip();
+    bool rule_pass = sc.mr.isValid(r);
+    bool pass_all = qcpass && rule_pass;
+    
     DEBUG("SvabaBamWalker read seen", r);
-
+    
+    // add to all reads pile for kmer correction
+    if (qcpass && get_coverage) {
+      cov.addRead(r, INFORMATIVE_COVERAGE_BUFFER, false); 
+    }
+    
+    // add to weird coverage
+    if (pass_all && get_coverage) 
+      weird_cov.addRead(r, 0, false);
+    
+    // add to the cigar map for all non-duplicate reads
+    if (pass_all && get_mate_regions) // only add cigar for non-mate regions
+      addCigar(r); 
+    
+    DEBUG("SBW read has qcpass?: " + std::to_string(qcpass), r);
+    DEBUG("SBW duplicated? " + std::to_string(is_dup), r);
+    DEBUG("SBW rule pass? " + std::to_string(rule_pass), r); 
+    DEBUG("SBW pass all? " + std::to_string(pass_all), r);
+    
+    // add all the reads for kmer correction
+    if (!sc.opts.ecCorrectType.empty() && sc.opts.ecCorrectType != "0") {
+      
+      // always include weird reads into correction
+      s.train = pass_all & qcpass;
+      
+      // if its not a weird read, include for training purposes
+      // but can subsample for speed
+      if (!pass_all && qcpass) {
+	uint32_t hashed  = __ac_Wang_hash(__ac_X31_hash_string(r.Qname().c_str()));
+	if ((double)(hashed&0xffffff) / 0x1000000 <= kmer_subsample) 
+	  s.train = true;
+      }
+      
+      // in bfc addsequence, memory is copied. for all_seqs (SGA correction), copy explicitly
+      if (s.train) {
+	if (bfc)
+	  assert(bfc->AddSequence(s.Seq().c_str(), ""/*r.Qualities().c_str()*/,
+				  s.SR().c_str())); // for BFC correciton
+	//else {
+	//  all_seqs.push_back(strdup(s.Seq().c_str()));
+	//}
+      }
+    }
+    
+    // if not a weird read, move on
+    if (!pass_all)
+      continue;
+    
+    // message logging
+    ++countr;
+    if (countr % 10000 == 0 && m_region.size() == 0 && log) {
+      sc.logger.log(sc.opts.verbose > 1, false/*TODO*/,
+		    "...read in ", SeqLib::AddCommas<size_t>(countr),
+		    " weird reads for whole genome read-in. At pos ",
+		    r.Brief());
+    }
+    
+    DEBUG("SBW read added ", r);
+    
+    // adding later because of kmer correctiona 
+    this_reads.push_back(s);
+    
     // if hit the limit of reads, log it and try next region
     if (this_reads.size() > m_limit && m_limit > 0) {
-
-      _logger.log(_opts > 1, false /*TODO*/, "\tstopping read lookup at ",
-		  r.Brief(), " in window ", (m_region.size() ? m_region[tb->m_region_idx].ToString(tb->GetHeader()) : " whole BAM"),
-		  "with ", SeqLib::AddCommas(this_reads.size()), " weird reads. Limit: ",
-		  SeqLib::AddCommas(m_limit));
-
+      
+      sc.logger.log(sc.opts.verbose > 1, false /*TODO*/, "\tstopping read lookup at ",
+		    r.Brief(), " in window ", (m_region.size() ? m_region[tb->m_region_idx].ToString(tb->GetHeader()) : " whole BAM"),
+		    "with ", SeqLib::AddCommas(this_reads.size()), " weird reads. Limit: ",
+		    SeqLib::AddCommas(m_limit));
+      
       // add this region to the bad regions list
       if (m_region.size())  
 	bad_regions.add(m_region[tb->m_region_idx]);
-
+      
       // clear these reads out, not a good region
       this_reads.clear();
       
@@ -149,119 +214,38 @@ SeqLib::GRC svabaBamWalker::readBam(std::ofstream * log) {
       }
       break;
     }
-    
-    // add to all reads pile for kmer correction
-    if (qcpass && get_coverage) {
-      cov.addRead(r, INFORMATIVE_COVERAGE_BUFFER, false); 
-    }
-    
-    pass_all = pass_all && qcpass && rule_pass;
-    
-    // check if has adapter
-    uint32_t hashed  = __ac_Wang_hash(__ac_X31_hash_string(r.Qname().c_str()));
-    if (hasAdapter(r)) 
-      adapter.insert(hashed);
-    pass_all = pass_all && !adapter.count(hashed);
-
-    // check if duplicated
-    pass_all = !isDuplicate(r) && pass_all;
-
-    // add to weird coverage
-    if (pass_all && get_coverage) 
-      weird_cov.addRead(r, 0, false);
-
-    // add to the cigar map for all non-duplicate reads
-    if (pass_all && get_mate_regions) // only add cigar for non-mate regions
-      addCigar(r); 
-
-    DEBUG("SBW read has qcpass?: " + std::to_string(qcpass), r);
-    DEBUG("SBW duplicated? " + std::to_string(is_dup), r);
-    DEBUG("SBW rule pass? " + std::to_string(rule_pass), r); 
-    DEBUG("SBW pass all? " + std::to_string(pass_all), r);
-   
-    // add all the reads for kmer correction
-    if (qcpass && do_kmer_filtering && all_seqs.size() < (m_limit * 5) &&
-	qcpass && !r.NumHardClip()) {
-      bool train = pass_all && s.SeqLength() > 40;
-
-      // if not 
-      if (!pass_all) {
-	if ((double)(hashed&0xffffff) / 0x1000000 <= kmer_subsample) 
-	  train = true;
-      }
-      
-      // in bfc addsequence, memory is copied. for all_seqs (SGA correction), copy explicitly
-      if (train) {
-	if (bfc)
-	  assert(bfc->AddSequence(s.Seq().c_str(), ""/*r.Qualities().c_str()*/, s.SR().c_str())); // for BFC correciton
-	else {
-	  all_seqs.push_back(strdup(s.Seq().c_str()));
-	}
-      }
-
-    }
-     
-    if (!pass_all)
-      continue;
-    
-    ++countr;
-    if (countr % 10000 == 0 && m_region.size() == 0 && log) {
-      _logger.log(_opts.verbose > 1, false/*TODO*/,
-		  "...read in ", SeqLib::AddCommas<size_t>(countr),
-		  " weird reads for whole genome read-in. At pos ",
-		  r.Brief());
-    
-    // for memory conservation
-    s.RemoveTag("BQ");
-    s.RemoveTag("OQ");
-    //r.RemoveTag("XT");
-    //r.RemoveTag("XA");
-    //r.RemoveTag("SA");
-    
-    // add the ID tag
-    //std::string srn =  prefix + "_" + std::to_string(r.AlignmentFlag());// + "_" + r.Qname();
-    //r.AddZTag("SR", srn);
-    
-    DEBUG("SBW read added ", r);
-
-    s.SetSequence(std::string()); // clear out the sequence & qual in the htslib
-    s.RemoveTag("GV");
-   
-    this_reads.push_back(s); // adding later because of kmer correctiona 
-    
   } // end the read loop
-
-  // remove the adapter reads
-  svabaReadVector new_reads;
-  for (auto& r : this_reads)
-    if (!adapter.count(__ac_Wang_hash(__ac_X31_hash_string(r.Qname().c_str()))))
-      new_reads.push_back(r);
   
-  reads.insert(reads.end(), new_reads.begin(), new_reads.end());
-
+    // // remove the adapter reads
+    // svabaReadVector new_reads;
+    // for (auto& r : this_reads)
+    //   if (!adapter.count(__ac_Wang_hash(__ac_X31_hash_string(r.Qname().c_str()))))
+    //   new_reads.push_back(r);
+  
+    // "reads" is total cache for this walker.
+    // "this_reads" was temporary cache in readBam for last region
+  reads.insert(reads.end(), this_reads.begin(), this_reads.end());
+  
 #ifdef QNAME
   for (auto& j : reads) { DEBUG("SBW read kept pre-filter", j); }
 #endif
   
-  if (this_reads.size() < 3) 
-    return bad_regions;
-  
-  // clean out the buffer
+  // subsamples reads if too high of coverage
   if (get_coverage)
     subSampleToWeirdCoverage(max_cov);
-
+  
 #ifdef QNAME
   for (auto& j : reads) {   DEBUG("SBW read kept post subsample", j);  }
 #endif
-
+  
   // realign discordants
-  if (!bwa_index->IsEmpty()) 
-    realignDiscordants(reads);
+  realignDiscordants(reads);
   
   // calculate the mate region
-  if (get_mate_regions && m_region.size() /* don't get mate regions if reading whole bam */) 
+  if (get_mate_regions &&
+      m_region.size() /* don't get mate regions if reading whole bam */) 
     calculateMateRegions();
-
+  
 #ifdef QNAME
   for (auto& j : reads) { DEBUG("SBW read kept FINAL FINAL", j); }
 #endif
@@ -273,7 +257,7 @@ SeqLib::GRC svabaBamWalker::readBam(std::ofstream * log) {
 void svabaBamWalker::subSampleToWeirdCoverage(double max_coverage) {
   
   svabaReadVector new_reads;
-
+  
   for (auto& r : reads)
     {
       double this_cov1 = weird_cov.getCoverageAtPosition(r.ChrID(), r.Position());
@@ -318,21 +302,28 @@ void svabaBamWalker::calculateMateRegions() {
   // loop the reads and add mate reads to MateRegionVector
   for (auto& r : reads) {
 
-    //int dd = r.GetIntTag("DD");
     int dd = r.GetDD(); 
     
-    // throw away reads that have too many different discordant mappings, or 
-    // are otherwise bad (dd < 0)
-    if (!r.PairedFlag() || r.MateChrID() > 22 || r.ChrID() > 22 || !r.MappedFlag() 
-	|| !r.MateMappedFlag() || dd < 0 || dd > MAX_SECONDARY_HIT_DISC) // no Y or M, no bad discordants
+    // throw away reads that have too many different discordant mappings
+    // or are otherwise bad (dd < 0)
+    if (!r.PairedFlag() ||
+	r.MateChrID() > 22 ||
+	r.ChrID() > 22 ||
+	!r.MappedFlag() ||
+	!r.MateMappedFlag() ||
+	dd < 0 ||
+	dd > MAX_SECONDARY_HIT_DISC) // no Y or M, no bad discordants
       continue;
 
+    // get the mate region position, will check next if different
+    // from current main region
     MateRegion mate(r.MateChrID(), r.MatePosition(), r.MatePosition());
     mate.Pad(MATE_REGION_PAD);
     mate.partner = main_region;
     
     // if mate not in main interval, add a padded version
-    if (!main_region.GetOverlap(mate) && r.MapQuality() >= MIN_MAPQ_FOR_MATE_LOOKUP) {
+    if (!main_region.GetOverlap(mate) &&
+	r.MapQuality() >= MIN_MAPQ_FOR_MATE_LOOKUP) {
       tmp_mate_regions.add(mate);
     }
     
@@ -341,7 +332,8 @@ void svabaBamWalker::calculateMateRegions() {
   // merge it down to get the mate regions
   tmp_mate_regions.MergeOverlappingIntervals();
 
-  // get the counts by overlapping mate-reads with the newly defined mate regions
+  // get the counts by overlapping mate-reads
+  // with the newly defined mate regions
   for (auto& r : reads) {
     
     SeqLib::GenomicRegion mate(r.MateChrID(), r.MatePosition(), r.MatePosition());
@@ -349,6 +341,7 @@ void svabaBamWalker::calculateMateRegions() {
     // if mate not in main interval, check which mate regions it's in
     if (!main_region.GetOverlap(mate) && r.MapQuality() > 0) {
 
+      // loop all of the mate regions -slow?
       for (auto& k : tmp_mate_regions)
 	if (k.GetOverlap(mate)) {
 	  ++k.count;
@@ -377,35 +370,36 @@ void svabaBamWalker::calculateMateRegions() {
   
 }
 
-bool svabaBamWalker::hasAdapter(const SeqLib::BamRecord& r) const {
+// bool svabaBamWalker::hasAdapter(const SeqLib::BamRecord& r) const {
 
-  // keep it if it has indel or unmapped read
-  if (r.MaxDeletionBases() || r.MaxInsertionBases() || !r.InsertSize()) // || !r.NumClip())
-    return false;
+//   // keep it if it has indel or unmapped read
+//   if (r.MaxDeletionBases() || r.MaxInsertionBases() || !r.InsertSize()) // || !r.NumClip())
+//     return false;
   
-  // toss if isize is basically read length (completely overlaping)
-  if (std::abs(r.FullInsertSize() - r.Length()) < 5)
-    return true;
+//   // toss if isize is basically read length (completely overlaping)
+//   if (std::abs(r.FullInsertSize() - r.Length()) < 5)
+//     return true;
 
-  // now only consider reads where clip can be explained by isize
-  if (!r.NumClip())
-    return false;
+//   // now only consider reads where clip can be explained by isize
+//   if (!r.NumClip())
+//     return false;
 
-  // toss it then if isize explans clip
-  int exp_ins_size = r.Length() - r.NumClip(); // expected isize if has adapter
-  if ((exp_ins_size - 6) < std::abs(r.InsertSize()) && (exp_ins_size + 6) > std::abs(r.InsertSize()))
-    return true;
+//   // toss it then if isize explans clip
+//   int exp_ins_size = r.Length() - r.NumClip(); // expected isize if has adapter
+//   if ((exp_ins_size - 6) < std::abs(r.InsertSize()) && (exp_ins_size + 6) > std::abs(r.InsertSize()))
+//     return true;
 
-  std::string seq = r.Sequence();
-  if (seq.find(ILLUMINA_PE_PRIMER_2p0) != std::string::npos)
-    return true;
+//   std::string seq = r.Sequence();
+//   if (seq.find(ILLUMINA_PE_PRIMER_2p0) != std::string::npos)
+//     return true;
 
-  return false;
+//   return false;
 
-}
+// }
 
-//void svabaBamWalker::realignDiscordants(SeqLib::BamRecordVector& reads) {
  void svabaBamWalker::realignDiscordants(svabaReadVector& reads) {
+
+   SeqLib::BWAAligner bwa_aligner(sc.bwa_idx);
    
    size_t realigned_count = 0;
    for (auto& r : reads) {
@@ -427,27 +421,71 @@ bool svabaBamWalker::hasAdapter(const SeqLib::BamRecord& r) const {
    
 }
 
-void svabaBamWalker::QualityTrimRead(svabaRead& r) const {
+ void svabaBamWalker::TagDiscordantReads() {
+   
+   // only warn about missing information once per read grouip
+   //static std::unordered_set<std::string> warned_rgs;
 
-  int32_t startpoint = 0, endpoint = 0;
-  r.QualityTrimmedSequence(3, startpoint, endpoint);
-  int32_t new_len = endpoint - startpoint;
-  if (endpoint != -1 && new_len < r.Length() && new_len > 0 && new_len - startpoint >= 0 && startpoint + new_len <= r.Length()) { 
-    try { 
-      //r.AddZTag("GV", r.Sequence().substr(startpoint, new_len));
-      r.SetSeq(r.Sequence().substr(startpoint, new_len));
-      //assert(r.GetZTag("GV").length());
-    } catch (...) {
-      std::cerr << "Subsequence failure with sequence of length "  
-		<< r.Sequence().length() << " and startpoint "
-		<< startpoint << " endpoint " << endpoint 
-		<< " newlen " << new_len << std::endl;
-    }
-    // read is fine
-  } else {
-    //r.AddZTag("GV", r.Sequence());
-    r.SetSeq(r.Sequence()); // copies the sequence
-  }
-  
+   // find the bamStats
+   const auto it = sc.bamStats.find(this->prefix);
+   
+   // cache RG cutoffs so don't have to recalculate
+   std::unordered_map<std::string, int> isize_cutoff_per_rg;
+   
+   for (auto& r : reads) {
+     
+     // if suspicious as discordant, remove from clustering
+     if (r.GetDD() < 0)
+       continue;
 
-}
+     // has to be mapped and have mostly not-hardclip
+     if (!r.PairMappedFlag() || r.NumMatchBases() > r.NumHardClip())
+       continue;
+     
+     // get read group
+     std::string RG;
+     if (!r.GetZTag("RG", RG))
+       RG = "NA";
+
+     auto cc = isize_cutoff_per_rg.find(RG);
+     if (cc == isize_cutoff_per_rg.end()) {
+       
+       // check that we learned this bam
+       if (it == sc.bamStats.end()) {
+	 sc.logger.log(true, true, "SBW: clusterDiscordantReads - Can't find",
+		       "LearnBamParams for ", this->prefix);
+	 isize_cutoff_per_rg[RG] = DEFAULT_ISIZE_THRESHOLD;
+       } 
+
+       else {
+	 const auto rgg = it->second.bam_read_groups.find(RG);
+	 // check that we learned this read group
+	 if (rgg == it->second.bam_read_groups.end()) {
+	   sc.logger.log(true, true, "SBW: clusterDiscordantReads - Can't find",
+		       "leared read group: ", RG, " for bam ",
+			 prefix);
+	   isize_cutoff_per_rg[RG] = DEFAULT_ISIZE_THRESHOLD;
+	 } else {
+	   isize_cutoff_per_rg[RG] =
+	     rgg->second.isize_mean + rgg->second.sd_isize * sc.opts.sdDiscCutoff;
+	 }
+
+	 // re-check for calculated cutoff now that we placed it above
+	 cc = isize_cutoff_per_rg.find(RG);
+	 assert(cc != isize_cutoff_per_rg.end());
+	 
+       }
+     } // end isize cutoff calculation
+     
+     // accept as discordant if not FR, has large enough isize, is inter-chromosomal, 
+     // and has both mates mapping. Also dont cluster on weird chr
+     bool weird_orientation = r.PairOrientation() != FRORIENTATION;
+     if ( weird_orientation ||
+	  abs(r.FullInsertSize()) >= cc->second || // cc-> second is isize cutoff
+	  r.Interchromosomal()
+	  )
+       r.dd = 1; // set as discordant
+     
+   } // end read loop
+ }
+ 

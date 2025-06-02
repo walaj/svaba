@@ -1,9 +1,8 @@
-#ifndef ALIGNED_CONTIG_H
-#define ALIGNED_CONTIG_H
+#pragma once
 
 #include <algorithm>
 
-#include "SeqLib/BWAWrapper.h"
+#include "SeqLib/BWAAligner.h"
 #include "SeqLib/BamReader.h"
 #include "SeqLib/BamWriter.h"
 
@@ -143,8 +142,4 @@ class AlignedContig {
 };
 
 typedef std::unordered_map<std::string, AlignedContig> ContigMap;
-typedef std::vector<AlignedContig> AlignedContigVec;  
-
-#endif
-
-
+typedef std::vector<AlignedContig> AlignedContigVec; 

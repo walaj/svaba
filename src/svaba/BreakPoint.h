@@ -1,154 +1,20 @@
-#ifndef SVABA_BREAKPOINT_H__
-#define SVABA_BREAKPOINT_H__
+#pragma once
 
 #include <cstdlib>
 #include <string>
 #include <map>
 #include <unordered_map>
-#include <unordered_set>
 
-#include "SeqLib/BWAWrapper.h"
-#include "SeqLib/BamHeader.h"
-#include "STCoverage.h"
-#include "SeqLib/RefGenome.h"
 #include "DiscordantCluster.h"
 #include "svabaRead.h"
 
-  // forward declares
-  struct BreakPoint;
-
-  typedef std::vector<BreakPoint> BPVec;
-   
-struct ReducedBreakEnd {
-  
-  ReducedBreakEnd() {}
-  
-  ReducedBreakEnd(const SeqLib::GenomicRegion& g, int mq, const std::string & chr_n);
-
-  friend std::ostream& operator<<(std::ostream& os, const ReducedBreakEnd& rbe);
-  
-  std::string chr_name;
-  SeqLib::GenomicRegion gr;
-  int32_t mapq:8, sub_n:8, nm:16;
-  
-};
-
- struct BreakEnd {
-   
-   BreakEnd() { mapq = 0; sub_n = 0; nm = 0; }
-
-   BreakEnd(const SeqLib::GenomicRegion& g, int mq, const std::string & chr_n);
-   
-   BreakEnd(const SeqLib::BamRecord& b);
-   
-   void checkLocal(const SeqLib::GenomicRegion& window);
-
-   std::string print(const SeqLib::BamHeader& h) const;
-
-   std::string hash(int offset = 0) const;
-
-   std::string id;
-   std::string chr_name;
-   SeqLib::GenomicRegion gr;
-
-   int mapq = -1;
-   int cpos = -1;
-   int nm = -1;
-   int matchlen = -1;
-   int simple = 0;
-
-   std::unordered_map<std::string, int> split;  // for high-confidence reads
-   std::unordered_map<std::string, int> splitI; // for informative reads
-   std::unordered_map<std::string, double> af;
-
-   int sub_n = -1;
-   double as_frac= 0;
-   bool local;
-
-   //   friend std::ostream& operator<<(std::ostream& out, const BreakEnd& b);
- };
-
- struct ReducedDiscordantCluster {
-   uint32_t mapq1:8, mapq2:8, tcount:8, ncount:8;
- };
- 
- struct ReducedBreakPoint {
-
-   // some helper functions
-   char* __string_alloc2char(const std::string& str, char * p) {
-     if (!str.empty() && str != "x") {
-       p = (char*)malloc(str.length() + 1);
-       strcpy(p, str.c_str());
-       return p;
-     } else {
-       return nullptr;
-     }
-   }
-   
-   inline void smart_check_free(char * p) {
-     if (p)
-       free(p);
-   }
-
-   int getSpan() const {
-     if (indel && !insertion) // deletion
-       return (abs((int)b1.gr.pos1 - (int)b2.gr.pos1) - 1);
-     if (indel) // insertion
-       return (strlen(insertion)); // insertion
-     if (b1.gr.chr == b2.gr.chr)
-       return abs((int)b1.gr.pos1-(int)b2.gr.pos1);
-     else
-       return -1;
-
-   }
-
-   // define how to sort these  
-   bool operator<(const ReducedBreakPoint& bp) const;
-
-   // print it with the correct chromsome string
-   std::string print(const BreakPoint& b, const SeqLib::BamHeader& h) const;
-
-   ReducedBreakPoint() {}
-   ~ReducedBreakPoint() {
-     smart_check_free(ref);
-     smart_check_free(alt);
-     smart_check_free(cname);
-     smart_check_free(homology);
-     smart_check_free(insertion);
-     smart_check_free(evidence);
-     smart_check_free(confidence);
-     smart_check_free(repeat);
-   }
-   ReducedBreakPoint(const std::string &line, const SeqLib::BamHeader& h);
-
-   char * ref;
-   char * alt;
-   char * cname;
-   char * evidence;
-   char * confidence;
-   char * insertion;
-   char * homology;
-   char * repeat;
-
-   std::string read_names, bxtable;
-
-   std::vector<std::string> format_s;
-
-   ReducedBreakEnd b1, b2;
-   double somatic_score = 0;
-   double somatic_lod = 0; // LogOdds that variant not in normal
-   double true_lod = 0;
-
-   //uint32_t nsplit:8, tsplit:8, 
-   //uint32_t tcov_support:8, ncov_support:8, tcov:8, ncov:8;
-   uint32_t cov:16, af_n:7, num_align:5, secondary:1, dbsnp:1, pass:1, blacklist:1, indel:1, imprecise:1;
-   uint32_t tcigar:8, ncigar:8, dummy:8, af_t:8; 
-   float quality;
-   uint8_t pon;
-
-   ReducedDiscordantCluster dc;
-
- };
+// forward declares
+class STCoverage;
+namespace SeqLib {
+  class RefGenome;
+  class BamHeader;
+}
+struct BreakPoint;
 
  struct SampleInfo {
 
@@ -195,7 +61,58 @@ struct ReducedBreakEnd {
    void adjust_alt_counts();
    
  };
- 
+
+   
+struct ReducedBreakEnd {
+  
+  ReducedBreakEnd() {}
+  
+  ReducedBreakEnd(const SeqLib::GenomicRegion& g, int mq, const std::string & chr_n);
+
+  friend std::ostream& operator<<(std::ostream& os, const ReducedBreakEnd& rbe);
+  
+  std::string chr_name;
+  SeqLib::GenomicRegion gr;
+  int32_t mapq:8, sub_n:8, nm:16;
+  
+};
+
+
+ struct BreakEnd {
+   
+   BreakEnd() { mapq = 0; sub_n = 0; nm = 0; }
+
+   BreakEnd(const SeqLib::GenomicRegion& g, int mq, const std::string & chr_n);
+   
+   BreakEnd(const SeqLib::BamRecord& b);
+   
+   void checkLocal(const SeqLib::GenomicRegion& window);
+
+   std::string print(const SeqLib::BamHeader& h) const;
+
+   std::string hash(int offset = 0) const;
+
+   std::string id;
+   std::string chr_name;
+   SeqLib::GenomicRegion gr;
+
+   int mapq = -1;
+   int cpos = -1;
+   int nm = -1;
+   int matchlen = -1;
+   int simple = 0;
+
+   std::unordered_map<std::string, int> split;  // for high-confidence reads
+   std::unordered_map<std::string, int> splitI; // for informative reads
+   std::unordered_map<std::string, double> af;
+
+   int sub_n = -1;
+   double as_frac= 0;
+   bool local;
+
+   //   friend std::ostream& operator<<(std::ostream& out, const BreakEnd& b);
+ };
+
  struct BreakPoint {
    
    static std::string header() { 
@@ -264,8 +181,11 @@ struct ReducedBreakEnd {
    
    /** Construct a breakpoint from a cluster of discordant reads
     */
-   BreakPoint(DiscordantCluster& tdc, const SeqLib::BWAWrapper * bwa, DiscordantClusterMap& dmap, 
-	      const SeqLib::GenomicRegion& region, const SeqLib::BamHeader& h);
+   BreakPoint(DiscordantCluster& tdc,
+	      DiscordantClusterMap& dmap, 
+	      const SeqLib::GenomicRegion& region,
+	      const SeqLib::BamHeader& h,
+	      SvabaSharedConfig& sc);
      
    BreakPoint() {}
    
@@ -408,4 +328,87 @@ struct ReducedBreakEnd {
 
 };
 
-#endif
+ struct ReducedDiscordantCluster {
+   uint32_t mapq1:8, mapq2:8, tcount:8, ncount:8;
+ };
+ 
+ struct ReducedBreakPoint {
+
+   // some helper functions
+   char* __string_alloc2char(const std::string& str, char * p) {
+     if (!str.empty() && str != "x") {
+       p = (char*)malloc(str.length() + 1);
+       strcpy(p, str.c_str());
+       return p;
+     } else {
+       return nullptr;
+     }
+   }
+   
+   inline void smart_check_free(char * p) {
+     if (p)
+       free(p);
+   }
+
+   int getSpan() const {
+     if (indel && !insertion) // deletion
+       return (abs((int)b1.gr.pos1 - (int)b2.gr.pos1) - 1);
+     if (indel) // insertion
+       return (strlen(insertion)); // insertion
+     if (b1.gr.chr == b2.gr.chr)
+       return abs((int)b1.gr.pos1-(int)b2.gr.pos1);
+     else
+       return -1;
+
+   }
+
+   // define how to sort these  
+   bool operator<(const ReducedBreakPoint& bp) const;
+
+   // print it with the correct chromsome string
+   std::string print(const BreakPoint& b, const SeqLib::BamHeader& h) const;
+
+   ReducedBreakPoint() {}
+   ~ReducedBreakPoint() {
+     smart_check_free(ref);
+     smart_check_free(alt);
+     smart_check_free(cname);
+     smart_check_free(homology);
+     smart_check_free(insertion);
+     smart_check_free(evidence);
+     smart_check_free(confidence);
+     smart_check_free(repeat);
+   }
+   ReducedBreakPoint(const std::string &line, const SeqLib::BamHeader& h);
+
+   char * ref;
+   char * alt;
+   char * cname;
+   char * evidence;
+   char * confidence;
+   char * insertion;
+   char * homology;
+   char * repeat;
+
+   std::string read_names, bxtable;
+
+   std::vector<std::string> format_s;
+
+   ReducedBreakEnd b1, b2;
+   double somatic_score = 0;
+   double somatic_lod = 0; // LogOdds that variant not in normal
+   double true_lod = 0;
+
+   //uint32_t nsplit:8, tsplit:8, 
+   //uint32_t tcov_support:8, ncov_support:8, tcov:8, ncov:8;
+   uint32_t cov:16, af_n:7, num_align:5, secondary:1, dbsnp:1, pass:1, blacklist:1, indel:1, imprecise:1;
+   uint32_t tcigar:8, ncigar:8, dummy:8, af_t:8; 
+   float quality;
+   uint8_t pon;
+
+   ReducedDiscordantCluster dc;
+
+ };
+
+ 
+typedef std::vector<BreakPoint> BPVec;

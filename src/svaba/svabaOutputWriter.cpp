@@ -17,20 +17,16 @@ namespace {
 
 }
 
-SvabaOutputWriter::SvabaOutputWriter(SvabaLogger& logger, const SvabaOptions& opts)
-  : logger_(logger), opts_(opts)
+SvabaOutputWriter::SvabaOutputWriter(SvabaLogger& logger_, SvabaOptions& opts_)
+  : logger(logger_), opts(opts_)
 { }
 
 // init(): call once, from run_svaba.cpp immediately after you've parsed
 // your opts and before you shoot off any threads.
 void SvabaOutputWriter::init(const string& analysis_id,
-                             const map<string,string>& bamFiles,
 			     const SeqLib::BamHeader& b_header) {
-  
-  // remember these flags for writeUnit:
-  read_tracking_      = false; 
 
-  // make a copy of the header for use by this writer
+  // keep a local reference to the header
   bam_header_ = b_header;
 
   // open our gzipped text outputs
@@ -40,7 +36,7 @@ void SvabaOutputWriter::init(const string& analysis_id,
 
   // write the header line for breakpoints file:
   os_allbps_ << BreakPoint::header();
-  for (auto &p : bamFiles) 
+  for (auto &p : opts.bams) 
     os_allbps_ << "\t" << p.first << "_" << p.second;
   os_allbps_ << "\n";
 
@@ -62,7 +58,7 @@ void SvabaOutputWriter::writeUnit(svabaThreadUnit& unit) {
   lock_guard<mutex> guard(writeMutex_); // lock the writers
 
   // alignment plot lines
-  for (const auto& alc : unit.m_alc) {
+  for (const auto& alc : unit.master_alc) {
     if (alc.hasVariant()) 
       all_align_ << alc.print(bam_header_) << "\n";
   }
@@ -76,7 +72,7 @@ void SvabaOutputWriter::writeUnit(svabaThreadUnit& unit) {
   }
 
   // write contig alignments to BAM
-  for (auto& i : unit.m_contigs) {
+  for (auto& i : unit.master_contigs) {
     i.RemoveTag("MC");
     b_contig_writer_.WriteRecord(i);
   }

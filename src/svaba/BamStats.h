@@ -36,6 +36,7 @@ class BamReadGroup {
 
  private:
 
+  // count number of reads 
   size_t reads;
   size_t supp;
   size_t unmap;  
@@ -43,13 +44,10 @@ class BamReadGroup {
   size_t duplicate;
   size_t mate_unmap;
 
-  Histogram mapq;
-  Histogram nm;
-  Histogram isize;
-  Histogram clip;
-  Histogram phred;
-  Histogram len;
-
+  int mapq_max = 0;
+  int realen_max = 0;
+  std::vector<int> isize_vec;
+  
   std::string m_name;
 
 };

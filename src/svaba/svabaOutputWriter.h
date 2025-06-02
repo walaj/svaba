@@ -13,11 +13,10 @@ struct SvabaOutputWriter {
 
 public:
   
-  SvabaOutputWriter(SvabaLogger& logger, const SvabaOptions& opts);
+  SvabaOutputWriter(SvabaLogger& logger_, SvabaOptions& opts_);
   
   // call this once at startup:
   void init(const std::string& analysis_id,
-            const std::map<std::string,std::string>& bamFiles,
 	    const SeqLib::BamHeader& b_header);
 
   // call this from any thread under a lock:
@@ -25,8 +24,8 @@ public:
   
 private:
 
-  SvabaLogger&        logger_;
-  SvabaOptions&       opts_;
+  SvabaLogger&        logger;
+  SvabaOptions&       opts;
   
   ogzstream           all_align_;
   ogzstream           os_allbps_;

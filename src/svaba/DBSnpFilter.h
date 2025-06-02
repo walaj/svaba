@@ -7,9 +7,12 @@
 #include <functional> //for std::hash
 
 #include "SeqLib/GenomicRegionCollection.h"
-#include "SeqLib/BamHeader.h"
 
-#include "BreakPoint.h"
+class BreakPoint;
+class SvabaLogger;
+namespace SeqLib {
+class BamHeader;
+}
 
 class DBSnpSite: public SeqLib::GenomicRegion {
 
@@ -33,7 +36,8 @@ typedef SeqLib::GenomicRegionCollection<DBSnpSite> DBC;
 
     DBSnpFilter() {}
 
-    DBSnpFilter(const std::string& db, const SeqLib::BamHeader& h); 
+    DBSnpFilter(const std::string& db, const SeqLib::BamHeader& h,
+		SvabaLogger& logger); 
 
     /** Test whether the variant overlaps a DBSnp site 
      * If it does, fill the BreakPoint rs field
