@@ -1,12 +1,14 @@
 #pragma once
 
 #include <set>
+//#include <atomic>
 
 #include "SeqLib/BWAIndex.h"
 #include "SeqLib/BamHeader.h"
 #include "SeqLib/GenomicRegionCollection.h"
 #include "SeqLib/ReadFilter.h"
 #include "LearnBamParams.h"
+
 
 class SvabaOutputWriter;
 class SvabaLogger;
@@ -24,7 +26,10 @@ class SvabaSharedConfig {
    : logger(_logger),
     opts(_opts),
     writer(_writer) {}
-  
+
+  size_t total_regions_to_process = 0;
+  size_t total_regions_done = 0;
+
   SvabaLogger&          logger;
 
   SvabaOptions&         opts;

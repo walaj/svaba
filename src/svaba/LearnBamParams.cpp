@@ -95,6 +95,10 @@ void LearnBamParams::learnParams() {
       rg = "NA";
     }
 
+    // hard max
+    if (countr > 10'000'000)
+      break;
+    
     // print update
     ++countr;
     if (countr % 10000000==0) {
@@ -102,14 +106,14 @@ void LearnBamParams::learnParams() {
 		    SeqLib::AddCommas(countr), " and learned ",
 		    satisfied, " read groups of ", groups.size());
       
-      for (const auto& rgc : rg_count)
-	if (rgc.second < 100000)
-	  std::cerr << rgc.first << ":" << rgc.second << std::endl;
-      
     }
+
+    // already seen too many of these reads
+    if (rg_count[rg] > sc.opts.perRgLearnLimit)
+      continue;
     
     // already seen too many of these reads
-    if (rg_count[rg] == sc.opts.perRgLearnLimit) {
+    else if (rg_count[rg] == sc.opts.perRgLearnLimit) {
       satisfied++;
 
       // check if we satisifed all the read groups
@@ -117,7 +121,7 @@ void LearnBamParams::learnParams() {
 	break;
       }
     }
-    
+
     // refer to existing BamReadGroup or make new
     auto& bstats = bam_read_groups[rg];
     bstats.addRead(*r); // add the read for learning

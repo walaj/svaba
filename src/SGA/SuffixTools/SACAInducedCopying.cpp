@@ -67,8 +67,6 @@ void saca_induced_copying(SuffixArray* pSA, const ReadTable* pRT, int numThreads
     countBuckets(pRT, bucket_counts, ALPHABET_SIZE);
     getBuckets(bucket_counts, buckets, ALPHABET_SIZE, true); 
 
-    //std::cout << "initializing SA\n";
-
     // Initialize the suffix array
     size_t num_suffixes = buckets[ALPHABET_SIZE - 1];
     pSA->initialize(num_suffixes, pRT->getCount());
@@ -105,12 +103,12 @@ void saca_induced_copying(SuffixArray* pSA, const ReadTable* pRT, int numThreads
     SuffixCompareRadix radix_compare(pRT, 6);
     SuffixCompareIndex index_compare;
     //SuffixCompareID id_compare(pRT);
-
+    
     if(numThreads <= 1)
         mkqs2(&pSA->m_data[0], n1, 0, radix_compare, index_compare);
     //else
     //    parallel_mkqs(&pSA->m_data[0], n1, numThreads, radix_compare, index_compare);
-    
+
     //if(!silent)
     //    std::cout << "[saca] mkqs finished\n";
 

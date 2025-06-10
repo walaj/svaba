@@ -3,6 +3,8 @@
 
 #include <cstddef>
 
+inline constexpr int PER_THREAD_BATCH_SIZE = 1000;
+
 // version & date
 inline constexpr char SVABA_VERSION[] = "1.3.0";
 inline constexpr char SVABA_DATE[]    = "05/2025";
@@ -30,8 +32,8 @@ inline constexpr int MIN_PER_CLUST            = 2;
 inline constexpr int DEFAULT_ISIZE_THRESHOLD  = 2000;
 
 // from run_svaba
-inline constexpr std::size_t THREAD_READ_LIMIT      = 20'000;
-inline constexpr int         THREAD_CONTIG_LIMIT    =   250;
+inline constexpr std::size_t THREAD_READ_LIMIT      = 20'000; 
+inline constexpr int         THREAD_CONTIG_LIMIT    =   5'000;
 inline constexpr int         MIN_DSCRD_READS_DSCRD_ONLY = 3;
 
 // from svabaAssemblerEngine

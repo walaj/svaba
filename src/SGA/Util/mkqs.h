@@ -99,14 +99,20 @@ void mkqs2(T* a, int n, int depth, const PrimarySorter& primarySorter, const Fin
         return;
     }
 
-    pm = a + (n/2);
+    // chatGPT determinisic method
+    pm = med3(a, a + n/2, a + n - 1);   // med3 is already defined above
+
+    // old rand determined, has hidden mutex lock
+    /*    pm = a + (n/2);
     pn = a + (n-1);
 
     int mid_idx = rand() % n;
 
-    pm = &a[mid_idx];
+    pm = &a[mid_idx];*/
+    
     mkqs_swap2(a, pm);
     partval = ptr2char(a);
+    
     pa = pb = a + 1;
     pc = pd = a + n-1;
     for (;;) 

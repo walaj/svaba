@@ -5,6 +5,7 @@
 #include "svabaUtils.h"
 #include "BreakPoint.h"
 #include "DiscordantCluster.h"
+#include "SvabaSharedConfig.h"
 
 #include <mutex>
 
@@ -43,18 +44,9 @@ void SvabaOutputWriter::init(const string& analysis_id,
   // write the header line for discordant clusters:
   os_discordant_ << DiscordantCluster::header() << "\n";
 
-  // open the contig bam for writing contig alignments
-  string wname = analysis_id + ".contigs.bam";
-  b_contig_writer_.SetHeader(bam_header_);
-  if (!b_contig_writer_.Open(wname)) {
-    std::cerr << "Unable to open " << wname << std::endl;
-    assert(false);
-  }
-  b_contig_writer_.WriteHeader();
-
   // BAM output for aligned contigs
   std::string aligned_contigs_bam_path = analysis_id;
-  aligned_contigs_bam_path.append(".discordant.bam");
+  aligned_contigs_bam_path.append(".contigs.bam");
   b_contig_writer_ = SeqLib::BamWriter(SeqLib::BAM);
   b_contig_writer_.SetHeader(b_header);
   if (!b_contig_writer_.Open(aligned_contigs_bam_path)) {    
@@ -105,13 +97,22 @@ void SvabaOutputWriter::init(const string& analysis_id,
     }
     b_corrected_read_writer_.WriteHeader();
   }
-
   
 }
 
-void SvabaOutputWriter::writeUnit(svabaThreadUnit& unit) {
+void SvabaOutputWriter::writeUnit(svabaThreadUnit& unit,
+				  SvabaSharedConfig& sc) {
+
   lock_guard<mutex> guard(writeMutex_); // lock the writers
 
+  sc.total_regions_done += unit.processed_since_memory_dump;
+  unit.processed_since_memory_dump = 0;
+  
+  /*std::cerr << "...svabaOutputWriter - flushing thread " << unit.threadId << " -- " <<
+    SeqLib::AddCommas(sc.total_regions_done) << " of " << SeqLib::AddCommas(sc.total_regions_to_process) <<
+    "\n";
+  */
+  
   // alignment plot lines
   for (const auto& alc : unit.master_alc) {
     if (alc.hasVariant()) 
@@ -128,8 +129,8 @@ void SvabaOutputWriter::writeUnit(svabaThreadUnit& unit) {
 
   // write contig alignments to BAM
   for (auto& i : unit.master_contigs) {
-    i.RemoveTag("MC");
-    b_contig_writer_.WriteRecord(i);
+    //i.RemoveTag("MC");
+    assert(b_contig_writer_.WriteRecord(i));
   }
 
   // breakpoints
@@ -150,21 +151,14 @@ void SvabaOutputWriter::writeUnit(svabaThreadUnit& unit) {
   // weird reads
   if (opts.dump_weird_reads) {
     for (const auto& r : unit.all_weird_reads)
-      b_weird_read_writer_.WriteRecord(r);
+      assert(b_weird_read_writer_.WriteRecord(r));
   }
 
   // corrected reads
   if (opts.dump_corrected_reads) {
     for (const auto& r : unit.all_corrected_reads)
-      b_corrected_read_writer_.WriteRecord(r);
+      assert(b_corrected_read_writer_.WriteRecord(r));
   }
-
-  // aligned contigs
-  for (const auto& r : unit.master_contigs)
-    b_contig_writer_.WriteRecord(r);
-  
-  // clear them out so this unit can reaccumulate
-  unit.clear();
 }
 
 void SvabaOutputWriter::close() {
@@ -184,13 +178,15 @@ void SvabaOutputWriter::close() {
       std::cerr << "Unable to close weird read writer" << std::endl;
     }
   }
-
+  
   if (opts.dump_corrected_reads) {
     if (!b_corrected_read_writer_.Close()) {
       std::cerr << "Unable to close corrected read writer" << std::endl;
     }
   }
-
-  b_contig_writer_.Close();
+  
+  if (!b_contig_writer_.Close()) {
+    std::cerr << "Unable to close contigs bam writer" << std::endl;
+  }
   
 }

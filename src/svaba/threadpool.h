@@ -64,6 +64,7 @@ public:
 			      // these should not be shared across threads, even if using const functions only
 			      svabaThreadUnit unit(sc); // give it the shared_ptr to the master index
 			      unit.threadId = i + 1;
+			      unit.total_count = sc.total_regions_to_process;
 			      
 			      // open the BAM files
 			      for(const auto& [pref, path] : sc.opts.bams) { 
@@ -88,7 +89,9 @@ public:
 			      }
 			      
 			      // final flush
-			      sc_.writer.writeUnit(unit); // this does the flush and mutex in it
+			      std::cerr << "...final flush for thread " << unit.threadId << std::endl;
+			      sc_.writer.writeUnit(unit, sc_); // this does the flush and mutex in it
+			      unit.clear();
 			    });
     }
   }

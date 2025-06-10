@@ -29,21 +29,25 @@ public:
   
   // local version of aligner class, but will hold shared memory index
   std::shared_ptr<SeqLib::BWAAligner> bwa_aligner; //(sc.bwa_idx);
+
+  size_t processed_count = 0;
+  size_t total_count = 0; // total to process
+  size_t processed_since_memory_dump = 0;
   
   // results
   std::vector<AlignedContig>                 master_alc;
   SeqLib::BamRecordVector                    master_contigs;
   BPVec                                      m_bps;
   DiscordantClusterMap                       m_disc;
-  size_t                                     m_bamreads_count = 0;
-  size_t                                     m_disc_reads     = 0;
+  //size_t                                     m_bamreads_count = 0;
+  //size_t                                     m_disc_reads     = 0;
   SeqLib::GRC                                badd; // bad regions
   int                                        threadId;
 
   // very verbose outpout
   svabaReadVector                            all_weird_reads;
   svabaReadVector                            all_discordant_reads;
-  svabaReadVector                            all_corrected_reads;    
+  SeqLib::BamRecordVector                            all_corrected_reads;    
   
   // store the BAM .bai indicies for for this thread
   WalkerMap                            walkers;

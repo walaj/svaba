@@ -118,7 +118,8 @@ bool svabaAssemblerEngine::performAssembly(int num_assembly_rounds)
   doAssembly(&m_pRT, m_contigs, 0);
   
   for (int yy = 1; yy != num_assembly_rounds; yy++) {
-    
+
+    assert(false); // DEBUG
     if (m_contigs.size() < 2) 
       continue; // break because too few contigs to assemle
     
@@ -142,7 +143,9 @@ bool svabaAssemblerEngine::performAssembly(int num_assembly_rounds)
 
 
 // call the assembler
-void svabaAssemblerEngine::doAssembly(ReadTable *pRT, SeqLib::UnalignedSequenceVector &contigs, int pass) {
+void svabaAssemblerEngine::doAssembly(ReadTable *pRT,
+				      SeqLib::UnalignedSequenceVector &contigs,
+				      int pass) {
   
   if (pRT->getCount() == 0)
     return;
@@ -165,8 +168,8 @@ void svabaAssemblerEngine::doAssembly(ReadTable *pRT, SeqLib::UnalignedSequenceV
   bool exact = errorRate < 0.001f;
 
   // remove duplicates if running in exact mode
-  ReadTable * pRT_nd = exact ? removeDuplicates(pRT) : pRT;    
-
+  ReadTable * pRT_nd = exact ? removeDuplicates(pRT) : pRT;
+  
   // forward
   SuffixArray* pSAf_nd = new SuffixArray(pRT_nd, 1, false); //1 is num threads. false is silent/no
   RLBWT *pBWT_nd = new RLBWT(pSAf_nd, pRT_nd);
@@ -175,20 +178,20 @@ void svabaAssemblerEngine::doAssembly(ReadTable *pRT, SeqLib::UnalignedSequenceV
   pRT_nd->reverseAll();
   SuffixArray * pSAr_nd = new SuffixArray(pRT_nd, 1, false);
   RLBWT *pRBWT_nd = new RLBWT(pSAr_nd, pRT_nd);
-  pRT_nd->reverseAll();
+  pRT_nd->reverseAll(); 
 
   pSAf_nd->writeIndex();
-  pSAr_nd->writeIndex();
+  pSAr_nd->writeIndex(); 
 
   bool bIrreducibleOnly = true; // default
   int seedLength = 0;
   int seedStride = 0;
-  if (!exact)
+  if (!exact) 
     calculateSeedParameters(m_readlen, min_overlap, seedLength, seedStride);
 
   svabaOverlapAlgorithm* pOverlapper = new svabaOverlapAlgorithm(pBWT_nd, pRBWT_nd, 
-								     errorRate, seedLength,
-								     seedStride, bIrreducibleOnly);
+								 errorRate, seedLength,
+								 seedStride, bIrreducibleOnly);
   
   pOverlapper->setExactModeOverlap(exact);
   pOverlapper->setExactModeIrreducible(exact);
@@ -258,22 +261,22 @@ void svabaAssemblerEngine::doAssembly(ReadTable *pRT, SeqLib::UnalignedSequenceV
   
   // PERFORM THE ASSMEBLY
   trimLengthThreshold = 100; 
-  numTrimRounds = 1; 
+  numTrimRounds = 1;
   StringGraph * oGraph = assemble(asqg_stream, min_overlap, maxEdges, bExact, 
 	   trimLengthThreshold, bPerformTR, bValidate, numTrimRounds, 
 	   resolveSmallRepeatLen, numBubbleRounds, gap_divergence, 
 				  divergence, maxIndelLength, cutoff, m_id + "_", contigs, m_write_asqg);
   
   // optionally output the graph structure
-  if (m_write_asqg)
-    write_asqg(oGraph, asqg_stream, hits_stream, pass);
+  //if (m_write_asqg) //debug
+  //  write_asqg(oGraph, asqg_stream, hits_stream, pass);
 
   // this was allocated in assemble
-  delete oGraph;
+  //delete oGraph; //debug
   delete pQueryRIT;
 
   // remove exact dups
-  remove_exact_dups(contigs);
+  //remove_exact_dups(contigs); //debug
   
   // print out some results
 #ifdef DEBUG_ENGINE
@@ -296,7 +299,7 @@ ReadTable* svabaAssemblerEngine::removeDuplicates(ReadTable* pRT) {
   SuffixArray * pSAr = new SuffixArray(pRT, 1, false);
   RLBWT *pRBWT = new RLBWT(pSAr, pRT);
   pRT->reverseAll();
-
+  
   svabaOverlapAlgorithm* pRmDupOverlapper = new svabaOverlapAlgorithm(pBWT, pRBWT, 
 									  0, 0, 
 									  0, false);

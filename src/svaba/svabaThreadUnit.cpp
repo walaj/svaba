@@ -21,12 +21,14 @@ svabaThreadUnit::svabaThreadUnit(SvabaSharedConfig& sc_) : sc(sc_) {
 }
 
 void svabaThreadUnit::clear() {
+  
   master_alc.clear();
   master_contigs.clear();
+  
   m_bps.clear();
   m_disc.clear();
-  m_bamreads_count = 0;
-  m_disc_reads     = 0;
+  //m_bamreads_count = 0;
+  // m_disc_reads     = 0;
   badd.clear();
 
   all_weird_reads.clear();
@@ -35,8 +37,21 @@ void svabaThreadUnit::clear() {
 }
 
 bool svabaThreadUnit::MemoryLimit(size_t readLimit, size_t contLimit) const {
-  return m_bamreads_count > readLimit
-    || master_contigs.size()   > contLimit
-    || m_disc_reads       > readLimit;
+
+  size_t stored_reads = all_weird_reads.size() +
+    all_discordant_reads.size() +
+    all_corrected_reads.size();
+  
+  bool mem_exceeded = stored_reads > readLimit ||
+                      master_contigs.size()   > contLimit;
+  
+  if (mem_exceeded) {
+    sc.logger.log(true, true, "...writing files on thread ",
+		  threadId, " with limit hit of ",
+		  stored_reads, " reads and ", master_contigs.size(),
+		  " contigs");
+  }
+  
+  return mem_exceeded;
 }
 

@@ -40,6 +40,8 @@ class svabaBamWalker: public SeqLib::BamReader {
   // clear it out
   void clear() { 
     cov.clear();
+    weird_cov.clear();
+    bfc->clear();
     cigmap.clear();
     weird_cov.clear();
     mate_regions.clear();

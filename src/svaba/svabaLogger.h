@@ -23,6 +23,11 @@ public:
   /// @param args  one or more things you can stream into an ostringstream
   template <typename... Args>
   void log(bool toErr, bool toLog, Args&&... args) {
+
+    // it no printing at all, just leave
+    if (!toErr && !toLog)
+      return;
+
     std::lock_guard<std::mutex> lock(mtx_);
     std::ostringstream oss;
     // fold expression to stream all args

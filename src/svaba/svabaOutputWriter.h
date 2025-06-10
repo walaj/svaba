@@ -9,6 +9,8 @@
 #include "svabaLogger.h"
 #include "svabaOptions.h"
 
+struct SvabaSharedConfig;
+
 struct SvabaOutputWriter {
 
 public:
@@ -20,7 +22,8 @@ public:
 	    const SeqLib::BamHeader& b_header);
 
   // call this from any thread under a lock:
-  void writeUnit(svabaThreadUnit& unit);
+  void writeUnit(svabaThreadUnit& unit,
+		 SvabaSharedConfig& sc);
 
   void close();
   

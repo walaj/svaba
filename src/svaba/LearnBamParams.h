@@ -43,7 +43,7 @@ class BamReadGroup {
 
   int mapq_max = 0;
   int readlen_max = 0;
-  std::vector<int> isize_vec;
+  std::vector<uint32_t> isize_vec;
 
   // statistics
   double isize_mean = 0;

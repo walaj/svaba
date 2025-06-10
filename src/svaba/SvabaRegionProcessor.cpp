@@ -75,7 +75,7 @@ void SvabaRegionProcessor::runMateCollectionLoop(const GenomicRegion& region,
     
     // print out to log
     for (auto& i : somatic_mate_regions)
-      sc.logger.log(sc.opts.verbose > 1, true, 
+      sc.logger.log(sc.opts.verbose > 1, sc.opts.verbose_log, 
 		    "......mate region ",
 		    i.ToString(sc.header) ,
 		    " case read count that triggered lookup: ",
@@ -128,7 +128,7 @@ void SvabaRegionProcessor::runMateCollectionLoop(const GenomicRegion& region,
       
     } // end walker read colletion
     
-    sc.logger.log(sc.opts.verbose > 1,true /*todo*/,
+    sc.logger.log(sc.opts.verbose > 1, sc.opts.verbose_log, 
 		  "......Mate region reads: <case, control>: <",
 	       AddCommas(counts.first), ",",
 		  AddCommas(counts.second), ">");
@@ -139,8 +139,16 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
                                    svabaThreadUnit&             unit,
                                    size_t                       threadId)
 {
-  
-  sc.logger.log(sc.opts.verbose > 1, false/*TODO*/,
+
+  // count for this unit
+  unit.processed_count++;
+  unit.processed_since_memory_dump++;
+  /*  if (unit.processed_count % 25 == 0) {
+    sc.logger.log(true, true, "...processing ", SeqLib::AddCommas(unit.processed_count),
+	       " of ", SeqLib::AddCommas(unit.total_count), " for thread ", unit.threadId);
+  }
+  */
+  sc.logger.log(sc.opts.verbose > 1, sc.opts.verbose_log,
 		"===Running region ", region.ToString(sc.header),
 	      " on thread ", unit.threadId);
   
@@ -186,7 +194,7 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
       }
     }
 
-    sc.logger.log(sc.opts.verbose > 1, false, "---running svabaBamWalker",
+    sc.logger.log(sc.opts.verbose > 1, sc.opts.verbose_log, "---running svabaBamWalker",
 		  sbw);
     
     // do the BAM reading, and store the bad mate regions
@@ -205,7 +213,7 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
     }
 
     // print if verbose
-    sc.logger.log(sc.opts.verbose > 1, false,
+    sc.logger.log(sc.opts.verbose > 1, sc.opts.verbose_log,
 		  "...main region reads <case,control> ",
 		  "<",read_counts.first, ",", read_counts.second,">");
     
@@ -224,7 +232,7 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
   }
   
   // do the discordant read clustering
-  sc.logger.log(sc.opts.verbose > 1,true/*todo*/,
+  sc.logger.log(sc.opts.verbose > 1, false, 
 		"...discordant read clustering");
 
   // tag the reads by discordant status
@@ -301,7 +309,7 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
     double kcov = bfc->GetKCov();
     int kmer    = bfc->GetKMer();
 
-    sc.logger.log(true, true, "...BFC attempted correct ", num_reads_corrected,
+    sc.logger.log(sc.opts.verbose > 0, sc.opts.verbose_log, "...BFC attempted correct ", num_reads_corrected,
 		  " kmer: ", kmer);
 
     // clear it out, not needed anymore
@@ -328,9 +336,9 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
 				  this_corrected_alignments.begin(),
 				  this_corrected_alignments.end());
     }
-
+    
     // add to svabaThreadUnit for output later
-    unit.insert(unit.all_corrected_reads.end(),
+    unit.all_corrected_reads.insert(unit.all_corrected_reads.end(),
 	        corrected_alignments.begin(),
 		corrected_alignments.end());
   }
@@ -353,7 +361,7 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
   local_bwa_index->ConstructIndex(local_usv);
   BWAAligner local_bwa_aligner(local_bwa_index);
 
-  sc.logger.log(true, true,
+  sc.logger.log(sc.opts.verbose > 0, sc.opts.verbose_log,
 		"...running assemblies for region ",
 		region); 
   
@@ -373,26 +381,30 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
   engine.fillReadTable(all_reads_for_assembly);
 
   // do the actual assembly
+  //DEBUG
   engine.performAssembly(1/*sc.opts.num_assembly_rounds*/);
   
   // retrieve contigs
   UnalignedSequenceVector all_unaligned_contigs_this_region =
     engine.getContigs();
-  sc.logger.log(true, true, "...assembled ",
+  sc.logger.log(sc.opts.verbose > 0, sc.opts.verbose_log, "...assembled ",
 		all_unaligned_contigs_this_region.size(),
 		" contigs for ",
 		name);
-
+  
   // loop and process unaligned contigs
+  size_t count_contigs_of_size = 0;
   for (auto& i : all_unaligned_contigs_this_region) {
-
+    
     // if too short, skip
     if ((int)i.Seq.length() < (sc.readlen * 1.2)) 
       continue;
+
+    ++count_contigs_of_size;
     
     //// LOCAL REALIGNMENT
     // align to the local region
-
+    BamRecordVector local_ct_alignments;
     local_bwa_aligner.alignSequence(i.Seq,
 				    i.Name,
 				    local_ct_alignments,
@@ -401,11 +413,11 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
 				    SECONDARY_CAP);
     
     // check if it has a non-local alignment
-    bool valid_sv = true;
-    for (auto& aa : local_ct_alignments) {
+    /*bool valid_sv = true;
+      for (auto& aa : local_ct_alignments) {
       if (aa.NumClip() < MIN_CLIP_FOR_LOCAL) 
-	valid_sv = false; // has a non-clipped local alignment. can't be SV. Indel only
-    }
+      valid_sv = false; // has a non-clipped local alignment. can't be SV. Indel only
+      }*/
 
     // do the main realignment of unaligned contigs to the reference genome
     BamRecordVector human_alignments;
@@ -421,13 +433,17 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
 
     // sort the alignments by position
     std::sort(human_alignments.begin(), human_alignments.end());
-
+    
     // add the chromosome string name
     for (auto& rr : human_alignments) {
       	rr.AddZTag("MC", sc.header.IDtoName(rr.ChrID()));
     }
-      
-    
+
+    // add contig alignments to svabaThreadUnit for writing later
+    unit.master_contigs.insert(unit.master_contigs.end(),
+			       human_alignments.begin(),
+			       human_alignments.end());
+
     // make the AlignedContig object for this contig
     AlignedContig ac(human_alignments, sc.prefixes);
     
@@ -438,6 +454,12 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
     all_AlignedContigs_this_region.push_back(ac);
   }
 
+  
+  sc.logger.log(sc.opts.verbose > 0, sc.opts.verbose_log, "...assembled ",
+		count_contigs_of_size,
+		" contigs that meet size criteria for ",
+		name);
+  
   // didnt get any contigs that made it all the way through
   if (!all_AlignedContigs_this_region.size())
     return true;
@@ -655,28 +677,29 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
   for (const auto& a : alc)
     if (a.hasVariant()) {
       unit.master_alc.push_back(a);
-      unit.m_bamreads_count += a.NumBamReads();
+      //unit.m_bamreads_count += a.NumBamReads();
     }
-  for (const auto& d : dmap)
-    unit.m_disc_reads += d.second.reads.size();
+  //for (const auto& d : dmap)
+  //  unit.m_disc_reads += d.second.reads.size();
 
-  // add the aligned contigs to the svaba thread unit for writing later
-  unit.master_contigs.insert(unit.master_contigs.end(), all_contigs.begin(), all_contigs.end());
   // add the discordant clusters to the svabathreadunit for writing later
   unit.m_disc.insert(dmap.begin(), dmap.end());
 
-  for (const auto& a : alc)
-    unit.m_bamreads_count += a.NumBamReads();
+  //for (const auto& a : alc)
+  //  unit.m_bamreads_count += a.NumBamReads();
   for (auto& i : bp_glob) 
     if ( i.hasMinimal() && (i.confidence != "NOLOCAL" || i.complex_local ) ) 
       unit.m_bps.push_back(i);
-  
+
+  // clear out the reads and reset the walkers
+  for (auto& w : unit.walkers) {
+    w.second.clear(); 
+  }
+
   // dump if getting to much memory
   if (unit.MemoryLimit(THREAD_READ_LIMIT, THREAD_CONTIG_LIMIT) && !sc.opts.hp) {
-    sc.logger.log(true, true, "...writing output files on thread ",
-		  unit.threadId, " with limit hit of ",
-		  unit.m_bamreads_count);
-    sc.writer.writeUnit(unit); // mutex and flush are inside this call
+    sc.writer.writeUnit(unit, sc); // mutex and flush are inside this call
+    unit.clear();
   }
    
   st.stop("pp");
@@ -690,10 +713,6 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
 					  sc.header,
 					  st, start)); 
   */
-  // clear out the reads and reset the walkers
-  for (auto& w : unit.walkers) {
-    w.second.clear(); 
-  }
 
   return true;
 }

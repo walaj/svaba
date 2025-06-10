@@ -57,42 +57,98 @@ static struct timespec start;
 // anonymous namespace to keep external linkage
 void  runsvaba       (int argc, char** argv);
 
-// --- one small helper functor ---
-struct SvabaWorkItem {
-  SeqLib::GenomicRegion    region;
-  int                      id;
-  SvabaRegionProcessor&    processor;
+struct SvabaBatchWorkItem {
+  // batch of region + unique region ID pairs
+  std::vector<std::pair<SeqLib::GenomicRegion,int>> items;
+  SvabaRegionProcessor& processor;
 
-  SvabaWorkItem(const SeqLib::GenomicRegion& r,
-                int n,
-                SvabaRegionProcessor& proc)
-    : region(r), id(n), processor(proc)
-  {}
+  // constructor takes a reference to the shared processor
+  SvabaBatchWorkItem(const std::vector<std::pair<SeqLib::GenomicRegion,int>>& items_,
+                     SvabaRegionProcessor& proc)
+    : items(items_), processor(proc) {}
 
+  // call operator matching SvabaWorkItem signature
   bool operator()(svabaThreadUnit& unit, size_t threadId) const {
-    return processor.process(region, unit, threadId);
+    for (auto& [region, id] : items) {
+      processor.process(region, unit, threadId);
+    }
+    return true;
   }
 };
 
+
+// struct SvabaWorkItem {
+//   SeqLib::GenomicRegion    region;
+//   int                      id;
+//   SvabaRegionProcessor&    processor;
+
+//   SvabaWorkItem(const SeqLib::GenomicRegion& r,
+//                 int n,
+//                 SvabaRegionProcessor& proc)
+//     : region(r), id(n), processor(proc)
+//   {}
+
+//   bool operator()(svabaThreadUnit& unit, size_t threadId) const {
+//     return processor.process(region, unit, threadId);
+//   }
+// };
+
+// Modified sendThreads() to submit batches of regions instead of one-by-one jobs
 void sendThreads(const SeqLib::GRC& regionsToRun,
-	 SvabaSharedConfig& sc) {
+                 SvabaSharedConfig& sc) {
+  // shared processor instance
+  SvabaRegionProcessor proc(sc);
+
+  // thread pool now handles SvabaBatchWorkItem jobs
+  ThreadPool<SvabaBatchWorkItem> pool(sc);
   
-  // single shared processor:
-  SvabaRegionProcessor proc(sc); 
-  
-  // our threadpool of work items:
-  ThreadPool<SvabaWorkItem> pool(sc);
-  
-  int count=0;
-  // submit one job per region  
-  for (auto& r : regionsToRun)
-    pool.submit(std::make_unique<SvabaWorkItem>(r, ++count, proc));
-  
-  // if no intervals, submit a single wholegenome job  
-  if (regionsToRun.IsEmpty())
-    pool.submit(std::make_unique<SvabaWorkItem>(SeqLib::GenomicRegion(), ++count, proc));
+  size_t batch_size = 1; //PER_THREAD_BATCH_SIZE;
+  if (sc.opts.numThreads > 0) {
+    size_t per_thread = sc.total_regions_to_process / sc.opts.numThreads;
+    if (per_thread < batch_size) {
+      batch_size = std::max<size_t>(1, per_thread); // prevent batch_size = 0
+    }
+  }
+
+  sc.logger.log(true, true, "...batch per thread ", batch_size);
+  std::vector<std::pair<SeqLib::GenomicRegion,int>> batch;
+  batch.reserve(batch_size);
+
+  int count = 0;
+  for (auto& region : regionsToRun) {
+    batch.emplace_back(region, ++count);
+    if (batch.size() == batch_size) {
+      pool.submit(std::make_unique<SvabaBatchWorkItem>(batch, proc));
+      batch.clear();
+    }
+  }
+  // submit any leftover regions as one final batch
+  if (!batch.empty()) {
+    pool.submit(std::make_unique<SvabaBatchWorkItem>(batch, proc));
+  }
+
   pool.shutdown();
 }
+
+// void sendThreads(const SeqLib::GRC& regionsToRun,
+// 	 SvabaSharedConfig& sc) {
+  
+//   // single shared processor:
+//   SvabaRegionProcessor proc(sc); 
+  
+//   // our threadpool of work items:
+//   ThreadPool<SvabaWorkItem> pool(sc);
+  
+//   int count=0;
+//   // submit one job per region  
+//   for (auto& r : regionsToRun)
+//     pool.submit(std::make_unique<SvabaWorkItem>(r, ++count, proc));
+  
+//   // if no intervals, submit a single wholegenome job  
+//   if (regionsToRun.IsEmpty())
+//     pool.submit(std::make_unique<SvabaWorkItem>(SeqLib::GenomicRegion(), ++count, proc));
+//   pool.shutdown();
+// }
   
 void makeVCFs(SvabaSharedConfig& sc) {
 
@@ -210,7 +266,8 @@ void runsvaba(int argc, char** argv) {
 
   // parse the region file, count number of jobs
   SeqLib::GRC regionsToRun;
-  loader.countJobs(regionsToRun);  
+  loader.countJobs(regionsToRun);
+  sc.total_regions_to_process = regionsToRun.size();  
 
   // --- learn the insert-sizes ---
   logger.log(true, true,"...learning insert size distribution across all BAMs; this may take a while");
@@ -261,7 +318,7 @@ void runsvaba(int argc, char** argv) {
       opts.sgaMinOverlap, seedLength, seedStride
     );
   }
-  logger.log(false, true, "...seedLength = ", seedLength,", readlen=", globalReadLen, ")" );
+  logger.log(opts.verbose > 0, true, "...seedLength = ", seedLength,", readlen=", globalReadLen, ")" );
 
   // --- build per-RG discordant size rules ---
   for (auto const& [sample, pm] : sc.bamStats) {
@@ -275,7 +332,7 @@ void runsvaba(int argc, char** argv) {
   // set the ReadFilterCollection to be applied to each region
   logger.log(opts.verbose > 1, true, opts.rulesJson);
   sc.mr = ReadFilterCollection(opts.rulesJson, sc.header);
-  logger.log(opts.verbose > 1, true, sc.mr);
+  logger.log(opts.verbose > 0, true, sc.mr);
 
   // put args into string for VCF later
   sc.args += "(v" + string(SVABA_VERSION) + ") ";
