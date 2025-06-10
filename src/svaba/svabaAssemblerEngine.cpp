@@ -55,7 +55,7 @@ void svabaAssemblerEngine::fillReadTable(svabaReadVector& r) {
     
     // get the sequence and unique ID
     std::string sr = std::to_string(++count);
-    std::string seq = i.Seq();
+    std::string seq = i.CorrectedSeq();
     assert(sr.length());
     assert(seq.length());
 

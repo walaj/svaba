@@ -2,155 +2,155 @@
 
 #include "ReadTable.h"
 
-int KmerFilter::correctReads(SeqLib::BamRecordVector& vec) {
+// int KmerFilter::correctReads(svabaReadVector& vec) {
 
-  if (!vec.size())
-    return 0;
+//   if (!vec.size())
+//     return 0;
 
-  if (!pBWT)
-    return 0; // cant correct if didnt learn how
+//   if (!pBWT)
+//     return 0; // cant correct if didnt learn how
 
-  int corrected_reads = 0;
+//   int corrected_reads = 0;
 
-  //int intervalCacheLength = 10; // SGA defaul
-  //int intervalCacheLength = 1; //vec[0].Length();
-  BWTIntervalCache* pIntervalCache = nullptr; //new BWTIntervalCache(intervalCacheLength, pBWT);
-  BWTIndexSet indices; //(pBWT, pRBWT, nullptr, pIntervalCache);
-  indices.pBWT = pBWT;
-  indices.pCache = pIntervalCache;
+//   //int intervalCacheLength = 10; // SGA defaul
+//   //int intervalCacheLength = 1; //vec[0].Length();
+//   BWTIntervalCache* pIntervalCache = nullptr; //new BWTIntervalCache(intervalCacheLength, pBWT);
+//   BWTIndexSet indices; //(pBWT, pRBWT, nullptr, pIntervalCache);
+//   indices.pBWT = pBWT;
+//   indices.pCache = pIntervalCache;
 
-  KmerCountMap kmerCache;
+//   KmerCountMap kmerCache;
 
-  for (auto& r : vec) {
+//   for (auto& r : vec) {
 
-    // non-clipped mapped reads with no mismatches are OK (nothing to correct)
-    //if (r.GetIntTag("NM") == 0 && r.NumClip() == 0 && r.MappedFlag()) 
-    //  continue;
+//     // non-clipped mapped reads with no mismatches are OK (nothing to correct)
+//     //if (r.GetIntTag("NM") == 0 && r.NumClip() == 0 && r.MappedFlag()) 
+//     //  continue;
 
-    std::string readSequence = r.QualitySequence(); //QualityTrimmedSequence(4, dum);
+//     std::string readSequence = r.CorrectedSeq(); //QualityTrimmedSequence(4, dum);
 
-    std::string origSequence = readSequence;
-    int n = readSequence.length();
-    if (n < m_kmer_len) // can't correct, too short
-      continue;
-    int nk = n - m_kmer_len + 1;
-    std::vector<int> minPhredVector(nk, 25); // 25 is a dummy value
+//     std::string origSequence = readSequence;
+//     int n = readSequence.length();
+//     if (n < m_kmer_len) // can't correct, too short
+//       continue;
+//     int nk = n - m_kmer_len + 1;
+//     std::vector<int> minPhredVector(nk, 25); // 25 is a dummy value
 
-    // Are all kmers in the read well-represented?
-    bool allSolid = false;
-    bool done = false;
-    int rounds = 0;
-    int maxAttempts = 3; //m_params.numKmerRounds;
+//     // Are all kmers in the read well-represented?
+//     bool allSolid = false;
+//     bool done = false;
+//     int rounds = 0;
+//     int maxAttempts = 3; //m_params.numKmerRounds;
 
-    while (!done && nk > 0) {
-      // Compute the kmer counts across the read
-      // and determine the positions in the read that are not covered by any solid kmers
-      // These are the candidate incorrect bases
-      std::vector<int> countVector(nk, 0);
-      std::vector<int> solidVector(n, 0);
+//     while (!done && nk > 0) {
+//       // Compute the kmer counts across the read
+//       // and determine the positions in the read that are not covered by any solid kmers
+//       // These are the candidate incorrect bases
+//       std::vector<int> countVector(nk, 0);
+//       std::vector<int> solidVector(n, 0);
 
-      for(int i = 0; i < nk; ++i)
-        {
-	  std::string kmer;
-	  try { 
-	    kmer = readSequence.substr(i, 31);
-	  } catch (...) {
-	    std::cerr << "KmerFilter substr out of bounds. seqlen " << readSequence.length() << 
-	      " stat " << i << " length " << 31 << std::endl;
-	  }
+//       for(int i = 0; i < nk; ++i)
+//         {
+// 	  std::string kmer;
+// 	  try { 
+// 	    kmer = readSequence.substr(i, 31);
+// 	  } catch (...) {
+// 	    std::cerr << "KmerFilter substr out of bounds. seqlen " << readSequence.length() << 
+// 	      " stat " << i << " length " << 31 << std::endl;
+// 	  }
 
-	  int count = 0;
-	  KmerCountMap::iterator iter = kmerCache.find(kmer);
-	  if (iter != kmerCache.end()) {
-	    count = iter->second; 
-	  } else {
+// 	  int count = 0;
+// 	  KmerCountMap::iterator iter = kmerCache.find(kmer);
+// 	  if (iter != kmerCache.end()) {
+// 	    count = iter->second; 
+// 	  } else {
 	    
-	    count = BWTAlgorithms::countSequenceOccurrences(kmer, indices);
-	    kmerCache.insert(std::make_pair(kmer, count));
-	  }
+// 	    count = BWTAlgorithms::countSequenceOccurrences(kmer, indices);
+// 	    kmerCache.insert(std::make_pair(kmer, count));
+// 	  }
 	  
-	  // Get the phred score for the last base of the kmer
-	  int phred = minPhredVector[i];
-	  countVector[i] = count;
+// 	  // Get the phred score for the last base of the kmer
+// 	  int phred = minPhredVector[i];
+// 	  countVector[i] = count;
 	  
-	  // Determine whether the base is solid or not based on phred scores
-	  int threshold = CorrectionThresholds::Instance().getRequiredSupport(phred);
-	  if(count >= threshold)
-            {
-	      for(int j = i; j < i + 31; ++j)
-		solidVector[j] = 1;
-            }
-	}
+// 	  // Determine whether the base is solid or not based on phred scores
+// 	  int threshold = CorrectionThresholds::Instance().getRequiredSupport(phred);
+// 	  if(count >= threshold)
+//             {
+// 	      for(int j = i; j < i + 31; ++j)
+// 		solidVector[j] = 1;
+//             }
+// 	}
   
 
-      allSolid = true;
-      for(int i = 0; i < n; ++i) {
-	if(solidVector[i] != 1)
-	  allSolid = false;
-      }
+//       allSolid = true;
+//       for(int i = 0; i < n; ++i) {
+// 	if(solidVector[i] != 1)
+// 	  allSolid = false;
+//       }
       
-      // Stop if all kmers are well represented or we have exceeded the number of correction rounds
-      if(allSolid || rounds++ > maxAttempts)
-	break; 
+//       // Stop if all kmers are well represented or we have exceeded the number of correction rounds
+//       if(allSolid || rounds++ > maxAttempts)
+// 	break; 
       
-      // Attempt to correct the leftmost potentially incorrect base
-      bool corrected = false;
-      for(int i = 0; i < n; ++i)
-        {
-	  if(solidVector[i] != 1)
-            {
-	      // Attempt to correct the base using the leftmost covering kmer
-	      int phred = 25; //workItem.read.getPhredScore(i);
-	      int threshold = CorrectionThresholds::Instance().getRequiredSupport(phred);
+//       // Attempt to correct the leftmost potentially incorrect base
+//       bool corrected = false;
+//       for(int i = 0; i < n; ++i)
+//         {
+// 	  if(solidVector[i] != 1)
+//             {
+// 	      // Attempt to correct the base using the leftmost covering kmer
+// 	      int phred = 25; //workItem.read.getPhredScore(i);
+// 	      int threshold = CorrectionThresholds::Instance().getRequiredSupport(phred);
 	      
-	      int left_k_idx = (i + 1 >= 31 ? i + 1 - 31 : 0);
-	      corrected = attemptKmerCorrection(i, left_k_idx, std::max(countVector[left_k_idx], threshold), readSequence, indices);
-	      if(corrected)
-		break;
+// 	      int left_k_idx = (i + 1 >= 31 ? i + 1 - 31 : 0);
+// 	      corrected = attemptKmerCorrection(i, left_k_idx, std::max(countVector[left_k_idx], threshold), readSequence, indices);
+// 	      if(corrected)
+// 		break;
 	      
-	      // base was not corrected, try using the rightmost covering kmer
-	      size_t right_k_idx = std::min(i, n - 31);
-	      corrected = attemptKmerCorrection(i, right_k_idx, std::max(countVector[right_k_idx], threshold), readSequence, indices);
-	      if(corrected)
-		break;
-            }
-        }
+// 	      // base was not corrected, try using the rightmost covering kmer
+// 	      size_t right_k_idx = std::min(i, n - 31);
+// 	      corrected = attemptKmerCorrection(i, right_k_idx, std::max(countVector[right_k_idx], threshold), readSequence, indices);
+// 	      if(corrected)
+// 		break;
+//             }
+//         }
 
 	
-      // If no base in the read was corrected, stop the correction process
-      if(!corrected)
-        {
-	  assert(!allSolid);
-	  done = true;
-        }
+//       // If no base in the read was corrected, stop the correction process
+//       if(!corrected)
+//         {
+// 	  assert(!allSolid);
+// 	  done = true;
+//         }
 
-    } // end while    
+//     } // end while    
     
-    // if allsolid
-    if( readSequence != origSequence)
-      {
-	++corrected_reads;
-	assert(readSequence.length());
-	r.AddZTag("KC", readSequence);
-	//std::cerr << ssi.id << std::endl;
-	//std::cerr << "**************Read corrected from\to " << std::endl << "\t" << ssi.seq.toString() << std::endl << "\t" << readSequence << std::endl;
-        //result.correctSequence = readSequence;
-        //result.kmerQC = true;
-      }
-    else
-      {
-	//std::cerr << "Read NOT corrected from\to " << std::endl << "\t" << ssi.seq.toString() << std::endl << "\t" << readSequence << std::endl;
-        //result.correctSequence = workItem.read.seq.toString();
-        //result.kmerQC = false;
-      }
-  }
+//     // if allsolid
+//     if( readSequence != origSequence)
+//       {
+// 	++corrected_reads;
+// 	assert(readSequence.length());
+// 	r.AddZTag("KC", readSequence);
+// 	//std::cerr << ssi.id << std::endl;
+// 	//std::cerr << "**************Read corrected from\to " << std::endl << "\t" << ssi.seq.toString() << std::endl << "\t" << readSequence << std::endl;
+//         //result.correctSequence = readSequence;
+//         //result.kmerQC = true;
+//       }
+//     else
+//       {
+// 	//std::cerr << "Read NOT corrected from\to " << std::endl << "\t" << ssi.seq.toString() << std::endl << "\t" << readSequence << std::endl;
+//         //result.correctSequence = workItem.read.seq.toString();
+//         //result.kmerQC = false;
+//       }
+//   }
 
-  delete pIntervalCache;
+//   delete pIntervalCache;
 
-  return corrected_reads;
+//   return corrected_reads;
 
-  return 0;
-}
+//   return 0;
+// }
 
 int KmerFilter::correctReads(svabaReadVector& vec) {
 
@@ -177,7 +177,7 @@ int KmerFilter::correctReads(svabaReadVector& vec) {
     //if (r.GetIntTag("NM") == 0 && r.NumClip() == 0 && r.MappedFlag()) 
     //  continue;
 
-    std::string readSequence = r.Seq(); 
+    std::string readSequence = r.CorrectedSeq(); 
 
     std::string origSequence = readSequence;
     int n = readSequence.length();
@@ -282,7 +282,7 @@ int KmerFilter::correctReads(svabaReadVector& vec) {
 	++corrected_reads;
 	assert(readSequence.length());
 	//r.AddZTag("KC", readSequence);
-	r.SetSeq(readSequence);
+	r.SetCorrectedSeq(readSequence);
 	//std::cerr << ssi.id << std::endl;
 	//std::cerr << "**************Read corrected from\to " << std::endl << "\t" << ssi.seq.toString() << std::endl << "\t" << readSequence << std::endl;
         //result.correctSequence = readSequence;

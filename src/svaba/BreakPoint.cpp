@@ -160,12 +160,12 @@ BreakPoint::BreakPoint(DiscordantCluster& tdc,
     // add the supporting read info to allels
     for (auto& rr : dc.reads) {
       //std::string sr = SRTAG(rr.second);
-      std::string sr = rr.second.SR();
+      std::string sr = rr.second.UniqueName();
       allele[rr.second.Prefix()].supporting_reads.insert(sr);
       alt_counts[rr.second.Prefix()].insert(rr.second.Qname());
     }
     for (auto& rr : dc.mates) {
-      std::string sr = rr.second.SR();
+      std::string sr = rr.second.UniqueName();
       allele[rr.second.Prefix()].supporting_reads.insert(rr.second.Qname());
       alt_counts[rr.second.Prefix()].insert(rr.second.Qname());
     }
@@ -383,7 +383,7 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h) {
       
       // get read ID
       std::string sample_id = j.Prefix(); //substr(0,4); // maybe just make this prefix
-      std::string sr = j.SR(); 
+      std::string sr = j.UniqueName(); 
 
       // need read to cover past variant by some buffer. If there is a repeat,
       // then this needs to be even longer to avoid ambiguity
@@ -485,7 +485,7 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h) {
     for (auto& i : bav) {
       
       r2c& this_r2c = i.GetR2C(cname);
-      if (valid_reads.count(i.SR())) {
+      if (valid_reads.count(i.UniqueName())) {
 
 	std::string qn = i.Qname();
 	if (qnames.count(qn))
@@ -501,7 +501,7 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h) {
 
 	// keep track of qnames of split reads
 	qnames.insert(qn);
-	allele[i.Prefix()].supporting_reads.insert(i.SR());
+	allele[i.Prefix()].supporting_reads.insert(i.UniqueName());
 	
       	++allele[i.Prefix()].split;
       }
@@ -653,11 +653,11 @@ BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
 
 	      // add the discordant reads names to supporting reads for each sampleinfo
 	      for (auto& rr : d.second.reads) {
-		allele[rr.second.Prefix()].supporting_reads.insert(rr.second.SR());
+		allele[rr.second.Prefix()].supporting_reads.insert(rr.second.UniqueName());
 
 	      }
 	      for (auto& rr : d.second.mates) {
-		allele[rr.second.Prefix()].supporting_reads.insert(rr.second.SR());
+		allele[rr.second.Prefix()].supporting_reads.insert(rr.second.UniqueName());
 	      }
 
 	      // adjust the alt counts
@@ -1070,13 +1070,13 @@ void BreakPoint::format_bx_string() {
     
     //add the discordant reads
     for (auto& r : dc.reads) 
-      supp_reads.insert(r.second.SR());
+      supp_reads.insert(r.second.UniqueName());
     //supp_reads.insert(SRTAG(r.second));
 
     //add the reads from the breakpoint
     for (auto& r : reads) 
       //supp_reads.insert(SRTAG(r)); // BamRecords (not svabaBamRead)
-    supp_reads.insert(r.SR());
+    supp_reads.insert(r.UniqueName());
     
     // print reads to a string, delimit with a ,
     size_t lim = 0;

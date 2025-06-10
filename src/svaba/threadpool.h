@@ -78,7 +78,8 @@ public:
 			      for (auto const& [pref, path] : sc_ref.opts.bams) {
 				auto& walker = unit.walkers.at(pref);
 				walker.Open(path);
-				walker.prefix = pref;
+				walker.SetPrefix(pref);
+				walker.m_limit = sc.opts.weird_read_limit;
 			      }
 			      
 			      // consume jobs

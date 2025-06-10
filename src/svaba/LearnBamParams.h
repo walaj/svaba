@@ -30,6 +30,8 @@ class BamReadGroup {
   void addRead(const SeqLib::BamRecord &r);
 
   void computeStats();
+
+  friend std::ostream& operator<<(std::ostream& os, const BamReadGroup& bg);
   
   // count number of reads 
   size_t reads = 0;

@@ -28,6 +28,10 @@ void svabaThreadUnit::clear() {
   m_bamreads_count = 0;
   m_disc_reads     = 0;
   badd.clear();
+
+  all_weird_reads.clear();
+  all_discordant_reads.clear();
+  all_corrected_reads.clear();  
 }
 
 bool svabaThreadUnit::MemoryLimit(size_t readLimit, size_t contLimit) const {

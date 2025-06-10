@@ -16,7 +16,13 @@ class SvabaOptions {
   int    numThreads  = 1;
   std::string analysisId;
   bool hp            = false;
-  int perRgLearnLimit = 1'000'000;
+  int perRgLearnLimit = 1'000;
+  size_t weird_read_limit = 50'000;
+
+  // dumping
+  bool dump_weird_reads      = true;
+  bool dump_discordant_reads = true;
+  bool dump_corrected_reads  = true;
   
   // inputs
   std::vector<std::string> caseBams;
@@ -86,6 +92,8 @@ class SvabaOptions {
 
   void printLogger(SvabaLogger& logger) const;  
 
+  void addFRRule(const std::string &rgName, int N);
+  
   // Parse argc/argv into an SvabaOptions; throws on error
   static SvabaOptions parse(int argc, char** argv);
 

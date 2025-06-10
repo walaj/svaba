@@ -13,7 +13,6 @@ inline constexpr std::size_t MAX_CONTIG_SIZE = 5'000'000;
 // from run_svaba.cpp
 inline constexpr int MIN_CLIP_FOR_LOCAL           = 40;
 inline constexpr int MAX_NM_FOR_LOCAL             = 10;
-inline constexpr int PER_RG_LEARN_LIMIT           = 1'000'000;
 
 // from BreakPoint
 inline constexpr double MAX_ERROR                   = 0.04;

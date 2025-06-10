@@ -179,7 +179,7 @@ DiscordantClusterMap DiscordantCluster::clusterReads(
 	assert(rev == i.ReverseFlag() && mrev == i.MateReverseFlag()); 
 
 	// add the read to the read map
-	std::string tmp = i.SR(); // this name like t001_165_qname
+	std::string tmp = i.UniqueName(); // this name like t001_165_qname
 	assert(tmp.length());
 	reads[tmp] = i;
 
@@ -263,7 +263,7 @@ DiscordantClusterMap DiscordantCluster::clusterReads(
       int nm=0;
       i.second.GetIntTag("NM", nm);
       if (i.second.MapQuality() >= HQMAPQ && hqq.count(i.second.Qname()) && nm < 3) {
-	//if(i.second.GetZTag("SR").at(0) == 't')
+	//if(i.second.GetZTag("UniqueName").at(0) == 't')
 	if(i.second.Tumor())
 	  ++tcount_hq;
 	else
@@ -309,7 +309,7 @@ DiscordantClusterMap DiscordantCluster::clusterReads(
     for (auto& i : bav) {
       std::string sr;
       if (qnames.count(i.Qname())) {
-	std::string tmp = i.SR();
+	std::string tmp = i.UniqueName();
 	  if (reads.count(tmp) == 0)  {// only add if this is a mate read
 	    if (i.ReverseFlag() == st && g.GetOverlap(i.AsGenomicRegion()) > 0) // agrees with intiial mate orientation and position
 	      mates[tmp] = i;
@@ -398,14 +398,14 @@ std::string DiscordantCluster::print(const SeqLib::BamHeader& h) const {
 	  {
 	    if (qnset.count(i.second.Qname()))
 	      continue;
-	    std::string tmp = i.second.SR();
+	    std::string tmp = i.second.UniqueName();
 	    qnset.insert(i.second.Qname());
 	    reads_string += tmp + ",";
 	  }
 	for (auto& i : mates) {
 	    if (qnset.count(i.second.Qname()))
 	      continue;
-	    std::string tmp = i.second.SR();
+	    std::string tmp = i.second.UniqueName();
 	    qnset.insert(i.second.Qname());
 	    reads_string += tmp + ",";
 	  }

@@ -38,6 +38,23 @@ namespace {
   
 } // anonymous namespace
 
+#include <ostream>
+
+std::ostream& operator<<(std::ostream& os, const BamReadGroup& bg) {
+  os << "r="  << bg.reads
+     << " s="  << bg.supp
+     << " u="  << bg.unmap
+     << " qc=" << bg.qcfail
+     << " d="  << bg.duplicate
+     << " mu=" << bg.mate_unmap
+     << " MQ=" << bg.mapq_max
+     << " RL=" << bg.readlen_max
+     << " mIS=" << bg.isize_mean
+     << " sdIS=" << bg.sd_isize;
+  return os;
+}
+
+
 LearnBamParams::LearnBamParams(SvabaSharedConfig& sc_,
 			       const std::string& bamPath) 
   : sc(sc_),
@@ -61,6 +78,7 @@ void LearnBamParams::learnParams() {
 
   // read-group, count
   std::unordered_map<std::string, size_t> rg_count;
+  size_t countr = 0;
 
   // track how many read groups are satisfied. Break when all are done
   size_t satisfied = 0;
@@ -69,41 +87,52 @@ void LearnBamParams::learnParams() {
   reader_->Reset();
 
   // scan through records
-  SeqLib::BamRecord r;  
-  while (reader_->GetNextRecord(r)) {
-    
+  while (auto r = reader_->Next()) {
+
     // get read group tag
     std::string rg;
-    if (!r.GetZTag("RG", rg)) {
+    if (!r->GetZTag("RG", rg)) {
       rg = "NA";
     }
 
+    // print update
+    ++countr;
+    if (countr % 10000000==0) {
+      sc.logger.log(true,true,"......learning for read ",
+		    SeqLib::AddCommas(countr), " and learned ",
+		    satisfied, " read groups of ", groups.size());
+      
+      for (const auto& rgc : rg_count)
+	if (rgc.second < 100000)
+	  std::cerr << rgc.first << ":" << rgc.second << std::endl;
+      
+    }
+    
     // already seen too many of these reads
     if (rg_count[rg] == sc.opts.perRgLearnLimit) {
       satisfied++;
 
-      // compute isize stats
-      bam_read_groups[rg].computeStats();
-
       // check if we satisifed all the read groups
       if (satisfied == groups.size()) {
-
-	// store the max readlen and mapq for this entire bam across RGs
-	for (const auto& br : bam_read_groups) {
-	  readlen_max = std::max(readlen_max, br.second.readlen_max);
-	  mapq_max = std::max(mapq_max, br.second.mapq_max);	  
-	}
 	break;
       }
     }
     
     // refer to existing BamReadGroup or make new
     auto& bstats = bam_read_groups[rg];
-    bstats.addRead(r); // add the read for learning
+    bstats.addRead(*r); // add the read for learning
 
     // update the counter for this group
     rg_count[rg]++;
     
+  }
+  
+  // compute isize stats
+  // store the max readlen and mapq for this entire bam across RGs
+  for (auto& br : bam_read_groups) {
+    readlen_max = std::max(readlen_max, br.second.readlen_max);
+    mapq_max = std::max(mapq_max, br.second.mapq_max);	  
+    br.second.computeStats();
   }
 }
 
@@ -128,11 +157,10 @@ void BamReadGroup::addRead(const SeqLib::BamRecord &r)
   
   // track the insert size
   int isizer = -1;
-  if (!r.PairMappedFlag())
-    isizer = -2;
+  if (!r.PairMappedFlag() || r.Interchromosomal() || r.PairOrientation() != FRORIENTATION)
+    ;
   else if (!r.Interchromosomal())
-    isizer = std::abs(r.InsertSize());
-  isize_vec.push_back(isizer);
+    isize_vec.push_back(std::abs(r.InsertSize()));
 
   // track the read length
   readlen_max = std::max(readlen_max, r.Length());
@@ -141,15 +169,36 @@ void BamReadGroup::addRead(const SeqLib::BamRecord &r)
 
  void BamReadGroup::computeStats() {
 
-   isize_mean = std::accumulate(isize_vec.begin(), isize_vec.end(), 0.0);
-
-   // Calculate variance
-   double sq_sum = 0.0;
-   for (int val : isize_vec) {
-     sq_sum += (val - isize_mean) * (val - isize_mean);
+   if (isize_vec.empty()) {
+     isize_mean = 0.0;
+     sd_isize   = 0.0;
+     return;
    }
-   sd_isize = std::sqrt(sq_sum / isize_vec.size());  // population SD
    
+   // Remove the top 2% of values to filter out extreme outliers
+   std::sort(isize_vec.begin(), isize_vec.end());
+   size_t n = isize_vec.size();
+   size_t keep = static_cast<size_t>(std::floor(n * 0.98));
+   if (keep == 0) {
+     // If 95% rounds down to 0, keep at least one element
+     keep = 1;
+   }
+   isize_vec.resize(keep);
+   
+   // Calculate mean
+   isize_mean = std::accumulate(isize_vec.begin(), isize_vec.end(), 0.0) / keep;
+    
+    // Calculate population standard deviation
+    double sq_sum = 0.0;
+    for (int val : isize_vec) {
+      double diff = val - isize_mean;
+        sq_sum += diff * diff;
+    }
+    sd_isize = std::sqrt(sq_sum / keep);
+    
+    // Clean up memory
+    isize_vec.clear();
+    
  }
  
  

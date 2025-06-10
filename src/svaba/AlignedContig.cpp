@@ -226,8 +226,8 @@ std::string AlignedContig::print(const SeqLib::BamHeader& h) const {
     // print out the individual reads
     for (auto& i : m_bamreads) {
       
-      std::string seq = i.Seq(); 
-      std::string sr = i.SR();
+      std::string seq = i.Sequence(); 
+      std::string sr = i.UniqueName();
       
       // get the read to contig alignment information
       r2c this_r2c = i.GetR2C(getContigName());

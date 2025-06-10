@@ -162,7 +162,9 @@ SvabaOptions SvabaOptions::parse(int argc, char** argv) {
   }
 
   // post validation
-  if (!o.help) {
+  if (argc == 1) {
+    o.help = true;
+  } else if (!o.help) {
     if (o.caseBams.empty())   throw std::runtime_error("Need at least one --case-bam");
     if (o.refGenome.empty())  throw std::runtime_error("Must supply --reference-genome");
     if (o.analysisId.empty()) o.analysisId = "no_id";
@@ -189,8 +191,8 @@ SvabaOptions SvabaOptions::parse(int argc, char** argv) {
   }
   
   // set the rules to skip read learning if doing stdin
-  if (o.bams["t001"] == "-" && !o.rulesJson.empty())
-    o.rulesJson = R"json(
+  //  if (o.bams["t001"] == "-" && !o.rulesJson.empty())
+  o.rulesJson = R"json(
 {
   "global": {
     "duplicate": false,
@@ -208,7 +210,7 @@ SvabaOptions SvabaOptions::parse(int argc, char** argv) {
       { "del":   true },
       { "mapped":      true, "mate_mapped": false },
       { "mate_mapped": true, "mapped":      false },
-      { "nm": [3, 0] }
+      { "nm": [3, 0] },
     ]
   }
 }
@@ -217,7 +219,7 @@ SvabaOptions SvabaOptions::parse(int argc, char** argv) {
   // if read stream, treat as single-end
   if (o.bams["t001"] == "-")
     o.singleEnd = true;
-
+  
   // set the "main bam"
   o.main_bam = o.bams["t001"];
   
@@ -255,4 +257,86 @@ void SvabaOptions::printLogger(SvabaLogger& logger) const {
   if (discClusterOnly) {
     logger.log(true, true, "    ######## ONLY DISCORDANT READ CLUSTERING. NO ASSEMBLY ##############");
   }
+}
+
+void SvabaOptions::addFRRule(const std::string &rgName, int N)
+{
+  
+    // 1) Find the start of the rules array: locate the substring "\"rules\"" first.
+    const char *rulesKey = "\"rules\"";
+    auto posKey = rulesJson.find(rulesKey);
+    if (posKey == std::string::npos) {
+        throw std::runtime_error("Cannot find \"rules\" key in JSON");
+    }
+
+    // 2) Now find the '[' that begins the array (after "\"rules\"")
+    auto posBracket = rulesJson.find('[', posKey);
+    if (posBracket == std::string::npos) {
+        throw std::runtime_error("Cannot find '[' after \"rules\" in JSON");
+    }
+
+    // 3) We need to find the matching closing ']' for that array.
+    //    We'll naively scan forward, counting nested brackets so that we land on the correct ']'.
+    int depth = 1;
+    size_t i = posBracket + 1;
+    for (; i < rulesJson.size(); ++i) {
+        if (rulesJson[i] == '[') {
+            ++depth;
+        } else if (rulesJson[i] == ']') {
+            --depth;
+            if (depth == 0) {
+                break;
+            }
+        }
+    }
+    if (i >= rulesJson.size() || depth != 0) {
+        throw std::runtime_error("Could not find matching ']' for \"rules\" array");
+    }
+    size_t posCloseBracket = i;  // index of the closing ']' for "rules":[ ]
+    
+    // 4) Before inserting, remove any comma immediately before posCloseBracket:
+    //    e.g. if the array currently ends "...},]" or "...},  ]", strip that comma.
+    size_t k = posCloseBracket;
+    // move k back, skipping whitespace
+    while (k > posBracket && std::isspace((unsigned char)rulesJson[k - 1])) {
+      --k;
+    }
+    if (k > posBracket && rulesJson[k - 1] == ',') {
+      // erase that comma
+      rulesJson.erase(k - 1, 1);
+      // adjust posCloseBracket since we removed one character
+      --posCloseBracket;
+    }
+
+// 5) Check if array is empty (no elements between '[' and ']')
+    bool arrayEmpty = true;
+    size_t j = posBracket + 1;
+    while (j < posCloseBracket && std::isspace((unsigned char)rulesJson[j])) {
+        ++j;
+    }
+    if (j < posCloseBracket) {
+        // something other than ']' is present => array not empty
+        arrayEmpty = false;
+    }
+
+    // 6) Build the new rule object
+    std::ostringstream oss;
+    oss << "{"
+        << R"("rg":")" << rgName << R"(",)"
+        << R"("isize":[)" << N << ",0],"
+        << R"("fr":true)"
+        << "}";
+    std::string newRule = oss.str();
+
+    // 7) Decide whether to prepend a comma
+    std::string insertion;
+    if (arrayEmpty) {
+        insertion = newRule + "\n";
+    } else {
+        insertion = "," + newRule + "\n";
+    }
+
+    // 8) Splice into rulesJson right before posCloseBracket
+    rulesJson.insert(posCloseBracket, insertion);
+
 }

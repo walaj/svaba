@@ -8,6 +8,8 @@
 //#define QNAME "H01PEALXX140819:3:2218:11657:19504"
 //#define QFLAG -1
 
+using SeqLib::AddCommas;
+
 #ifdef QNAME
 #define DEBUG(msg, read)						\
   { if (read.Qname() == QNAME && (read.AlignmentFlag() == QFLAG || QFLAG == -1)) { std::cerr << (msg) << " read " << (read) << std::endl; } }
@@ -63,99 +65,77 @@ bool svabaBamWalker::isDuplicate(const SeqLib::BamRecord &r) {
   return true;
 }
 
-// returns a bad mate region
 SeqLib::GRC svabaBamWalker::readBam() {
-  
-  // these are setup to only use one bam, so just shortcut it
-  SeqLib::_Bam * tb = &m_bams.begin()->second;
-  
-  SeqLib::BamRecord r;
   
   // keep track of regions where we hit the weird-read limit
   SeqLib::GRC bad_regions;
   
   // buffer to store reads from a region
   // if we don't hit the limit, then add them to be assembled
-  svabaReadVector this_reads;
+  svabaReadVector read_buffer;
   
   // if we have a LOT of reads (aka whole genome run), keep track for printing
   size_t countr = 0;
   
   // keep track of which region we are in 
-  int current_region = tb->m_region_idx;
+  int current_region = this->region_idx_;
   
   // loop the reads
-  while (GetNextRecord(r)) {
+  while ( auto bamrec = this->Next()) {
+
+    // makes a deep copy. So when bamrec goes out at end of this iteration, s is still safe
+    svabaRead s{ *bamrec, prefix_ };
     
-    // when we move regions, save the reads from last region
-    if (tb->m_region_idx != current_region) {
+    // when we move regions, clear the buffer
+    if (this->region_idx_ != current_region) {
       
-      current_region = tb->m_region_idx;
+      current_region = region_idx_;
       // cache the reads from the last region into BamWalker cache
-      reads.insert(reads.end(), this_reads.begin(), this_reads.end());
-      this_reads.clear();
-      
-      
+      reads.insert(reads.end(), read_buffer.begin(), read_buffer.end());
+      read_buffer.clear();
     }
-    
-    // check if it its blacklist region, and skip if so
-    if (sc.blacklist.size() &&
-	sc.blacklist.CountOverlaps(r.AsGenomicRegion())) {
-      continue;
-    }
-    
-    if (r.CountNBases())
-      continue;
-    
-    // make a svabaRead, which is a BamRecord with extra features
-    svabaRead s(r, prefix); // no memory copied
-    
-    // quality score trim read
-    s.QualityTrimRead(); // copies sequence into svabaRead.seq
-    
-    // if its less than 40, dont even mess with it
-    if (s.SeqLength() < 40)
-      continue;
-    
-    // for memory conservation, delete unused tags
-    s.RemoveTag("BQ"); //TODO - just remove all tags
-    s.RemoveTag("OQ");
     
     // check if this read passes the rules for potential SV reads
-    bool qcpass = !r.DuplicateFlag() && !r.QCFailFlag() && !r.NumHardClip();
-    bool rule_pass = sc.mr.isValid(r);
-    bool pass_all = qcpass && rule_pass;
+    if (s.DuplicateFlag() ||
+	s.QCFailFlag() ||
+	s.NumHardClip() ||
+	s.CountNBases() ||
+	sc.blacklist.CountOverlaps(s.AsGenomicRegion()))
+      continue;
     
-    DEBUG("SvabaBamWalker read seen", r);
+    // quality score trim read
+    s.QualityTrimRead(); // copies sequence into svabaRead.seq_corrected
+    
+    // if its less than 40, dont even mess with it
+    if (s.CorrectedSeqLength() < 40)
+      continue;
+    
+    // this is the main rule check 
+    bool rule_pass = sc.mr.isValid(s);
     
     // add to all reads pile for kmer correction
-    if (qcpass && get_coverage) {
-      cov.addRead(r, INFORMATIVE_COVERAGE_BUFFER, false); 
+    if (get_coverage) {
+      cov.addRead(s, INFORMATIVE_COVERAGE_BUFFER, false); 
     }
     
     // add to weird coverage
-    if (pass_all && get_coverage) 
-      weird_cov.addRead(r, 0, false);
+    if (rule_pass && get_coverage) 
+      weird_cov.addRead(s, 0, false);
     
     // add to the cigar map for all non-duplicate reads
-    if (pass_all && get_mate_regions) // only add cigar for non-mate regions
-      addCigar(r); 
-    
-    DEBUG("SBW read has qcpass?: " + std::to_string(qcpass), r);
-    DEBUG("SBW duplicated? " + std::to_string(is_dup), r);
-    DEBUG("SBW rule pass? " + std::to_string(rule_pass), r); 
-    DEBUG("SBW pass all? " + std::to_string(pass_all), r);
+    if (rule_pass && get_mate_regions) // only add cigar for non-mate regions
+      addCigar(s); 
     
     // add all the reads for kmer correction
     if (!sc.opts.ecCorrectType.empty() && sc.opts.ecCorrectType != "0") {
       
       // always include weird reads into correction
-      s.train = pass_all & qcpass;
+      s.train = rule_pass;
       
       // if its not a weird read, include for training purposes
       // but can subsample for speed
-      if (!pass_all && qcpass) {
-	uint32_t hashed  = __ac_Wang_hash(__ac_X31_hash_string(r.Qname().c_str()));
+      if (!rule_pass) {
+	uint32_t hashed  = __ac_Wang_hash(__ac_X31_hash_string(s.Qname().c_str()));
 	if ((double)(hashed&0xffffff) / 0x1000000 <= kmer_subsample) 
 	  s.train = true;
       }
@@ -163,92 +143,72 @@ SeqLib::GRC svabaBamWalker::readBam() {
       // in bfc addsequence, memory is copied. for all_seqs (SGA correction), copy explicitly
       if (s.train) {
 	if (bfc)
-	  assert(bfc->AddSequence(s.Seq().c_str(), ""/*r.Qualities().c_str()*/,
-				  s.SR().c_str())); // for BFC correciton
-	//else {
-	//  all_seqs.push_back(strdup(s.Seq().c_str()));
-	//}
+	  assert(bfc->AddSequence(s.CorrectedSeq().c_str(),
+				  ""/*r.Qualities().c_str()*/,
+				  s.UniqueName().c_str())); // for BFC correciton
       }
     }
     
     // if not a weird read, move on
-    if (!pass_all)
+    if (!rule_pass)
       continue;
     
     // message logging
     ++countr;
-    if (countr % 10000 == 0 && m_region.size() == 0 && log) {
+    if (countr % 10000 == 0 && regions_.size() == 0 && log) {
       sc.logger.log(sc.opts.verbose > 1, false/*TODO*/,
-		    "...read in ", SeqLib::AddCommas<size_t>(countr),
+		    "...read in ", AddCommas<size_t>(countr),
 		    " weird reads for whole genome read-in. At pos ",
-		    r.Brief());
+		    s.Brief());
     }
     
-    DEBUG("SBW read added ", r);
-    
-    // adding later because of kmer correctiona 
-    this_reads.push_back(s);
+    // adding first to a temp buffer, in case hit limit and then
+    // just don't add any reads
+    read_buffer.push_back(s);
     
     // if hit the limit of reads, log it and try next region
-    if (this_reads.size() > m_limit && m_limit > 0) {
-      
-      sc.logger.log(sc.opts.verbose > 1, false /*TODO*/, "\tstopping read lookup at ",
-		    r.Brief(), " in window ", (m_region.size() ? m_region[tb->m_region_idx].ToString(tb->GetHeader()) : " whole BAM"),
-		    "with ", SeqLib::AddCommas(this_reads.size()), " weird reads. Limit: ",
-		    SeqLib::AddCommas(m_limit));
+    if (read_buffer.size() > m_limit && m_limit > 0) {
+
+      std::string regstr = (regions_.size() ? regions_[region_idx_].ToString(this->Header()) : " whole BAM");
+      sc.logger.log(sc.opts.verbose > 1,
+		    false /*TODO*/,
+		    "\tstopping read lookup at ",
+		    s.Brief(), " in window ", regstr, 
+		    "with ", AddCommas(read_buffer.size()),
+		    " weird reads. Limit: ",
+		    AddCommas(m_limit));
       
       // add this region to the bad regions list
-      if (m_region.size())  
-	bad_regions.add(m_region[tb->m_region_idx]);
+      if (regions_.size())
+	bad_regions.add(regions_[region_idx_]);
       
       // clear these reads out, not a good region
-      this_reads.clear();
+      read_buffer.clear();
       
       // force it to try the next region, or return if none left
-      ++tb->m_region_idx; // increment to next region
-      if (tb->m_region_idx >= m_region.size()) {/// no more regions left
-	break;
-      } else { // move to next region
-	tb->SetRegion(m_region[tb->m_region_idx]);
-	continue;
-      }
+      ++region_idx_; // increment to next region
+      if (region_idx_ >= regions_.size()) {/// no more regions left and last one was bad
+	return bad_regions; // totally done
+      } 
       break;
     }
   } // end the read loop
   
-    // // remove the adapter reads
-    // svabaReadVector new_reads;
-    // for (auto& r : this_reads)
-    //   if (!adapter.count(__ac_Wang_hash(__ac_X31_hash_string(r.Qname().c_str()))))
-    //   new_reads.push_back(r);
-  
     // "reads" is total cache for this walker.
-    // "this_reads" was temporary cache in readBam for last region
-  reads.insert(reads.end(), this_reads.begin(), this_reads.end());
-  
-#ifdef QNAME
-  for (auto& j : reads) { DEBUG("SBW read kept pre-filter", j); }
-#endif
+    // "read_buffer" was temporary cache in readBam for last region
+  reads.insert(reads.end(), read_buffer.begin(), read_buffer.end());
   
   // subsamples reads if too high of coverage
   if (get_coverage)
     subSampleToWeirdCoverage(max_cov);
-  
-#ifdef QNAME
-  for (auto& j : reads) {   DEBUG("SBW read kept post subsample", j);  }
-#endif
   
   // realign discordants
   realignDiscordants(reads);
   
   // calculate the mate region
   if (get_mate_regions &&
-      m_region.size() /* don't get mate regions if reading whole bam */) 
+      regions_.size() /* don't get mate regions if reading whole bam */) 
     calculateMateRegions();
-  
-#ifdef QNAME
-  for (auto& j : reads) { DEBUG("SBW read kept FINAL FINAL", j); }
-#endif
   
   return bad_regions;
   
@@ -292,9 +252,9 @@ void svabaBamWalker::subSampleToWeirdCoverage(double max_coverage) {
 
 void svabaBamWalker::calculateMateRegions() {
 
-  assert(m_region.size());
+  assert(regions_.size());
 
-  SeqLib::GenomicRegion main_region = m_region.at(0);
+  SeqLib::GenomicRegion main_region = regions_.at(0);
 
   // hold candidate regions. Later trim based on count
   MateRegionVector tmp_mate_regions;
@@ -427,7 +387,7 @@ void svabaBamWalker::calculateMateRegions() {
    //static std::unordered_set<std::string> warned_rgs;
 
    // find the bamStats
-   const auto it = sc.bamStats.find(this->prefix);
+   const auto it = sc.bamStats.find(this->prefix_);
    
    // cache RG cutoffs so don't have to recalculate
    std::unordered_map<std::string, int> isize_cutoff_per_rg;
@@ -453,7 +413,7 @@ void svabaBamWalker::calculateMateRegions() {
        // check that we learned this bam
        if (it == sc.bamStats.end()) {
 	 sc.logger.log(true, true, "SBW: clusterDiscordantReads - Can't find",
-		       "LearnBamParams for ", this->prefix);
+		       "LearnBamParams for ", this->prefix_);
 	 isize_cutoff_per_rg[RG] = DEFAULT_ISIZE_THRESHOLD;
        } 
 
@@ -463,7 +423,7 @@ void svabaBamWalker::calculateMateRegions() {
 	 if (rgg == it->second.bam_read_groups.end()) {
 	   sc.logger.log(true, true, "SBW: clusterDiscordantReads - Can't find",
 		       "leared read group: ", RG, " for bam ",
-			 prefix);
+			 prefix_);
 	   isize_cutoff_per_rg[RG] = DEFAULT_ISIZE_THRESHOLD;
 	 } else {
 	   isize_cutoff_per_rg[RG] =

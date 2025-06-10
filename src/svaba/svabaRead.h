@@ -3,6 +3,7 @@
 #include "SeqLib/BamRecord.h" 
 
 #include <vector>
+#include <string_view>
 #include <unordered_map>
 
 /** Store information about a read to contig alignment */
@@ -37,19 +38,16 @@ class svabaRead : public SeqLib::BamRecord {
   
   svabaRead();
   
-  svabaRead(const SeqLib::BamRecord r, const std::string& prefix);
-
-  std::string Seq() const;
+  svabaRead(const SeqLib::BamRecord& r,
+	    std::string_view prefix);
 
   std::string CorrectedSeq() const;  
 
   std::string Prefix() const;
 
-  void SetSeq(const std::string& nseq);
-
-  void SetCorrectedSeq(const std::string& nseq);  
+  void SetCorrectedSeq(const std::string_view nseq);  
   
-  std::string SR() const;
+  std::string UniqueName() const;
 
   int GetDD() const { return dd; }
 
@@ -66,21 +64,20 @@ class svabaRead : public SeqLib::BamRecord {
   /// Trim the read based on quality score and store seq in char
   void QualityTrimRead();
 
+  int CorrectedSeqLength() const;
+  
   // should this read be used for correction (incl training)?
   bool train = false;
-
+  
   int dd = 0; // discordant read status 0 
 
+  friend class svabaBamWalker;
+  
  private:
 
-  SeqLib::BamRecord r;
+  std::string p; // prefix for file ID (e.g. t001)
 
-  SeqPointer<char> seq;
-
-  SeqPointer<char> seq_corrected;
-
-  std::string p; // prefix for file ID (e.g. t001) 
-  //SeqPointer<char> p; // // prefix for file ID (e.g. t001)
+  std::string seq_corrected; // quality trimmed and/or error corrected
 
   // store the r2c alignment information. key is contig name
   SeqPointer<R2CMap> m_r2c; 

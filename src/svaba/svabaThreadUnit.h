@@ -40,6 +40,11 @@ public:
   SeqLib::GRC                                badd; // bad regions
   int                                        threadId;
 
+  // very verbose outpout
+  svabaReadVector                            all_weird_reads;
+  svabaReadVector                            all_discordant_reads;
+  svabaReadVector                            all_corrected_reads;    
+  
   // store the BAM .bai indicies for for this thread
   WalkerMap                            walkers;
   

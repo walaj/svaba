@@ -18,7 +18,7 @@ struct BreakPoint;
 
  struct SampleInfo {
 
-   bool indel;
+   bool indel = false;
 
    int split = 0;
    int cigar = 0;
@@ -64,8 +64,9 @@ struct BreakPoint;
 
    
 struct ReducedBreakEnd {
-  
-  ReducedBreakEnd() {}
+
+
+  ReducedBreakEnd(): mapq(0), sub_n(0), nm(0) {}
   
   ReducedBreakEnd(const SeqLib::GenomicRegion& g, int mq, const std::string & chr_n);
 
@@ -73,8 +74,7 @@ struct ReducedBreakEnd {
   
   std::string chr_name;
   SeqLib::GenomicRegion gr;
-  int32_t mapq:8, sub_n:8, nm:16;
-  
+  uint32_t mapq:8, sub_n:8, nm:16;  
 };
 
 
@@ -108,7 +108,7 @@ struct ReducedBreakEnd {
 
    int sub_n = -1;
    double as_frac= 0;
-   bool local;
+   bool local = false;
 
    //   friend std::ostream& operator<<(std::ostream& out, const BreakEnd& b);
  };

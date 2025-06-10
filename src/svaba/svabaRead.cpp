@@ -1,7 +1,6 @@
 #include "svabaRead.h"
 
-svabaRead::svabaRead() : seq(nullptr) { }
-
+svabaRead::svabaRead() = default;
 
 void svabaRead::AddR2C(const std::string& contig_name, const r2c& r) {
     if (!m_r2c) 
@@ -21,11 +20,11 @@ r2c& svabaRead::GetR2C(const std::string& contig_name) const {
     return m_r2c->find(contig_name)->second;
   }
 
-int svabaRead::SeqLength() const { 
-  if (!seq)
-    return Sequence().length();
+int svabaRead::CorrectedSeqLength() const {
+  if (seq_corrected.length())
+    return seq_corrected.length();
   else
-    return strlen(seq.get());
+    return Length();
 }
 
 std::ostream& operator<<(std::ostream& out, const r2c& a) {
@@ -40,9 +39,12 @@ void svabaRead::QualityTrimRead() {
   int32_t startpoint = 0, endpoint = 0;
   QualityTrimmedSequence(3, startpoint, endpoint);
   int32_t new_len = endpoint - startpoint;
-  if (endpoint != -1 && new_len < r.Length() && new_len > 0 && new_len - startpoint >= 0 && startpoint + new_len <= r.Length()) { 
+  if (endpoint != -1 && new_len < Length() &&
+      new_len > 0 &&
+      new_len - startpoint >= 0 &&
+      startpoint + new_len <= Length()) { 
     try { 
-      SetSeq(Sequence().substr(startpoint, new_len));
+      SetCorrectedSeq(Sequence().substr(startpoint, new_len));
     } catch (...) {
       std::cerr << "Subsequence failure with sequence of length "  
 		<< Sequence().length() << " and startpoint "
@@ -51,23 +53,29 @@ void svabaRead::QualityTrimRead() {
     }
 
   } else {
-    SetSeq(r.Sequence()); // copies the sequence
+    SetCorrectedSeq(Sequence()); // copies the sequence into private "seq" char
   }
 
   // remove the HTSlib version of qual and sequence
   // since we store the trimmed sequence in svabaRead
-  SetSequence(std::string());
+  //SetSequence(std::string());
 
 }
 
-svabaRead::svabaRead(const SeqLib::BamRecord r, const std::string& prefix) {
-  
-  b = r.shared_pointer(); // copy the BamRecord main read pointer
-  //seq = nullptr;
-  assert(prefix.length() >= 4);
-  p = prefix;
-  //memcpy(p, prefix.data(), 4);
-  
+svabaRead::svabaRead(const SeqLib::BamRecord& r, std::string_view prefix)
+  : SeqLib::BamRecord()    // base class ctor will init `b` to nullptr
+{
+  // bam_dup1 will allocate-and-copy a new bam1_t for us:
+  bam1_t* dup = bam_dup1(r.raw());
+  if (!dup)
+    throw std::runtime_error("svabaRead: failed to duplicate BamRecord");
+
+  // wrap it in your shared-ptr with the proper deleter
+  b = SeqPointer<bam1_t>(dup, SeqLib::Bam1Deleter());
+
+  // now copy over your svabaRead-specific prefix
+  assert(prefix.size() >= 4);
+  p.assign(prefix);  
 }
 
 std::string svabaRead::Prefix() const { 
@@ -75,56 +83,19 @@ std::string svabaRead::Prefix() const {
   return p; //std::string(p, 4); 
 }
 
-std::string svabaRead::Seq() const {
-
-  if (!seq)
-    return Sequence();
-  else
-    return std::string(seq.get());
-
-}
-
 std::string svabaRead::CorrectedSeq() const {
-
-  if (!seq_corrected)
+  
+  if (!seq_corrected.length())
     return Sequence();
   else
-    return std::string(seq_corrected.get());
+    return seq_corrected;
 
 }
 
-void svabaRead::SetSeq(const std::string& nseq) {
-  seq = SeqPointer<char>(strdup(nseq.c_str()));
+void svabaRead::SetCorrectedSeq(std::string_view nseq) {
+  seq_corrected = nseq;
 }
 
-void svabaRead::SetCorrectedSeq(const std::string& nseq) {
-  seq_corrected = SeqPointer<char>(strdup(nseq.c_str()));
-}
-
-std::string svabaRead::SR() const {
+std::string svabaRead::UniqueName() const {
   return(p + "_" + std::to_string(AlignmentFlag()) + "_" + Qname());
 }
-
-/*void svabaRead::Reassign(const svabaRead& s) {
-
-  //std::string sr = SRTAG(r);
-  sr = r.SR();
-  
-  // make a deep copy
-  // now if s is deleted, it doesn't affect r 
-  // (t is new memory location)
-  bam1_t* t = bam_dup1(s.raw());
-
-  // should carry with it everything (tags etc)
-  assign(t);
-
-  SetChrIDMate(s.MateChrID());
-  SetPositionMate(s.MatePosition());
-  SetPairMappedFlag();
-
-  if (s.MateReverseFlag())
-    SetMateReverseFlag();
-
-  r = SeqPointer<char>(s.seq);
-
-  }*/

@@ -109,13 +109,6 @@ void SvabaFileLoader::countJobs(
   if (rf.empty()) {
     fileRegions.clear();
   }
-  
-  if (runRegions.size()) {
-    sc.logger.log(true, true, "...running on ", SeqLib::AddCommas(runRegions.size()),
-		" chunks"); 
-  } else {
-    sc.logger.log(true, true, "Chunk was <= 0: Reading in whole-genome at once");
-  }
-  
+    
   return;
 }

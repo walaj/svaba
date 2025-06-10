@@ -21,6 +21,8 @@ public:
 
   // call this from any thread under a lock:
   void writeUnit(svabaThreadUnit& unit);
+
+  void close();
   
 private:
 
@@ -32,7 +34,11 @@ private:
   ogzstream           os_discordant_;
 
   SeqLib::BamWriter   b_contig_writer_;
-
+  
+  SeqLib::BamWriter   b_weird_read_writer_;
+  SeqLib::BamWriter   b_discordant_read_writer_;
+  SeqLib::BamWriter   b_corrected_read_writer_;  
+  
   SeqLib::BamHeader bam_header_;
   bool                read_tracking_ = false;
   bool                disc_cluster_only_ = false;

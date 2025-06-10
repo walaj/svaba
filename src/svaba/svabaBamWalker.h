@@ -34,9 +34,6 @@ class svabaBamWalker: public SeqLib::BamReader {
   
   svabaBamWalker(SvabaSharedConfig& sc_);
 
-  // for setting the SR tag
-  std::string prefix; // eg. tumor, normal
-
   // read in the reads
   SeqLib::GRC readBam(); 
 
@@ -53,6 +50,9 @@ class svabaBamWalker: public SeqLib::BamReader {
     bad_discordant.clear();
   }
 
+  // set the id for this bam e.g. t001
+  void SetPrefix(std::string_view pref) { prefix_ = pref; }
+  
   void realignDiscordants(svabaReadVector& reads);
   
   ///bool hasAdapter(const SeqLib::BamRecord& r) const;
@@ -105,10 +105,12 @@ class svabaBamWalker: public SeqLib::BamReader {
   // set a hard limit on how many reads to accept
   size_t m_limit = 0;
 
-
   SeqPointer<SeqLib::BFC> bfc;
 
  private:
+
+  // for setting the SR tag
+  std::string prefix_; // eg. tumor, normal
 
   // might want these in case we are looking for duplicates
   std::unordered_set<std::string> seq_set; //c

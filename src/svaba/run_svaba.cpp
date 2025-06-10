@@ -209,20 +209,26 @@ void runsvaba(int argc, char** argv) {
     sc.prefixes.insert(b.first);
 
   // parse the region file, count number of jobs
-  SeqLib::GRC regions_torun;
-  loader.countJobs(regions_torun);  
+  SeqLib::GRC regionsToRun;
+  loader.countJobs(regionsToRun);  
 
   // --- learn the insert-sizes ---
-  logger.log(true, true,"... learning insert size distribution across all BAMs; this may take a while");
+  logger.log(true, true,"...learning insert size distribution across all BAMs; this may take a while");
   
   // learn from the BAM files
   for (const auto& b : opts.bams) {
     auto [it, inserted] = sc.bamStats.emplace(b.first, LearnBamParams(sc, b.second));
+    logger.log(true,true,"......learning BAM: ", b.second);
     it->second.learnParams();
   }
-  logger.log(true, true,"... done learning insert size distribution");
 
   // --- report what we learned ---
+  for (const auto& bs : sc.bamStats) {
+    logger.log(opts.verbose > 1, true, "=====", bs.first);
+    for (const auto& brg : bs.second.bam_read_groups)
+      logger.log(opts.verbose > 1, true, brg.first, " - ", brg.second);
+  }
+
   int globalReadLen = 0;
   int globalMaxMapQ = 0;
   for (const auto& ll : sc.bamStats) {
@@ -255,40 +261,15 @@ void runsvaba(int argc, char** argv) {
       opts.sgaMinOverlap, seedLength, seedStride
     );
   }
-  logger.log(false, true,
-    "... calculated seedLength = ", seedLength,
-    " (error_rate=", opts.sgaErrorRate,
-    ", readlen=", globalReadLen, ")"
-  );
+  logger.log(false, true, "...seedLength = ", seedLength,", readlen=", globalReadLen, ")" );
 
   // --- build per-RG discordant size rules ---
-  std::stringstream ssRules;
-  std::unordered_set<std::string> seenRG;
-  std::unordered_map<std::string,int> minIsizeForDisc;
   for (auto const& [sample, pm] : sc.bamStats) {
     for (auto const& [rg, bp] : pm.bam_read_groups) {
       double cutoffd = bp.isize_mean + bp.sd_isize * sc.opts.sdDiscCutoff * 3.0;
       int cutoff = int(std::floor(cutoffd));
-      ssRules << R"({"isize":[)" << cutoff << R"(,0],"rg":")" << rg << R"("})" << ",";
+      opts.addFRRule(rg, cutoff);
     }
-  }
-  if (!ssRules.str().empty())
-    ssRules.seekp(-1, ssRules.cur);  // drop trailing comma
-  sc.logger.log(true, true, "[INFO] Learned discordant size cutoffs by RG:");
-  
-  // plug into your JSON rules template
-  sc.opts.rulesJson = svabaUtils::myreplace(
-    sc.opts.rulesJson, "FRRULES", ssRules.str().empty()
-      ? "{}"
-      : ssRules.str()
-  );
-
-  // similarly replace any READLENLIM token
-  if (sc.opts.rulesJson.find("READLENLIM") != std::string::npos) {
-    int clipLen = std::max(30, int(0.3 * globalReadLen));
-    sc.opts.rulesJson = svabaUtils::myreplace(
-      sc.opts.rulesJson, "READLENLIM", std::to_string(clipLen)
-    );
   }
 
   // set the ReadFilterCollection to be applied to each region
@@ -306,10 +287,21 @@ void runsvaba(int argc, char** argv) {
   clock_gettime(CLOCK_MONOTONIC, &start);
 #endif
 
+  if (regionsToRun.size()) {
+    logger.log(true, true, "...running on ", SeqLib::AddCommas(regionsToRun.size()),
+		" chunks"); 
+  } else {
+    logger.log(true, true, "Chunk was <= 0: Reading in whole-genome at once");
+  }
+
+  
   // send the jobs to the queue
   logger.log(true, true, "Starting detection pipeline");
-  sendThreads(regions_torun, sc); 
+  sendThreads(regionsToRun, sc); 
 
+  // close the writer
+  writer.close();
+  
   // make the VCF file
   makeVCFs(sc);
   

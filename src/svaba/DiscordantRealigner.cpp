@@ -42,7 +42,7 @@ bool DiscordantRealigner::RealignRead(svabaRead& r, const SeqLib::BWAAligner& bw
   DEBUG("Realigning original read", r);
 
   SeqLib::BamRecordVector als;
-  bwa.alignSequence(r.Seq(), r.Qname(), als, false, 0.60, secondary_cap);
+  bwa.alignSequence(r.CorrectedSeq(), r.Qname(), als, false, 0.60, secondary_cap);
 
   // no alignments, so label as bad
   if (!als.size()) {
