@@ -41,17 +41,27 @@ class svabaBamWalker: public SeqLib::BamReader {
   void clear() { 
     cov.clear();
     weird_cov.clear();
-    bfc->clear();
+    
+    bfc.ClearReads();
     cigmap.clear();
-    weird_cov.clear();
+    
     mate_regions.clear();
     reads.clear();
+    
     get_coverage = true;
     get_mate_regions = true;
-    seq_set.clear();
-    bad_discordant.clear();
+    //seq_set.clear();
   }
 
+  void AddBackReadsToCorrect();
+  
+  //
+  void Train();
+
+  void ErrorCorrect();
+
+  void ClearTraining();
+  
   // set the id for this bam e.g. t001
   void SetPrefix(std::string_view pref) { prefix_ = pref; }
   
@@ -107,7 +117,7 @@ class svabaBamWalker: public SeqLib::BamReader {
   // set a hard limit on how many reads to accept
   size_t m_limit = 0;
 
-  SeqPointer<SeqLib::BFC> bfc;
+  SeqLib::BFC bfc;
 
  private:
 
@@ -115,10 +125,7 @@ class svabaBamWalker: public SeqLib::BamReader {
   std::string prefix_; // eg. tumor, normal
 
   // might want these in case we are looking for duplicates
-  std::unordered_set<std::string> seq_set; //c
-
-  // keep track of which reads were flagged for being bad discordant
-  std::unordered_set<std::string> bad_discordant; //c
+  //std::unordered_set<std::string> seq_set; //c
 
   // seed for the kmer-learning subsampling
   uint32_t m_seed = 1337;

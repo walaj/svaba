@@ -51,7 +51,7 @@ void svabaBamWalker::addCigar(SeqLib::BamRecord &r) {
   
 }
 
-bool svabaBamWalker::isDuplicate(const SeqLib::BamRecord &r) {
+/*bool svabaBamWalker::isDuplicate(const SeqLib::BamRecord &r) {
   
   // deduplicate by query-bases / position
   std::string key = r.Sequence() + std::to_string(r.Position()) + "_" + std::to_string(r.MatePosition()); 
@@ -63,10 +63,10 @@ bool svabaBamWalker::isDuplicate(const SeqLib::BamRecord &r) {
   }
   
   return true;
-}
+  }*/
 
 SeqLib::GRC svabaBamWalker::readBam() {
-  
+
   // keep track of regions where we hit the weird-read limit
   SeqLib::GRC bad_regions;
   
@@ -114,13 +114,13 @@ SeqLib::GRC svabaBamWalker::readBam() {
     bool rule_pass = sc.mr.isValid(s);
     
     // add to all reads pile for kmer correction
-    if (get_coverage) {
-      cov.addRead(s, INFORMATIVE_COVERAGE_BUFFER, false); 
+    if (get_coverage) { 
+      cov.addRead(s, 0); //, false); 
     }
     
     // add to weird coverage
     if (rule_pass && get_coverage) 
-      weird_cov.addRead(s, 0, false);
+      weird_cov.addRead(s, 0); 
     
     // add to the cigar map for all non-duplicate reads
     if (rule_pass && get_mate_regions) // only add cigar for non-mate regions
@@ -134,7 +134,7 @@ SeqLib::GRC svabaBamWalker::readBam() {
       
       // if its not a weird read, include for training purposes
       // but can subsample for speed
-      if (!rule_pass) {
+      if (!rule_pass) { 
 	uint32_t hashed  = __ac_Wang_hash(__ac_X31_hash_string(s.Qname().c_str()));
 	if ((double)(hashed&0xffffff) / 0x1000000 <= kmer_subsample) 
 	  s.train = true;
@@ -142,10 +142,9 @@ SeqLib::GRC svabaBamWalker::readBam() {
       
       // in bfc addsequence, memory is copied. for all_seqs (SGA correction), copy explicitly
       if (s.train) {
-	if (bfc)
-	  assert(bfc->AddSequence(s.CorrectedSeq().c_str(),
-				  ""/*r.Qualities().c_str()*/,
-				  s.UniqueName().c_str())); // for BFC correciton
+	assert(bfc.AddSequence(s.CorrectedSeq(),
+			       ""/*r.Qualities().c_str()*/,
+			       s.UniqueName())); // for BFC correciton
       }
     }
     
@@ -167,7 +166,7 @@ SeqLib::GRC svabaBamWalker::readBam() {
     read_buffer.push_back(s);
     
     // if hit the limit of reads, log it and try next region
-    if (read_buffer.size() > m_limit && m_limit > 0) {
+    if (read_buffer.size() > m_limit && m_limit > 0) { 
 
       std::string regstr = (regions_.size() ? regions_[region_idx_].ToString(this->Header()) : " whole BAM");
       sc.logger.log(sc.opts.verbose > 1,
@@ -210,8 +209,27 @@ SeqLib::GRC svabaBamWalker::readBam() {
       regions_.size() /* don't get mate regions if reading whole bam */) 
     calculateMateRegions();
   
+  read_buffer.clear(); // should do this, but be extra sure
   return bad_regions;
   
+}
+
+void svabaBamWalker::AddBackReadsToCorrect() {
+  for (const auto& r : reads) {
+    bfc.AddSequence(r.CorrectedSeq(), "", r.UniqueName());
+  }
+}
+
+void svabaBamWalker::ClearTraining() {
+  bfc.ClearReads();
+}
+
+void svabaBamWalker::Train() {
+  bfc.Train();
+}
+
+void svabaBamWalker::ErrorCorrect() {
+  bfc.ErrorCorrect();
 }
 
 void svabaBamWalker::subSampleToWeirdCoverage(double max_coverage) {
@@ -230,12 +248,6 @@ void svabaBamWalker::subSampleToWeirdCoverage(double max_coverage) {
       // this read should be randomly sampled, cov is too high
       if (this_cov > max_coverage) 
 	{
-	  #ifdef QNAME
-	  if (r.Qname() == QNAME && (r.AlignmentFlag() == QFLAG || QFLAG == -1)) {
-	    std::cerr << "subsampling because this_cov is " << this_cov << " and max cov is " << max_coverage << " at position " << r.Position() << " and end position " << r.PositionEnd() << std::endl;
-	    std::cerr << " this cov 1 " << this_cov1 << " this_cov2 " << this_cov2 << std::endl;
-	  }
-	  #endif
 	  uint32_t k = __ac_Wang_hash(__ac_X31_hash_string(r.Qname().c_str()) ^ m_seed);
 	  if ((double)(k&0xffffff) / 0x1000000 <= sample_rate) // passed the random filter
 	    new_reads.push_back(r);
@@ -246,7 +258,7 @@ void svabaBamWalker::subSampleToWeirdCoverage(double max_coverage) {
 	}
       
     }
-
+  
   reads = new_reads;
 }
 
@@ -362,6 +374,7 @@ void svabaBamWalker::calculateMateRegions() {
    SeqLib::BWAAligner bwa_aligner(sc.bwa_idx);
    
    size_t realigned_count = 0;
+   std::unordered_set<std::string> bad_discordant;   
    for (auto& r : reads) {
      
      if (!discordantRealigner.ShouldRealign(r))
@@ -378,8 +391,8 @@ void svabaBamWalker::calculateMateRegions() {
    for (auto& r : reads)
      if (r.GetDD() >= 0 && bad_discordant.count(r.Qname()))
        r.SetDD(DiscordantRealigner::MATE_BAD_DISC);
-   
-}
+
+ }
 
  void svabaBamWalker::TagDiscordantReads() {
    
@@ -406,7 +419,7 @@ void svabaBamWalker::calculateMateRegions() {
      std::string RG;
      if (!r.GetZTag("RG", RG))
        RG = "NA";
-
+     
      auto cc = isize_cutoff_per_rg.find(RG);
      if (cc == isize_cutoff_per_rg.end()) {
        

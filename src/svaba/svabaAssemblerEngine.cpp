@@ -266,17 +266,17 @@ void svabaAssemblerEngine::doAssembly(ReadTable *pRT,
 	   trimLengthThreshold, bPerformTR, bValidate, numTrimRounds, 
 	   resolveSmallRepeatLen, numBubbleRounds, gap_divergence, 
 				  divergence, maxIndelLength, cutoff, m_id + "_", contigs, m_write_asqg);
-  
+
   // optionally output the graph structure
   //if (m_write_asqg) //debug
   //  write_asqg(oGraph, asqg_stream, hits_stream, pass);
 
   // this was allocated in assemble
-  //delete oGraph; //debug
+  delete oGraph;
   delete pQueryRIT;
 
   // remove exact dups
-  //remove_exact_dups(contigs); //debug
+  remove_exact_dups(contigs); 
   
   // print out some results
 #ifdef DEBUG_ENGINE

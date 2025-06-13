@@ -32,9 +32,8 @@ inline constexpr int MIN_PER_CLUST            = 2;
 inline constexpr int DEFAULT_ISIZE_THRESHOLD  = 2000;
 
 // from run_svaba
-inline constexpr std::size_t THREAD_READ_LIMIT      = 20'000; 
-inline constexpr int         THREAD_CONTIG_LIMIT    =   5'000;
-inline constexpr int         MIN_DSCRD_READS_DSCRD_ONLY = 3;
+inline constexpr std::size_t THREAD_READ_LIMIT      = 100'000; 
+inline constexpr int         THREAD_CONTIG_LIMIT    =   50'000;
 
 // from svabaAssemblerEngine
 inline constexpr std::size_t MAX_OVERLAPS_PER_ASSEMBLY = 20'000;
@@ -50,6 +49,7 @@ inline constexpr int         LARGE_INTRA_LOOKUP_LIMIT   = 50'000;
 inline constexpr double      SECONDARY_FRAC             =  0.90;
 
 // from svabaBamWalker
+inline constexpr int MIN_DSCRD_READS_DSCRD_ONLY          = 6;
 inline constexpr int MIN_MAPQ_FOR_MATE_LOOKUP            =     0;
 inline constexpr int MIN_ISIZE_FOR_DISCORDANT_REALIGNMENT = 1'000;
 inline constexpr int DISC_REALIGN_MATE_PAD                =   100;

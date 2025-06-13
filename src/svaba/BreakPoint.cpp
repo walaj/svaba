@@ -342,7 +342,7 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h) {
     // loop all of the read to contig alignments for this contig
     for (auto& j : bav) {
 
-      r2c& this_r2c = j.GetR2C(cname);
+      r2c this_r2c = j.GetR2C(cname);
 
       bool read_should_be_skipped = false;
       if (num_align == 1) {
@@ -484,7 +484,7 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h) {
     // process valid reads
     for (auto& i : bav) {
       
-      r2c& this_r2c = i.GetR2C(cname);
+      r2c this_r2c = i.GetR2C(cname);
       if (valid_reads.count(i.UniqueName())) {
 
 	std::string qn = i.Qname();

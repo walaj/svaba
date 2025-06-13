@@ -76,33 +76,17 @@ struct SvabaBatchWorkItem {
   }
 };
 
-
-// struct SvabaWorkItem {
-//   SeqLib::GenomicRegion    region;
-//   int                      id;
-//   SvabaRegionProcessor&    processor;
-
-//   SvabaWorkItem(const SeqLib::GenomicRegion& r,
-//                 int n,
-//                 SvabaRegionProcessor& proc)
-//     : region(r), id(n), processor(proc)
-//   {}
-
-//   bool operator()(svabaThreadUnit& unit, size_t threadId) const {
-//     return processor.process(region, unit, threadId);
-//   }
-// };
-
 // Modified sendThreads() to submit batches of regions instead of one-by-one jobs
 void sendThreads(const SeqLib::GRC& regionsToRun,
                  SvabaSharedConfig& sc) {
+  
   // shared processor instance
   SvabaRegionProcessor proc(sc);
 
   // thread pool now handles SvabaBatchWorkItem jobs
   ThreadPool<SvabaBatchWorkItem> pool(sc);
-  
-  size_t batch_size = 1; //PER_THREAD_BATCH_SIZE;
+
+  size_t batch_size = 1; 
   if (sc.opts.numThreads > 0) {
     size_t per_thread = sc.total_regions_to_process / sc.opts.numThreads;
     if (per_thread < batch_size) {
@@ -110,7 +94,6 @@ void sendThreads(const SeqLib::GRC& regionsToRun,
     }
   }
 
-  sc.logger.log(true, true, "...batch per thread ", batch_size);
   std::vector<std::pair<SeqLib::GenomicRegion,int>> batch;
   batch.reserve(batch_size);
 
@@ -129,26 +112,6 @@ void sendThreads(const SeqLib::GRC& regionsToRun,
 
   pool.shutdown();
 }
-
-// void sendThreads(const SeqLib::GRC& regionsToRun,
-// 	 SvabaSharedConfig& sc) {
-  
-//   // single shared processor:
-//   SvabaRegionProcessor proc(sc); 
-  
-//   // our threadpool of work items:
-//   ThreadPool<SvabaWorkItem> pool(sc);
-  
-//   int count=0;
-//   // submit one job per region  
-//   for (auto& r : regionsToRun)
-//     pool.submit(std::make_unique<SvabaWorkItem>(r, ++count, proc));
-  
-//   // if no intervals, submit a single wholegenome job  
-//   if (regionsToRun.IsEmpty())
-//     pool.submit(std::make_unique<SvabaWorkItem>(SeqLib::GenomicRegion(), ++count, proc));
-//   pool.shutdown();
-// }
   
 void makeVCFs(SvabaSharedConfig& sc) {
 
@@ -267,8 +230,11 @@ void runsvaba(int argc, char** argv) {
   // parse the region file, count number of jobs
   SeqLib::GRC regionsToRun;
   loader.countJobs(regionsToRun);
-  sc.total_regions_to_process = regionsToRun.size();  
-
+  sc.total_regions_to_process = regionsToRun.size();
+  if (sc.total_regions_to_process < opts.numThreads) {
+    opts.numThreads = sc.total_regions_to_process;
+  }
+  
   // --- learn the insert-sizes ---
   logger.log(true, true,"...learning insert size distribution across all BAMs; this may take a while");
   
@@ -351,7 +317,6 @@ void runsvaba(int argc, char** argv) {
     logger.log(true, true, "Chunk was <= 0: Reading in whole-genome at once");
   }
 
-  
   // send the jobs to the queue
   logger.log(true, true, "Starting detection pipeline");
   sendThreads(regionsToRun, sc); 

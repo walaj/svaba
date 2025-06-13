@@ -3,22 +3,22 @@
 svabaRead::svabaRead() = default;
 
 void svabaRead::AddR2C(const std::string& contig_name, const r2c& r) {
-    if (!m_r2c) 
-      m_r2c = SeqPointer<R2CMap>(new R2CMap());
+  //    if (!m_r2c) 
+  //    m_r2c = SeqPointer<R2CMap>(new R2CMap());
+  
+  auto it = m_r2c.find(contig_name);
+  if(it != m_r2c.end()) 
+    it->second = r;
+  else
+    m_r2c.insert({contig_name, r});
+}
 
-    auto it = m_r2c->find(contig_name);
-    if(it != m_r2c->end()) 
-      it->second = r;
-    else
-      m_r2c->insert({contig_name, r});
-  }
-
-r2c& svabaRead::GetR2C(const std::string& contig_name) const {
-    assert(m_r2c);
-    R2CMap::const_iterator ff = m_r2c->find(contig_name);
-    assert(ff != m_r2c->end());
-    return m_r2c->find(contig_name)->second;
-  }
+r2c svabaRead::GetR2C(const std::string& contig_name) const {
+  //assert(m_r2c);
+  R2CMap::const_iterator ff = m_r2c.find(contig_name);
+  assert(ff != m_r2c.end());
+  return m_r2c.find(contig_name)->second;
+}
 
 int svabaRead::CorrectedSeqLength() const {
   if (seq_corrected.length())

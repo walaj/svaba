@@ -54,7 +54,8 @@ void Bigraph::addVertex(Vertex* pVert)
 {
   //    std::pair<VertexPtrMapIter, bool> result = 
   //    m_vertices_tokeep.insert(std::make_pair(pVert->getID(), pVert));//JEREMIAH
-  std::pair<VertexPtrMapIter, bool> result = m_vertices.insert(std::make_pair(pVert->getID(), pVert));
+  std::pair<VertexPtrMapIter, bool> result =
+    m_vertices.insert(std::make_pair(pVert->getID(), pVert));
 
     if(!result.second)
     {

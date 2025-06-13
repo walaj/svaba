@@ -50,7 +50,19 @@ bool svabaThreadUnit::MemoryLimit(size_t readLimit, size_t contLimit) const {
 		  threadId, " with limit hit of ",
 		  stored_reads, " reads and ", master_contigs.size(),
 		  " contigs");
-  }
+
+    size_t all_walker_reads = 0;
+    for (const auto& w : walkers) {
+      all_walker_reads += w.second.reads.size();
+    }
+    
+    // more memory mapping
+    /*    sc.logger.log(true, true, " bad regions: ", badd.size(),
+		  " master_alc.size() ", master_alc.size(),
+		  " m_disc.size() ", m_disc.size(),
+		  " walkers.reads.size() ", all_walker_reads);
+    */
+  } 
   
   return mem_exceeded;
 }

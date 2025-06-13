@@ -21,58 +21,31 @@ namespace SeqLib {
   class BamRecord;
 }
 
-typedef std::shared_ptr<std::vector<uint16_t>> uint16_sp;
-typedef std::unordered_map<int,int> CovMap;
-//typedef std::unordered_map<int,CovMap> CovMapMap;
+typedef std::unordered_map<int32_t,uint32_t> CovMap;
 
-  /** Hold base-pair or binned coverage across an interval or genome
-   *
-   * Currently stores coverage as an unordered_map.
-   */
+/** Hold base-pair or binned coverage across an interval or genome
+ *
+ * Currently stores coverage as an unordered_map.
+ */
 class STCoverage {
   
- private:
-
-  SeqLib::GRC m_grc;
-  SeqLib::GenomicRegion m_gr;
-
-  //CovMapMap m_map;
-  std::vector<CovMap> m_map;
-
-  uint16_sp v;
-
+private:
+  
+  std::unordered_map<int32_t, CovMap> m_map; //[chr [pos,cov] ] 
 
  public:
 
+  STCoverage() = default;
+  
   /** Clear the coverage map */
   void clear();
-
-  /** */
-  void settleCoverage();
       
   /** Add a read to this coverage track 
    * @param reserve_size Upper bound estimate for size of map. Not a hard
    *   cutoff but improves performance if total number of positions is less than this, 
    *   as it will not rehash. */
-  void addRead(const SeqLib::BamRecord &r, int buff, bool full_length);
+  void addRead(const SeqLib::BamRecord &r, int buff); //, bool full_length);
 
-  /** Make a new coverage object at interval gr */
-  STCoverage(const SeqLib::GenomicRegion& gr);
-
-  uint16_t maxCov() const;
-
-  /** Make an empty coverage */
-  STCoverage() {}
-
-  /*! Add to coverage objects together to get total coverge 
-   * 
-   * @param cov Coverage object to add to current object
-   */
-  //void combineCoverage(Coverage &cov);
-
-  /** Return a short summary string of this coverage object */
-  void ToBedgraph(std::ofstream * o, const bam_hdr_t * h) const;
-  
   /** Print the entire data */
   friend std::ostream& operator<<(std::ostream &out, const STCoverage &c);
 

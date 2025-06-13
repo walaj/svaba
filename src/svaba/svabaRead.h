@@ -8,7 +8,7 @@
 
 /** Store information about a read to contig alignment */
 struct r2c {
-
+  
   int32_t start_on_contig = 0;  // start pos on contig (from r.Position()) 
   int32_t end_on_contig   = 0;  // end pos on contig (from r.PositionEnd()) 
   int32_t start_on_read    = 0; // start pos on read (from r.AlignmentPosition())
@@ -19,14 +19,14 @@ struct r2c {
   bool is_split = false; // is this a split read?
   int left_or_right = 0; //-1 read aligns on left of contig, 1 on right
   bool supports_discordant = false; // true if this is part of a discordant pair that supports the break
-
+  
   void AddAlignment (const SeqLib::BamRecord& b) {
     start_on_contig = b.Position();
     end_on_contig = b.PositionEnd();
     start_on_read = b.AlignmentPosition();
     cig = b.GetCigar();
   }
- 
+  
   friend std::ostream& operator<<(std::ostream& out, const r2c& a);
 };
 
@@ -59,15 +59,12 @@ class svabaRead : public SeqLib::BamRecord {
 
   void AddR2C(const std::string& contig_name, const r2c& r);
 
-  r2c& GetR2C(const std::string& contig_name) const;
+  r2c GetR2C(const std::string& contig_name) const;
 
   /// Trim the read based on quality score and store seq in char
   void QualityTrimRead();
 
   int CorrectedSeqLength() const;
-  
-  // should this read be used for correction (incl training)?
-  bool train = false;
   
   int dd = 0; // discordant read status 0 
 
@@ -77,10 +74,12 @@ class svabaRead : public SeqLib::BamRecord {
 
   std::string p; // prefix for file ID (e.g. t001)
 
+  bool train = false;
+  
   std::string seq_corrected; // quality trimmed and/or error corrected
 
   // store the r2c alignment information. key is contig name
-  SeqPointer<R2CMap> m_r2c; 
+  R2CMap m_r2c; 
 
 };
 
