@@ -27,7 +27,6 @@
 #include "DBSnpFilter.h"
 #include "svabaUtils.h"
 #include "SeqLib/BFC.h"
-#include "svaba_params.h"
 
 #include "svabaFileLoader.h"
 #include "svabaOutputWriter.h"

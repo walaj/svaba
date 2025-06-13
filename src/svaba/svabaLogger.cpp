@@ -1,6 +1,4 @@
 #include "svabaLogger.h"
-#include "svaba_params.h"
-
 #include "svabaOptions.h"
 
 SvabaLogger::~SvabaLogger() {

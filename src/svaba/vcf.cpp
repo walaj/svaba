@@ -14,8 +14,7 @@
 
 #include "gzstream.h"
 #include "SeqLib/GenomicRegionCollection.h"
-
-#include "svaba_params.h"
+#include "svabaOptions.h"
 
 using namespace std;
 

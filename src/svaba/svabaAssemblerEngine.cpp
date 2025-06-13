@@ -9,6 +9,7 @@
 #include "svabaASQG.h"
 #include "svabaAssemble.h"
 #include "svabaOverlapAlgorithm.h"
+#include "svabaOptions.h"
 
 #include "OverlapCommon.h"
 #include "CorrectionThresholds.h"

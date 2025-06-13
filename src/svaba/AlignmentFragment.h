@@ -7,7 +7,6 @@
 #include "SeqLib/BamRecord.h"
 
 #include "BreakPoint.h"
-#include "svaba_params.h"
 
 namespace SeqLib {
   class BamWriter;

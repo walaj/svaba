@@ -7,11 +7,12 @@
 #include "gzstream.h"
 #include "svabaUtils.h"
 #include "STCoverage.h"
-#include "svaba_params.h"
+#include "svabaOptions.h"
 
 #include "SeqLib/GenomicRegionCollection.h"
 #include "SeqLib/GenomicRegion.h"
 #include "SeqLib/BamHeader.h"
+
 
 using SeqLib::GenomicRegion;
 using SeqLib::GRC;

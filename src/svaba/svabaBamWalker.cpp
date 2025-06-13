@@ -1,6 +1,5 @@
 #include "svabaBamWalker.h"
 #include "svabaRead.h"
-#include "svaba_params.h"
 #include "SvabaSharedConfig.h"
 #include "svabaOptions.h"
 #include "svabaLogger.h"
