@@ -1,5 +1,8 @@
 #include "SvabaRegionProcessor.h"
 
+#include <iomanip>  // For std::setw and std::right
+#include <sstream>  // For std::ostringstream
+
 #include "svabaUtils.h"
 #include "svabaOutputWriter.h"
 
@@ -22,11 +25,14 @@ using SeqLib::UnalignedSequenceVector;
 using SeqLib::BWAIndexPtr;
 using SeqLib::BWAAligner;
 using SeqLib::BWAIndex;
+using SeqLib::BamRecordPtr;
+using SeqLib::BamRecordPtrVector;
 
 using std::vector;
 using std::unordered_map;
 using std::unordered_set;
 using std::string;
+
 
 using CountPair    = std::pair<int, int>;
 
@@ -48,90 +54,86 @@ void SvabaRegionProcessor::runMateCollectionLoop(const GenomicRegion& region,
   
   // collect together mate regions from control
   MateRegionVector normal_mate_regions;
-  for (const auto& w : stu.walkers)
-    if (w.first.at(0) == 'n')
-      normal_mate_regions.Concat(w.second.mate_regions);
+  for (const auto& [key, walker] : stu.walkers) {
+    if (!key.empty() && key[0] == 'n') {
+      normal_mate_regions.Concat(walker->mate_regions);
+    }
+  }  
   normal_mate_regions.MergeOverlappingIntervals();
   normal_mate_regions.CreateTreeMap();
   
   // get the mates from somatic 3+ mate regions
   // that don't overlap with normal mate region
   MateRegionVector somatic_mate_regions;
-    for (const auto& w : stu.walkers) {
-      if (w.first.at(0) == 't')
-	for (const auto& i : w.second.mate_regions) {
-	  if (i.count >= sc.opts.mateLookupMin &&
-	      !normal_mate_regions.CountOverlaps(i) &&
-	      !stu.badd.CountOverlaps(i) &&
-	      (!sc.blacklist.size() || !sc.blacklist.CountOverlaps(i)))
-	    somatic_mate_regions.add(i); 
-	}
+  for (const auto& [key, walker] : stu.walkers) {
+    if (!key.empty() && key[0] == 't') {
+      for (const auto& i : walker->mate_regions) {
+	if (i.count >= sc.opts.mateLookupMin &&
+	    !normal_mate_regions.CountOverlaps(i) &&
+	    !stu.badd.CountOverlaps(i) &&
+	    (sc.blacklist.empty() || !sc.blacklist.CountOverlaps(i)))
+	  {
+	    somatic_mate_regions.add(i);
+	  }
+      }
     }
-    somatic_mate_regions.MergeOverlappingIntervals();
-
-    // if none, then we're done
-    if (somatic_mate_regions.size() == 0)
-      return;
-    
-    // print out to log
-    for (auto& i : somatic_mate_regions)
-      sc.logger.log(sc.opts.verbose > 1, sc.opts.verbose_log, 
-		    "......mate region ",
-		    i.ToString(sc.header) ,
-		    " case read count that triggered lookup: ",
-		    i.count);
-
-    // convert MateRegionVector to GRC
-    GRC somatic_mate_region_collection;
-    for (const auto& s : somatic_mate_regions) 
-      somatic_mate_region_collection.add(
-	     GenomicRegion(s.chr, s.pos1, s.pos2, s.strand));
-    somatic_mate_region_collection.MergeOverlappingIntervals();
-    somatic_mate_region_collection.CreateTreeMap();
-
-    // convert MateRegionVector to GRC
-    GRC gg;
-    for (auto& s : somatic_mate_regions) 
-      gg.add(GenomicRegion(s.chr, s.pos1, s.pos2, s.strand));
-    
-    // collect the reads for this round
-    CountPair mate_read_counts = {0,0};
-    for (auto& w : stu.walkers) {
-
-      svabaBamWalker& sbw = w.second;
-      int oreads = sbw.reads.size();
-      sbw.m_limit = 5000; //opts.sc.mate_region_lookup_limit;
-
-      if (!sbw.SetRegions(gg))
-	continue; // if gg is empty
-      
-      sbw.get_coverage = false;
-      sbw.get_mate_regions = false; 
-      
-      // clear out the current store of mate regions, since we 
-      // already added these to the to-do pile
-      sbw.mate_regions.clear();
-      
-      // read the mate regions
-      GRC bad_mate_regions = sbw.readBam();
-
-      // add the bad regions to the total bad region tracker
-      stu.badd.Concat(bad_mate_regions);
-      stu.badd.MergeOverlappingIntervals();
-      stu.badd.CreateTreeMap();
-
-      // update the counts
-      if (w.first.at(0) == 't') 
-	mate_read_counts.first += (sbw.reads.size() - oreads);
-      else
-	mate_read_counts.second += (sbw.reads.size() - oreads);
-      
-    } // end walker read colletion
-    
+  }  
+  somatic_mate_regions.MergeOverlappingIntervals();
+  
+  // if none, then we're done
+  if (somatic_mate_regions.size() == 0)
+    return;
+  
+  // print out to log
+  for (auto& i : somatic_mate_regions)
     sc.logger.log(sc.opts.verbose > 1, sc.opts.verbose_log, 
-		  "......Mate region reads: <case, control>: <",
-	       AddCommas(counts.first), ",",
-		  AddCommas(counts.second), ">");
+		  "......mate region ",
+		  i.ToString(sc.header) ,
+		  " case read count that triggered lookup: ",
+		  i.count);
+  
+  // convert MateRegionVector to GRC
+  GRC somatic_mate_region_collection;
+  for (const auto& s : somatic_mate_regions) 
+    somatic_mate_region_collection.add(
+				       GenomicRegion(s.chr, s.pos1, s.pos2, s.strand));
+  somatic_mate_region_collection.MergeOverlappingIntervals();
+  somatic_mate_region_collection.CreateTreeMap();
+  
+  // convert MateRegionVector to GRC
+  GRC gg;
+  for (auto& s : somatic_mate_regions) 
+    gg.add(GenomicRegion(s.chr, s.pos1, s.pos2, s.strand));
+  
+  // collect the reads for this round
+  CountPair mate_read_counts = {0,0};
+  for (auto& [key, walker] : stu.walkers) {
+    const int before = walker->reads.size();
+    walker->m_limit = sc.opts.mate_region_lookup_limit;
+    
+    if (!walker->SetRegions(gg))
+      continue;
+    
+    walker->get_coverage = false;
+    walker->get_mate_regions = false;
+    walker->mate_regions.clear();
+    
+    GRC bad = walker->readBam(stu);
+    walker->m_limit = sc.opts.weird_read_limit;
+    
+    stu.badd.Concat(bad);
+    stu.badd.MergeOverlappingIntervals();
+    stu.badd.CreateTreeMap();
+    
+    assert(!key.empty());
+    auto& count = (key[0] == 't' ? mate_read_counts.first : mate_read_counts.second);
+    count += walker->reads.size() - before;
+  }
+  
+  sc.logger.log(sc.opts.verbose > 1, sc.opts.verbose_log, 
+		"......Mate region reads: <case, control>: <",
+		AddCommas(counts.first), ",",
+		AddCommas(counts.second), ">");
 }
 
 
@@ -143,183 +145,203 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
   // count for this unit
   unit.processed_count++;
   sc.total_regions_done++; 
-  if (sc.total_regions_done % 250 == 0) {
-    sc.logger.log(true, true, "...processing ", SeqLib::AddCommas(sc.total_regions_done),
-		  " of ", SeqLib::AddCommas(sc.total_regions_to_process), " for thread ", unit.threadId,
-		  " for region ", region);
+  if (sc.total_regions_done % 50 == 0) {
+    std::ostringstream msg;
+    msg << "...processing "
+	<< std::right << std::setw(5) << SeqLib::AddCommas(sc.total_regions_done)
+	<< " of "
+	<< std::right << std::setw(6) << SeqLib::AddCommas(sc.total_regions_to_process)
+	<< " for thread "
+	<< std::right << std::setw(2) << unit.threadId
+	<< " for region "
+	<< region;
+    sc.logger.log(true, true, msg.str()); 
   }
   
   sc.logger.log(sc.opts.verbose > 1, sc.opts.verbose_log,
 		"===Running region ", region.ToString(sc.header),
-	      " on thread ", unit.threadId);
+		" on thread ", unit.threadId);
   
   // start a timer
   svabaUtils::svabaTimer st;
   st.start();
-
+  
   // holder for Bam: (read : cigar)
   unordered_map<string, CigarMap> cigmap;
   
   // loop all of the BAMs (walkers)
-  CountPair read_counts = {0,0}; //tumor, normal  
-  for (auto& w : unit.walkers) {
+  CountPair read_counts = {0,0}; //tumor, normal
+  for (auto& [key, walker] : unit.walkers) {
     
-    svabaBamWalker& sbw = w.second;
+    // Set regions based on command-line region or file-defined intervals
+    if (!region.IsEmpty())
+      walker->SetRegion(region);
+    else if (!sc.file_regions.empty())
+      walker->SetRegions(sc.file_regions);
+    // else: walk entire BAM (default)
     
-    // set the region to jump to
-    if (!region.IsEmpty()) {
-      sbw.SetRegion(region);
-    } else { // whole BAM analysis. If region file set, then set regions
-      if (sc.file_regions.size()) {
-	sbw.SetRegions(sc.file_regions);
-      } 	// default is walk all regions, so leave empty to cruise entire BAM
-    }
+    sc.logger.log(sc.opts.verbose > 1, sc.opts.verbose_log, "---running svabaBamWalker", walker);
 
-    sc.logger.log(sc.opts.verbose > 1, sc.opts.verbose_log, "---running svabaBamWalker", sbw);
+    // reset the walker params
+    walker->m_limit = sc.opts.weird_read_limit;
+    walker->get_coverage = true;
+    walker->get_mate_regions = true;
+    SeqLib::GRC bad = walker->readBam(unit);
+    unit.badd.Concat(bad);
+
+    sc.logger.log(sc.opts.verbose > 3, false, "...finished reading, found ", bad.size(), " bad regions");
     
-    // do the BAM reading, and store the bad mate regions
-    SeqLib::GRC bad_regions = sbw.readBam();
-    unit.badd.Concat(bad_regions);
-    
-    // merge overlapping intervals and remap
     unit.badd.MergeOverlappingIntervals();
     unit.badd.CreateTreeMap(); 
-
-    // adjust the counts
-    (w.first.at(0) == 't' ? read_counts.first : read_counts.second) += w.second.reads.size();
-
-    // print if verbose
+    
+    // Update read count based on sample type
+    (key[0] == 't' ? read_counts.first : read_counts.second) += walker->reads.size();
+    
     sc.logger.log(sc.opts.verbose > 1, sc.opts.verbose_log,
 		  "...main region reads <case,control> ",
-		  "<",read_counts.first, ",", read_counts.second,">");
+		  "<", read_counts.first, ",", read_counts.second, ">");
     
-    // collect cigar strings
-    cigmap[w.first] = w.second.cigmap;
-    
-  }// end the BAM loop
+    // Store CIGARs
+    cigmap[key] = walker->cigmap;
+  } //end BAM loop
   
   // adjust counts and timer
   st.stop("r");
-  
+
   // get the mate reads, if this is local assembly and has insert-size distro
-  if (!region.IsEmpty()) {
-    runMateCollectionLoop(region, unit);
+  if (!region.IsEmpty()) { 
+    runMateCollectionLoop(region, unit); 
     st.stop("m");
   }
-
-    // do the discordant read clustering
+  
+  // do the discordant read clustering
   sc.logger.log(sc.opts.verbose > 1, false, 
 		"...discordant read clustering");
-
+  
   // tag the reads by discordant status
-  svabaReadVector all_discordant_reads;
-  for (auto& w : unit.walkers) {
-    w.second.TagDiscordantReads();
-    for (const auto& r : w.second.reads) {
-      if (r.dd > 0)
+  svabaReadPtrVector all_discordant_reads;  
+
+  for (auto& [_, walker] : unit.walkers) {
+    //walker->RealignDiscordants(unit);
+    for (auto& r : walker->reads) {
+      if (r->dd > 0)
 	all_discordant_reads.push_back(r);
     }
   }
 
-  // for dumping all discordant reads
-  if (sc.opts.dump_discordant_reads) {
-    unit.all_discordant_reads.insert(unit.all_discordant_reads.end(),
-				    all_discordant_reads.begin(),
-				    all_discordant_reads.end());
-  }
-  
   // do the discordant read clustering across BAMs
-  DiscordantClusterMap dmap = DiscordantCluster::clusterReads(all_discordant_reads,
+  DiscordantClusterMap dmap = DiscordantCluster::clusterReads(all_discordant_reads, 
 							      region,
-							      60); // todo, max mapq
+							      sc.header);
   all_discordant_reads.clear();
-
-
-
-  // compile all of the raeds together for correction and assembly
-  svabaReadVector all_reads_for_assembly;
-  for (const auto& w : unit.walkers) {
-    all_reads_for_assembly.insert(all_reads_for_assembly.end(),
-				  w.second.reads.begin(),
-				  w.second.reads.end());
-  }
-
+  
   // for dumping all reads
   if (sc.opts.dump_weird_reads) {
-    unit.all_weird_reads.insert(unit.all_weird_reads.end(),
-				all_reads_for_assembly.begin(),
-				all_reads_for_assembly.end());
+    for (auto& [_, dc] : dmap) {
+      dc.labelReads(); // add the discordantcluster label to the read
+    }
+    for (const auto& [_, walker] : unit.walkers) {
+      unit.all_weird_reads.insert(unit.all_weird_reads.end(),
+				  walker->reads.begin(),
+				  walker->reads.end());
+    }
   }
   
+  // do the discordant read clustering
+  sc.logger.log(sc.opts.verbose > 1, false, "...error correcting");
+  
   // do kmer correction
-  //if (sc.opts.ec_correct_type == "s") {
-  //  correctReads(all_seqs, input_reads);
-  if (sc.opts.ecCorrectType == "f") { 
-
-    // train and 
-    for (auto& w : unit.walkers) {
-      w.second.Train(); // train on this walker
-      w.second.ClearTraining();
-      w.second.AddBackReadsToCorrect();
-      w.second.ErrorCorrect();
+  if (sc.opts.ecCorrectType == "f") {
+    
+    // train and correct
+    for (auto& [_, walker] : unit.walkers) {
+      walker->Train();
+      walker->ClearTraining();
+      walker->AddBackReadsToCorrect();
+      walker->ErrorCorrect();
     }
     
-    //st.stop("t");
-
     // retrieve the corrected sequences
     string s, name_dum;
     size_t num_reads_corrected = 0;
-    for (auto& w : unit.walkers) {
-      for (auto r : w.second.reads) {
-	w.second.bfc.GetSequence(s, name_dum);
-	r.SetCorrectedSeq(s);
+    for (auto& [_, walker] : unit.walkers) {
+      for (auto& r : walker->reads) {
+	walker->bfc.GetSequence(s, name_dum);
+	r->SetCorrectedSeq(s);
 	++num_reads_corrected;
       }
-      w.second.bfc.ClearReads();
+      walker->bfc.ClearReads();
     }
-    /*    for (auto& r : all_reads_for_assembly) {
-      assert(bfc->GetSequence(s, name_dum));
-      r.SetCorrectedSeq(s);
-      ++num_reads_corrected;
-      }*/
     
-    //    double kcov = bfc->GetKCov();
-    // int kmer    = bfc->GetKMer();
-
     sc.logger.log(sc.opts.verbose > 0, sc.opts.verbose_log, "...BFC attempted correct ", num_reads_corrected);
-
+    
     st.stop("k");
   }
-
-  // re-align the corrected reads and dump, just for debugging
+  
+  // re-align the corrected reads and dump
   if (sc.opts.dump_corrected_reads) {
-
+    
     // get the corrected sequences
-    BamRecordVector corrected_alignments;
-    for (const auto& rr : all_reads_for_assembly) {
-      BamRecordVector this_corrected_alignments;
-      unit.bwa_aligner->alignSequence(rr.CorrectedSeq(),
-				      rr.UniqueName(),
-				      this_corrected_alignments,
-				      false,
-				      SECONDARY_FRAC,
-				      SECONDARY_CAP);
-      corrected_alignments.insert(corrected_alignments.end(),
-				  this_corrected_alignments.begin(),
-				  this_corrected_alignments.end());
+    for (const auto& [_, walker] : unit.walkers) {
+      for (const auto& r : walker->reads) {
+	unit.bwa_aligner->alignSequence(r->CorrectedSeq(),
+					r->UniqueName(),
+					unit.all_corrected_reads,
+					false,
+					0.6,
+					0);
+      }
+    }
+  }
+  
+  sc.logger.log(sc.opts.verbose > 0, sc.opts.verbose_log,
+		"...running assemblies for region ",
+		region); 
+  
+  // set the contig prefix
+  string name = "c_" +
+    std::to_string(region.chr+1) + "_" +
+    std::to_string(region.pos1) + "_" +
+    std::to_string(region.pos2);
+  
+  // where to store the AlignedContigs for this region 
+  std::unordered_map<std::string, AlignedContig> all_AlignedContigs_this_region;
+
+  // setup the engine and peform assembly
+  UnalignedSequenceVector all_unaligned_contigs_this_region;  
+  {
+    svabaAssemblerEngine engine(name, sc.opts.sgaErrorRate,
+				sc.opts.sgaMinOverlap,
+				sc.readlen);
+    for (const auto& [_, walker] : unit.walkers) {
+      engine.fillReadTable(walker->reads); 
     }
     
-    // add to svabaThreadUnit for output later
-    unit.all_corrected_reads.insert(unit.all_corrected_reads.end(),
-	        corrected_alignments.begin(),
-		corrected_alignments.end());
+    // do the discordant read clustering
+    sc.logger.log(sc.opts.verbose > 1, false, 
+		  "...assembling reads");
+    
+    // do the actual assembly
+    engine.performAssembly(1/*sc.opts.num_assembly_rounds*/);
+    
+    // retrieve contigs
+    all_unaligned_contigs_this_region = engine.getContigs();
   }
-
-  vector<AlignedContig> alc; // where to put the contigs
-  BamRecordVector all_aligned_contigs_this_region; // contig-to-genome alignments
   
+  sc.logger.log(sc.opts.verbose > 0, sc.opts.verbose_log, "...assembled ",
+		all_unaligned_contigs_this_region.size(),
+		" contigs for ",
+		name);
+  
+  // do the discordant read clustering
+  sc.logger.log(sc.opts.verbose > 1, false, 
+		"...processing contigs");
+
+
+  /////////
+  // SETUP FOR LOCAL ALIGNMENT
   // get the reference sequence of the local region
-  string lregion;
+  /*  string lregion;
   try {
     lregion = unit.ref_genome->QueryRegion(sc.header.IDtoName(region.chr), region.pos1, region.pos2);
   } catch (...) {
@@ -332,98 +354,70 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
   BWAIndexPtr local_bwa_index = std::make_shared<BWAIndex>();
   local_bwa_index->ConstructIndex(local_usv);
   BWAAligner local_bwa_aligner(local_bwa_index);
-  
-  sc.logger.log(sc.opts.verbose > 0, sc.opts.verbose_log,
-		"...running assemblies for region ",
-		region); 
-  
-  // set the contig prefix
-  string name = "c_" +
-    std::to_string(region.chr+1) + "_" +
-    std::to_string(region.pos1) + "_" +
-    std::to_string(region.pos2);
-  
-  // where to store contigs
-  vector<AlignedContig> all_AlignedContigs_this_region;
-  
-  // setup the engine
-  svabaAssemblerEngine engine(name, sc.opts.sgaErrorRate,
-			      sc.opts.sgaMinOverlap,
-			      sc.readlen);
-  engine.fillReadTable(all_reads_for_assembly);
-  
-  // do the actual assembly
-  engine.performAssembly(1/*sc.opts.num_assembly_rounds*/);
-  
-  // retrieve contigs
-  UnalignedSequenceVector all_unaligned_contigs_this_region =
-    engine.getContigs();
-  
-  sc.logger.log(sc.opts.verbose > 0, sc.opts.verbose_log, "...assembled ",
-		all_unaligned_contigs_this_region.size(),
-		" contigs for ",
-		name);
+  */
+  //////////////
   
   // loop and process unaligned contigs
+  vector<AlignedContig> alc; // where to put the contigs
+  BamRecordPtrVector all_aligned_contigs_this_region; // contig-to-genome alignments
   size_t count_contigs_of_size = 0;
   for (auto& i : all_unaligned_contigs_this_region) {
     
     // if too short, skip
     if ((int)i.Seq.length() < (sc.readlen * 1.2)) 
       continue;
-
+    
     ++count_contigs_of_size;
     
     //// LOCAL REALIGNMENT
     // align to the local region
-    BamRecordVector local_ct_alignments;
-    local_bwa_aligner.alignSequence(i.Seq,
-				    i.Name,
-				    local_ct_alignments,
-				    false,
-				    SECONDARY_FRAC,
-				    SECONDARY_CAP);
-    
-    // check if it has a non-local alignment
-    /*bool valid_sv = true;
+    /*
+      BamRecordVector local_ct_alignments;
+      local_bwa_aligner.alignSequence(i.Seq,
+      i.Name,
+      local_ct_alignments,
+      false,
+      SECONDARY_FRAC,
+      SECONDARY_CAP);
+      
+      // check if it has a non-local alignment
+      bool valid_sv = true;
       for (auto& aa : local_ct_alignments) {
       if (aa.NumClip() < MIN_CLIP_FOR_LOCAL) 
       valid_sv = false; // has a non-clipped local alignment. can't be SV. Indel only
-      }*/
-
-    // do the main realignment of unaligned contigs to the reference genome
-    BamRecordVector human_alignments;
-    unit.bwa_aligner->alignSequence(i.Seq, i.Name,
-				   human_alignments,
-				   false, SECONDARY_FRAC, SECONDARY_CAP);
-
-    // store all contig alignment
-    all_aligned_contigs_this_region.insert(
-	       all_aligned_contigs_this_region.end(),
-	       human_alignments.begin(),
-	       human_alignments.end());
-
-    // sort the alignments by position
-    std::sort(human_alignments.begin(), human_alignments.end());
+      }*/ //debug
     
-    // add the chromosome string name
-    for (auto& rr : human_alignments) {
-      	rr.AddZTag("MC", sc.header.IDtoName(rr.ChrID()));
-    }
-
+    // do the main realignment of unaligned contigs to the reference genome
+    BamRecordPtrVector human_alignments;
+    unit.bwa_aligner->alignSequence(i.Seq, i.Name,
+				    human_alignments,
+				    false, SECONDARY_FRAC, SECONDARY_CAP);
+    
+    
+    // sort the alignments by position
+    std::sort(human_alignments.begin(),
+	      human_alignments.end(),
+	      SeqLib::BamRecordSort::ByReadPositionSharedPtr());
+    
+    // store all contig alignment
+    all_aligned_contigs_this_region.insert(all_aligned_contigs_this_region.end(),
+					   human_alignments.begin(),
+					   human_alignments.end());
+    
     // add contig alignments to svabaThreadUnit for writing later
     unit.master_contigs.insert(unit.master_contigs.end(),
 			       human_alignments.begin(),
 			       human_alignments.end());
-
+    
     // make the AlignedContig object for this contig
-    AlignedContig ac(human_alignments, sc.prefixes);
+    AlignedContig ac(human_alignments, sc.prefixes, sc);
     
     // assign the local variable to each
     ac.checkLocal(region);
 
     // add this
-    all_AlignedContigs_this_region.push_back(ac);
+    all_AlignedContigs_this_region.insert_or_assign(ac.getContigName(), std::move(ac));
+    //all_AlignedContigs_this_region[ac.getContigName()] = std::move(ac);
   }
 
   sc.logger.log(sc.opts.verbose > 0, sc.opts.verbose_log, "...assembled ",
@@ -433,9 +427,7 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
   
   // didnt get any contigs that made it all the way through
   if (!all_AlignedContigs_this_region.size()) {
-    for (auto& w : unit.walkers) {
-      w.second.clear(); 
-    }
+    unit.flush();
     return true;
   }
 
@@ -445,71 +437,62 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
   BWAAligner contig_bwa_aligner(contig_bwa_index);
 
   // align the reads to the contigs
-  for (auto& i : all_reads_for_assembly) {
-
-    // do the read to contig alignment for a single read
-    BamRecordVector reads2contigs_brv;
-    contig_bwa_aligner.alignSequence(i.CorrectedSeq(),
-				     i.Qname(),
-				     reads2contigs_brv,
-				     false,
-				     0.60,
-				     10000);
+  for (auto& [_, walker] : unit.walkers) {
+    for (auto& i : walker->reads) {
       
-    // convert read to contig alignments to a svabaReadVector
-    svabaReadVector reads2contigs_srv;
-    for (auto& r : reads2contigs_brv)
-      reads2contigs_srv.push_back(svabaRead(r, i.Prefix()));
-    reads2contigs_brv.clear();
-    
-    // make sure we have only one alignment per contig
-    unordered_set<string> cc;
-    
-    // check which ones pass
-    svabaReadVector bpass;
-    for (auto& r : reads2contigs_srv) {
+      // do the read to contig alignment for a single read
+      BamRecordPtrVector read2contigs;
+      contig_bwa_aligner.alignSequence(i->CorrectedSeq(),
+				       i->Qname(),
+				       read2contigs,
+				       false,
+				       0.60,
+				       1000);
       
-      // make sure alignment score is OK
-      int thisas = 0;
-      r.GetIntTag("AS", thisas);
-      if ((double)r.NumMatchBases() * 0.5 > thisas)
-      	continue;
+      // make sure we have only one alignment per contig
+      unordered_set<string> cc;
       
-      //bool length_pass = (r.PositionEnd() - r.Position()) >=
-      //	((double)seqr.length() * 0.75);
-
-      string contig_name = all_unaligned_contigs_this_region[r.ChrID()].Name;
-      if (/*length_pass && */!cc.count(contig_name)) {
-	bpass.push_back(r);
+      // check which ones pass
+      auto keep = [&](const BamRecordPtr& r) {
+	int thisas = 0;
+	r->GetIntTag("AS", thisas);
+	if ((double)r->NumMatchBases() * 0.5 > thisas)
+	  return false;
+	
+	std::string contig_name = all_unaligned_contigs_this_region[r->ChrID()].Name;
+	if (cc.count(contig_name))
+	  return false;
+	
 	cc.insert(contig_name);
-      }
-    }
-
-    // annotate the original read
-    for (auto& r : bpass) {
+	return true;
+      };
       
-      r2c this_r2c; // alignment of this read to this contig
-      if (r.ReverseFlag())
-	this_r2c.rc = true;
+      read2contigs.erase(
+			  std::remove_if(read2contigs.begin(), read2contigs.end(),
+					 [&](const BamRecordPtr& r) { return !keep(r); }),
+			  read2contigs.end());
       
-      this_r2c.AddAlignment(r);
-      std::string contig_name = all_unaligned_contigs_this_region[r.ChrID()].Name;
-      i.AddR2C(contig_name, this_r2c);
-      
-      // add the read to the right contig (loop to check for right contig)
-      for (auto& a : all_AlignedContigs_this_region) {
-	if (a.getContigName() != contig_name)
-	  continue;
-	a.AddAlignedRead(i);
-      }
-    } // read2contig alignment loop (per read)
+      // annotate the original read
+      for (auto& r : read2contigs) {
+	r2c this_r2c; // alignment of this read to this contig
+	if (r->ReverseFlag())
+	  this_r2c.rc = true;
+	
+	this_r2c.AddAlignment(r); // doesn't copy any memory
+	std::string contig_name = all_unaligned_contigs_this_region[r->ChrID()].Name; //chromomomse here = contig
+	i->AddR2C(contig_name, this_r2c); // i = AlignedContig
+	
+	// add the read to the right contig
+	auto it = all_AlignedContigs_this_region.find(contig_name);
+	if (it != all_AlignedContigs_this_region.end()) {
+	  it->second.AddAlignedRead(i); // we are adding the svabaBamRead!! not the cread
+	}
+      } // read2contig alignment loop (per read)
+    } // short read realignment loop (all reads)  
+  } // short read realignment loop (all bam walkers)
     
-  } // short read realignment loop (all reads)
-  
-
   // Get contig coverage, discordant matching to contigs, etc
-  for (auto& a : all_AlignedContigs_this_region) {
-    
+  for (auto& [_, a] : all_AlignedContigs_this_region) {
     // repeat sequence filter
     a.assessRepeats();
     
@@ -521,8 +504,7 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
     // add in the cigar matches
     a.checkAgainstCigarMatches(cigmap);
     // add to the final structure
-    unit.master_alc.push_back(a);
-    
+    alc.push_back(std::move(a));
   }
   
   st.stop("as");
@@ -571,8 +553,9 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
 
   // add the coverage data to breaks for allelic fraction computation
   unordered_map<string, STCoverage*> covs;
-  for (auto& i : sc.opts.bams)
-    covs[i.first] = &unit.walkers.at(i.first).cov;
+  for (auto& [key, walker] : unit.walkers) {
+    covs[key] = &walker->cov;
+  }
 
   for (auto& i : bp_glob)
     i.addCovs(covs);
@@ -649,11 +632,13 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
     i.setRefAlt(unit.ref_genome.get()); 
 
   // transfer local versions to thread store
-  for (const auto& a : alc)
+  size_t final_contig_count = alc.size();
+  for (const auto& a : alc) {
     if (a.hasVariant()) {
-      unit.master_alc.push_back(a);
-      //unit.m_bamreads_count += a.NumBamReads();
+      unit.master_alc.push_back(std::move(a));
     }
+  }
+  alc.clear();
   //for (const auto& d : dmap)
   //  unit.m_disc_reads += d.second.reads.size();
 
@@ -666,28 +651,21 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
     if ( i.hasMinimal() && (i.confidence != "NOLOCAL" || i.complex_local ) ) 
       unit.m_bps.push_back(i);
 
-  // clear out the reads and reset the walkers
-  for (auto& w : unit.walkers) {
-    w.second.clear(); 
-  }
-
   // dump if getting to much memory
-  if (unit.MemoryLimit(THREAD_READ_LIMIT, THREAD_CONTIG_LIMIT) && !sc.opts.hp) {
-    sc.writer.writeUnit(unit, sc); // mutex and flush are inside this call
-    unit.clear();
-  }
-   
+  unit.flush(); 
   st.stop("pp");
   
   // display the run time
-  /*  sc.logger.log(true, true,
-		svabaUtils::runTimeString(read_counts.first,
-					  read_counts.second,
-					  alc.size(),
-					  region,
-					  sc.header,
-					  st, start)); 
-  */
-
+  if (sc.total_regions_done % 50 == 0) {
+    sc.logger.log(sc.opts.verbose > 0, true,
+		  svabaUtils::runTimeString(read_counts.first,
+					    read_counts.second,
+					    final_contig_count,
+					    region,
+					    sc.header,
+					    st, sc.start));
+  }
+  
+ 
   return true;
 }

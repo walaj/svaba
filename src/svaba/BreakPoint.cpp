@@ -159,16 +159,15 @@ BreakPoint::BreakPoint(DiscordantCluster& tdc,
     std::unordered_map<std::string, std::unordered_set<std::string>> alt_counts;
 
     // add the supporting read info to allels
-    for (auto& rr : dc.reads) {
-      //std::string sr = SRTAG(rr.second);
-      std::string sr = rr.second.UniqueName();
-      allele[rr.second.Prefix()].supporting_reads.insert(sr);
-      alt_counts[rr.second.Prefix()].insert(rr.second.Qname());
+    for (auto& [_, read] : dc.reads) {
+      std::string sr = read->UniqueName();
+      allele[read->Prefix()].supporting_reads.insert(sr);
+      alt_counts[read->Prefix()].insert(read->Qname());
     }
-    for (auto& rr : dc.mates) {
-      std::string sr = rr.second.UniqueName();
-      allele[rr.second.Prefix()].supporting_reads.insert(rr.second.Qname());
-      alt_counts[rr.second.Prefix()].insert(rr.second.Qname());
+    for (auto& [_,mate] : dc.mates) {
+      std::string sr = mate->UniqueName();
+      allele[mate->Prefix()].supporting_reads.insert(mate->Qname());
+      alt_counts[mate->Prefix()].insert(mate->Qname());
     }
     
     // add the alt counts
@@ -321,203 +320,204 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h) {
   }
   
 //void BreakPoint::splitCoverage(SeqLib::BamRecordVector &bav) {
-  void BreakPoint::splitCoverage(svabaReadVector &bav) {
+void BreakPoint::splitCoverage(svabaReadPtrVector& bav) {
+  
+  // track if first and second mate covers same split. fishy and remove them both
+  std::unordered_map<std::string, bool> qname_and_num;
+  
+  // keep track of which reads already added
+  std::unordered_set<std::string> qnames;
+  
+  // keep track of reads to reject
+  std::set<std::string> reject_qnames;
+  
+  // keep track of which SR tags are valid splits
+  std::unordered_set<std::string> valid_reads;
+  
+  // get the homology length. useful bc if read alignment ends in homologous region, it is not split
+  int homlen = b1.cpos - b2.cpos;
+  if (homlen < 0)
+    homlen = 0;
+  
+  // loop all of the read to contig alignments for this contig
+  for (const auto& j : bav) {
     
-    // track if first and second mate covers same split. fishy and remove them both
-    std::unordered_map<std::string, bool> qname_and_num;
-
-    // keep track of which reads already added
-    std::unordered_set<std::string> qnames;
-
-    // keep track of reads to reject
-    std::set<std::string> reject_qnames;
-
-    // keep track of which SR tags are valid splits
-    std::unordered_set<std::string> valid_reads;
-
-    // get the homology length. useful bc if read alignment ends in homologous region, it is not split
-    int homlen = b1.cpos - b2.cpos;
-    if (homlen < 0)
-      homlen = 0;
-   
-    // loop all of the read to contig alignments for this contig
-    for (auto& j : bav) {
-
-      r2c this_r2c = j.GetR2C(cname);
-
-      bool read_should_be_skipped = false;
-      if (num_align == 1) {
-
-	std::vector<int> del_breaks;
-	std::vector<int> ins_breaks;
-	int pos = 0;
+    r2c this_r2c = j->GetR2C(cname);
+    
+    bool read_should_be_skipped = false;
+    if (num_align == 1) {
+      
+      std::vector<int> del_breaks;
+      std::vector<int> ins_breaks;
+      int pos = 0;
+      
+      // if this is a nasty repeat, don't trust non-perfect alignmentx on r2c alignment
+      if (__check_homopolymer(j->Sequence())) 
+	read_should_be_skipped = true;
+      
+      // loop through r2c cigar and see positions
+      for(auto& i : this_r2c.cig) {
 	
-	// if this is a nasty repeat, don't trust non-perfect alignmentx on r2c alignment
-	if (__check_homopolymer(j.Sequence())) 
+	if (i.Type() == 'D') 
+	  del_breaks.push_back(pos);
+	else if (i.Type() == 'I')
+	  ins_breaks.push_back(pos);
+	
+	// update position on contig
+	if (i.ConsumesReference())
+	  pos += i.Length(); // update position on contig
+	
+      }
+      
+      size_t buff = std::max((size_t)3, repeat_seq.length() + 3);
+      for (auto& i : del_breaks)
+	if (i > b1.cpos - buff || i < b1.cpos + buff) // if start of insertion is at start of a del of r2c
 	  read_should_be_skipped = true;
-	
-	// loop through r2c cigar and see positions
-	for(auto& i : this_r2c.cig) {
-	  
-	  if (i.Type() == 'D') 
-	    del_breaks.push_back(pos);
-	  else if (i.Type() == 'I')
-	    ins_breaks.push_back(pos);
-	  
-	  // update position on contig
-	  if (i.ConsumesReference())
-	    pos += i.Length(); // update position on contig
-	  
-	}
-	
-	size_t buff = std::max((size_t)3, repeat_seq.length() + 3);
-	for (auto& i : del_breaks)
-	  if (i > b1.cpos - buff || i < b1.cpos + buff) // if start of insertion is at start of a del of r2c
-	    read_should_be_skipped = true;
-	for (auto& i : ins_breaks)
-	  if (i > b1.cpos - buff || i < b1.cpos + buff) // if start of insertion is at start of a del of r2c
-	    read_should_be_skipped = true;
-      } 
-
-      if (read_should_be_skipped)  // default is r2c does not support var, so don't amend this_r2c
-	continue;
-      
-      // get read ID
-      std::string sample_id = j.Prefix(); //substr(0,4); // maybe just make this prefix
-      std::string sr = j.UniqueName(); 
-
-      // need read to cover past variant by some buffer. If there is a repeat,
-      // then this needs to be even longer to avoid ambiguity
-      int this_tbuff = T_SPLIT_BUFF + repeat_seq.length();
-      int this_nbuff = N_SPLIT_BUFF + repeat_seq.length();      
-
-      int rightbreak1 = b1.cpos + (j.Tumor() ? this_tbuff : this_nbuff); // read must extend this far right of break1
-      int leftbreak1  = b1.cpos - (j.Tumor() ? this_tbuff : this_nbuff); // read must extend this far left of break1
-      int rightbreak2 = b2.cpos + (j.Tumor() ? this_tbuff : this_nbuff);
-      int leftbreak2  = b2.cpos - (j.Tumor() ? this_tbuff : this_nbuff);
-
-      std::string contig_qname; // for sanity checking
-      // get the alignment position on contig
-      int pos = this_r2c.start_on_contig;
-      int te  = this_r2c.end_on_contig;
-
-      int rightend = te; 
-      int leftend  = pos;
-      bool issplit1 = (leftend <= leftbreak1) && (rightend >= rightbreak1);
-      bool issplit2 = (leftend <= leftbreak2) && (rightend >= rightbreak2);
-
-      bool both_split = issplit1 && issplit2;
-      bool one_split = issplit1 || issplit2;
-
-      
-      // be more permissive for NORMAL, so keep out FPs
-      bool valid  = (both_split && (j.Tumor() || homlen > 0)) || (one_split && !j.Tumor() && homlen == 0) || (one_split && insertion.length() >= INSERT_SIZE_TOO_BIG_SPAN_READS);
-
-      // requiring both break ends to be split for homlen > 0 is for situation beow
-      // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>A..........................
-      // ............................B>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-      // if we set break2 at pos B, then reads that end at A will count as splits on B,
-      // when they should count as non-splits on A. For any read, if it is non-split on one 
-      // segment, it should be non-split on all, for overlapping alignments like above. Not true of 
-      // insertions at junctions, where one can split at one and not the other because of the intervening sequence buffer
-
-      // check that deletion (in read to contig coords) doesn't cover break point
-      size_t p = pos; // move along on contig, starting at first non-clipped base
-      for (SeqLib::Cigar::const_iterator c = this_r2c.cig.begin(); c != this_r2c.cig.end(); ++c) {
-	if (c->Type() == 'D') { 
-	  if ( (p >= leftbreak1 && p <= rightbreak1) || (p >= leftbreak2 && p <= rightbreak2) )
-	    read_should_be_skipped = true;
-	}
-	if (c->ConsumesReference()) // if it moves it along the contig
-	  p += c->Length();
+      for (auto& i : ins_breaks)
+	if (i > b1.cpos - buff || i < b1.cpos + buff) // if start of insertion is at start of a del of r2c
+	  read_should_be_skipped = true;
+    } 
+    
+    if (read_should_be_skipped)  // default is r2c does not support var, so don't amend this_r2c
+      continue;
+    
+    // get read ID
+    std::string sample_id = j->Prefix(); //substr(0,4); // maybe just make this prefix
+    std::string sr = j->UniqueName(); 
+    
+    // need read to cover past variant by some buffer. If there is a repeat,
+    // then this needs to be even longer to avoid ambiguity
+    int this_tbuff = T_SPLIT_BUFF + repeat_seq.length();
+    int this_nbuff = N_SPLIT_BUFF + repeat_seq.length();      
+    
+    int rightbreak1 = b1.cpos + (j->Tumor() ? this_tbuff : this_nbuff); // read must extend this far right of break1
+    int leftbreak1  = b1.cpos - (j->Tumor() ? this_tbuff : this_nbuff); // read must extend this far left of break1
+    int rightbreak2 = b2.cpos + (j->Tumor() ? this_tbuff : this_nbuff);
+    int leftbreak2  = b2.cpos - (j->Tumor() ? this_tbuff : this_nbuff);
+    
+    std::string contig_qname; // for sanity checking
+    // get the alignment position on contig
+    int pos = this_r2c.start_on_contig;
+    int te  = this_r2c.end_on_contig;
+    
+    int rightend = te; 
+    int leftend  = pos;
+    bool issplit1 = (leftend <= leftbreak1) && (rightend >= rightbreak1);
+    bool issplit2 = (leftend <= leftbreak2) && (rightend >= rightbreak2);
+    
+    bool both_split = issplit1 && issplit2;
+    bool one_split = issplit1 || issplit2;
+    
+    
+    // be more permissive for NORMAL, so keep out FPs
+    bool valid  = (both_split && (j->Tumor() || homlen > 0)) ||
+      (one_split && !j->Tumor() && homlen == 0) || (one_split && insertion.length() >= INSERT_SIZE_TOO_BIG_SPAN_READS);
+    
+    // requiring both break ends to be split for homlen > 0 is for situation beow
+    // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>A..........................
+    // ............................B>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+    // if we set break2 at pos B, then reads that end at A will count as splits on B,
+    // when they should count as non-splits on A. For any read, if it is non-split on one 
+    // segment, it should be non-split on all, for overlapping alignments like above. Not true of 
+    // insertions at junctions, where one can split at one and not the other because of the intervening sequence buffer
+    
+    // check that deletion (in read to contig coords) doesn't cover break point
+    size_t p = pos; // move along on contig, starting at first non-clipped base
+    for (SeqLib::Cigar::const_iterator c = this_r2c.cig.begin(); c != this_r2c.cig.end(); ++c) {
+      if (c->Type() == 'D') { 
+	if ( (p >= leftbreak1 && p <= rightbreak1) || (p >= leftbreak2 && p <= rightbreak2) )
+	  read_should_be_skipped = true;
       }
-
-      // add the split reads for each end of the break
-      // a read is split if it is spans both break ends for tumor, one break end for normal (to
-      // be more sensitive to germline) and if it spans both ends for deletion (should be next to 
-      // each other), or one end for insertions larger than 10, or this is a complex breakpoint
-
-      if (valid) { 
-	std::string qn = j.Qname();
-
+      if (c->ConsumesReference()) // if it moves it along the contig
+	p += c->Length();
+    }
+    
+    // add the split reads for each end of the break
+    // a read is split if it is spans both break ends for tumor, one break end for normal (to
+    // be more sensitive to germline) and if it spans both ends for deletion (should be next to 
+    // each other), or one end for insertions larger than 10, or this is a complex breakpoint
+    
+    if (valid) { 
+      std::string qn = j->Qname();
+      
+      
+      // if read seen and other read was other mate, then reject
+      if (num_align > 1 && qname_and_num.count(qn) && qname_and_num[qn] != j->FirstFlag()) {
 	
-	// if read seen and other read was other mate, then reject
-	if (num_align > 1 && qname_and_num.count(qn) && qname_and_num[qn] != j.FirstFlag()) {
-	  
-	  // need to reject all reads of this qname
-	  // because we saw both first and second in pair hit same split
-
-	  // 2023 - turning this off -- why? Beacuse for very short
-	  // insert size distributions, this can still be possible
-	  //reject_qnames.insert(qn);
-
-	} else {
-
-	  // if haven't seen this read, add here. If have, then dont because want to avoid re-setting first/second convention
-	  // e.g. if we see a split read with first designation, we want to reject all reads with same qname if at any time
-	  // we see one with second mate designation. If we don't have this conditional, we can get fooled if the order is 
-	  // 1, 2, 1
-	  if (!qname_and_num.count(qn)) 
-	    qname_and_num[qn] = j.FirstFlag();
-	  
-	  // this is a valid read
-	  this_r2c.supports_var = true;
-	  valid_reads.insert(sr);
-
-	  // how much of the contig do these span
-	  // for a given read QNAME, get the coverage that 
-	  split_cov_bounds.first = std::min(split_cov_bounds.first, pos);
-	  split_cov_bounds.second = std::max(split_cov_bounds.second, te);
-	}
+	// need to reject all reads of this qname
+	// because we saw both first and second in pair hit same split
+	
+	// 2023 - turning this off -- why? Beacuse for very short
+	// insert size distributions, this can still be possible
+	//reject_qnames.insert(qn);
+	
+      } else {
+	
+	// if haven't seen this read, add here. If have, then dont because want to avoid re-setting first/second convention
+	// e.g. if we see a split read with first designation, we want to reject all reads with same qname if at any time
+	// we see one with second mate designation. If we don't have this conditional, we can get fooled if the order is 
+	// 1, 2, 1
+	if (!qname_and_num.count(qn)) 
+	  qname_and_num[qn] = j->FirstFlag();
+	
+	// this is a valid read
+	this_r2c.supports_var = true;
+	valid_reads.insert(sr);
+	
+	// how much of the contig do these span
+	// for a given read QNAME, get the coverage that 
+	split_cov_bounds.first = std::min(split_cov_bounds.first, pos);
+	split_cov_bounds.second = std::max(split_cov_bounds.second, te);
       }
-
-      // update the counters for each break end
-      if (issplit1 && valid)
-	++b1.split[sample_id];
-      if (issplit2 && valid)
-	++b2.split[sample_id];	
-
-      // add r2c back, but as amended
-      //j.AddR2C(cname, this_r2c);
-
-    } // end read loop
-
+    }
+    
+    // update the counters for each break end
+    if (issplit1 && valid)
+      ++b1.split[sample_id];
+    if (issplit2 && valid)
+      ++b2.split[sample_id];	
+    
+    // add r2c back, but as amended
+    //j.AddR2C(cname, this_r2c);
+    
+  } // end read loop
+  
     // process valid reads
-    for (auto& i : bav) {
+  for (auto& i : bav) {
+    
+    r2c this_r2c = i->GetR2C(cname);
+    if (valid_reads.count(i->UniqueName())) {
       
-      r2c this_r2c = i.GetR2C(cname);
-      if (valid_reads.count(i.UniqueName())) {
-
-	std::string qn = i.Qname();
-	if (qnames.count(qn))
-	  continue; // don't count support if already added and not a short event
-	// check that it's not a bad 1, 2 split
-	if (reject_qnames.count(qn)) {
-	  this_r2c.supports_var = false;
-	  i.AddR2C(cname, this_r2c); // update that this actually does not support
-	  continue; 
-	}
-
-	reads.push_back(i);
-
-	// keep track of qnames of split reads
-	qnames.insert(qn);
-	allele[i.Prefix()].supporting_reads.insert(i.UniqueName());
-	
-      	++allele[i.Prefix()].split;
+      std::string qn = i->Qname();
+      if (qnames.count(qn))
+	continue; // don't count support if already added and not a short event
+      // check that it's not a bad 1, 2 split
+      if (reject_qnames.count(qn)) {
+	this_r2c.supports_var = false;
+	i->AddR2C(cname, this_r2c); // update that this actually does not support
+	continue; 
       }
+      
+      reads.push_back(i);
+      
+      // keep track of qnames of split reads
+      qnames.insert(qn);
+      allele[i->Prefix()].supporting_reads.insert(i->UniqueName());
+      
+      ++allele[i->Prefix()].split;
     }
-
-      // adjust the alt count
-    for (auto& i : allele) {
-      i.second.indel = num_align == 1;
-      i.second.adjust_alt_counts();
-    }
-
   }
   
-  std::string BreakPoint::getHashString() const {
-    
+  // adjust the alt count
+  for (auto& i : allele) {
+    i.second.indel = num_align == 1;
+    i.second.adjust_alt_counts();
+  }
+  
+}
+
+std::string BreakPoint::getHashString() const {
+  
     bool isdel = insertion.length() == 0;
     //if (isdel) // del breaks are stored as last non-deleted base. CigarMap stores as THE deleted base
     //  pos1++;
@@ -589,22 +589,24 @@ std::string BreakPoint::print(const SeqLib::BamHeader& h) const {
     }
   }
   
-BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
-  b.GetIntTag("SQ", sub_n);
-  gr.chr = b.ChrID(); 
+BreakEnd::BreakEnd(const BamRecordPtr& b,
+		   const SvabaSharedConfig& sc) {
+  b->GetIntTag("SQ", sub_n);
+  gr.chr = b->ChrID(); 
   gr.pos1 = -1;
   gr.pos2 = -1;
   cpos = -1;
-  mapq = b.MapQuality();
-  b.GetZTag("MC", chr_name); 
+  mapq = b->MapQuality();
+  chr_name = b->ChrName(sc.header);
+  //b->GetZTag("MC", chr_name); 
   assert(chr_name.length());
 
   int tnm=0;
-  b.GetIntTag("NM",tnm);
-  nm = std::max(tnm - (int)b.MaxInsertionBases() - (int)b.MaxDeletionBases(), 0);
+  b->GetIntTag("NM",tnm);
+  nm = std::max(tnm - (int)b->MaxInsertionBases() - (int)b->MaxDeletionBases(), 0);
   int thisas=0;
-  b.GetIntTag("AS",thisas);
-  as_frac = (double)thisas / (double) b.NumMatchBases();
+  b->GetIntTag("AS",thisas);
+  as_frac = (double)thisas / (double) b->NumMatchBases();
 }
 
   void BreakPoint::__combine_with_discordant_cluster(DiscordantClusterMap& dmap)
@@ -653,12 +655,12 @@ BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
 	      }
 
 	      // add the discordant reads names to supporting reads for each sampleinfo
-	      for (auto& rr : d.second.reads) {
-		allele[rr.second.Prefix()].supporting_reads.insert(rr.second.UniqueName());
+	      for (auto& [_, read] : d.second.reads) {
+		allele[read->Prefix()].supporting_reads.insert(read->UniqueName());
 
 	      }
-	      for (auto& rr : d.second.mates) {
-		allele[rr.second.Prefix()].supporting_reads.insert(rr.second.UniqueName());
+	      for (auto& [_, mate] : d.second.mates) {
+		allele[mate->Prefix()].supporting_reads.insert(mate->UniqueName());
 	      }
 
 	      // adjust the alt counts
@@ -832,13 +834,13 @@ BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
 
     int total_count = t_reads + n_reads; //n.split + t.split + dc.ncount + dc.tcount;
     int disc_count = dc.tcount + dc.ncount;
-    int hq = dc.tcount_hq + dc.ncount_hq;
+    //int hq = dc.tcount_hq + dc.ncount_hq;
 
-    if ( (max_a_mapq < 30 && !b1.local && hq < 3) || (max_b_mapq < 30 && !b2.local && hq < 3) || (b1.sub_n > 7 && b1.mapq < 10 && !b1.local && hq < 3) || (b2.sub_n > 7 && b2.mapq < 10 && !b2.local && hq < 3) )
+    if ( (max_a_mapq < 30 && !b1.local) || (max_b_mapq < 30 && !b2.local) || (b1.sub_n > 7 && b1.mapq < 10 && !b1.local) || (b2.sub_n > 7 && b2.mapq < 10 && !b2.local) )
       confidence = "LOWMAPQ";
     else if ( std::min(b1.nm, b2.nm) >= 10)
       confidence = "LOWMAPQ";
-    else if ( std::min(b1.mapq, b2.mapq) < 10/* && std::min(dc.mapq1, dc.mapq2) < 10 */&& hq < 2)
+    else if ( std::min(b1.mapq, b2.mapq) < 10/* && std::min(dc.mapq1, dc.mapq2) < 10 */)
       confidence = "LOWMAPQ";      
     else if ( total_count < 4 || (std::max(t.split, n.split) <= 5 && cov_span < (readlen + 5) && disc_count < 7) )
       confidence = "LOWSUPPORT";
@@ -848,14 +850,14 @@ BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
       confidence = "LOWICSUPPORT";
     else if (secondary && getSpan() < 1000) // local alignments are more likely to be false for alignemnts with secondary mappings
       confidence = "SECONDARY";	
-    else if (dc.tcount_hq + dc.ncount_hq < 3) { // multimathces are bad if we don't have good disc support too
+    /*else if (dc.tcount_hq + dc.ncount_hq < 3) { // multimathces are bad if we don't have good disc support too
       if ( ((b1.sub_n && dc.mapq1 < 1) || (b2.sub_n && dc.mapq2 < 1))  )
-	confidence = "MULTIMATCH";
-      else if ( ( (secondary || b1.sub_n > 1) && !b1.local) && ( std::min(max_a_mapq, max_b_mapq) < 30 || std::max(dc.tcount, dc.ncount) < 10)) 
-	confidence = "SECONDARY";
-      else 
-	confidence = "PASS";
-    }
+      confidence = "MULTIMATCH";
+	else if ( ( (secondary || b1.sub_n > 1) && !b1.local) && ( std::min(max_a_mapq, max_b_mapq) < 30 || std::max(dc.tcount, dc.ncount) < 10)) 
+      confidence = "SECONDARY";
+	else 
+      confidence = "PASS";
+	}*/
     else
       confidence = "PASS";
   }
@@ -866,13 +868,13 @@ BreakEnd::BreakEnd(const SeqLib::BamRecord& b) {
     n.alt = dc.ncount;
 
     int disc_count = dc.ncount + dc.tcount;
-    int hq_disc_count = dc.ncount_hq + dc.tcount_hq;
+    //int hq_disc_count = dc.ncount_hq + dc.tcount_hq;
     int disc_cutoff = 8;
-    int hq_disc_cutoff = disc_count >= 10 ? 3 : 5; // reads with both pair-mates have high MAPQ
+    //int hq_disc_cutoff = disc_count >= 10 ? 3 : 5; // reads with both pair-mates have high MAPQ
 
     if (getSpan() > 0 && (getSpan() < min_dscrd_size && b1.gr.strand == '+' && b2.gr.strand == '-')) // restrict span for del (FR) type 
       confidence = "LOWSPANDSCRD";
-    else if (hq_disc_count < hq_disc_cutoff && (disc_count < disc_cutoff || std::min(dc.mapq1, dc.mapq2) < 15))
+    else if ((disc_count < disc_cutoff || std::min(dc.mapq1, dc.mapq2) < 15))
       confidence = "LOWMAPQDISC";
     else if (!dc.m_id_competing.empty())
       confidence = "COMPETEDISC";
@@ -1030,12 +1032,12 @@ void BreakPoint::format_bx_string() {
     std::unordered_map<std::string, size_t> supp_tags;
 
     //add the discordant reads
-    for (const auto& r : dc.reads) {
-      std::string qname = r.second.Qname();
+    for (const auto& [_, read] : dc.reads) {
+      std::string qname = read->Qname();
       if (qn.count(qname))
 	continue;
       std::string tmp;
-      r.second.GetZTag("BX", tmp);
+      read->GetZTag("BX", tmp);
       if (!tmp.empty()) 
 	++supp_tags[tmp];
       qn.insert(qname);
@@ -1043,11 +1045,11 @@ void BreakPoint::format_bx_string() {
     
     //add the reads from the breakpoint
     for (const auto& r : reads) {
-      std::string qname = r.Qname();
+      std::string qname = r->Qname();
       if (qn.count(qname))
 	continue;
       std::string tmp;
-      r.GetZTag("BX", tmp);
+      r->GetZTag("BX", tmp);
       if (!tmp.empty())
 	++supp_tags[tmp];
       qn.insert(qname);
@@ -1070,14 +1072,13 @@ void BreakPoint::format_bx_string() {
     std::unordered_set<std::string> supp_reads;
     
     //add the discordant reads
-    for (auto& r : dc.reads) 
-      supp_reads.insert(r.second.UniqueName());
-    //supp_reads.insert(SRTAG(r.second));
+    for (const auto& [_, read] : dc.reads) 
+      supp_reads.insert(read->UniqueName());
 
     //add the reads from the breakpoint
-    for (auto& r : reads) 
+    for (const auto& r : reads) 
       //supp_reads.insert(SRTAG(r)); // BamRecords (not svabaBamRead)
-    supp_reads.insert(r.UniqueName());
+    supp_reads.insert(r->UniqueName());
     
     // print reads to a string, delimit with a ,
     size_t lim = 0;

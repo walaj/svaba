@@ -71,20 +71,19 @@ void SvabaOutputWriter::init(const string& analysis_id,
   }
   
   // BAM output for discordant reads
-  if (opts.dump_discordant_reads) {
-    std::string discordant_read_bam_path = analysis_id;
-    discordant_read_bam_path.append(".discordant.bam");
-    b_discordant_read_writer_ = SeqLib::BamWriter(SeqLib::BAM);
-    b_discordant_read_writer_.SetHeader(b_header);
-    if (!b_discordant_read_writer_.Open(discordant_read_bam_path)) {    
-      std::cerr << "ERROR: could not open output discordant read writer " <<
-	discordant_read_bam_path << std::endl;
-      exit(EXIT_FAILURE);
-    }
-    b_discordant_read_writer_.WriteHeader();
-  }
+  // if (opts.dump_discordant_reads) {
+  //   std::string discordant_read_bam_path = analysis_id;
+  //   discordant_read_bam_path.append(".discordant.bam");
+  //   b_discordant_read_writer_ = SeqLib::BamWriter(SeqLib::BAM);
+  //   b_discordant_read_writer_.SetHeader(b_header);
+  //   if (!b_discordant_read_writer_.Open(discordant_read_bam_path)) {    
+  //     std::cerr << "ERROR: could not open output discordant read writer " <<
+  // 	discordant_read_bam_path << std::endl;
+  //     exit(EXIT_FAILURE);
+  //   }
+  //   b_discordant_read_writer_.WriteHeader();
+  // }
 
-  // BAM output for discordant reads
   if (opts.dump_corrected_reads) {
     std::string corrected_read_bam_path = analysis_id;
     corrected_read_bam_path.append(".corrected.bam");
@@ -108,11 +107,10 @@ void SvabaOutputWriter::writeUnit(svabaThreadUnit& unit,
   sc.total_regions_done += unit.processed_since_memory_dump;
   unit.processed_since_memory_dump = 0;
   
-  /*std::cerr << "...svabaOutputWriter - flushing thread " << unit.threadId << " -- " <<
-    SeqLib::AddCommas(sc.total_regions_done) << " of " << SeqLib::AddCommas(sc.total_regions_to_process) <<
-    "\n";
-  */
-  
+  // std::cerr << "...svabaOutputWriter - flushing thread " << unit.threadId << " -- " <<
+  //   SeqLib::AddCommas(sc.total_regions_done) << " of " << SeqLib::AddCommas(sc.total_regions_to_process) <<
+  //   "\n";
+
   // alignment plot lines
   for (const auto& alc : unit.master_alc) {
     if (alc.hasVariant()) 
@@ -129,11 +127,12 @@ void SvabaOutputWriter::writeUnit(svabaThreadUnit& unit,
 
   // write contig alignments to BAM
   for (auto& i : unit.master_contigs) {
-    //i.RemoveTag("MC");
-    assert(b_contig_writer_.WriteRecord(i));
+    bool ok = b_contig_writer_.WriteRecord(*i);
+    assert(ok);
   }
 
   // breakpoints
+  //std::cerr << " BPS " << unit.m_bps.size() << std::endl;    
   for (auto& bp : unit.m_bps) {
     if ( bp.hasMinimal() 
 	 && (bp.confidence != "NOLOCAL" || bp.complex_local) )
@@ -143,21 +142,28 @@ void SvabaOutputWriter::writeUnit(svabaThreadUnit& unit,
   }
 
   // discordant reads
-  if (opts.dump_discordant_reads) {
-    for (const auto& r : unit.all_discordant_reads)
-      b_discordant_read_writer_.WriteRecord(r);
-  }
+  //std::cerr << " DC " << unit.all_discordant_reads.size() << std::endl;    
+  // if (opts.dump_discordant_reads) {
+  //   for (const auto& r : unit.all_discordant_reads) {
+  //     bool ok = b_discordant_read_writer_.WriteRecord(*r);
+  //     assert(ok);
+  //   }
+  // }
 
   // weird reads
   if (opts.dump_weird_reads) {
-    for (const auto& r : unit.all_weird_reads)
-      assert(b_weird_read_writer_.WriteRecord(r));
+    for (const auto& r : unit.all_weird_reads) {
+      bool ok = b_weird_read_writer_.WriteRecord(*r);
+      assert(ok);
+    }
   }
 
   // corrected reads
   if (opts.dump_corrected_reads) {
-    for (const auto& r : unit.all_corrected_reads)
-      assert(b_corrected_read_writer_.WriteRecord(r));
+    for (const auto& r : unit.all_corrected_reads) {
+      bool ok = b_corrected_read_writer_.WriteRecord(*r);
+      assert(ok);
+    }
   }
 }
 
@@ -167,11 +173,11 @@ void SvabaOutputWriter::close() {
   os_allbps_.close();
   os_discordant_.close();
   
-  if (opts.dump_discordant_reads) {
-    if (!b_discordant_read_writer_.Close()) {
-      std::cerr << "Unable to close discordant read writer" << std::endl;
-    }
-  }
+  // if (opts.dump_discordant_reads) {
+  //   if (!b_discordant_read_writer_.Close()) {
+  //     std::cerr << "Unable to close discordant read writer" << std::endl;
+  //   }
+  // }
   
   if (opts.dump_weird_reads) {
     if (!b_weird_read_writer_.Close()) {

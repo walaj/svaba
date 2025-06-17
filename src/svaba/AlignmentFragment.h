@@ -8,10 +8,13 @@
 
 #include "BreakPoint.h"
 
+
 namespace SeqLib {
   class BamWriter;
   class GenomicRegion;
 }
+using SeqLib::BamRecordPtr;
+
 
 #define MAX_CONTIG_SIZE 5000000
 
@@ -27,12 +30,14 @@ class AlignedContig;
   public:
     
     friend class AlignedContig;
-    
+
+    AlignmentFragment() = delete; // prevent default construction
+
     /*! Construct an AlignmentFragment from a BWA alignment
-     * @param const reference to an aligned sequencing read
      * @param flip If the contig sequence was flipped (rev of BAM record), need to track this. This flipping occurs in AlignedContig::AlignedContig
      */
-    AlignmentFragment(const SeqLib::BamRecord &talign, bool flip);
+    // talign is an alignment of the contig to reference
+    AlignmentFragment(BamRecordPtr &talign, bool flip, SvabaSharedConfig* sc_);
     
     // sort AlignmentFragment objects by start position
     bool operator < (const AlignmentFragment& str) const { return (start < str.start); }
@@ -65,7 +70,7 @@ class AlignedContig;
 
     private:
     
-    SeqLib::BamRecord m_align; // BWA alignment to reference
+    BamRecordPtr m_align; // BWA alignment of contig to reference
 
     int sub_n = 0; // number of sub optimal alignments
     
@@ -87,6 +92,8 @@ class AlignedContig;
     int di_count = 0; // number of indels
 
     int num_align = 0;
+
+    SvabaSharedConfig* sc; //pointer to allow sort later
   };
 
 typedef std::vector<AlignmentFragment> AlignmentFragmentVector;

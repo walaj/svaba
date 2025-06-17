@@ -84,7 +84,8 @@ struct ReducedBreakEnd {
 
    BreakEnd(const SeqLib::GenomicRegion& g, int mq, const std::string & chr_n);
    
-   BreakEnd(const SeqLib::BamRecord& b);
+   BreakEnd(const BamRecordPtr& b,
+	    const SvabaSharedConfig& sc);
    
    void checkLocal(const SeqLib::GenomicRegion& window);
 
@@ -141,8 +142,8 @@ struct ReducedBreakEnd {
    
    SampleInfo t, n, a;
 
-   // reads spanning this breakpoint
-   svabaReadVector reads;
+   // reads spanning this breakpoint (these are read-to-genome, but have an r2c)
+   svabaReadPtrVector reads;
 
    // store if it has a non-clipped local alignment
    bool has_local_alignment = false;
@@ -210,8 +211,7 @@ struct ReducedBreakEnd {
     * @discussion Note: will cause an error if the AL tag not filled in for the reads. 
     * The AL tag is filled in by AlignedContig::alignReadsToContigs.
     */
-   //void splitCoverage(SeqLib::BamRecordVector &bav);
-   void splitCoverage(svabaReadVector &bav);
+   void splitCoverage(svabaReadPtrVector& bav);
    
    /*! Determines if the BreakPoint overlays a blacklisted region. If 
     * and overlap is found, sets the blacklist bool to true.

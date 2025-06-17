@@ -21,27 +21,13 @@ namespace SeqLib {
 
 using SeqLib::GenomicRegion;
 
-DiscordantClusterMap DiscordantCluster::clusterReads(
-						     svabaReadVector& bav,
+DiscordantClusterMap DiscordantCluster::clusterReads(svabaReadPtrVector& bav,
 						     const SeqLib::GenomicRegion& interval,
-						     int max_mapq_possible) {
+						     const SeqLib::BamHeader& header) {
   
-  
-#ifdef DEBUG_CLUSTER    
-  //for (auto& i : bav)
-  //  std::cerr << " PRE DEDUPED CLUSTER " << i << std::endl;
-#endif
   
   // sort by position
-  std::sort(bav.begin(), bav.end(), SeqLib::BamRecordSort::ByReadPosition());
-  
-#ifdef DEBUG_CLUSTER    
-  //for (auto& i : bav_dd)
-  //  std::cerr << " DEDUPED CLUSTER " << i << std::endl;
-#endif
-  
-  // clear the tmp map. Now we want to use it to store if we already clustered read
-  //tmp_map.clear();
+  std::sort(bav.begin(), bav.end(), SeqLib::BamRecordSort::ByReadPositionSharedPtr());
   
   svabaReadClusterVector fwd, rev, fwdfwd, revrev, fwdrev, revfwd;
   
@@ -51,20 +37,16 @@ DiscordantClusterMap DiscordantCluster::clusterReads(
   __cluster_reads(bav, fwd, rev, RFORIENTATION);
   __cluster_reads(bav, fwd, rev, RRORIENTATION);
   
-  // remove singletons
-  __remove_singletons(fwd);
-  __remove_singletons(rev);
-  
 #ifdef DEBUG_CLUSTER
   for (auto& i : fwd) {
     std::cerr << "fwd cluster " << std::endl;
     for (auto& j : i)
-      std::cerr << "fwd " << j << std::endl;
+      std::cerr << "fwd " << *j << std::endl;
   }
   for (auto& i : rev) {
     std::cerr << "rev cluster " << std::endl;
     for (auto& j : i)
-      std::cerr << "rev " << j << std::endl;
+      std::cerr << "rev " << *j << std::endl;
   }
 #endif
   
@@ -73,20 +55,14 @@ DiscordantClusterMap DiscordantCluster::clusterReads(
   
   // within the reverse read clusters, cluster mates on fwd and rev
   __cluster_mate_reads(rev, revfwd, revrev); 
-  
-  // remove singletons
-  __remove_singletons(fwdfwd);
-  __remove_singletons(revfwd);
-  __remove_singletons(fwdrev);
-  __remove_singletons(revrev);
-  
+
   // we have the reads in their clusters. Just convert to discordant reads clusters
   DiscordantClusterMap dcm;
-  __convertToDiscordantCluster(dcm, fwdfwd, bav, max_mapq_possible);
-  __convertToDiscordantCluster(dcm, fwdrev, bav, max_mapq_possible);
-  __convertToDiscordantCluster(dcm, revfwd, bav, max_mapq_possible);
-  __convertToDiscordantCluster(dcm, revrev, bav, max_mapq_possible);
-  
+  __convertToDiscordantCluster(dcm, fwdfwd, bav, header);
+  __convertToDiscordantCluster(dcm, fwdrev, bav, header);
+  __convertToDiscordantCluster(dcm, revfwd, bav, header);
+  __convertToDiscordantCluster(dcm, revrev, bav, header);
+
 #ifdef DEBUG_CLUSTER
   std::cerr << "----fwd cluster count: " << fwd.size() << std::endl;
   std::cerr << "----rev cluster count: " << rev.size() << std::endl;
@@ -98,12 +74,12 @@ DiscordantClusterMap DiscordantCluster::clusterReads(
     for (auto& ii : fwdrev) {
       std::cerr << " ____________ CLUSTER ______________" << std::endl;
       for (auto& jj : ii)
-	std::cerr << "FWDREV _____ " << jj << std::endl;
+	std::cerr << "FWDREV _____ " << *jj << std::endl;
     }
     for (auto& ii : revfwd) {
       std::cerr << " ____________ CLUSTER ______________" << std::endl;
       for (auto& jj : ii)
-	std::cerr << "FWDREV _____ " << jj << std::endl;
+	std::cerr << "FWDREV _____ " << *jj << std::endl;
     }
 
 #endif
@@ -125,82 +101,41 @@ DiscordantClusterMap DiscordantCluster::clusterReads(
   }
   
   // this reads is reads in the cluster. all_reads is big pile where all the clusters came from
-  DiscordantCluster::DiscordantCluster(const svabaReadVector& this_reads,
-				       const svabaReadVector& all_reads,
-				       int max_mapq_possible) {
-    
-    if (this_reads.size() == 0)
-      return;
-    
+  DiscordantCluster::DiscordantCluster(const svabaReadPtrVector& this_reads,
+				       const svabaReadPtrVector& all_reads,
+				       const SeqLib::BamHeader& header) {
+
+    assert(this_reads.size());
+    assert(all_reads.size());
+
     // check the orientations, fill the reads
-    bool rev = this_reads[0].ReverseFlag();
-    bool mrev = this_reads[0].MateReverseFlag();
-    
-    // the ID of the discordant cluster is just the first reads Qname
-    m_id = this_reads[0].Qname();
-    assert(m_id.length());
-    
-    assert(this_reads.back().MatePosition() - this_reads[0].MatePosition() < 10000);
-    assert(this_reads.back().Position() - this_reads[0].Position() < 10000);
-    std::vector<int> isizer;
-    
-    // // get distribution of isizes. Reject outliers
+    auto first_read = this_reads.at(0);
+    auto last_read = this_reads.back();
+    bool rev = first_read->ReverseFlag();
+    bool mrev = first_read->MateReverseFlag();
 
-    // for (auto& i : this_reads)
-    //   isizer.push_back(std::abs(i.FullInsertSize()));
-    // double sd = 0, mm = 0, medr = 0;
-    // std::sort(isizer.begin(), isizer.end());
-    // if (isizer.size() >= 5 && isizer.back() - isizer[0] > 400) {
-
-    //   medr = svabaUtils::CalcMHWScore(isizer);
-
-    //   // get the mean
-    //   double sum = std::accumulate(isizer.begin(), isizer.end(), 0.0);
-    //   mm = isizer.size() > 0 ? sum / isizer.size() : 0;
-
-    //   // get isize stdev
-    //   std::vector<double> diff(isizer.size());
-    //   std::transform(isizer.begin(), isizer.end(), diff.begin(), [mm](double x) { return x - mm; });
-    //   double sq_sum = std::inner_product(diff.begin(), diff.end(), diff.begin(), 0.0);
-    //   sd = std::sqrt(sq_sum / isizer.size());      
-    // }
-
-    // double min_isize = 0;
-    // if (sd > 0) { // ? (medr / sd) < 4 : false) {
-    //   min_isize = medr - 2 * sd;
-
-    //   //std::cout << (*this ) << std::endl;
-    //   //std::cout << " MED " << medr << " SD " << sd << " MEAN " << mm << " CUTOFF " << min_isize << " medr/sd " << (medr/sd) << std::endl;;
-    // }
-    // min_isize = min_isize < 1000 ? min_isize : 0;
-    
+    // loop the reads in this cluster
     for (auto& i : this_reads) {
-	// double check that we did the clustering correctly. All read orientations should be same
-	assert(rev == i.ReverseFlag() && mrev == i.MateReverseFlag()); 
-
-	// add the read to the read map
-	std::string tmp = i.UniqueName(); // this name like t001_165_qname
-	assert(tmp.length());
-	reads[tmp] = i;
-
-	// count number of reads per BAM
-	++counts[i.Prefix()];
-	
-	// the ID is the lexographically lowest qname
-	std::string qn = i.Qname();
-	if (qn < m_id)
-	  m_id = qn;
-
-	if (tmp.at(0) == 't') {
-	  ++tcount;
-	} else {
-	  ++ncount;
-	}
-
-	isizer.push_back(i.FullInsertSize());
-
+      
+      // double check that we did the clustering correctly. All read orientations should be same
+      assert(rev == i->ReverseFlag() && mrev == i->MateReverseFlag()); 
+      
+      // add the read to the read map
+      std::string tmp = i->UniqueName(); // this name like t001_165_qname
+      assert(tmp.length());
+      reads[tmp] = i; 
+      
+      // count number of reads per BAM
+      ++counts[i->Prefix()];
+      
+      if (tmp.at(0) == 't') {
+	++tcount;
+      } else {
+	++ncount;
       }
-       
+      
+    }
+
     // loop through the big stack of reads and find the mates
     addMateReads(all_reads);
     assert(reads.size());
@@ -210,308 +145,377 @@ DiscordantClusterMap DiscordantCluster::clusterReads(
     m_reg1.pos1 = INT_MAX;
     m_reg2 = GenomicRegion(-1, -1, -1); // mate region
     m_reg2.pos1 = INT_MAX;
-    for (auto& i : reads) 
+    int por = 0;
+    for (const auto& [_, read] : reads) 
       {
-	m_reg1.strand = i.second.ReverseFlag() ? '-' : '+'; //r_strand(i.second) == '+'; //(!i.second->IsReverseStrand()) ? '+' : '-';
-	m_reg1.chr = i.second.ChrID(); //r_id(i.second); //i.second->RefID;
-	if (i.second.Position() < m_reg1.pos1)
-	  m_reg1.pos1 = i.second.Position(); //r_pos(i.second); //i.second->Position;
-	int endpos = i.second.PositionEnd(); //r_endpos(i.second);
-	if (endpos > m_reg1.pos2)
-	  m_reg1.pos2 = endpos;
+	por = read->PairOrientation();
+	m_reg1.strand = read->ReverseFlag()     ? '-' : '+'; 
+	m_reg2.strand = read->MateReverseFlag() ? '-' : '+'; 	
+	m_reg1.chr = read->ChrID(); 
+	m_reg2.chr = read->MateChrID();
+
+	// get left side 
+	if (read->Position() < m_reg1.pos1)
+	  m_reg1.pos1 = read->Position();
+	if (read->MatePosition() < m_reg2.pos1)
+	   m_reg2.pos1 = read->MatePosition();
+	
+	// get right side
+	if (read->PositionEnd() > m_reg1.pos2)
+	  m_reg1.pos2 = read->PositionEnd();
+	if (read->MatePosition() > m_reg2.pos2) 
+	  m_reg2.pos2 = read->MatePosition() + read->Length(); // since don't have mate end
+	
 	assert(m_reg1.Width() < 5000);
+	assert(m_reg2.Width() < 5000);	
       }
     
-    for (auto& i : mates) 
-      {
-	m_reg2.strand = i.second.ReverseFlag() ? '-' : '+'; //r_strand(i.second) == '+'; //(!i.second->IsReverseStrand()) ? '+' : '-';
-	m_reg2.chr = i.second.ChrID(); //i.second->RefID;
-	if (i.second.Position() < m_reg2.pos1)
-	  m_reg2.pos1 = i.second.Position();
-	int endpos = i.second.PositionEnd();
-	if (endpos > m_reg2.pos2)
-	  m_reg2.pos2 = endpos;
-	assert(m_reg2.Width() < 5000);
-      }
-    
-    // if no mates (we didn't look up), still make the mate region
-    if (mates.size() == 0) {
-      for (auto& i : reads) {
-	m_reg2.strand = i.second.MateReverseFlag() ? '-' : '+'; 
-	m_reg2.chr = i.second.MateChrID();
-	if (i.second.MatePosition() < m_reg2.pos1)
-	  m_reg2.pos1 = i.second.MatePosition();
-	int endpos = i.second.MatePosition() + i.second.Length();
-	if (endpos > m_reg2.pos2)
-	  m_reg2.pos2 = endpos;
-	assert(m_reg2.Width() < 5000);
-      }
-    }
-
-    int HQMAPQ = max_mapq_possible == 60 ? 25 : std::floor(0.70 * (double)max_mapq_possible) ;
-
-    std::unordered_set<std::string> hqq;
-    // set which reads are HQ
-    for (auto& i : mates) {
-      int nm=0;
-      i.second.GetIntTag("NM", nm);
-      if (i.second.MapQuality() >= HQMAPQ && nm < 3) {
-	hqq.insert(i.second.Qname());
-      }
-    }
-    for (auto& i : reads) {
-      int nm=0;
-      i.second.GetIntTag("NM", nm);
-      if (i.second.MapQuality() >= HQMAPQ && hqq.count(i.second.Qname()) && nm < 3) {
-	//if(i.second.GetZTag("UniqueName").at(0) == 't')
-	if(i.second.Tumor())
-	  ++tcount_hq;
-	else
-	  ++ncount_hq;
-      }
-    }
-
-    mapq1 = __getMeanMapq(false);
-    mapq2 = __getMeanMapq(true);
+    mapq1 = __getMeanMapq(reads);
+    mapq2 = __getMeanMapq(mates);
     assert(mapq1 >= 0);
     assert(mapq2 >= -1); // can have -1 as placeholder if no mate reads (bc didnt do lookup)
-
+    
     // orient them correctly so that left end is first
     if (m_reg2 < m_reg1) {
       std::swap(m_reg1, m_reg2);
       std::swap(reads, mates);
       std::swap(mapq1, mapq2);
     }
+    
+    // set the ID
+    std::string ortid;
 
+    switch (por) {
+    case FRORIENTATION: ortid = "FR"; break;
+    case FFORIENTATION: ortid = "FF"; break;
+    case RFORIENTATION: ortid = "RF"; break;
+    case RRORIENTATION: ortid = "RR"; break;
+    default: ortid = "UD"; break;  // fallback for UDORIENTATION or anything unexpected
+    }    
+    
+    m_id = ortid + "_" + m_reg1.ChrName(header) + "_" + std::to_string(m_reg1.pos1) +
+      "___" + m_reg2.ChrName(header) + "_" + std::to_string(m_reg2.pos1);
+    
   }
-  
-  void DiscordantCluster::addMateReads(const svabaReadVector& bav) 
+
+void DiscordantCluster::addMateReads(const svabaReadPtrVector& bav) 
   { 
     
     if (!reads.size())
       return;
     
     // log the qnames
-    std::unordered_set<std::string> qnames;
-    for (auto& i : reads) 
-      qnames.insert(i.second.Qname());
+    // so qnames is just the same map as reads except:
+    // -- qnames: qname : svabaRead
+    // -- reads: uniquesame : svabaRead
+    // the qnames structure is useful here because when we search the pile
+    // of reads for the mate, the read and mate should have same qname
+    // but then it's good to have the read when we are looking at the mate
+    // to check some things (e.g. read and mate are different members of pair)
+    std::unordered_map<std::string, svabaReadPtr> qnames;
+    for (auto& [_,read] : reads) 
+      qnames.insert({read->Qname(), read});
 
-    // get region around one of the reads.
     // OK, so this is necessary because...
     // we are looping through and trying to fill mate reads by comparing
     // against qname of reads. BUT this can be problematic if there are secondary 
     // or supplementarty alignments. So use this region to check that mate ALSO agrees
     // with mate regions
-    GenomicRegion g(reads.begin()->second.MateChrID(), reads.begin()->second.MatePosition(), reads.begin()->second.MatePosition()); 
-    bool st = reads.begin()->second.MateReverseFlag();
+    auto& first_read = reads.begin()->second;
+    GenomicRegion g(first_read->MateChrID(), first_read->MatePosition(),
+		    first_read->MatePosition()); 
     g.Pad(DISC_PAD + 1000);
-    
-    for (auto& i : bav) {
-      std::string sr;
-      if (qnames.count(i.Qname())) {
-	std::string tmp = i.UniqueName();
-	  if (reads.count(tmp) == 0)  {// only add if this is a mate read
-	    if (i.ReverseFlag() == st && g.GetOverlap(i.AsGenomicRegion()) > 0) // agrees with intiial mate orientation and position
-	      mates[tmp] = i;
-	  }
-	}
+
+    // loop all of the reads and find the mates,
+    // if we have them (don't have to)
+
+    for (const auto& i : bav) {
+      
+      // first check if this read has same name as one already stored in reads
+      auto it_read = qnames.find(i->Qname());
+      if (it_read == qnames.end()) // qname not found, so this read can't be a matching mate
+	continue;
+      
+      // now, check if this is the same read as we already now about (in reads)
+      // or if it is not (the its the mate)
+      std::string tmp = i->UniqueName();
+      auto it = reads.find(tmp);
+      if (it != reads.end()) // shoot, this it just the read as "read", so we're done
+	continue;
+      
+      // now check that the read and this one (i = candidate mate) are opposite in pair
+      if (i->FirstFlag() == it_read->second->FirstFlag())
+	continue;
+
+      // check that the orientation 
+      if (i->PairOrientation() != it_read->second->PairOrientation())
+	continue;
+
+      // don't want to deal with these
+      if (i->SecondaryFlag() || it_read->second->SecondaryFlag())
+	continue;
+      
+      // agrees with intiial mate orientation and position      
+      if (g.GetOverlap(i->AsGenomicRegion()) > 0)
+	mates[tmp] = i;
+      
     }
   }
-  
-  double DiscordantCluster::__getMeanMapq(bool mate) const 
-  {
-    double mean = 0;
-    std::vector<int> tmapq;
-    if (mate) {
-      for (auto& i : mates)
-	tmapq.push_back(i.second.MapQuality());
-    } else {
-      for (auto& i : reads)
-	tmapq.push_back(i.second.MapQuality());
-    }
-    
-    // if no mates, set to -1
-    if (!mates.size() && mate)
-      return -1;
 
-    if (tmapq.size() > 0)
-      mean = ((double)std::accumulate(tmapq.begin(), tmapq.end(), 0.0)) / ((double)tmapq.size());
+double DiscordantCluster::__getMeanMapq(const DiscordantReadMap& m) const {
+  if (m.empty()) return -1.0;
+  // sum them up
+  double total = 0.0;
+  for (auto const& kv : m) {
+    total += kv.second->MapQuality();
+  }
+  return total / m.size();
+}
 
-    // actually, get the median
-    //if (tmapq.size() > 0)
-    // mean = CalcMHWScore(tmapq); //std::accumulate(tmapq.begin(), tmapq.end(), 0.0) / tmapq.size();
+void DiscordantCluster::labelReads() {
 
-    return mean;
+  for (auto& [_, r] : reads) {
+    std::string dcstring;
+    r->GetZTag("DC", dcstring);
+    if (!dcstring.empty())
+      dcstring.append("d");
+    dcstring.append(m_id);
+    r->AddZTag("DC", dcstring);
+  }
+
+  for (auto& [_, r] : mates) {
+    std::string dcstring;
+    r->GetZTag("DC", dcstring);
+    if (!dcstring.empty())
+      dcstring.append("d");
+    dcstring.append(m_id);
+    r->AddZTag("DC", dcstring);
   }
   
+  
+}
+
 std::string DiscordantCluster::toRegionString(const SeqLib::BamHeader& h) const 
-  {
-    int pos1 = (m_reg1.strand == '+') ? m_reg1.pos2 : m_reg1.pos1;
-    int pos2 = (m_reg2.strand == '+') ? m_reg2.pos2 : m_reg2.pos1;
-    
-    std::stringstream ss;
-    ss << h.IDtoName(m_reg1.chr) << ":" << pos1 << "(" << m_reg1.strand << ")" << "-" << 
-      h.IDtoName(m_reg2.chr) << ":" << pos2 << "(" << m_reg2.strand << ")";
-    return ss.str();
-    
-  }
+{
+  int pos1 = (m_reg1.strand == '+') ? m_reg1.pos2 : m_reg1.pos1;
+  int pos2 = (m_reg2.strand == '+') ? m_reg2.pos2 : m_reg2.pos1;
   
+  std::stringstream ss;
+  ss << h.IDtoName(m_reg1.chr) << ":" << pos1 << "(" << m_reg1.strand << ")" << "-" << 
+    h.IDtoName(m_reg2.chr) << ":" << pos2 << "(" << m_reg2.strand << ")";
+  return ss.str();
+  
+}
+
 // define how to print this
 std::string DiscordantCluster::print(const SeqLib::BamHeader& h) const {
-    std::stringstream ss;
-    ss << toRegionString(h) << " Tcount: " << tcount << 
-      " Ncount: "  << ncount << " Mean MAPQ: " 
-       << mapq1 << " Mean Mate MAPQ: " << mapq2 << " Valid: " << (valid() ? "TRUE" : "FALSE");
-    return ss.str();
-  }
+  std::stringstream ss;
+  ss << toRegionString(h) << " Tcount: " << tcount << 
+    " Ncount: "  << ncount << " Mean MAPQ: " 
+     << mapq1 << " Mean Mate MAPQ: " << mapq2 << " Valid: " << (valid() ? "TRUE" : "FALSE");
+  return ss.str();
+}
+
+bool DiscordantCluster::valid() const {
   
-  bool DiscordantCluster::valid() const {
-
-    // it's OK if the clusters are inter-chromosomal
-    if (m_reg1.chr != m_reg2.chr)
-      return true;
-
-    // if its RF orientation (<----->) then bc bps are on outside, regions can overlaps
-    if (m_reg1.strand == '-' && m_reg2.strand == '+')
-      return true;
-
-    // the clusters overlap, doesn't make sense for del and inversion type
-    if (m_reg1.pos2 > m_reg2.pos1) 
-      return false;
-
+  // it's OK if the clusters are inter-chromosomal
+  if (m_reg1.chr != m_reg2.chr)
+    return true;
+  
+  // if its RF orientation (<----->) then bc bps are on outside, regions can overlaps
+  if (m_reg1.strand == '-' && m_reg2.strand == '+')
     return true;
 
-  }
-
+  // the clusters overlap, doesn't make sense for del and inversion type
+  if (m_reg1.pos2 > m_reg2.pos1) 
+    return false;
   
-  // define how to print to file
-  std::string DiscordantCluster::toFileString(const SeqLib::BamHeader& h, bool with_read_names) const { 
-    
-    std::string sep = "\t";
-    
-    // add the reads names (currently off)
-    std::string reads_string;
-    if (with_read_names) {
-	
-	std::unordered_set<std::string> qnset;
-	for (auto& i : reads) 
-	  {
-	    if (qnset.count(i.second.Qname()))
-	      continue;
-	    std::string tmp = i.second.UniqueName();
-	    qnset.insert(i.second.Qname());
-	    reads_string += tmp + ",";
-	  }
-	for (auto& i : mates) {
-	    if (qnset.count(i.second.Qname()))
-	      continue;
-	    std::string tmp = i.second.UniqueName();
-	    qnset.insert(i.second.Qname());
-	    reads_string += tmp + ",";
-	  }
+  return true;
+  
+}
 
-	
-	if (reads_string.empty())
-	  reads_string = "x";
-	else
-	  reads_string.pop_back(); // delete last comma
+
+// define how to print to file
+std::string DiscordantCluster::toFileString(const SeqLib::BamHeader& h, bool with_read_names) const { 
+  
+  std::string sep = "\t";
+  
+  // add the reads names (currently off)
+  std::string reads_string;
+  if (with_read_names) {
+    
+    std::unordered_set<std::string> qnset;
+    for (const auto& [_, read] : reads) 
+      {
+	if (qnset.count(read->Qname()))
+	  continue;
+	std::string tmp = read->UniqueName();
+	qnset.insert(read->Qname());
+	reads_string += tmp + ",";
       }
+    for (const auto& [_,mate] : mates) {
+      if (qnset.count(mate->Qname()))
+	continue;
+      std::string tmp = mate->UniqueName();
+      qnset.insert(mate->Qname());
+      reads_string += tmp + ",";
+    }
     
-    int pos1 = m_reg1.strand == '+' ? m_reg1.pos2 : m_reg1.pos1; // get the edge of the cluster
-    int pos2 = m_reg2.strand == '+' ? m_reg2.pos2 : m_reg2.pos1;
-
-    std::stringstream out;
-    out << h.IDtoName(m_reg1.chr) << sep << pos1 << sep << m_reg1.strand << sep 
-	<< h.IDtoName(m_reg2.chr) << sep << pos2 << sep << m_reg2.strand << sep 
-	<< tcount << sep << ncount << sep << tcount_hq << sep << ncount_hq
-	<< sep << mapq1 << sep 
-	<< mapq2 << sep << (m_contig.length() ? m_contig : "x") << sep << toRegionString(h)
-	<< sep << (reads_string.length() ? reads_string : "x");
-
-    return (out.str());
     
+    if (reads_string.empty())
+      reads_string = "x";
+    else
+      reads_string.pop_back(); // delete last comma
   }
   
-  // define how to sort theses
-  bool DiscordantCluster::operator<(const DiscordantCluster &b) const 
-  {
-    if (m_reg1.chr < b.m_reg1.chr)
-      return true;
-    if (m_reg1.pos1 < b.m_reg1.pos1)
-      return true;
+  int pos1 = m_reg1.strand == '+' ? m_reg1.pos2 : m_reg1.pos1; // get the edge of the cluster
+  int pos2 = m_reg2.strand == '+' ? m_reg2.pos2 : m_reg2.pos1;
+  
+  std::stringstream out;
+  out << h.IDtoName(m_reg1.chr) << sep << pos1 << sep << m_reg1.strand << sep 
+      << h.IDtoName(m_reg2.chr) << sep << pos2 << sep << m_reg2.strand << sep 
+      << tcount << sep << ncount
+      << sep << mapq1 << sep 
+      << mapq2 << sep << (m_contig.length() ? m_contig : "x") << sep << toRegionString(h)
+      << sep << (reads_string.length() ? reads_string : "x");
+  
+  return (out.str());
+  
+}
+
+// define how to sort theses
+bool DiscordantCluster::operator<(const DiscordantCluster &b) const 
+{
+  if (m_reg1.chr < b.m_reg1.chr)
+    return true;
+  if (m_reg1.pos1 < b.m_reg1.pos1)
+    return true;
+  return false;
+}
+
+/**
+ * Cluster reads by alignment position 
+ * 
+ * Checks whether a read belongs to a cluster. If so, adds it. If not, ends
+ * and stores cluster, adds a new one.
+ *
+ * @param cvec Stores the vector of clusters, which grows here
+ * @param clust The current cluster that is being added to
+ * @param a Read to add to cluster
+ * @param mate Flag to specify if we should cluster on mate position instead of read position
+ * @return Description of the return value
+ */
+bool DiscordantCluster::__add_read_to_cluster(svabaReadClusterVector& cvec, 
+                                              svabaReadPtrVector& clust,
+                                              svabaReadPtr& a,
+                                              bool ismate)
+{
+
+  // when ismate is false - just look at this read, ignore the mate
+  // when ismate is true - just consider the mate of this read, ignore this pairmate
+  
+  // last info stores the latest position of the "end" of this cluster
+  std::pair<int, int> last_info;
+  if (clust.empty()) {
+    last_info = {-1, -1};
+  } else if (ismate) {
+    last_info = {clust.back()->MateChrID(), clust.back()->MatePosition()};
+  } else {
+    last_info = {clust.back()->ChrID(), clust.back()->Position()};
+  }
+
+  // what is the position of the input read
+  std::pair<int, int> this_info;
+  if (ismate)
+    this_info = {a->MateChrID(), a->MatePosition()};
+  else
+    this_info = {a->ChrID(), a->Position()};
+
+  // check if the cluster is getting too wide
+  bool too_wide = !__valid_cluster(clust, ismate);
+
+  // if cluster not too wide, and read is on the same chromosome
+  // and the difference in position is less than the discordant "coupling"
+  // parameter, then add it to this cluster
+  if (!too_wide && this_info.first == last_info.first &&
+      (this_info.second - last_info.second) <= DISC_PAD) {
+
+    clust.push_back(a);
+    return true;
+
+  // if not, then we're done with the cluster. The key is that the
+  // input reads are position sorted, so that if this didn't make it, then
+  // the rest won't, and we whould start the next cluster with the given read
+  } else {
+    if (clust.size() >= MIN_PER_CLUST)
+      cvec.push_back(clust);
+    
+    clust.clear();
+    clust.push_back(a);
     return false;
   }
-  
-  /**
-   * Cluster reads by alignment position 
-   * 
-   * Checks whether a read belongs to a cluster. If so, adds it. If not, ends
-   * and stores cluster, adds a new one.
-   *
-   * @param cvec Stores the vector of clusters, which themselves are vectors of read pointers
-   * @param clust The current cluster that is being added to
-   * @param a Read to add to cluster
-   * @param mate Flag to specify if we should cluster on mate position instead of read position
-   * @return Description of the return value
-   */
+}
+
+/*
   bool DiscordantCluster::__add_read_to_cluster(svabaReadClusterVector &cvec,
-						svabaReadVector &clust,
-						const svabaRead &a,
-						bool mate) {
-
-    // get the position of the previous read. If none, we're starting a new one so make a dummy
-    std::pair<int,int> last_info;
-    if (clust.size() == 0)
-      last_info = {-1, -1};
-    else if (mate)
-      last_info = {clust.back().MateChrID(), clust.back().MatePosition()};
-    else
-      last_info = {clust.back().ChrID(), clust.back().Position()};
-    
-    // get the position of the current read
-    std::pair<int,int> this_info;
-    if (mate)
-      this_info = {a.MateChrID(), a.MatePosition()};
-    else 
-      this_info = {a.ChrID(), a.Position()};
-
-    // is this cluster too big? happens if too many discordant reads. Enforce a hard cutoff
-    bool too_big;
-    if (mate)
-      too_big = (clust.size() > 1 && (clust.back().MatePosition() - clust[0].MatePosition()) > 3000);
-    else
-      too_big = (clust.size() > 1 && (clust.back().Position() - clust[0].Position()) > 3000);      
-    
-    // note to self. this rarely gets hit?
-    //if (too_big) 
-    //  std::cerr << "Cluster too big at " << clust[0].Brief() << " to " << clust.back().Brief() << ". Breaking off after 3000bp" << std::endl;
-
-    // check if this read is close enough to the last
-    if (!too_big &&  (this_info.first == last_info.first) && (this_info.second - last_info.second) <= DISC_PAD) {
-
-      // read belongs in current cluster, so add
-      clust.push_back(a);
-      last_info = this_info;
-      return true;
-      
-    // read does not belong to cluster. close this cluster and add to cvec
-    } else {
-      
-      // if enough supporting reads, add as a cluster
-      if (clust.size() >= MIN_PER_CLUST) {
-	cvec.push_back(clust);
-      }
-      
-      // clear this cluster and start a new one
-      clust.clear();
-      clust.push_back(a);
-      
-      return false;
+  svabaReadVector &clust,
+  const svabaRead &a,
+  bool mate) {
+  
+  // get the position of the previous read. If none, we're starting a new one so make a dummy
+  std::pair<int,int> last_info;
+  if (clust.size() == 0)
+  last_info = {-1, -1};
+  else if (mate)
+  last_info = {clust.back().MateChrID(), clust.back().MatePosition()};
+  else
+  last_info = {clust.back().ChrID(), clust.back().Position()};
+  
+  // get the position of the current read
+  std::pair<int,int> this_info;
+  if (mate)
+  this_info = {a.MateChrID(), a.MatePosition()};
+  else 
+  this_info = {a.ChrID(), a.Position()};
+  
+  // is this cluster too big? happens if too many discordant reads. Enforce a hard cutoff
+  bool too_big;
+  if (mate)
+  too_big = (clust.size() > 1 && (clust.back().MatePosition() - clust[0].MatePosition()) > 3000);
+  else
+  too_big = (clust.size() > 1 && (clust.back().Position() - clust[0].Position()) > 3000);      
+  
+  // note to self. this rarely gets hit?
+  //if (too_big) 
+  //  std::cerr << "Cluster too big at " << clust[0].Brief() << " to " << clust.back().Brief() << ". Breaking off after 3000bp" << std::endl;
+  
+  // check if this read is close enough to the last
+  if (!too_big &&  (this_info.first == last_info.first) && (this_info.second - last_info.second) <= DISC_PAD) {
+  
+  // read belongs in current cluster, so add
+  clust.push_back(a);
+  last_info = this_info;
+  return true;
+  
+  // read does not belong to cluster. close this cluster and add to cvec
+  } else {
+  
+  // if enough supporting reads, add as a cluster
+  if (clust.size() >= MIN_PER_CLUST) {
+  cvec.push_back(clust);
     }
+    
+    // clear this cluster and start a new one
+    clust.clear();
+    clust.push_back(a);
+    
+    return false;
   }
+}
 
-  void DiscordantCluster::__cluster_mate_reads(svabaReadClusterVector& brcv, svabaReadClusterVector& fwd, svabaReadClusterVector& rev)
-  {
+
+void DiscordantCluster::__cluster_mate_reads(svabaReadClusterVector& brcv, svabaReadClusterVector& fwd, svabaReadClusterVector& rev)
+{
     // loop through the clusters, and cluster within clusters based on mate read
     for (auto& v : brcv) 
       {
@@ -541,87 +545,183 @@ std::string DiscordantCluster::print(const SeqLib::BamHeader& h) const {
 	  rev.push_back(this_rev);
       } // finish main cluster loop
   }
-  
-  void DiscordantCluster::__cluster_reads(const svabaReadVector& brv,
-					  svabaReadClusterVector& fwd,
-					  svabaReadClusterVector& rev,
-					  int orientation) 
-  {
+void DiscordantCluster::__cluster_mate_reads(std::vector<std::vector<const svabaRead*>>& brcv,
+                                             std::vector<std::vector<const svabaRead*>>& fwd,
+                                             std::vector<std::vector<const svabaRead*>>& rev)
+{
+  for (auto& cluster : brcv) {
+    std::vector<const svabaRead*> this_fwd, this_rev;
 
-    // hold the current cluster
-    svabaReadVector this_fwd, this_rev;
+    std::sort(cluster.begin(), cluster.end(),
+              [](const svabaRead* a, const svabaRead* b) {
+                return (a->b.MateChrID() < b->b.MateChrID()) ||
+                       (a->b.MateChrID() == b->b.MateChrID() &&
+                        a->b.MatePosition() < b->b.MatePosition());
+              });
 
-    std::unordered_set<std::string> tmp_set;
+    for (const svabaRead* r : cluster) {
+      if (r->dd <= 0)
+        continue;
 
-    // cluster in the READ direction, separately for fwd and rev
-    for (auto& i : brv) {
+      if (!r->MateReverseFlag())
+        __add_read_to_cluster(fwd, this_fwd, r, true);
+      else
+        __add_read_to_cluster(rev, this_rev, r, true);
+    }
 
-      // not a discordant read, ignore it
-      if (i.dd <= 0)
-	continue;
-      
-      // only cluster FR reads together, RF reads together, FF together and RR together
-      if (i.PairOrientation() != orientation) {
-	continue;
-      }
+    if (!this_fwd.empty())
+      fwd.push_back(this_fwd);
+    if (!this_rev.empty())
+      rev.push_back(this_rev);
+  }
+}
+*/
+void DiscordantCluster::__cluster_mate_reads(svabaReadClusterVector& brcv,
+                                             svabaReadClusterVector& fwd,
+                                             svabaReadClusterVector& rev)
+{
+  // loop the nascent "clustesr" which are just clustered based on
+  // left read, not on the right (mate) read yet
+  for (auto& cluster : brcv) {
+    
+    svabaReadPtrVector this_fwd, this_rev;
 
-      std::string qq = i.Qname();
+    // sort the reads in the 
+    std::sort(cluster.begin(), cluster.end(),
+	      [](const svabaReadPtr& a, const svabaReadPtr& b) {
+		return (a->MateChrID() < b->MateChrID()) ||
+		  (a->MateChrID() == b->MateChrID() &&
+		   a->MatePosition() < b->MatePosition());
+	      });
 
-      // only cluster if not seen before (e.g. left-most is READ, right most is MATE)
-      if (i.PairMappedFlag() && tmp_set.count(qq) == 0) {
+    // loop the reads in the nascent cluster
+    for (svabaReadPtr& r : cluster) {
 
-	tmp_set.insert(qq);
+      assert(r->dd > 0);
 
-	// forward clustering
-	if (!i.ReverseFlag()) 
-	  __add_read_to_cluster(fwd, this_fwd, i, false);
-	// reverse clustering 
-	else 
-	  __add_read_to_cluster(rev, this_rev, i, false);
-      }
+      // see __cluster_reads for logic. Exactly the same, just now for mates
+      if (!r->MateReverseFlag())
+        __add_read_to_cluster(fwd, this_fwd, r, true);
+      else
+        __add_read_to_cluster(rev, this_rev, r, true);
     }
 
     // finish the last clusters
-    if (this_fwd.size() > 0) 
+    if (__valid_cluster(this_fwd, true) & this_fwd.size() >= MIN_PER_CLUST)
       fwd.push_back(this_fwd);
-    if (this_rev.size() > 0)
+    if (__valid_cluster(this_rev, true) & this_rev.size() >= MIN_PER_CLUST)
       rev.push_back(this_rev);
-
   }
+}
+
+void DiscordantCluster::__cluster_reads(svabaReadPtrVector& brv,
+					svabaReadClusterVector& fwd,
+					svabaReadClusterVector& rev,
+					int orientation) 
+{
+  
+  // hold the current cluster
+  svabaReadPtrVector this_fwd, this_rev;
+  
+  std::unordered_set<std::string> tmp_set;
+
+  int pair_orientation = 0;
+  if (brv.size())
+    pair_orientation = brv.front()->PairOrientation();
+  
+  // cluster in the READ direction, separately for fwd and rev
+  for (svabaReadPtr& i : brv) {
+
+    // don't want to deal with secondary alignments (multiple mappings, but not split)
+    if (i->SecondaryFlag())
+      continue;
+    
+    assert(pair_orientation == i->PairOrientation());
+
+    // not a discordant read, ignore it
+    if (i->dd <= 0)
+      continue;
+    
+    // only cluster FR reads together, RF reads together, FF together and RR together
+    if (i->PairOrientation() != orientation) {
+      continue;
+    }
+      
+    std::string qq = i->Qname();
+    
+    // only cluster if not seen before (e.g. left-most is READ, right most is MATE)
+    if (i->PairMappedFlag() && tmp_set.count(qq) == 0) {
+      
+      tmp_set.insert(qq);
+      
+      // forward clustering -- this_fwd is just the most current cluster and
+      // fwd (or rev) is the collection of clusters that grows here
+      if (!i->ReverseFlag()) 
+	__add_read_to_cluster(fwd, this_fwd, i, false);
+      // reverse clustering 
+      else 
+	__add_read_to_cluster(rev, this_rev, i, false);
+    }
+  }
+  
+  // finish the last clusters
+  if (__valid_cluster(this_fwd, false) && this_fwd.size() >= MIN_PER_CLUST)
+    fwd.push_back(this_fwd);
+  if (__valid_cluster(this_rev, false) && this_rev.size() >= MIN_PER_CLUST)
+    rev.push_back(this_rev);
+  
+}
+
+bool DiscordantCluster::__valid_cluster(svabaReadPtrVector& clust, bool ismate) {
+
+  if (clust.size() < 2)
+    return true;
+  
+  // check if getting too wide
+  bool too_wide;
+  if (ismate)
+    too_wide = (clust.size() > 1 && (clust.back()->Position() - clust[0]->Position()) > 3000);
+  else
+    too_wide = (clust.size() > 1 && (clust.back()->Position() - clust[0]->Position()) > 3000); 
+
+  return !too_wide;
+}
 
 void DiscordantCluster::__convertToDiscordantCluster(DiscordantClusterMap &dd,
 						     const svabaReadClusterVector& cvec,
-						     const svabaReadVector& bav,
-						     int max_mapq_possible) {
+						     const svabaReadPtrVector& bav,
+						     const SeqLib::BamHeader& header) {
   
+  // nothign to do if no clusters
+  if (cvec.size() == 0)
+    return; 
+
+  // always have to be more input reads than clusters
+  assert(bav.size() > cvec.size());
+  
+  // no reads, nothign to do
+  if (!bav.size())
+    return;
+
+  // loop through the clusters
   for (auto& v : cvec) {
-    if (v.size() > 1) { // no clusters with just one read
-      DiscordantCluster d(v, bav, max_mapq_possible); /// slow but works (erm, not really slow)
-      dd[d.m_id] = d;
-    }
+    assert(v.size() >= MIN_PER_CLUSTER);
+    DiscordantCluster d(v, bav, header);
+    dd[d.m_id] = d;
   }
 }
 
 GenomicRegion DiscordantCluster::GetMateRegionOfOverlap(const GenomicRegion& gr) const {
   
-    if (gr.GetOverlap(m_reg1))
-      return m_reg2;
-    if (gr.GetOverlap(m_reg2))
-      return m_reg1;
-    return GenomicRegion();
+  if (gr.GetOverlap(m_reg1))
+    return m_reg2;
+  if (gr.GetOverlap(m_reg2))
+    return m_reg1;
+  return GenomicRegion();
+  
+}
 
-  }
-
-  bool DiscordantCluster::isEmpty() const {
-    return m_reg1.IsEmpty() || m_reg2.IsEmpty() || m_reg1.chr == -1 || m_reg2.chr == -1;
-  }
-
-  void DiscordantCluster::__remove_singletons(svabaReadClusterVector& b)  {
-
-    // remove cluster with only one read
-    b.erase(
-	    std::remove_if(b.begin(), b.end(),
-			   [](const auto& subvec) { return subvec.size() <= 1; }),
-	    b.end());
-  }
-
+bool DiscordantCluster::isEmpty() const {
+   return m_reg1.IsEmpty() || m_reg2.IsEmpty() || m_reg1.chr == -1 || m_reg2.chr == -1;
+ }
+ 

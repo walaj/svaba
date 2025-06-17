@@ -19,9 +19,9 @@ class svabaAssemblerEngine
   
   bool hasRepeat(const std::string& seq);
   
-  void fillReadTable(svabaReadVector& r);
+  void fillReadTable(const svabaReadPtrVector& reads);
   
-  void fillReadTable(const std::vector<std::string>& r);
+  //void fillReadTable(const std::vector<std::string>& r);
   
   bool performAssembly(int num_assembly_rounds);
   
@@ -52,6 +52,8 @@ class svabaAssemblerEngine
   double m_error_rate;
   size_t m_min_overlap;
   size_t m_readlen;
+
+  size_t count = 0; // num sequencecs added
   
   size_t numBubbleRounds = 3;
   float divergence = 0.00; //0.05

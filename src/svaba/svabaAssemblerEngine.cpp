@@ -27,7 +27,7 @@ static std::string POLYCG = "CGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCG";
 static std::string POLYTG = "TGTGTGTGTGTGTGTGTGTGTGTGTGTGTGTGTGTGTGTG";
 static std::string POLYCA = "CACACACACACACACACACACACACACACACACACACACA";
 
-void svabaAssemblerEngine::fillReadTable(const std::vector<std::string>& r) {
+/*void svabaAssemblerEngine::fillReadTable(const std::vector<std::string>& r) {
 
   int count = 0;
   for (auto& i : r) {
@@ -46,17 +46,15 @@ void svabaAssemblerEngine::fillReadTable(const std::vector<std::string>& r) {
   }
   
 }
-
-void svabaAssemblerEngine::fillReadTable(svabaReadVector& r) {
-  
-  size_t count = 0;
+*/
+void svabaAssemblerEngine::fillReadTable(const svabaReadPtrVector& reads) {
   
   // make the reads tables
-  for (auto& i : r) {
+  for (const auto& i : reads) {
     
     // get the sequence and unique ID
     std::string sr = std::to_string(++count);
-    std::string seq = i.CorrectedSeq();
+    std::string seq = i->CorrectedSeq();
     assert(sr.length());
     assert(seq.length());
 
@@ -64,14 +62,14 @@ void svabaAssemblerEngine::fillReadTable(svabaReadVector& r) {
       continue;
 
     // put onto the foward strand if not
-    if (!i.MappedFlag() && !i.MateReverseFlag())
+    if (!i->MappedFlag() && !i->MateReverseFlag())
       SeqLib::rcomplement(seq);
 
     SeqItem si;
     si.id = sr;
     si.seq = seq;
     m_pRT.addRead(si);
-
+    
   }
   
 }
@@ -120,7 +118,6 @@ bool svabaAssemblerEngine::performAssembly(int num_assembly_rounds)
   
   for (int yy = 1; yy != num_assembly_rounds; yy++) {
 
-    assert(false); // DEBUG
     if (m_contigs.size() < 2) 
       continue; // break because too few contigs to assemle
     

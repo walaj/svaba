@@ -9,7 +9,12 @@
 #include "svabaRead.h"
 #include "SvabaSharedConfig.h"
 
-typedef std::vector<svabaReadVector> svabaReadClusterVector;
+class DiscordantCluster;
+
+typedef std::unordered_map<std::string, svabaReadPtr> DiscordantReadMap;
+typedef std::vector<svabaReadPtrVector> svabaReadClusterVector;
+typedef std::vector<DiscordantCluster> DiscordantClusterVector;
+typedef std::unordered_map<std::string, DiscordantCluster> DiscordantClusterMap;
 
 /** Class to hold clusters of discordant reads */
 class DiscordantCluster 
@@ -33,9 +38,9 @@ public:
    * @param this_reads Pre-clustered set of discordant reads (but not their mates)
    * @param all_reads A pile of reads to search for mates
    */
-  DiscordantCluster(const svabaReadVector& this_reads,
-		    const svabaReadVector& all_reads,
-		    int max_mapq_possible);
+  DiscordantCluster(const svabaReadPtrVector& this_reads,
+		    const svabaReadPtrVector& all_reads,		    
+		    const SeqLib::BamHeader& header);
   
   /** Is this discordant cluster empty? */
   bool isEmpty() const;
@@ -47,7 +52,7 @@ public:
   
   bool hasAssociatedAssemblyContig() const { return m_contig.length(); }
   
-  void addMateReads(const svabaReadVector& bav);
+  void addMateReads(const svabaReadPtrVector& bav); 
   
   /** Return the discordant cluster as a string with just coordinates */
   std::string toRegionString(const SeqLib::BamHeader& h) const;
@@ -70,20 +75,31 @@ public:
   /** Is this a valid cluster? */
   bool valid() const;
   
-  static void __remove_singletons(svabaReadClusterVector& b);
-  
   static std::unordered_map<std::string, DiscordantCluster>
-  clusterReads(svabaReadVector& bav,
+  clusterReads(svabaReadPtrVector& bav,
 	       const SeqLib::GenomicRegion& interval,
-	       int max_mapq_possible); 
+	       const SeqLib::BamHeader& header);
+
+  void labelReads();
   
-  static bool __add_read_to_cluster(svabaReadClusterVector &cvec, svabaReadVector &clust, const svabaRead &a, bool mate);
+  static bool __add_read_to_cluster(svabaReadClusterVector &cvec,
+				    svabaReadPtrVector &clust,
+				    svabaReadPtr&, bool ismate);
   
-  static void __cluster_reads(const svabaReadVector& brv, svabaReadClusterVector& fwd, svabaReadClusterVector& rev, int orientation);
+  static void __cluster_reads(svabaReadPtrVector& brv,
+			      svabaReadClusterVector& fwd,
+			      svabaReadClusterVector& rev, int orientation);
   
-  static void __cluster_mate_reads(svabaReadClusterVector& brcv, svabaReadClusterVector& fwd, svabaReadClusterVector& rev);
+  static void __cluster_mate_reads(svabaReadClusterVector& brcv,
+				   svabaReadClusterVector& fwd,
+				   svabaReadClusterVector& rev);
   
-  static void __convertToDiscordantCluster(std::unordered_map<std::string, DiscordantCluster> &dd, const svabaReadClusterVector& cvec, const svabaReadVector& bav, int max_mapq_possible);
+  static void __convertToDiscordantCluster(DiscordantClusterMap& dd,
+					   const svabaReadClusterVector& cvec,
+					   const svabaReadPtrVector& bav,
+					   const SeqLib::BamHeader& header);
+
+  static bool __valid_cluster(svabaReadPtrVector& clust, bool ismate);
   
   /** Query an interval against the two regions of the cluster. If the region overlaps
    * with one region, return the other region. This is useful for finding the partner 
@@ -93,15 +109,9 @@ public:
   int tcount = 0;
   int ncount = 0; 
   
-  int tcount_hq = 0;
-  int ncount_hq = 0;
-  
-  int max_possible_mapq = 0;
-  
   std::unordered_map<std::string, int> counts; // supporting read counts per sample (e.g. t001 - 4, n001 - 6)
-  
-  std::unordered_map<std::string, svabaRead> reads;
-  std::unordered_map<std::string, svabaRead> mates;
+
+  DiscordantReadMap reads, mates;
   
   std::string m_contig = "";
   
@@ -122,7 +132,7 @@ private:
   std::string m_id;
   
   // return the mean mapping quality for this cluster
-  double __getMeanMapq(bool mate = false) const;
+  double __getMeanMapq(const DiscordantReadMap& m) const;
 };
 
 //! vector of AlignmentFragment objects

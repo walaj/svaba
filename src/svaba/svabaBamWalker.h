@@ -4,6 +4,7 @@
 #include <sstream>
 #include <unordered_map>
 #include <unordered_set>
+#include "malloc.h" //debug
 
 #include "SeqLib/BamReader.h"
 #include "SeqLib/ReadFilter.h"
@@ -13,6 +14,7 @@
 
 #include "SeqLib/BFC.h"
 
+class svabaThreadUnit;
 class SvabaSharedConfig;
 
 // storage container for mate lookup-regions
@@ -35,7 +37,7 @@ class svabaBamWalker: public SeqLib::BamReader {
   svabaBamWalker(SvabaSharedConfig& sc_);
 
   // read in the reads
-  SeqLib::GRC readBam(); 
+  SeqLib::GRC readBam(svabaThreadUnit& unit); 
 
   // clear it out
   void clear() { 
@@ -50,7 +52,8 @@ class svabaBamWalker: public SeqLib::BamReader {
     
     get_coverage = true;
     get_mate_regions = true;
-    //seq_set.clear();
+
+    malloc_trim(0);//debug
   }
 
   void AddBackReadsToCorrect();
@@ -65,25 +68,25 @@ class svabaBamWalker: public SeqLib::BamReader {
   // set the id for this bam e.g. t001
   void SetPrefix(std::string_view pref) { prefix_ = pref; }
   
-  void realignDiscordants(svabaReadVector& reads);
+  void RealignDiscordants(svabaThreadUnit& unit);
   
   ///bool hasAdapter(const SeqLib::BamRecord& r) const;
   
-  void addCigar(SeqLib::BamRecord &r);
+  void addCigar(const svabaReadPtr& r);
   
-  bool isDuplicate(const SeqLib::BamRecord &r);
+  //bool isDuplicate(const SeqLib::BamRecord &r);
   
   void subSampleToWeirdCoverage(double max_coverage);
   
   void calculateMateRegions();
 
-  void TagDiscordantReads();
+  void TagDiscordant(svabaReadPtr& r);
   
   // should we store the mate regions?
   bool get_mate_regions = true;
 
   // place to store reads when we get them
-  svabaReadVector reads; //c
+  svabaReadPtrVector reads; //c
 
   // cov is the all-read coverage tracker
   // weird-cov just tracks coverage of accepted (clip, disc, etc reads)
@@ -132,5 +135,9 @@ class svabaBamWalker: public SeqLib::BamReader {
 
   // for logging to console, options etc
   SvabaSharedConfig& sc;
+
+  // cache RG cutoffs so don't have to recalculate
+  std::unordered_map<std::string, int> isize_cutoff_per_rg;
+  
   
 };

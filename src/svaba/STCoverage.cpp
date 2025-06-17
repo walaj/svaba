@@ -41,7 +41,6 @@ void STCoverage::addRead(const BamRecord &r, int buff) { //, bool full_length) {
     
     assert(e - p < 1e6); // limit on read length
     assert(r.ChrID() >= 0);
-    assert(r.ChrID() < (int)m_map.size());
     
     try {
       while (p <= e) {

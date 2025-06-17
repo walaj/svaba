@@ -59,30 +59,16 @@ public:
     for(size_t i=0;i<sc.opts.numThreads;++i){
 
       workers_.emplace_back(
-			    [=, &flushMutex = this->flushMutex_, &sc_ref = sc_]() mutable {
+			    [i, this, &flushMutex = this->flushMutex_, &sc = sc_]() mutable {
+			      //[=, &flushMutex = this->flushMutex_, &sc_ref = sc_]() mutable {
 			      // per-thread setup - each thread gets its own FASTA read and BAM readers
 			      // these should not be shared across threads, even if using const functions only
+
+			      // this also opens the BAMs too in the svabaThreadUnit constructor
 			      svabaThreadUnit unit(sc); // give it the shared_ptr to the master index
 			      unit.threadId = i + 1;
 			      unit.total_count = sc.total_regions_to_process;
-			      
-			      // open the BAM files
-			      for(const auto& [pref, path] : sc.opts.bams) { 
-				unit.walkers.emplace( // construct the svabaBamWalkers
-						      std::piecewise_construct,
-						      std::forward_as_tuple(pref),
-						      std::forward_as_tuple(sc_ref)
-						      );
-			      }
-			      
-			      // Open bams
-			      for (auto const& [pref, path] : sc_ref.opts.bams) {
-				auto& walker = unit.walkers.at(pref);
-				walker.Open(path);
-				walker.SetPrefix(pref);
-				walker.m_limit = sc.opts.weird_read_limit;
-			      }
-			      
+			      			      
 			      // consume jobs
 			      while(auto job = queue_.pop()){
 				(*job)(unit, std::hash<std::thread::id>{}(std::this_thread::get_id()));

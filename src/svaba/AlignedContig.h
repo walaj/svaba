@@ -4,6 +4,7 @@
 
 #include "SeqLib/BWAAligner.h"
 #include "SeqLib/BamReader.h"
+#include "SeqLib/BamRecord.h"
 #include "SeqLib/BamWriter.h"
 
 #include "BreakPoint.h"
@@ -21,11 +22,12 @@ class AlignedContig {
   
  public:  
   
-  // create empty AlignedContig with no associated contig
-  AlignedContig() {}
+  AlignedContig() = delete; // prevent default construction
   
   // make an AlignedContig from a set of contig alignments
-  AlignedContig(const SeqLib::BamRecordVector& bav, const std::set<std::string>& pref);
+  AlignedContig(BamRecordPtrVector& bav,
+		const std::set<std::string>& pref,
+		SvabaSharedConfig& sc_);
   
   // Return as a genomic region vector
   SeqLib::GenomicRegionVector getAsGenomicRegionVector() const;
@@ -102,8 +104,8 @@ class AlignedContig {
   std::pair<int, int> getCoverageAtPosition(int pos) const;
 
   // add a new read aligned to this contig
-  //void AddAlignedRead(const SeqLib::BamRecord& br);
-  void AddAlignedRead(const svabaRead& br);
+  // this is a svabaRead (read to genome), but with an r2c in it
+  void AddAlignedRead(svabaReadPtr& br);
 
   // return number of bam reads
   size_t NumBamReads() const { return m_bamreads.size(); }
@@ -114,10 +116,12 @@ class AlignedContig {
 
   int deletion_against_contig_read_count = 0;
 
-  //SeqLib::BamRecordVector m_bamreads; // store all of the reads aligned to contig
-  svabaReadVector m_bamreads; // store all of the reads aligned to contig
+  // store all of the reads aligned to contig
+  // these are the same alignments as the BAM, but have an r2c as well
+  svabaReadPtrVector m_bamreads; 
 
-  std::vector<int> aligned_coverage; //coverage of each base in contig, whether it has alignment 
+  //coverage of each base in contig, whether it has alignment 
+  std::vector<int> aligned_coverage; 
 
   int aligned_covered = 0; // number of bases that are covered by an alignment
 
@@ -139,6 +143,8 @@ class AlignedContig {
   
   std::vector<DiscordantCluster> m_dc; // collection of all discordant clusters that map to same location as this contig
 
+  SvabaSharedConfig* sc;
+  
 };
 
 typedef std::unordered_map<std::string, AlignedContig> ContigMap;

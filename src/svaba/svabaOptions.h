@@ -28,12 +28,12 @@ inline constexpr int    COVERAGE_AVG_BUFF           = 10;
 
 // from DiscordantCluster
 inline constexpr int DISC_PAD                 = 150;
-inline constexpr int MIN_PER_CLUST            = 2;
+inline constexpr int MIN_PER_CLUST            = 3;
 inline constexpr int DEFAULT_ISIZE_THRESHOLD  = 2000;
 
 // from run_svaba
-inline constexpr std::size_t THREAD_READ_LIMIT      = 100'000; 
-inline constexpr int         THREAD_CONTIG_LIMIT    =   50'000;
+inline constexpr std::size_t THREAD_READ_LIMIT      = 20'000; 
+inline constexpr int         THREAD_CONTIG_LIMIT    =   5'000;
 
 // from svabaAssemblerEngine
 inline constexpr std::size_t MAX_OVERLAPS_PER_ASSEMBLY = 20'000;
@@ -41,7 +41,6 @@ inline constexpr int         MIN_CONTIG_MATCH           =    35;
 inline constexpr int         MATE_LOOKUP_MIN            =     3;
 inline constexpr int         SECONDARY_CAP              =    10;
 inline constexpr int         MAX_MATE_ROUNDS            =     1;
-inline constexpr std::size_t MATE_REGION_LOOKUP_LIMIT  =   400;
 inline constexpr std::size_t MAX_NUM_MATE_WINDOWS      = 50'000'000;
 inline constexpr int         GERMLINE_CNV_PAD           =    10;
 inline constexpr int         GET_MATES                  =     1;
@@ -76,11 +75,11 @@ class SvabaOptions {
   std::string analysisId;
   bool hp            = false;
   int perRgLearnLimit = 1'000;
-  size_t weird_read_limit = 50'000;
+  size_t weird_read_limit = 15'000;
+  size_t mate_region_lookup_limit = 5'000;
 
   // dumping
   bool dump_weird_reads      = true;
-  bool dump_discordant_reads = true;
   bool dump_corrected_reads  = true;
   
     // inputs

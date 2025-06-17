@@ -32,8 +32,8 @@ while kill -0 "$PID" 2>/dev/null; do
 #  RSS=$(ps -o rss= -p "$PID" | awk '{print $1}')
   #echo "$ELAPSED $RSS" >> "$OUT_LOG"
 
-  # every 60s replot
-  if (( ELAPSED - (LAST_PLOT - START) >= 60 )); then
+  # every 30s replot
+  if (( ELAPSED - (LAST_PLOT - START) >= 30 )); then
     LAST_PLOT=$NOW
     Rscript --vanilla - <<EOF
 library(ggplot2)
@@ -63,7 +63,7 @@ Rscript --vanilla - <<EOF
 library(ggplot2)
 df <- read.table("$OUT_LOG", col.names = c("time","mem"))
 p <- ggplot(df, aes(x=time, y=mem/1024/1024)) +
-     geom_line() +3
+     geom_line() +
      labs(x="Seconds since start", y="RSS (GB)",
           title="Memory Profile of '$*'") +
      theme_minimal()

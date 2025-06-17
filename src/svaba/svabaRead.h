@@ -6,6 +6,9 @@
 #include <string_view>
 #include <unordered_map>
 
+using SeqLib::BamRecordPtr;
+using SeqLib::BamRecordPtrVector;
+
 /** Store information about a read to contig alignment */
 struct r2c {
   
@@ -20,17 +23,21 @@ struct r2c {
   int left_or_right = 0; //-1 read aligns on left of contig, 1 on right
   bool supports_discordant = false; // true if this is part of a discordant pair that supports the break
   
-  void AddAlignment (const SeqLib::BamRecord& b) {
-    start_on_contig = b.Position();
-    end_on_contig = b.PositionEnd();
-    start_on_read = b.AlignmentPosition();
-    cig = b.GetCigar();
+  void AddAlignment (const BamRecordPtr& b) {
+    start_on_contig = b->Position();
+    end_on_contig = b->PositionEnd();
+    start_on_read = b->AlignmentPosition();
+    cig = b->GetCigar();
   }
   
   friend std::ostream& operator<<(std::ostream& out, const r2c& a);
 };
 
 typedef std::unordered_map<std::string, r2c> R2CMap;
+
+class svabaRead;
+typedef std::shared_ptr<svabaRead> svabaReadPtr;
+typedef std::vector<svabaReadPtr> svabaReadPtrVector;
 
 class svabaRead : public SeqLib::BamRecord {
 
@@ -41,10 +48,22 @@ class svabaRead : public SeqLib::BamRecord {
   svabaRead(const SeqLib::BamRecord& r,
 	    std::string_view prefix);
 
+  // Delete the copy constructor                                                                                                                                                      
+  svabaRead(const svabaRead&) = delete;                                                                                                                                               
+                                                                                                                                                                                      
+  // Optionally also delete copy assignment                                                                                                                                           
+  svabaRead& operator=(const svabaRead&) = delete;                                                                                                                                    
+                                                                                                                                                                                      
+  // Still allow move operations:                                                                                                                                                     
+  svabaRead(svabaRead&&) = default;                                                                                                                                                   
+  svabaRead& operator=(svabaRead&&) = default;  
+  
   std::string CorrectedSeq() const;  
 
   std::string Prefix() const;
 
+  void SetPrefix(const std::string_view pref) { p = pref; }
+  
   void SetCorrectedSeq(const std::string_view nseq);  
   
   std::string UniqueName() const;
@@ -65,11 +84,15 @@ class svabaRead : public SeqLib::BamRecord {
   void QualityTrimRead();
 
   int CorrectedSeqLength() const;
-  
-  int dd = 0; // discordant read status 0 
+
+  // discordant read status
+  // < 0 is bad discordant read (see DiscordantRealigner.h)
+  // == 0 not discordant
+  // 1 = good
+  int dd = 0; 
 
   friend class svabaBamWalker;
-  
+
  private:
 
   std::string p; // prefix for file ID (e.g. t001)

@@ -17,10 +17,11 @@ class DiscordantRealigner {
 
   // check if a read should be realigned
   //bool ShouldRealign(const SeqLib::BamRecord& r) const;
-  bool ShouldRealign(const svabaRead& r) const;
+  bool ShouldRealign(const svabaReadPtr& r) const;
 
   // realign read
-  bool RealignRead(svabaRead& r, const SeqLib::BWAAligner& bwa) const;
+  bool RealignRead(svabaReadPtr& r,
+		   const std::shared_ptr<SeqLib::BWAAligner> bwa) const;
 
   // reassign a read if it has a better mapping
   // r is the read to be reassigned, s source alignment is the new alignment

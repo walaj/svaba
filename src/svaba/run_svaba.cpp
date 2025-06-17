@@ -197,6 +197,10 @@ void runsvaba(int argc, char** argv) {
   sc.bwa_idx = bwa_idx;
   sc.header = bwa_header;
   
+  // start the timer
+#ifndef __APPLE__
+  clock_gettime(CLOCK_MONOTONIC, &sc.start);
+#endif
   // check that the two headers are equivalant
   // open the main bam to get header info
   SeqLib::BamReader first_tumor_bam_reader;  
@@ -233,6 +237,12 @@ void runsvaba(int argc, char** argv) {
   if (sc.total_regions_to_process < opts.numThreads) {
     opts.numThreads = sc.total_regions_to_process;
   }
+
+  // debug
+  /*  regionsToRun.clear();
+  for (int i = 0; i < 10; i++)
+    regionsToRun.add(GenomicRegion(2,89000000,91500000));
+  */
   
   // --- learn the insert-sizes ---
   logger.log(true, true,"...learning insert size distribution across all BAMs; this may take a while");

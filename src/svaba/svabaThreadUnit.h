@@ -16,7 +16,10 @@
 #include "SvabaSharedConfig.h"
 #include "SeqLib/BWAAligner.h"
 
-using WalkerMap = std::map<std::string, svabaBamWalker>;
+using SeqLib::BamRecordPtrVector;
+
+class svabaBamWalker;
+using WalkerMap = std::map<std::string, std::shared_ptr<svabaBamWalker>>;
 
 class svabaThreadUnit {
   
@@ -26,6 +29,8 @@ public:
   ~svabaThreadUnit() = default;
   
   svabaThreadUnit(SvabaSharedConfig& sc_);
+
+  void flush();
   
   // local version of aligner class, but will hold shared memory index
   std::shared_ptr<SeqLib::BWAAligner> bwa_aligner; //(sc.bwa_idx);
@@ -36,7 +41,7 @@ public:
   
   // results
   std::vector<AlignedContig>                 master_alc;
-  SeqLib::BamRecordVector                    master_contigs;
+  BamRecordPtrVector                         master_contigs;
   BPVec                                      m_bps;
   DiscordantClusterMap                       m_disc;
   //size_t                                     m_bamreads_count = 0;
@@ -45,9 +50,9 @@ public:
   int                                        threadId;
 
   // very verbose outpout
-  svabaReadVector                            all_weird_reads;
-  svabaReadVector                            all_discordant_reads;
-  SeqLib::BamRecordVector                            all_corrected_reads;    
+  svabaReadPtrVector                            all_weird_reads;
+  svabaReadPtrVector                            all_discordant_reads;
+  BamRecordPtrVector                            all_corrected_reads;    
   
   // store the BAM .bai indicies for for this thread
   WalkerMap                            walkers;

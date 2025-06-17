@@ -2,7 +2,10 @@
 #include "PlottedRead.h"
 #include "svabaUtils.h"
 
-AlignedContig::AlignedContig(const SeqLib::BamRecordVector& bav, const std::set<std::string>& pref) {
+// bav is all of the alignments of the contig to the reference
+AlignedContig::AlignedContig(BamRecordPtrVector& bav,
+			     const std::set<std::string>& pref,
+			     SvabaSharedConfig& sc_) : sc(&sc_) {
   
   if (!bav.size())
     return;
@@ -11,19 +14,19 @@ AlignedContig::AlignedContig(const SeqLib::BamRecordVector& bav, const std::set<
   // make sure sequence dir is set to same as first alignment
   //size_t j = 0;
   //m_index_of_store_seq = 0;
-  for (auto& i : bav) {
-    if (i.Sequence().length() > m_seq.length()) {
-      if (i.ReverseFlag() == bav.begin()->ReverseFlag()) {
-	m_seq = i.Sequence();
+  for (const auto& i : bav) {
+    if (i->Sequence().length() > m_seq.length()) {
+      if (i->ReverseFlag() == bav.front()->ReverseFlag()) {
+	m_seq = i->Sequence();
       } else {
-	m_seq = i.Sequence();
+	m_seq = i->Sequence();
 	SeqLib::rcomplement(m_seq);
       }
     }
   }
   
   // set the sequence. Convention is store as it came off assembler for first alignment
-  if (bav.begin()->ReverseFlag()) 
+  if (bav.front()->ReverseFlag()) 
     SeqLib::rcomplement(m_seq);
   
   prefixes = pref;
@@ -33,26 +36,26 @@ AlignedContig::AlignedContig(const SeqLib::BamRecordVector& bav, const std::set<
   
   // find the number of primary alignments
   size_t num_align = 0;
-  for (auto& i : bav)
-    if (!i.SecondaryFlag())
-	++num_align;
+  for (const auto& i : bav)
+    if (!i->SecondaryFlag())
+      ++num_align;
   
   // make the individual alignments and add
   for (auto& i : bav) {
-    if (!i.SecondaryFlag()) {
-      bool flip = (m_seq != i.Sequence()); // if the seq was flipped, need to flip the AlignmentFragment
-      m_frag_v.push_back(AlignmentFragment(i, flip));
+    if (!i->SecondaryFlag()) {
+      bool flip = (m_seq != i->Sequence()); // if the seq was flipped, need to flip the AlignmentFragment
+      m_frag_v.push_back(AlignmentFragment(i, flip, sc));
       m_frag_v.back().num_align = num_align;
     } else {
-      bool flip = (m_seq != i.Sequence()); // if the seq was flipped, need to flip the AlignmentFragment
+      bool flip = (m_seq != i->Sequence()); // if the seq was flipped, need to flip the AlignmentFragment
       if (m_frag_v.size())
-	m_frag_v.back().secondaries.push_back(AlignmentFragment(i, flip));
+	m_frag_v.back().secondaries.push_back(AlignmentFragment(i, flip, sc));
     }      
     
     // set the aligned coverage
-    SeqLib::Cigar cig = i.GetCigar();
+    SeqLib::Cigar cig = i->GetCigar();
     size_t p = 0;
-    if (!i.SecondaryFlag())
+    if (!i->SecondaryFlag())
       for (auto& c : cig) {
 	for (size_t j = 0; j < c.Length(); ++j) {
 	  if (c.Type() == 'M' || c.Type() == 'I')  // consumes contig and not clip
@@ -122,12 +125,12 @@ void AlignedContig::filterIndelsAtMultiMapSites(size_t buff) {
     
   }
   
-  SeqLib::GenomicRegionVector AlignedContig::getAsGenomicRegionVector() const {
-    SeqLib::GenomicRegionVector g;
-    for (auto& i : m_frag_v)
-      g.push_back(i.m_align.AsGenomicRegion());
-    return g;
-  }
+SeqLib::GenomicRegionVector AlignedContig::getAsGenomicRegionVector() const {
+  SeqLib::GenomicRegionVector g;
+  for (auto& i : m_frag_v)
+    g.push_back(i.m_align->AsGenomicRegion());
+  return g;
+}
 
   void AlignedContig::printContigFasta(std::ofstream& os) const {
     os << ">" << getContigName() << std::endl;
@@ -224,13 +227,13 @@ std::string AlignedContig::print(const SeqLib::BamHeader& h) const {
     PlottedReadVector plot_vec;
     
     // print out the individual reads
-    for (auto& i : m_bamreads) {
+    for (const auto& i : m_bamreads) {
       
-      std::string seq = i.Sequence(); 
-      std::string sr = i.UniqueName();
+      std::string seq = i->Sequence(); 
+      std::string sr = i->UniqueName();
       
       // get the read to contig alignment information
-      r2c this_r2c = i.GetR2C(getContigName());
+      r2c this_r2c = i->GetR2C(getContigName());
       
       int pos = this_r2c.start_on_contig;
 
@@ -260,7 +263,7 @@ std::string AlignedContig::print(const SeqLib::BamHeader& h) const {
       
       std::stringstream rstream;
       assert(pos < MAX_CONTIG_SIZE && padlen < MAX_CONTIG_SIZE); // bug, need to check
-      rstream << sr << "--" << (i.ChrID()+1) << ":" << i.Position() << " r2c CIGAR: " << this_r2c.cig;
+      rstream << sr << "--" << (i->ChrID()+1) << ":" << i->Position() << " r2c CIGAR: " << this_r2c.cig;
       
       plot_vec.push_back({pos, seq, rstream.str()});
     }
@@ -315,8 +318,8 @@ std::string AlignedContig::print(const SeqLib::BamHeader& h) const {
     assert(bp.cname.length());
     
     int la = 0;
-    m_frag_v[0].m_align.GetIntTag("LA", la);
-    bp.has_local_alignment = la > 0; //m_frag_v[0].m_align.GetIntTag("LA"); // has local alignment?
+    m_frag_v[0].m_align->GetIntTag("LA", la);
+    bp.has_local_alignment = la > 0; //m_frag_v[0].m_align->GetIntTag("LA"); // has local alignment?
 
     // walk along the ordered contig list and make the breakpoint pairs  
     for (AlignmentFragmentVector::const_iterator it = m_frag_v.begin(); it != m_frag_v.end() - 1; it++) {
@@ -324,7 +327,9 @@ std::string AlignedContig::print(const SeqLib::BamHeader& h) const {
       AlignmentFragmentVector bwa_hits_1, bwa_hits_2;
       bwa_hits_1.push_back(*it);
       bwa_hits_2.push_back(*(it+1));
-      bwa_hits_1.insert(bwa_hits_1.end(), it->secondaries.begin(), it->secondaries.end());
+      bwa_hits_1.insert(bwa_hits_1.end(),
+			it->secondaries.begin(),
+			it->secondaries.end());
       bwa_hits_2.insert(bwa_hits_2.end(), (it+1)->secondaries.begin(), (it+1)->secondaries.end());
       
       // make all of the local breakpoints
@@ -340,7 +345,7 @@ std::string AlignedContig::print(const SeqLib::BamHeader& h) const {
 	  // order the breakpoint
 	  bp.order();
 
-	  bp.secondary = a.m_align.SecondaryFlag() || b.m_align.SecondaryFlag();
+	  bp.secondary = a.m_align->SecondaryFlag() || b.m_align->SecondaryFlag();
 
 	  // add the the vector of breakpoints
 	  if (!bp.secondary) {
@@ -373,7 +378,7 @@ std::string AlignedContig::print(const SeqLib::BamHeader& h) const {
 
     // loop and find contigs with strong support
     for (size_t i = 0; i < m_frag_v.size(); i++)
-      if (m_frag_v[i].m_align.MapQuality() >= 50) {
+      if (m_frag_v[i].m_align->MapQuality() >= 50) {
 	bend = i;
 	if (bstart == MAX_CONTIG_SIZE)
 	  bstart = i;
@@ -565,14 +570,14 @@ void AlignedContig::checkAgainstCigarMatches(const std::unordered_map<std::strin
 std::string AlignedContig::getContigName() const { 
     if (!m_frag_v.size()) 
       return "";  
-    return m_frag_v[0].m_align.Qname(); 
+    return m_frag_v[0].m_align->Qname(); 
   }
 
 int AlignedContig::getMaxMapq() const { 
   int m = -1;
   for (auto& i : m_frag_v)
-    if (i.m_align.MapQuality() > m)
-      m = i.m_align.MapQuality();
+    if (i.m_align->MapQuality() > m)
+      m = i.m_align->MapQuality();
   return m;
   
 }
@@ -580,8 +585,8 @@ int AlignedContig::getMaxMapq() const {
 int AlignedContig::getMinMapq() const {
   int m = 1000;
   for (auto& i : m_frag_v)
-    if (i.m_align.MapQuality() < m)
-      m = i.m_align.MapQuality();
+    if (i.m_align->MapQuality() < m)
+      m = i.m_align->MapQuality();
   return m;
 }
 
@@ -593,8 +598,8 @@ bool AlignedContig::hasLocal() const {
 }
 
 void AlignedContig::writeAlignedReadsToBAM(SeqLib::BamWriter& bw) { 
-  for (auto& i : m_bamreads)
-    bw.WriteRecord(i);
+  for (const auto& i : m_bamreads)
+    bw.WriteRecord(*i);
 } 
 
 
@@ -609,7 +614,6 @@ std::string AlignedContig::getSequence() const {
   return m_seq; 
 }
 
-//void AlignedContig::AddAlignedRead(const SeqLib::BamRecord& br) {
-void AlignedContig::AddAlignedRead(const svabaRead& br) {
+void AlignedContig::AddAlignedRead(svabaReadPtr& br) {
   m_bamreads.push_back(br);
 }

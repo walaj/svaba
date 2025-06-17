@@ -8,7 +8,7 @@
 #include "SeqLib/GenomicRegionCollection.h"
 #include "SeqLib/ReadFilter.h"
 #include "LearnBamParams.h"
-
+#include <ctime>
 
 class SvabaOutputWriter;
 class SvabaLogger;
@@ -27,9 +27,22 @@ class SvabaSharedConfig {
     opts(_opts),
     writer(_writer) {}
 
+  // Delete copy constructor and copy assignment
+  SvabaSharedConfig(const SvabaSharedConfig&) = delete;
+  SvabaSharedConfig& operator=(const SvabaSharedConfig&) = delete;
+  
+  // Delete move constructor and move assignment
+  SvabaSharedConfig(SvabaSharedConfig&&) = delete;
+  SvabaSharedConfig& operator=(SvabaSharedConfig&&) = delete;
+  
   size_t total_regions_to_process = 0;
   size_t total_regions_done = 0;
 
+  struct timespec start;
+
+  // store which readgroups we already warned about
+  std::unordered_set<std::string> warned; 
+  
   SvabaLogger&          logger;
 
   SvabaOptions&         opts;
