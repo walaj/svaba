@@ -3,12 +3,15 @@
 
 #include <map>
 #include <string>
+#include <fstream>
 #include "svabaThreadUnit.h"
 #include "SeqLib/BamWriter.h"
 #include "gzstream.h"
 #include "svabaLogger.h"
 #include "svabaOptions.h"
 
+
+using std::ofstream;
 struct SvabaSharedConfig;
 
 struct SvabaOutputWriter {
@@ -35,6 +38,7 @@ private:
   ogzstream           all_align_;
   ogzstream           os_allbps_;
   ogzstream           os_discordant_;
+  ofstream            os_runtime_;  
 
   SeqLib::BamWriter   b_contig_writer_;
   

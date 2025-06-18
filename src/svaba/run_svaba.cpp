@@ -84,7 +84,7 @@ void sendThreads(const SeqLib::GRC& regionsToRun,
 
   // thread pool now handles SvabaBatchWorkItem jobs
   ThreadPool<SvabaBatchWorkItem> pool(sc);
-
+  
   size_t batch_size = 1; 
   if (sc.opts.numThreads > 0) {
     size_t per_thread = sc.total_regions_to_process / sc.opts.numThreads;
@@ -92,7 +92,7 @@ void sendThreads(const SeqLib::GRC& regionsToRun,
       batch_size = std::max<size_t>(1, per_thread); // prevent batch_size = 0
     }
   }
-
+  
   std::vector<std::pair<SeqLib::GenomicRegion,int>> batch;
   batch.reserve(batch_size);
 

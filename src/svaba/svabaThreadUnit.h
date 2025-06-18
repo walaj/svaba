@@ -1,5 +1,6 @@
 #pragma once
 
+#include <sstream>
 #include <map>
 #include <memory>
 #include <vector>
@@ -11,27 +12,33 @@
 #include "AlignedContig.h"
 #include "DiscordantCluster.h"
 #include "BreakPoint.h"
-#include "SeqLib/RefGenome.h"
+#include "svabaUtils.h"
 
+#include "SeqLib/RefGenome.h"
 #include "SvabaSharedConfig.h"
 #include "SeqLib/BWAAligner.h"
 
 using SeqLib::BamRecordPtrVector;
 
 class svabaBamWalker;
+namespace SeqLib {
+  class BamWriter;
+}
 using WalkerMap = std::map<std::string, std::shared_ptr<svabaBamWalker>>;
+using WriterMap = std::map<std::string, std::shared_ptr<SeqLib::BamWriter>>;
 
 class svabaThreadUnit {
   
 public:
   
   //svabaThreadUnit() = default;
-  ~svabaThreadUnit() = default;
+  ~svabaThreadUnit();
   
-  svabaThreadUnit(SvabaSharedConfig& sc_);
+  svabaThreadUnit(SvabaSharedConfig& sc_,
+		  int thread);
 
   void flush();
-  
+
   // local version of aligner class, but will hold shared memory index
   std::shared_ptr<SeqLib::BWAAligner> bwa_aligner; //(sc.bwa_idx);
 
@@ -53,9 +60,14 @@ public:
   svabaReadPtrVector                            all_weird_reads;
   svabaReadPtrVector                            all_discordant_reads;
   BamRecordPtrVector                            all_corrected_reads;    
+
+  // time and temp log dump until goes to file
+  svabaUtils::svabaTimer                      st;
+  std::stringstream                           ss;
   
   // store the BAM .bai indicies for for this thread
   WalkerMap                            walkers;
+  WriterMap                            writers;
   
   // non-copyable, movable
   svabaThreadUnit(const svabaThreadUnit&) = delete;

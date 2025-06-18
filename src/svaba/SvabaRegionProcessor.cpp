@@ -33,9 +33,6 @@ using std::unordered_map;
 using std::unordered_set;
 using std::string;
 
-
-using CountPair    = std::pair<int, int>;
-
 SvabaRegionProcessor::SvabaRegionProcessor(SvabaSharedConfig& sh_cf) : sc(sh_cf)
 { }
 
@@ -45,9 +42,7 @@ void SvabaRegionProcessor::runMateCollectionLoop(const GenomicRegion& region,
   
   // store the newly found bad mate regions
   GRC this_bad_mate_regions; 
-  
-  CountPair counts = {0,0};
-  
+
   MateRegionVector all_somatic_mate_regions;
   // add the origional, don't want to double back    
   all_somatic_mate_regions.add(MateRegion(region.chr, region.pos1, region.pos2));
@@ -106,7 +101,6 @@ void SvabaRegionProcessor::runMateCollectionLoop(const GenomicRegion& region,
     gg.add(GenomicRegion(s.chr, s.pos1, s.pos2, s.strand));
   
   // collect the reads for this round
-  CountPair mate_read_counts = {0,0};
   for (auto& [key, walker] : stu.walkers) {
     const int before = walker->reads.size();
     walker->m_limit = sc.opts.mate_region_lookup_limit;
@@ -126,14 +120,15 @@ void SvabaRegionProcessor::runMateCollectionLoop(const GenomicRegion& region,
     stu.badd.CreateTreeMap();
     
     assert(!key.empty());
-    auto& count = (key[0] == 't' ? mate_read_counts.first : mate_read_counts.second);
+    auto& count = (key[0] == 't') ? stu.st.mate_read_count.first : stu.st.mate_read_count.second;    
     count += walker->reads.size() - before;
   }
   
   sc.logger.log(sc.opts.verbose > 1, sc.opts.verbose_log, 
 		"......Mate region reads: <case, control>: <",
-		AddCommas(counts.first), ",",
-		AddCommas(counts.second), ">");
+		AddCommas(stu.st.mate_read_count.first), ",",
+		AddCommas(stu.st.mate_read_count.second), ">");
+
 }
 
 
@@ -145,7 +140,7 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
   // count for this unit
   unit.processed_count++;
   sc.total_regions_done++; 
-  if (sc.total_regions_done % 50 == 0) {
+  if (sc.total_regions_done % 1000 == 0) {
     std::ostringstream msg;
     msg << "...processing "
 	<< std::right << std::setw(5) << SeqLib::AddCommas(sc.total_regions_done)
@@ -162,9 +157,10 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
 		"===Running region ", region.ToString(sc.header),
 		" on thread ", unit.threadId);
   
-  // start a timer
-  svabaUtils::svabaTimer st;
-  st.start();
+  // start a new timer
+  unit.st = svabaUtils::svabaTimer();
+  unit.st.gr = region;
+  unit.st.start();
   
   // holder for Bam: (read : cigar)
   unordered_map<string, CigarMap> cigmap;
@@ -195,7 +191,8 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
     unit.badd.CreateTreeMap(); 
     
     // Update read count based on sample type
-    (key[0] == 't' ? read_counts.first : read_counts.second) += walker->reads.size();
+    auto& count = (key[0] == 't') ? unit.st.weird_read_count.first : unit.st.weird_read_count.second;
+    count += walker->reads.size();
     
     sc.logger.log(sc.opts.verbose > 1, sc.opts.verbose_log,
 		  "...main region reads <case,control> ",
@@ -204,14 +201,14 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
     // Store CIGARs
     cigmap[key] = walker->cigmap;
   } //end BAM loop
-  
+
   // adjust counts and timer
-  st.stop("r");
+  unit.st.stop("r");
 
   // get the mate reads, if this is local assembly and has insert-size distro
   if (!region.IsEmpty()) { 
-    runMateCollectionLoop(region, unit); 
-    st.stop("m");
+    runMateCollectionLoop(region, unit);
+    unit.st.stop("m");
   }
   
   // do the discordant read clustering
@@ -228,12 +225,14 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
 	all_discordant_reads.push_back(r);
     }
   }
+  unit.st.dc_read_count = all_discordant_reads.size();
 
   // do the discordant read clustering across BAMs
   DiscordantClusterMap dmap = DiscordantCluster::clusterReads(all_discordant_reads, 
 							      region,
 							      sc.header);
   all_discordant_reads.clear();
+  unit.st.dc_cluster_count = dmap.size();
   
   // for dumping all reads
   if (sc.opts.dump_weird_reads) {
@@ -275,7 +274,7 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
     
     sc.logger.log(sc.opts.verbose > 0, sc.opts.verbose_log, "...BFC attempted correct ", num_reads_corrected);
     
-    st.stop("k");
+    unit.st.stop("k");
   }
   
   // re-align the corrected reads and dump
@@ -327,6 +326,7 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
     // retrieve contigs
     all_unaligned_contigs_this_region = engine.getContigs();
   }
+  unit.st.contig_count = all_unaligned_contigs_this_region.size();
   
   sc.logger.log(sc.opts.verbose > 0, sc.opts.verbose_log, "...assembled ",
 		all_unaligned_contigs_this_region.size(),
@@ -419,6 +419,7 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
     all_AlignedContigs_this_region.insert_or_assign(ac.getContigName(), std::move(ac));
     //all_AlignedContigs_this_region[ac.getContigName()] = std::move(ac);
   }
+  unit.st.aligned_contig_count = all_aligned_contigs_this_region.size(); 
 
   sc.logger.log(sc.opts.verbose > 0, sc.opts.verbose_log, "...assembled ",
 		count_contigs_of_size,
@@ -507,7 +508,7 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
     alc.push_back(std::move(a));
   }
   
-  st.stop("as");
+  unit.st.stop("as");
 
   // get the breakpoints
   vector<BreakPoint> bp_glob;
@@ -608,7 +609,6 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
       i.somatic_score = -2;
     }
 
-
   
   // remove somatic SVs that overlap with germline svs
   if (sc.germline_svs.size()) {
@@ -651,19 +651,22 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
     if ( i.hasMinimal() && (i.confidence != "NOLOCAL" || i.complex_local ) ) 
       unit.m_bps.push_back(i);
 
-  // dump if getting to much memory
-  unit.flush(); 
-  st.stop("pp");
+  unit.st.bps_count = bp_glob.size();
   
+  // dump if getting to much memory
+  unit.st.stop("pp");
+  unit.ss << unit.st.logRuntime(sc.header) << "\n";
+  unit.flush(); 
+    
   // display the run time
-  if (sc.total_regions_done % 50 == 0) {
+  if (sc.total_regions_done % 1000 == 0) {
     sc.logger.log(sc.opts.verbose > 0, true,
 		  svabaUtils::runTimeString(read_counts.first,
 					    read_counts.second,
 					    final_contig_count,
 					    region,
 					    sc.header,
-					    st, sc.start));
+					    unit.st, sc.start));
   }
   
  

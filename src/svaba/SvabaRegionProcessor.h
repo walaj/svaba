@@ -2,6 +2,7 @@
 
 #include <cstddef>                            // for size_t
 #include "svabaThreadUnit.h"                  // for svabaThreadUnit
+#include "svabaUtils.h"
 
 class SvabaLogger;
 class SvabaOptions;
@@ -17,6 +18,8 @@ namespace SeqLib {
   class GenomicRegion;
   class BamHeader;
 }
+
+using svabaUtils::svabaTimer;
 
 class SvabaRegionProcessor {
 public:

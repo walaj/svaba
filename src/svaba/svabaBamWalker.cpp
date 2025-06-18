@@ -450,8 +450,9 @@ void svabaBamWalker::TagDiscordant(svabaReadPtr& r) {
     // once per RG. Then get a default size
     if (it == sc.bamStats.end()) {
       if (!sc.warned.count(this->prefix_)) {
-	sc.logger.log(true, true, "SBW: TagDiscordant - Can't find ",
-		      "LearnBamParams for ", this->prefix_);
+	//debug
+	//sc.logger.log(true, true, "SBW: TagDiscordant - Can't find ",
+	//	      "LearnBamParams for ", this->prefix_);
 	sc.warned.insert(this->prefix_);	
       } 
       isize_cutoff_per_rg[RG] = DEFAULT_ISIZE_THRESHOLD;
@@ -464,9 +465,10 @@ void svabaBamWalker::TagDiscordant(svabaReadPtr& r) {
       // check that we learned this read group
       if (rgg == it->second.bam_read_groups.end()) {
 	if (!sc.warned.count(RG)) {
-	  sc.logger.log(true, true, "SBW: TagDiscordant - Can't find ",
-			"read group: ", RG, " for bam ",
-			prefix_, " - setting default isize cutoff ", DEFAULT_ISIZE_THRESHOLD);
+	  //debug
+	  //sc.logger.log(true, true, "SBW: TagDiscordant - Can't find ",
+	  //		"read group: ", RG, " for bam ",
+	  //		prefix_, " - setting default isize cutoff ", DEFAULT_ISIZE_THRESHOLD);
 	  sc.warned.insert(RG);
 	} 
 	isize_cutoff_per_rg[RG] = DEFAULT_ISIZE_THRESHOLD;

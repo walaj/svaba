@@ -34,6 +34,7 @@ void SvabaOutputWriter::init(const string& analysis_id,
   svabaUtils::fopen(analysis_id + ".alignments.txt.gz", all_align_);
   svabaUtils::fopen(analysis_id + ".bps.txt.gz",        os_allbps_);
   svabaUtils::fopen(analysis_id + ".discordant.txt.gz",  os_discordant_);
+  svabaUtils::fopen(analysis_id + ".runtime.txt",  os_runtime_);  
 
   // write the header line for breakpoints file:
   os_allbps_ << BreakPoint::header();
@@ -41,6 +42,10 @@ void SvabaOutputWriter::init(const string& analysis_id,
     os_allbps_ << "\t" << p.first << "_" << p.second;
   os_allbps_ << "\n";
 
+  // write the header line for runtime file
+  os_runtime_ <<
+    svabaUtils::svabaTimer::header << "\n";
+  
   // write the header line for discordant clusters:
   os_discordant_ << DiscordantCluster::header() << "\n";
 
@@ -56,54 +61,71 @@ void SvabaOutputWriter::init(const string& analysis_id,
   }
   b_contig_writer_.WriteHeader();
   
-  // BAM output for weird reads
-  if (opts.dump_weird_reads) {
-    std::string weird_read_bam_path = analysis_id;
-    weird_read_bam_path.append(".weird.bam");
-    b_weird_read_writer_ = SeqLib::BamWriter(SeqLib::BAM);
-    b_weird_read_writer_.SetHeader(b_header);
-    if (!b_weird_read_writer_.Open(weird_read_bam_path)) {
-      std::cerr << "ERROR: could not open output weird read writer " <<
-	weird_read_bam_path << std::endl;
-      exit(EXIT_FAILURE);
-    }
-    b_weird_read_writer_.WriteHeader();
-  }
-  
-  // BAM output for discordant reads
-  // if (opts.dump_discordant_reads) {
-  //   std::string discordant_read_bam_path = analysis_id;
-  //   discordant_read_bam_path.append(".discordant.bam");
-  //   b_discordant_read_writer_ = SeqLib::BamWriter(SeqLib::BAM);
-  //   b_discordant_read_writer_.SetHeader(b_header);
-  //   if (!b_discordant_read_writer_.Open(discordant_read_bam_path)) {    
-  //     std::cerr << "ERROR: could not open output discordant read writer " <<
-  // 	discordant_read_bam_path << std::endl;
+  // // BAM output for weird reads
+  // if (opts.dump_weird_reads) {
+  //   std::string weird_read_bam_path = analysis_id;
+  //   weird_read_bam_path.append(".weird.bam");
+  //   b_weird_read_writer_ = SeqLib::BamWriter(SeqLib::BAM);
+  //   b_weird_read_writer_.SetHeader(b_header);
+  //   if (!b_weird_read_writer_.Open(weird_read_bam_path)) {
+  //     std::cerr << "ERROR: could not open output weird read writer " <<
+  // 	weird_read_bam_path << std::endl;
   //     exit(EXIT_FAILURE);
   //   }
-  //   b_discordant_read_writer_.WriteHeader();
+  //   b_weird_read_writer_.WriteHeader();
   // }
 
-  if (opts.dump_corrected_reads) {
-    std::string corrected_read_bam_path = analysis_id;
-    corrected_read_bam_path.append(".corrected.bam");
-    b_corrected_read_writer_ = SeqLib::BamWriter(SeqLib::BAM);
-    b_corrected_read_writer_.SetHeader(b_header);
-    if (!b_corrected_read_writer_.Open(corrected_read_bam_path)) {    
-      std::cerr << "ERROR: could not open output corrected read writer " <<
-	corrected_read_bam_path << std::endl;
-      exit(EXIT_FAILURE);
-    }
-    b_corrected_read_writer_.WriteHeader();
-  }
+  // if (opts.dump_corrected_reads) {
+  //   std::string corrected_read_bam_path = analysis_id;
+  //   corrected_read_bam_path.append(".corrected.bam");
+  //   b_corrected_read_writer_ = SeqLib::BamWriter(SeqLib::BAM);
+  //   b_corrected_read_writer_.SetHeader(b_header);
+  //   if (!b_corrected_read_writer_.Open(corrected_read_bam_path)) {    
+  //     std::cerr << "ERROR: could not open output corrected read writer " <<
+  // 	corrected_read_bam_path << std::endl;
+  //     exit(EXIT_FAILURE);
+  //   }
+  //   b_corrected_read_writer_.WriteHeader();
+  // }
   
 }
 
 void SvabaOutputWriter::writeUnit(svabaThreadUnit& unit,
 				  SvabaSharedConfig& sc) {
 
-  lock_guard<mutex> guard(writeMutex_); // lock the writers
+  // write the weird reads
+  if (sc.opts.dump_weird_reads) {
+    
+    auto it = unit.writers.find("w");
+    if (it == unit.writers.end()) {
+      std::cerr << " read found with prefix " << " w " <<
+	" that is not in the weird read writers\n";
+      exit(EXIT_FAILURE);
+    }
+    
+    for (const auto& r : unit.all_weird_reads) {
+      bool ok = it->second->WriteRecord(*r);
+      assert(ok);
+    }
+  }
 
+  // write the corrected reads
+  if (sc.opts.dump_corrected_reads) {
+    auto it = unit.writers.find("c");
+    if (it == unit.writers.end()) {
+      std::cerr << " read found with prefix " << " c " <<
+	" that is not in the weird read writers\n";
+      exit(EXIT_FAILURE);
+    }
+    
+    for (const auto& r : unit.all_corrected_reads) {
+      bool ok = it->second->WriteRecord(*r);
+      assert(ok);
+    }
+  }    
+
+  lock_guard<mutex> guard(writeMutex_); // lock the writers
+  
   sc.total_regions_done += unit.processed_since_memory_dump;
   unit.processed_since_memory_dump = 0;
   
@@ -151,20 +173,23 @@ void SvabaOutputWriter::writeUnit(svabaThreadUnit& unit,
   // }
 
   // weird reads
-  if (opts.dump_weird_reads) {
-    for (const auto& r : unit.all_weird_reads) {
-      bool ok = b_weird_read_writer_.WriteRecord(*r);
-      assert(ok);
-    }
-  }
+  // if (opts.dump_weird_reads) {
+  //   for (const auto& r : unit.all_weird_reads) {
+  //     bool ok = b_weird_read_writer_.WriteRecord(*r);
+  //     assert(ok);
+  //   }
+  // }
 
-  // corrected reads
-  if (opts.dump_corrected_reads) {
-    for (const auto& r : unit.all_corrected_reads) {
-      bool ok = b_corrected_read_writer_.WriteRecord(*r);
-      assert(ok);
-    }
-  }
+  // // corrected reads
+  // if (opts.dump_corrected_reads) {
+  //   for (const auto& r : unit.all_corrected_reads) {
+  //     bool ok = b_corrected_read_writer_.WriteRecord(*r);
+  //     assert(ok);
+  //   }
+  // }
+
+  // runtime
+  os_runtime_ << unit.ss.str();
 }
 
 void SvabaOutputWriter::close() {
@@ -179,17 +204,17 @@ void SvabaOutputWriter::close() {
   //   }
   // }
   
-  if (opts.dump_weird_reads) {
-    if (!b_weird_read_writer_.Close()) {
-      std::cerr << "Unable to close weird read writer" << std::endl;
-    }
-  }
+  // if (opts.dump_weird_reads) {
+  //   if (!b_weird_read_writer_.Close()) {
+  //     std::cerr << "Unable to close weird read writer" << std::endl;
+  //   }
+  // }
   
-  if (opts.dump_corrected_reads) {
-    if (!b_corrected_read_writer_.Close()) {
-      std::cerr << "Unable to close corrected read writer" << std::endl;
-    }
-  }
+  // if (opts.dump_corrected_reads) {
+  //   if (!b_corrected_read_writer_.Close()) {
+  //     std::cerr << "Unable to close corrected read writer" << std::endl;
+  //   }
+  // }
   
   if (!b_contig_writer_.Close()) {
     std::cerr << "Unable to close contigs bam writer" << std::endl;

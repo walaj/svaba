@@ -5,7 +5,8 @@
   #include <malloc.h>
 #endif
 
-svabaThreadUnit::svabaThreadUnit(SvabaSharedConfig& sc_) : sc(sc_) {
+svabaThreadUnit::svabaThreadUnit(SvabaSharedConfig& sc_,
+				 int thread) : sc(sc_), threadId(thread) {
   
   // load the samtools faidx
   ref_genome = std::make_unique<SeqLib::RefGenome>();
@@ -14,8 +15,6 @@ svabaThreadUnit::svabaThreadUnit(SvabaSharedConfig& sc_) : sc(sc_) {
   // set the *shared* memory BWAIndex
   bwa_aligner = std::make_shared<SeqLib::BWAAligner>(sc.bwa_idx);
 
-
-  
   // load the .bai files for each bam and set parameters
   for(const auto& [pref, path] : sc.opts.bams)  {
     
@@ -23,6 +22,39 @@ svabaThreadUnit::svabaThreadUnit(SvabaSharedConfig& sc_) : sc(sc_) {
     auto [it, inserted] = walkers.try_emplace(pref, std::make_shared<svabaBamWalker>(sc));
     it->second->Open(path);
     it->second->SetPrefix(pref);
+  }
+
+  // setup the weird read writers
+  if (sc.opts.dump_weird_reads) {
+    // instantiate a new BAM writer
+    std::string bamname =sc.opts.analysisId +
+      ".thread" + std::to_string(threadId) + ".weird.bam";
+    
+    auto [it, inserted] = writers.try_emplace("w", std::make_shared<SeqLib::BamWriter>(SeqLib::BAM));
+    it->second->SetHeader(sc.header);
+    if (!it->second->Open(bamname)) {
+      std::cerr << "ERROR: could not open weird read writer for thread " <<
+	threadId << " at path " << bamname << "/n";
+      exit(EXIT_FAILURE);
+    }
+    it->second->WriteHeader();
+  }
+  
+  // setup the corrected read writers
+  if (sc.opts.dump_corrected_reads) {
+    
+    // instantiate a new BAM writer
+    std::string bamname =sc.opts.analysisId +
+      ".thread" + std::to_string(threadId) + ".corrected.bam";
+    
+    auto [it, inserted] = writers.try_emplace("c", std::make_shared<SeqLib::BamWriter>(SeqLib::BAM));
+    it->second->SetHeader(sc.header);
+    if (!it->second->Open(bamname)) {
+      std::cerr << "ERROR: could not open corrected read writer for thread " <<
+	threadId << " at path " << bamname << "/n";
+      exit(EXIT_FAILURE);
+    }
+    it->second->WriteHeader();    
   }
   
 }
@@ -41,6 +73,9 @@ void svabaThreadUnit::clear() {
   all_weird_reads.clear();
   all_discordant_reads.clear();
   all_corrected_reads.clear();
+  
+  ss.str("");       // Clear the string content
+  ss.clear();
   
 #if defined(__GLIBC__)
   malloc_trim(0);
@@ -94,3 +129,18 @@ bool svabaThreadUnit::MemoryLimit(size_t readLimit, size_t contLimit) const {
   return mem_exceeded;
 }
 
+svabaThreadUnit::~svabaThreadUnit() {
+
+  //
+  if (sc.opts.dump_weird_reads) {
+    auto it = writers.find("w");
+    it->second->Close();
+  }
+
+  //
+  if (sc.opts.dump_corrected_reads) {
+    auto it = writers.find("c");
+    it->second->Close();
+  }
+
+}

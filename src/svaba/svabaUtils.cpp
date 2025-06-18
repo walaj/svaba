@@ -18,6 +18,50 @@ static std::string POLYCA = "CACACACACACACACACACACACA";
 static std::string POLYAG = "AGAGAGAGAGAGAGAGAGAGAGAG";
 static std::string POLYTC = "TCTCTCTCTCTCTCTCTCTCTCTC";
 
+
+  const std::string svabaTimer::header =
+  "chromosome\tstart\tend\t"
+  "tumor_weird_reads\tnormal_weird_reads\t"
+  "tumor_mate_reads\tnormal_mate_reads\t"    
+  "discordant_reads\tdiscordant_clusters\t"
+  "contigs\tcontigs_pass\tbps\truntime_seconds\t"
+  "pct_r\tpct_m\tpct_k\tpct_as";
+
+  std::string svabaTimer::logRuntime(const SeqLib::BamHeader& h) {
+    double total_time = 0;
+    for (const auto& i : times)
+      total_time += i.second;
+    
+    if (total_time == 0)
+      total_time = 1.0;  // Avoid division by zero
+    
+    auto get_pct = [&](const std::string& key) -> int {
+      auto it = times.find(key);
+      return (it != times.end()) ? SeqLib::percentCalc<double>(it->second, total_time) : 0;
+    };
+    
+    // Store percentages
+    pct_r  = get_pct("r");
+    pct_m  = get_pct("m");
+    pct_k  = get_pct("k");
+    pct_as = get_pct("as");
+    //pct_pp = get_pct("pp");
+    
+    std::ostringstream oss;
+    oss << gr.ChrName(h) << "\t"
+	<< gr.pos1 << "\t" << gr.pos2 << "\t"
+	<< weird_read_count.first << "\t" << weird_read_count.second << "\t"
+	<< mate_read_count.first << "\t" << mate_read_count.second << "\t"
+	<< dc_read_count << "\t" << dc_cluster_count << "\t"
+	<< contig_count << "\t" << aligned_contig_count << "\t"
+	<< bps_count << "\t" << total_time << "\t"
+	<< pct_r  << "\t" << pct_m  << "\t"
+	<< pct_k  << "\t" << pct_as;
+    
+    return oss.str();
+  }
+  
+  
   std::string fileDateString() {
     // set the time string
     time_t t = time(0);   // get time now
@@ -31,19 +75,23 @@ static std::string POLYTC = "TCTCTCTCTCTCTCTCTCTCTCTC";
   }
 
   svabaTimer::svabaTimer() {
-    s = {"r", "m", "as", "bw", "pp", "t", "k"};
+    s = {"r", "m", "as", "bw", "pp", "k"};
     for (auto& i : s)
       times[i] = 0;
-    curr_clock = clock();
   }
 
-  void svabaTimer::stop(const std::string& part) { 
-    times[part] += (clock() - curr_clock); 
-    curr_clock = clock();
+  void svabaTimer::stop(const std::string& part) {
+    auto wall_end = std::chrono::steady_clock::now();
+    double elapsed = std::chrono::duration<double>(wall_end - wall_start).count();
+    times[part] += elapsed;
+    wall_elapsed += elapsed;    
+    //times[part] += static_cast<double>(clock() - curr_clock) / CLOCKS_PER_SEC;
+    //curr_clock = clock();
   }
 
-  void svabaTimer::start() { 
-    curr_clock = clock(); 
+  void svabaTimer::start() {
+    wall_start = std::chrono::steady_clock::now();
+    //curr_clock = clock(); 
   }
 
   std::ostream& operator<<(std::ostream &out, const svabaTimer st) {

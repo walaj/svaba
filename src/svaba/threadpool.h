@@ -65,8 +65,7 @@ public:
 			      // these should not be shared across threads, even if using const functions only
 
 			      // this also opens the BAMs too in the svabaThreadUnit constructor
-			      svabaThreadUnit unit(sc); // give it the shared_ptr to the master index
-			      unit.threadId = i + 1;
+			      svabaThreadUnit unit(sc, i + 1); // give it the shared_ptr to the master index
 			      unit.total_count = sc.total_regions_to_process;
 			      			      
 			      // consume jobs
@@ -80,6 +79,7 @@ public:
 			      unit.clear();
 			    });
     }
+
   }
   
   // submit a new work item

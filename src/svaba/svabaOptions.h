@@ -32,7 +32,7 @@ inline constexpr int MIN_PER_CLUST            = 3;
 inline constexpr int DEFAULT_ISIZE_THRESHOLD  = 2000;
 
 // from run_svaba
-inline constexpr std::size_t THREAD_READ_LIMIT      = 20'000; 
+inline constexpr std::size_t THREAD_READ_LIMIT      = 20'000;
 inline constexpr int         THREAD_CONTIG_LIMIT    =   5'000;
 
 // from svabaAssemblerEngine
