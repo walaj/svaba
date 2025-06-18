@@ -123,7 +123,6 @@ void SvabaOutputWriter::writeUnit(svabaThreadUnit& unit,
       assert(ok);
     }
   }    
-
   lock_guard<mutex> guard(writeMutex_); // lock the writers
   
   sc.total_regions_done += unit.processed_since_memory_dump;

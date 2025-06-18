@@ -217,6 +217,8 @@ void runsvaba(int argc, char** argv) {
   
   // open the blacklist, load into sc.blacklist
   loader.loadBedRegions(sc.opts.blacklistFile, sc.blacklist);
+
+  std::cerr << "BLACKLIST " << sc.blacklist.size() << std::endl;
   
   // open the germline sv database
   loader.loadBedRegions(sc.opts.germlineSvFile, sc.germline_svs);
