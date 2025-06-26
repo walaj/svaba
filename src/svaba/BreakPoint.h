@@ -27,6 +27,13 @@ enum class SVType {
   INDEL               // INDEL
 };
 
+enum class SomaticState {
+  NOTSET,
+  SOMATIC_LOD,    // somatic by LOD cutoff
+  NORMAL_LOD,     // normal by LOD cutoff
+  FAILED,         // normal - failed hard filter
+};
+
 // forward declares
 class STCoverage;
 namespace SeqLib {
@@ -140,17 +147,19 @@ public:
   static std::string header() {
     return std::string(
 		       "#chr1\tpos1\tstrand1\tchr2\tpos2\tstrand2\tref\talt\t"
-		       "span\tmapq1\tmapq2\tnm1\tnm2\tdmq1\tdmq2\tsplit\t"
-		       "cigar\talt\tcov\tdcn\tdct\tsub_n1\tsub_n2\thomol\tinsert\t"
-		       "contig_and_region\tnumalign\tconf\ttype\tqual\t2ndary\t"
-		       "somscore\tsomlod\tmaxlod\tdbsnp"
+		       "span\tsplit\tcigar\talt\tcov\t"
+		       "dmq1\tdmq2\tdcn\tdct\t"
+		       "mapq1\tmapq2\tnm1\tnm2\tsub_n1\tsub_n2\t"
+		       "homol\tinsert\t"
+		       "contig_and_region\tnaln\tconf\ttype\tqual\t2ndary\t"
+		       "somatic\tsomlod\tmaxlod\tdbsnp"
 		       );
   }
   
-  double somatic_score = -1;
+  SomaticState somatic = SomaticState::NOTSET;
   
   // LogOdds that variant not in normal   
-  double somatic_lod = -1; 
+  double somatic_lod = std::numeric_limits<double>::infinity();
   
   std::string seq, cname, rs,
     insertion, homology, repeat_seq,
@@ -172,17 +181,15 @@ public:
   // discordant reads supporting this aseembly bp
   DiscordantCluster dc;
   
-  int quality = -1;
-  int secondary = -1;
-  int pass = -1; //false;
-  int pon = 0;
-  int num_align = 0;
+  int quality = -1;   // QUAL score
+  int secondary = -1; // is this a secondary
+  int pass = -1;      //false;
+  int num_align = 0;  // number of alignments for contigs that generated this
+  
   SVType svtype = SVType::NOTSET;
   LocalAlignment local = LocalAlignment::NOTSET;
 
   const SvabaSharedConfig* sc;
-  
-  double error_rate = 1e-4;
   
   // keep track of how much of contig is covered by split
   std::pair<int,int> split_cov_bounds = std::pair<int, int>(1e5, -1); // dummy to extreme opposite vals
@@ -203,7 +210,7 @@ public:
   
    void setLocal(const GenomicRegion& window);
   
-  void score_somatic(double NODBCUTOFF, double DBCUTOFF);
+  void score_somatic(); 
   
   void addCovs(const std::unordered_map<std::string, STCoverage*>& covs);
 
@@ -233,7 +240,7 @@ public:
    
    /*! Score a breakpoint with a QUAL score, and as somatic or germline
     */
-   void scoreBreakpoint(double LOD_CUTOFF, double LOD_CUTOFF_DBSNP, double LOD_CUTOFF_SOMATIC, double LOD_CUTOFF_SOMATIC_DBSNP, double scale_errors, int min_dscrd_size);
+  void scoreBreakpoint(); 
    
    /*! Compute the allelic fraction (tumor and normal) for this BreakPoint.
     *
@@ -295,10 +302,10 @@ public:
 				 );
   }
   
-  void score_dscrd(int min_dscrd_size);
+  void score_dscrd(); 
   void score_assembly_only();
   void score_assembly_dscrd();
-  void score_indel(double LOD_CUTOFF, double LOD_CUTOFF_DBSNP);
+  void score_indel(); 
   void set_homologies_insertions();
   bool valid() const;
   
@@ -322,15 +329,17 @@ public:
     int disc = 0;
     
     // genotype info
-    double GQ = 0;
+    //NB: PL (the Phred-scaled -10*log_10(GL - max(GL))
+    //        rounded to int by convention
+    double GQ = 0; // GQ take, max 99, quality of the genotype tag
     double NH_GQ = 0; // GQ of 0/0. Higher is more likely to be not hom ref
-    std::string PL;
-    std::string genotype;
-    std::vector<double> genotype_likelihoods = {0,0,0};
+    std::string genotype; // GT tag
+    std::vector<double> genotype_likelihoods = {0,0,0}; // GL tag
+    std::vector<int>    phred_likelihoods = {0,0,0}; // PL tag
     
     double af = 0;
-    double error_rate = 1e-4;
-    
+
+    // log odds
     double LO = 0; // log odds of variant vs error
     double SLO = 0; // MAPQ scaled log odds of variant vs error
     double LO_n = 0; // log odds of variant at af=0.5 vs ref (af=0) with errors
@@ -342,10 +351,14 @@ public:
     static double LogLikelihood(double ref, double alt,
 				double f, double e_fwd,
 				double e_back);
+
+    static double GenotypeLikelihoods(int g, double er, int alt, int cov);
+
+    static int GenotypeQuality(const std::vector<int>& PLs);
     
     void modelSelection(double err, int readlen);
     
-    double __genotype_likelihoods(int g, double er, int alt, int cov);
+
      
     std::string toFileString(SVType svtype) const;
      

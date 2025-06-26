@@ -105,11 +105,16 @@ class SvabaOptions {
   double sdDiscCutoff       = 3.92;
   int    chunkSize          = 25000;
   int32_t maxReadsPerAssem  = -1;
+
+  // this is site-level Log-odds cutoff for PASS that is variant 
   double lod                = 8.0;
+  // this is site-level Log-odds cuttof for PASS that is variant, if also has supporting DBSNP site
   double lodDb              = 6.0;
+  // this is log-odds that this is REF in the "worst" normal (the one with the most potential alt reads)
   double lodSomatic         = 6.0;
+  // same, but be more strict if this somatic variant overlaps a dbsnp site
   double lodSomaticDb       = 10.0;
-  double scaleError         = 1.0;
+  
   int    maxCov             = 100;
 
   // SGA / assembly

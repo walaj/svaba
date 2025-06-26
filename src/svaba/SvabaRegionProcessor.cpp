@@ -315,7 +315,7 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
   
   // set the contig prefix
   string ctg_prefix = "c_" +
-    std::to_string(region.chr+1) + "_" +
+    region.ChrName(sc.header) + "_" + 
     std::to_string(region.pos1) + "_" +
     std::to_string(region.pos2);
   
@@ -719,15 +719,14 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
 
   // score the breakpoints
   for (auto& i : bp_glob) {
-    i->scoreBreakpoint(sc.opts.lod, sc.opts.lodDb, sc.opts.lodSomatic,
-		      sc.opts.lodSomaticDb,
-		      sc.opts.scaleError, /*min_dscrd_size_for_variant*/2000);
+    i->scoreBreakpoint(); 
   }
   
   // label somatic breakpoints that intersect directly with normal as NOT somatic
   unordered_set<string> norm_hash;
   for (auto& i : bp_glob) { // hash the normals
-    if (i->somatic_score <= 0 && i->confidence == "PASS") {
+    if (i->somatic != SomaticState::SOMATIC_LOD &&
+	i->confidence == "PASS") {
       for (const auto& h : i->getBreakEndHashes())
 	norm_hash.insert(h);
     }
@@ -736,13 +735,13 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
   // find somatic that intersect with norm. Set somatic = 0;
   for (auto& i : bp_glob) {
     // don't need to check normal against normal
-    if (i->somatic_score <= 0)
+    if (i->somatic != SomaticState::SOMATIC_LOD)
       continue;
-
+    
     // if overlaps then turn off somatic
     for (const auto& h : i->getBreakEndHashes())
       if (norm_hash.count(h))
-	i->somatic_score = -3; // not somatic
+	i->somatic = SomaticState::FAILED; // not somatic
   }
   
   // remove indels at repeats that have multiple variants
@@ -776,7 +775,7 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
     for (auto& i : bp_glob) {
 
       // don't filter normals or indels
-      if (i->somatic_score <= 0 || i->isIndel())
+      if (i->somatic != SomaticState::SOMATIC_LOD || i->isIndel())
 	continue;
 
       GenomicRegion gr1 = i->BreakEndAsGenomicRegionLeft();
@@ -784,7 +783,7 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
       gr1.Pad(GERMLINE_CNV_PAD);
       gr2.Pad(GERMLINE_CNV_PAD);
       if (sc.germline_svs.OverlapSameInterval(gr1, gr2)) {
-	i->somatic_score = -1;
+	i->somatic = SomaticState::FAILED;
       }
     }
     
