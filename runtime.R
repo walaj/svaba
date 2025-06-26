@@ -48,6 +48,7 @@ p <- ggplot(dt, aes(x = start_mb, y = runtime_seconds)) +
     x     = "Genomic Start Position (Mb)",
     y     = "Wall Time (seconds)"
   ) +
+    scale_y_continuous(limits=c(0,200)) + 
   theme_minimal(base_size = 9) +
   theme(strip.text = element_text(face = "bold")) +
   scale_x_continuous(expand = expansion(add = c(0.01, 0.01)))  # avoid zero-width panels

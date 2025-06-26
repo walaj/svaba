@@ -81,7 +81,7 @@ void parseToVCFOptions(int argc, char** argv) {
   }
 }
 
-void runToVCF(int argc, char** argv) {
+/*void runToVCF(int argc, char** argv) {
   
   parseToVCFOptions(argc, argv);
   
@@ -143,3 +143,4 @@ void runToVCF(int argc, char** argv) {
   
   return;
 }
+*/

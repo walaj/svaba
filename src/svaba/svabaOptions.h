@@ -79,8 +79,8 @@ class SvabaOptions {
   size_t mate_region_lookup_limit = 5'000;
 
   // dumping
-  bool dump_weird_reads      = true;
-  bool dump_corrected_reads  = true;
+  bool dump_weird_reads      = false;
+  bool dump_corrected_reads  = false;
   
     // inputs
   std::vector<std::string> caseBams;
@@ -139,7 +139,7 @@ class SvabaOptions {
   bool        noBadAvoid          = true;
 
   // external DBs
-  std::string blacklistFile;
+  std::vector<std::string> blacklistFile;
   std::string germlineSvFile;
   std::string dbsnpVcf;
 

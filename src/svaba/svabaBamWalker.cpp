@@ -9,7 +9,8 @@
 //#define QFLAG -1
 
 using SeqLib::AddCommas;
-
+using SeqLib::UnalignedSequenceVector;
+using SeqLib::UnalignedSequence;
 
 #ifdef QNAME
 #define DEBUG(msg, read)						\
@@ -67,6 +68,8 @@ SeqLib::GRC svabaBamWalker::readBam(svabaThreadUnit& unit) {
   // buffer to store reads from a region
   // if we don't hit the limit, then add them to be assembled
   svabaReadPtrVector read_buffer;
+  UnalignedSequenceVector train_buffer;
+  UnalignedSequenceVector train_reads;  
   
   // if we have a LOT of reads (aka whole genome run), keep track for printing
   size_t countr = 0;
@@ -74,109 +77,59 @@ SeqLib::GRC svabaBamWalker::readBam(svabaThreadUnit& unit) {
   
   // keep track of which region we are in 
   int current_region = this->region_idx_;
+
+  // should just skip regions that have excessive coverage
+  // cov = readlength + reads / region_width. So 150 * X / 25000 = 10000 to set max coverage to 10000
+  // so 25'000 * 10'000 / 150 = 1'666'667 for max cov 10'000
+  const size_t max_coverage_before_ignore_region = 10'000;
+  size_t seen_cutoff = regions_.at(current_region).Width() * max_coverage_before_ignore_region / std::max(1, sc.readlen);
+  sc.logger.log(sc.opts.verbose > 4, false, "...seen cutoff ", SeqLib::AddCommas(seen_cutoff),
+		" region width ", regions_.at(current_region), " read len ", sc.readlen);
   
   // loop the reads
   while ( auto bamrec = this->Next()) {
     
     // makes a deep copy. So when bamrec goes out at end of this iteration, s is still safe
     svabaReadPtr s = std::make_shared<svabaRead>(*bamrec, prefix_);
-    //svabaRead s{ *bamrec, prefix_ };
-    
+
     ++seen;
-    if (seen % 50'000 == 0)
+    if (seen % 100'000 == 0)
       sc.logger.log(sc.opts.verbose > 3, false, "...bamwlker reading read ",
 		    s->Brief(), " - ",
 		    SeqLib::AddCommas(seen));
-
     
     // when we move regions, clear the buffer
     if (this->region_idx_ != current_region) {
 
-      sc.logger.log(sc.opts.verbose > 3, false, "...bamwalker switced region from ",
+      seen = 0;
+      sc.logger.log(sc.opts.verbose > 3, false, "...svabaBamWalker switched region from ",
 		    regions_.at(current_region), " to ", regions_.at(region_idx_));
       
       current_region = region_idx_;
+      
+      // recalculate seen limit for this region
+      if (current_region < regions_.size()) {
+	seen_cutoff = regions_.at(current_region).Width() * max_coverage_before_ignore_region / std::max(1, sc.readlen);
+	sc.logger.log(sc.opts.verbose > 4, false, "...seen cutoff ", SeqLib::AddCommas(seen_cutoff));	
+      } else { // shouldn't really get here
+	seen_cutoff = 0;
+      }
+      
       // cache the reads from the last region into BamWalker cache
       reads.insert(reads.end(), read_buffer.begin(), read_buffer.end());
       read_buffer.clear();
     }
-    
-    // check if this read passes the rules for potential SV reads
-    if (s->DuplicateFlag() ||
-	s->QCFailFlag() ||
-	s->NumHardClip() ||
-	s->CountNBases() ||
-	sc.blacklist.CountOverlaps(s->AsGenomicRegion()))
-      continue;
-    
-    // quality score trim read
-    s->QualityTrimRead(); // copies sequence into svabaRead.seq_corrected
 
-    // if its less than 40, dont even mess with it
-    if (s->CorrectedSeqLength() < 40)
-      continue;
-    
-    // this is the main rule check 
-    bool rule_pass = sc.mr.isValid(*s);
-    
-    // add to all reads pile for kmer correction
-    if (get_coverage) {
-      cov.addRead(*s, 0);
-    }
-    
-    // add to weird coverage
-    if (rule_pass && get_coverage) 
-      weird_cov.addRead(*s, 0); 
-    
-    // add to the cigar map for all non-duplicate reads
-    if (rule_pass && get_mate_regions) // only add cigar for non-mate regions
-      addCigar(s);
-    
-    // add all the reads for kmer correction
-    if (!sc.opts.ecCorrectType.empty() && sc.opts.ecCorrectType != "0") {
-      
-      // always include weird reads into correction
-      s->train = rule_pass;
-      
-      // if its not a weird read, include for training purposes
-      // but can subsample for speed
-      if (!rule_pass) { 
-	uint32_t hashed  = __ac_Wang_hash(__ac_X31_hash_string(s->Qname().c_str()));
-	if ((double)(hashed&0xffffff) / 0x1000000 <= kmer_subsample) 
-	  s->train = true;
-      }
-      
-      // in bfc addsequence, memory is copied. for all_seqs (SGA correction), copy explicitly
-      if (s->train) {
-	bool ok = bfc.AddSequence(s->CorrectedSeq(), "", s->UniqueName());
-	assert(ok);
-      }
-    }
-    
-    // if not a weird read, move on
-    if (!rule_pass)
-      continue;
-
-    // label as discordant or not
-    // modifies r in place
-    TagDiscordant(s);
-    
-    // message logging
-    ++countr;
-    if (countr % 25000 == 0) {// && regions_.size() == 0) {
-      sc.logger.log(sc.opts.verbose > 1, false,
-		    "...read in ", AddCommas<size_t>(countr),
-		    " weird reads for whole genome read-in. At pos ",
-		    s->Brief());
-    }
-    
-    // adding first to a temp buffer, in case hit limit and then
-    // just don't add any reads
-    read_buffer.push_back(s);
-    
     // if hit the limit of reads, log it and try next region
-    if (read_buffer.size() > m_limit && m_limit > 0) { 
+    if ( (read_buffer.size() > m_limit && m_limit > 0) ||
+	 seen > seen_cutoff) { 
+      
+      // don't train on these
+      train_buffer.clear();
 
+      // clear the buffer for this region
+      seen = 0;
+      
       std::string regstr =
 	(regions_.size() ? regions_[region_idx_].ToString(this->Header()) : " whole BAM");
       sc.logger.log(sc.opts.verbose > 1,
@@ -200,6 +153,98 @@ SeqLib::GRC svabaBamWalker::readBam(svabaThreadUnit& unit) {
 	return bad_regions; // totally done
       } 
     }
+
+    //debug
+    // if (s->Qname() ==
+    // 	"LH00306:235:22NHGWLT4:6:1184:29201:10203") {
+    //   std::cerr << *s << std::endl;
+    // }
+    
+
+    
+    // check if this read passes the rules for potential SV reads
+    if (s->DuplicateFlag() ||
+	s->QCFailFlag() ||
+	s->NumHardClip() ||
+	s->CountNBases() ||
+	sc.blacklist.CountOverlaps(s->AsGenomicRegionMate()) || 
+	sc.blacklist.CountOverlaps(s->AsGenomicRegion()))
+      continue;
+    
+    // quality score trim read
+    s->QualityTrimRead(); // copies sequence into svabaRead.seq_corrected
+
+    // if its less than 40, dont even mess with it
+    if (s->CorrectedSeqLength() < 40)
+      continue;
+    
+    // this is the main rule check 
+    bool rule_pass = sc.mr.isValid(*s);
+
+    // special rule to filter "RF" "discordants" that are just overlaps
+    if (s->PairOrientation() == RFORIENTATION &&
+	std::abs(s->InsertSize()) < std::max(200, sc.readlen * 2))
+      rule_pass = false;
+    
+    //debug
+    // if (s->Qname() ==
+    // 	"LH00306:129:227V5CLT4:6:2114:6074:25724") {    
+    //   std::cerr << " RULE " << rule_pass << *s << std::endl;
+    // }
+    
+    // for mate regions, be more strict
+    if (!get_mate_regions && s->MapQuality() == 0)
+      rule_pass = false;
+    
+    // add to all reads pile for kmer correction
+    if (get_coverage) {
+      cov.addRead(*s, 0);
+    }
+    
+    // add to weird coverage
+    if (rule_pass && get_coverage) 
+      weird_cov.addRead(*s, 0); 
+    
+    // add to the cigar map for all non-duplicate reads
+    if (rule_pass && get_mate_regions) // only add cigar for non-mate regions
+      addCigar(s);
+    
+    // add all the reads for kmer correction
+    // TODO this will add reads to training even if this entire buffer is rejected, so need to make a training buffer as well before adding them
+    if (!sc.opts.ecCorrectType.empty() && sc.opts.ecCorrectType != "0") {
+      
+      // if its not a weird read, include for training purposes
+      // but can subsample for speed
+      if (!rule_pass) { 
+	uint32_t hashed  = __ac_Wang_hash(__ac_X31_hash_string(s->Qname().c_str()));
+	if ((double)(hashed&0xffffff) / 0x1000000 <= kmer_subsample)
+	  train_buffer.push_back(UnalignedSequence(s->UniqueName(),
+							   s->CorrectedSeq()));
+      }
+
+      
+    }
+    
+    // if not a weird read, move on
+    if (!rule_pass)
+      continue;
+
+    // label as discordant or not
+    // modifies r in place
+    TagDiscordant(s);
+    
+    // message logging
+    ++countr;
+    if (countr % 25000 == 0) {// && regions_.size() == 0) {
+      sc.logger.log(sc.opts.verbose > 1, false,
+		    "...read in ", AddCommas<size_t>(countr),
+		    " weird reads for whole genome read-in. At pos ",
+		    s->Brief());
+    }
+    
+    // adding first to a temp buffer, in case hit limit and then
+    // just don't add any reads
+    read_buffer.push_back(s);
   } // end the read loop
   
     // "reads" is total cache for this walker.
@@ -210,10 +255,28 @@ SeqLib::GRC svabaBamWalker::readBam(svabaThreadUnit& unit) {
     read_buffer.clear();  */ // shouldn't need to, but avoid "lingering state"
   reads.insert(reads.end(), read_buffer.begin(), read_buffer.end());
   read_buffer.clear();
+  train_reads.insert(train_reads.end(), train_buffer.begin(), train_buffer.end());
+  train_buffer.clear();
+  
+  // in bfc addsequence, memory is copied. for all_seqs (SGA correction), copy explicitly
+  for (const auto& r : reads) {
+    bool ok = bfc.AddSequence(r->CorrectedSeq(), "", r->UniqueName());
+    assert(ok);
+    // if (regions_.at(0).pos1 == 31017001)
+    //   std::cout << "TRAIN R " << r->UniqueName() << "\t" << r->CorrectedSeq() << std::endl;
+  }
 
+  // and the "non-weird" reads to train corrector on
+  for (const auto& u : train_reads) {
+    bool ok = bfc.AddSequence(u.Seq, "", u.Name);
+    assert(ok);
+    // if (regions_.at(0).pos1 == 31017001)
+    //   std::cout << "TRAIN N " << u.Name << "\t" << u.Seq << std::endl;    
+  }
+  
   // subsamples reads if too high of coverage
-  if (get_coverage)
-    subSampleToWeirdCoverage(max_cov);
+  //  if (get_coverage)
+  //  subSampleToWeirdCoverage(max_cov);
 
   // calculate the mate region
   if (get_mate_regions && 
@@ -324,7 +387,8 @@ void svabaBamWalker::calculateMateRegions() {
     
     // if mate not in main interval, add a padded version
     if (!main_region.GetOverlap(mate) &&
-	r->MapQuality() >= MIN_MAPQ_FOR_MATE_LOOKUP) {
+	r->MapQuality() >= MIN_MAPQ_FOR_MATE_LOOKUP &&
+	!sc.blacklist.CountOverlaps(mate)) {
       tmp_mate_regions.add(mate);
     }
     
@@ -332,6 +396,8 @@ void svabaBamWalker::calculateMateRegions() {
 
   // merge it down to get the mate regions
   tmp_mate_regions.MergeOverlappingIntervals();
+
+
 
   // get the counts by overlapping mate-reads
   // with the newly defined mate regions
@@ -369,6 +435,12 @@ void svabaBamWalker::calculateMateRegions() {
     std::cerr << "    " << i << " read count " << i.count << std::endl;
 #endif
   
+  // hard cutoff on mate regions TODO make more elegant
+  if (mate_regions.size() > 6) {
+    sc.logger.log(sc.opts.verbose > 2, true, "...cutting off mate lookups for region ",
+		  regions_.at(0), " with too many mate regions of: ", mate_regions.size());
+    mate_regions.clear();
+  }
 }
 
 // bool svabaBamWalker::hasAdapter(const SeqLib::BamRecord& r) const {
@@ -451,11 +523,15 @@ void svabaBamWalker::TagDiscordant(svabaReadPtr& r) {
     if (it == sc.bamStats.end()) {
       if (!sc.warned.count(this->prefix_)) {
 	//debug
-	//sc.logger.log(true, true, "SBW: TagDiscordant - Can't find ",
-	//	      "LearnBamParams for ", this->prefix_);
-	sc.warned.insert(this->prefix_);	
-      } 
+	sc.logger.log(true, true, "SBW: TagDiscordant - Can't find ",
+		      "LearnBamParams for ", this->prefix_);
+	sc.warned.insert(this->prefix_);
+      }
       isize_cutoff_per_rg[RG] = DEFAULT_ISIZE_THRESHOLD;
+      
+      // re-check for calculated cutoff now that we placed it above
+      cc = isize_cutoff_per_rg.find(RG);
+      assert(cc != isize_cutoff_per_rg.end());
     } 
     
     // the bamStats exists for this 
@@ -494,7 +570,19 @@ void svabaBamWalker::TagDiscordant(svabaReadPtr& r) {
        r->Interchromosomal()
        )
     r->dd = 1; // set as discordant
+
+  // not discordant if read or mate in blacklist
+  if (sc.blacklist.CountOverlaps(r->AsGenomicRegion()) ||
+      sc.blacklist.CountOverlaps(r->AsGenomicRegionMate()))
+    r->dd = 0; 
   
+  //debug
+  // if (r->Qname() == "LH00306:129:227V5CLT4:6:2114:6074:25724") {
+  //   std::cerr << " TAG " << r->dd << " -- " << *r << " weird orientation " <<
+  //     weird_orientation << " cutoff " << cc->second << " INS " <<
+  //     abs(r->FullInsertSize()) << std::endl;
+  // }
+      
   return;
 }
  

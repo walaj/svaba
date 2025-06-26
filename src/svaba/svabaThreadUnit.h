@@ -49,11 +49,11 @@ public:
   // results
   std::vector<AlignedContig>                 master_alc;
   BamRecordPtrVector                         master_contigs;
-  BPVec                                      m_bps;
+  BreakPointPtrVector                        m_bps;
   DiscordantClusterMap                       m_disc;
   //size_t                                     m_bamreads_count = 0;
   //size_t                                     m_disc_reads     = 0;
-  SeqLib::GRC                                badd; // bad regions
+  //SeqLib::GRC                                badd; // bad regions
   int                                        threadId;
 
   // very verbose outpout

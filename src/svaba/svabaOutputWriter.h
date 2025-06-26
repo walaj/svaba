@@ -47,7 +47,6 @@ private:
   SeqLib::BamWriter   b_corrected_read_writer_;  
   
   SeqLib::BamHeader bam_header_;
-  bool                read_tracking_ = false;
   bool                disc_cluster_only_ = false;
 };
 

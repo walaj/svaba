@@ -135,7 +135,7 @@ void SvabaOutputWriter::writeUnit(svabaThreadUnit& unit,
   // alignment plot lines
   for (const auto& alc : unit.master_alc) {
     if (alc.hasVariant()) 
-      all_align_ << alc.print(bam_header_) << "\n";
+      all_align_ << alc.printToAlignmentsFile(bam_header_) << "\n";
   }
 
   // discordant clusters
@@ -143,7 +143,7 @@ void SvabaOutputWriter::writeUnit(svabaThreadUnit& unit,
   for (const auto& kv : unit.m_disc) {
     const auto& dc = kv.second;
     if (dc.valid())
-      os_discordant_ << dc.toFileString(bam_header_, read_tracking_) << "\n";
+      os_discordant_ << dc.toFileString(bam_header_, false) << "\n";
   }
 
   // write contig alignments to BAM
@@ -153,15 +153,15 @@ void SvabaOutputWriter::writeUnit(svabaThreadUnit& unit,
   }
 
   // breakpoints
-  //std::cerr << " BPS " << unit.m_bps.size() << std::endl;    
   for (auto& bp : unit.m_bps) {
-    if ( bp.hasMinimal() 
-	 && (bp.confidence != "NOLOCAL" || bp.complex_local) )
+    
+    if ( bp->hasMinimal() )
+      //	 && (bp.confidence != "NOLOCAL" || bp.complex_local) )
       {
-	os_allbps_ << bp.toFileString(!read_tracking_) << "\n";
+	os_allbps_ << bp->toFileString(sc.header) << "\n";
       }
   }
-
+  
   // discordant reads
   //std::cerr << " DC " << unit.all_discordant_reads.size() << std::endl;    
   // if (opts.dump_discordant_reads) {

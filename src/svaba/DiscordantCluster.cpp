@@ -30,6 +30,12 @@ DiscordantClusterMap DiscordantCluster::clusterReads(svabaReadPtrVector& bav,
   std::sort(bav.begin(), bav.end(), SeqLib::BamRecordSort::ByReadPositionSharedPtr());
   
   svabaReadClusterVector fwd, rev, fwdfwd, revrev, fwdrev, revfwd;
+
+  //debug
+  // for (const auto& b : bav) {
+  //   if (b->Qname() == "LH00306:129:227V5CLT4:6:2114:6074:25724")
+  // 	std::cerr << " CLUSTER " << *b << std::endl;
+  // }
   
   // make the fwd and reverse READ clusters. dont consider mate yet
   __cluster_reads(bav, fwd, rev, FRORIENTATION);
@@ -340,34 +346,6 @@ std::string DiscordantCluster::toFileString(const SeqLib::BamHeader& h, bool wit
   
   std::string sep = "\t";
   
-  // add the reads names (currently off)
-  std::string reads_string;
-  if (with_read_names) {
-    
-    std::unordered_set<std::string> qnset;
-    for (const auto& [_, read] : reads) 
-      {
-	if (qnset.count(read->Qname()))
-	  continue;
-	std::string tmp = read->UniqueName();
-	qnset.insert(read->Qname());
-	reads_string += tmp + ",";
-      }
-    for (const auto& [_,mate] : mates) {
-      if (qnset.count(mate->Qname()))
-	continue;
-      std::string tmp = mate->UniqueName();
-      qnset.insert(mate->Qname());
-      reads_string += tmp + ",";
-    }
-    
-    
-    if (reads_string.empty())
-      reads_string = "x";
-    else
-      reads_string.pop_back(); // delete last comma
-  }
-  
   int pos1 = m_reg1.strand == '+' ? m_reg1.pos2 : m_reg1.pos1; // get the edge of the cluster
   int pos2 = m_reg2.strand == '+' ? m_reg2.pos2 : m_reg2.pos1;
   
@@ -376,8 +354,7 @@ std::string DiscordantCluster::toFileString(const SeqLib::BamHeader& h, bool wit
       << h.IDtoName(m_reg2.chr) << sep << pos2 << sep << m_reg2.strand << sep 
       << tcount << sep << ncount
       << sep << mapq1 << sep 
-      << mapq2 << sep << (m_contig.length() ? m_contig : "x") << sep << toRegionString(h)
-      << sep << (reads_string.length() ? reads_string : "x");
+      << mapq2 << sep << (m_contig.length() ? m_contig : "x") << sep << m_id;
   
   return (out.str());
   
@@ -705,7 +682,6 @@ void DiscordantCluster::__convertToDiscordantCluster(DiscordantClusterMap &dd,
 
   // loop through the clusters
   for (auto& v : cvec) {
-    assert(v.size() >= MIN_PER_CLUSTER);
     DiscordantCluster d(v, bav, header);
     dd[d.m_id] = d;
   }

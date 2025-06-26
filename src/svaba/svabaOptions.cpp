@@ -151,7 +151,7 @@ SvabaOptions SvabaOptions::parse(int argc, char** argv) {
       case 1607: o.bwaClip3         = std::stoi(optarg); break;
       case 1608: o.bwaClip5         = std::stoi(optarg); break;
 
-      case 1700: o.blacklistFile  = optarg; break;
+      case 1700: o.blacklistFile.push_back(optarg); break;
       case 1701: o.germlineSvFile = optarg; break;
       case 1702: o.dbsnpVcf       = optarg; break;
 

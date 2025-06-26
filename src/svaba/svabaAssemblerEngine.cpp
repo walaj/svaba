@@ -16,16 +16,20 @@
 
 //#define DEBUG_ENGINE 1
 
-static std::string POLYA = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
-static std::string POLYT = "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTT";
-static std::string POLYC = "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
-static std::string POLYG = "GGGGGGGGGGGGGGGGGGGGGGGGGGGGGG";
-static std::string POLYAT = "ATATATATATATATATATATATATATATATATATATATAT";
-static std::string POLYTC = "TCTCTCTCTCTCTCTCTCTCTCTCTCTCTCTCTCTCTCTC";
-static std::string POLYAG = "AGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAG";
-static std::string POLYCG = "CGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCG";
-static std::string POLYTG = "TGTGTGTGTGTGTGTGTGTGTGTGTGTGTGTGTGTGTGTG";
-static std::string POLYCA = "CACACACACACACACACACACACACACACACACACACACA";
+static std::string repeat(char base, int count) {
+  return std::string(count, base);
+}
+
+static const std::string POLYA  = repeat('A', 30);
+static const std::string POLYT  = repeat('T', 30);
+static const std::string POLYC  = repeat('C', 30);
+static const std::string POLYG  = repeat('G', 30);
+static const std::string POLYAT = "ATATATATATATATATATATATATATATATATATATATAT";
+static const std::string POLYTC = "TCTCTCTCTCTCTCTCTCTCTCTCTCTCTCTCTCTCTCTC";
+static const std::string POLYAG = "AGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAGAG";
+static const std::string POLYCG = "CGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCG";
+static const std::string POLYTG = "TGTGTGTGTGTGTGTGTGTGTGTGTGTGTGTGTGTGTGTG";
+static const std::string POLYCA = "CACACACACACACACACACACACACACACACACACACACA";
 
 /*void svabaAssemblerEngine::fillReadTable(const std::vector<std::string>& r) {
 
@@ -71,30 +75,24 @@ void svabaAssemblerEngine::fillReadTable(const svabaReadPtrVector& reads) {
     m_pRT.addRead(si);
     
   }
-  
 }
 
 bool svabaAssemblerEngine::hasRepeat(const std::string& seq) {
 
-  if (seq.find("N") != std::string::npos)
-    return true;
   if (seq.length() < 40)
     return false;
-  if ((seq.find(POLYT) == std::string::npos) && 
-      (seq.find(POLYA) == std::string::npos) && 
-      (seq.find(POLYC) == std::string::npos) && 
-      (seq.find(POLYG) == std::string::npos) && 
-      (seq.find(POLYCG) == std::string::npos) && 
-      (seq.find(POLYAT) == std::string::npos) && 
-      (seq.find(POLYTC) == std::string::npos) && 
-      (seq.find(POLYAG) == std::string::npos) && 
-      (seq.find(POLYCA) == std::string::npos) && 
-      (seq.find(POLYTG) == std::string::npos) && 
-      (seq.find("N") == std::string::npos))
-    return false;
-  
-  return true;
 
+  static const std::vector<std::string> repeatMotifs = {
+    "N", POLYT, POLYA, POLYC, POLYG,
+    POLYCG, POLYAT, POLYTC, POLYAG,
+    POLYCA, POLYTG
+  };
+  
+  return std::any_of(repeatMotifs.begin(), repeatMotifs.end(),
+                     [&seq](const std::string& motif) {
+                       return seq.find(motif) != std::string::npos;
+                     });
+  
 }
 
 bool svabaAssemblerEngine::performAssembly(int num_assembly_rounds) 
@@ -151,7 +149,6 @@ void svabaAssemblerEngine::doAssembly(ReadTable *pRT,
   // clear the hits stream
   std::stringstream hits_stream, asqg_stream;
 
-  // set the paramters for this run
   double errorRate = m_error_rate;
   int min_overlap = m_min_overlap;
   int cutoff = 0;

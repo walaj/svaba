@@ -54,7 +54,7 @@ public:
   ThreadPool(SvabaSharedConfig& sc)
     : queue_(), workers_(), flushMutex_(), sc_(sc)
   {
-    
+
     workers_.reserve(sc.opts.numThreads);
     for(size_t i=0;i<sc.opts.numThreads;++i){
 

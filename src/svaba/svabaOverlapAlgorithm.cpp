@@ -23,11 +23,11 @@ OverlapResult svabaOverlapAlgorithm::overlapRead(const SeqRecord& read, int minO
     OverlapResult r;
     if(static_cast<int>(read.seq.length()) < minOverlap)
         return r;
-
+    
     if(!m_exactModeOverlap)
-        r = overlapReadInexact(read, minOverlap, pOutList);
+      r = overlapReadInexact(read, minOverlap, pOutList);
     else
-        r = overlapReadExact(read, minOverlap, pOutList);
+      r = overlapReadExact(read, minOverlap, pOutList);
     return r;
 }
 

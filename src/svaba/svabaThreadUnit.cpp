@@ -14,6 +14,7 @@ svabaThreadUnit::svabaThreadUnit(SvabaSharedConfig& sc_,
   
   // set the *shared* memory BWAIndex
   bwa_aligner = std::make_shared<SeqLib::BWAAligner>(sc.bwa_idx);
+  //bwa_aligner->allocBuffer(4096); // longest contig
 
   // load the .bai files for each bam and set parameters
   for(const auto& [pref, path] : sc.opts.bams)  {
@@ -68,7 +69,7 @@ void svabaThreadUnit::clear() {
   m_disc.clear();
   //m_bamreads_count = 0;
   // m_disc_reads     = 0;
-  badd.clear();
+  //badd.clear();
 
   all_weird_reads.clear();
   all_discordant_reads.clear();

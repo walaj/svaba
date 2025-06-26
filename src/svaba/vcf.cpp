@@ -21,7 +21,6 @@ using namespace std;
 static std::string sv_format = "GT:AD:DP:GQ:PL:SR:DR:LR:LO"; 
 static std::string indel_format = "GT:AD:DP:GQ:PL:SR:CR:LR:LO";
 static InfoMap flag_map;
-//static int global_id = 0;
 static std::stringstream lod_ss;
 
 static std::unordered_map<std::string, int> cname_count;
@@ -30,16 +29,6 @@ static std::unordered_set<uint32_t> hash_avoid; // being extra careful for hash 
 
 #define HIGH_OVERLAP_LIMIT 500
 #define BAD_REGION_PAD 200
-
-void __write_to_zip_vcf(const VCFEntry& v, BGZF * f) {
-  std::stringstream ss;
-  ss << v << endl;
-  if (!bgzf_write(f, ss.str().c_str(), ss.str().length())) 
-    cerr << "Could not write bzipped vcf for line " << ss.str() << endl;
-}
-
-// forward declare
-//void tabixVcf(const std::string &fn);
 
 // comparator for info fields
 // lhs < rhs
@@ -147,9 +136,10 @@ void VCFHeader::addSampleField(std::string field) {
 }
 
 // print out the VCF Entry
-std::ostream& operator<<(std::ostream& out, const VCFEntry& v) {
+std::string VCFEntry::toFileString(const SeqLib::BamHeader& header) const {
 
-  std::unordered_map<std::string, std::string> info_fields = v.fillInfoFields();
+  std::stringstream out;
+  std::unordered_map<std::string, std::string> info_fields = this->fillInfoFields();
 
   // move to a vector to be sorted
   vector<pair<string, std::string> > tmpvec; // id, evertythign else
@@ -160,7 +150,7 @@ std::ostream& operator<<(std::ostream& out, const VCFEntry& v) {
   std::string info;
   std::string equals = "=";
   for (vector<pair<std::string, std::string> >::const_iterator it = tmpvec.begin(); it != tmpvec.end(); it++) {
-    if (!(it->first == "HOMSEQ" && v.bp->imprecise) && !(it->first=="HOMLEN" && v.bp->imprecise) && !(it->first=="INSERTION" && v.bp->imprecise))// dont print some fields if imprecise
+    if (!(it->first == "HOMSEQ" && this->bp->imprecise) && !(it->first=="HOMLEN" && this->bp->imprecise) && !(it->first=="INSERTION" && this->bp->imprecise))// dont print some fields if imprecise
       info = info + it->first + ( (flag_map.count(it->first) == 0) ? "=" : "") + it->second + ";"; // dont print = for flags
   }
 
@@ -169,23 +159,26 @@ std::ostream& operator<<(std::ostream& out, const VCFEntry& v) {
     info = info.substr(0, info.length() - 1);
 
   std::string sep = "\t";
-  ReducedBreakEnd * be = v.id_num == 1 ? &v.bp->b1 : &v.bp->b2;
+  //ReducedBreakEnd * be = this->id_num == 1 ? &this->bp->b1 : &this->bp->b2;
+  BreakEnd * be = this->id_num == 1 ? &this->bp->b1 : &this->bp->b2;  
 
-  //std::pair<std::string, std::string> samps = v.getSampStrings();
-  out << be->chr_name << sep  
-      << be->gr.pos1 << sep << v.getIdString() << sep << v.getRefString() << sep << v.getAltString() << sep 
-      << v.bp->quality << sep
-      << v.bp->confidence << sep << info << sep 
-      << (v.bp->indel ? indel_format : sv_format); // << sep << samps.first << sep << samps.second;
-  for (auto& i : v.bp->format_s)
+  out << be->gr.ChrName(header) << sep  
+      << be->gr.pos1 << sep << this->getIdString() << sep << this->getRefString() << sep << this->getAltString(header) << sep 
+      << this->bp->quality << sep
+      << this->bp->confidence << sep << info << sep 
+      << (this->bp->isindel ? indel_format : sv_format); // << sep << samps.first << sep << samps.second;
+  for (auto& i : this->bp->format_s)
     out << sep << i;
-  return out;
+  return out.str();
 }
 
 // sort the VCFEntry by genomic position
 bool VCFEntry::operator<(const VCFEntry &v) const {
-  ReducedBreakEnd * be = id_num == 1 ? &bp->b1 : &bp->b2;
-  ReducedBreakEnd * vbe = v.id_num == 1 ? &v.bp->b1 : &v.bp->b2;
+  //ReducedBreakEnd * be = id_num == 1 ? &bp->b1 : &bp->b2;
+  //ReducedBreakEnd * vbe = v.id_num == 1 ? &v.bp->b1 : &v.bp->b2;
+  BreakEnd * be = id_num == 1 ? &bp->b1 : &bp->b2;
+  BreakEnd * vbe = v.id_num == 1 ? &v.bp->b1 : &v.bp->b2;
+  
   return be->gr < vbe->gr;    
 }
 
@@ -332,7 +325,8 @@ VCFFile::VCFFile(std::string file, std::string id, const SeqLib::BamHeader& h, c
       continue;
 
     // parse the breakpoint from the file
-    std::shared_ptr<ReducedBreakPoint> bp(new ReducedBreakPoint(line, h));
+    //std::shared_ptr<ReducedBreakPoint> bp(new ReducedBreakPoint(line, h));
+    std::shared_ptr<BreakPoint> bp(new BreakPoint(line, h));    
 
     // add the VCFentry Pair
     std::shared_ptr<VCFEntryPair> vpair(new VCFEntryPair(bp));
@@ -353,7 +347,7 @@ VCFFile::VCFFile(std::string file, std::string id, const SeqLib::BamHeader& h, c
     if (!bp->pass)
       bp->bxtable = "x";
 
-    if (bp->indel) {
+    if (bp->isindel) {
       indels.insert(pair<int, std::shared_ptr<VCFEntryPair>>(line_count, vpair));
     }
     else  {
@@ -367,7 +361,7 @@ VCFFile::VCFFile(std::string file, std::string id, const SeqLib::BamHeader& h, c
 
   std::cerr << "...vcf - read in " << SeqLib::AddCommas(indels.size()) << " indels and " << SeqLib::AddCommas(entry_pairs.size()) << " SVs " << std::endl;
   std::cerr << "...vcf - SV deduplicating " << SeqLib::AddCommas(entry_pairs.size()) << " events" << std::endl;
-  deduplicate();
+  deduplicate(h);
   std::cerr << "...vcf - SV deduplicated down to " << SeqLib::AddCommas((entry_pairs.size() - dups.size())) << " break pairs" << std::endl;
   
 }
@@ -381,7 +375,7 @@ class GenomicRegionWithID : public SeqLib::GenomicRegion
 };
 
 // deduplicate
-void VCFFile::deduplicate() {
+void VCFFile::deduplicate(const SeqLib::BamHeader& header) {
 
   // create the interval tree maps
   // grv1 are left entries, grv2 are right
@@ -548,7 +542,7 @@ void VCFFile::deduplicate() {
     std::string hh;
     try {
       hh = std::to_string(i.second->e1.bp->b1.gr.chr) + ":" + std::to_string(i.second->e1.bp->b1.gr.pos1) + 
-	     "_" + i.second->e1.getRefString() + "_" + i.second->e1.getAltString();
+	     "_" + i.second->e1.getRefString() + "_" + i.second->e1.getAltString(header);
       } catch (...) {
       	std::cerr << " error " << std::endl;
    }
@@ -561,22 +555,27 @@ void VCFFile::deduplicate() {
 }
 
 // print a breakpoint pair
-ostream& operator<<(ostream& out, const VCFEntryPair& v) {
+std::string VCFEntryPair::toFileString(const SeqLib::BamHeader& header) const {
 
-  out << v.e1 << endl;
-  out << v.e2 << endl;
-  return (out);
+  std::stringstream out;
+  out << e1.toFileString(header) << endl;
+  out << e2.toFileString(header) << endl;
+  return out.str();
 
 }
 
 bool VCFEntry::operator==(const VCFEntry &v) const {
-  ReducedBreakEnd * be = id_num == 1 ? &bp->b1 : &bp->b2;
-  ReducedBreakEnd * vbe = v.id_num == 1 ? &v.bp->b1 : &v.bp->b2;
+  // ReducedBreakEnd * be = id_num == 1 ? &bp->b1 : &bp->b2;
+  // ReducedBreakEnd * vbe = v.id_num == 1 ? &v.bp->b1 : &v.bp->b2;
+  BreakEnd * be = id_num == 1 ? &bp->b1 : &bp->b2;
+  BreakEnd * vbe = v.id_num == 1 ? &v.bp->b1 : &v.bp->b2;
+  
   return (vbe->gr == be->gr) ; //chr == v.chr && pos == v.pos);
 }
 
 // write out somatic and germline INDEL vcfs
-void VCFFile::writeIndels(string basename, bool zip, bool onefile) const {
+void VCFFile::writeIndels(string basename, bool zip, bool onefile,
+			  const SeqLib::BamHeader& header) const {
 
   std::string gname = basename + "germline.indel.vcf.gz";
   std::string sname = basename + "somatic.indel.vcf.gz";
@@ -632,16 +631,10 @@ void VCFFile::writeIndels(string basename, bool zip, bool onefile) const {
 
     std::stringstream ss;
     if (!onefile && i.bp->somatic_score >= SOMATIC_LOD) {
-      if (zip) 
-	__write_to_zip_vcf(i, s_bg);
-      else 
-	out_s << i << endl;
+      out_s << i.toFileString(header) << endl;
       
     } else {
-      if (zip) 
-	__write_to_zip_vcf(i, g_bg);
-      else
-	out_g << i << endl;
+      out_g << i.toFileString(header) << endl;
     }
     
   }
@@ -666,7 +659,8 @@ void VCFFile::writeIndels(string basename, bool zip, bool onefile) const {
 }
 
 // write out somatic and germline SV vcfs
-void VCFFile::writeSVs(std::string basename, bool zip, bool onefile) const {
+void VCFFile::writeSVs(std::string basename, bool zip, bool onefile,
+		       const SeqLib::BamHeader& header) const {
 
   std::string gname, sname, gname_nz, sname_nz; 
   gname = basename + "germline.sv.vcf.gz";
@@ -731,53 +725,23 @@ void VCFFile::writeSVs(std::string basename, bool zip, bool onefile) const {
     
     // somatic
     if (!onefile &&  i.bp->somatic_score >= SOMATIC_LOD) { 
-      if (zip) 
-	__write_to_zip_vcf(i, s_bg);
-      else
-	out_s << i << endl;
+      out_s << i.toFileString(header) << endl;
       // germline
     } else {
-      if (zip)
-	__write_to_zip_vcf(i, g_bg);
-      else 
-	out_g << i << endl;
+      out_g << i.toFileString(header) << endl;
     }
 
   }
   
-  if (zip) {
-    bgzf_close(g_bg);
-    if (!onefile)
-      bgzf_close(s_bg);
-  } else {
-    out_s.close();
-    if (!onefile)
-      out_g.close();
-  }
-
-  // tabix it
-  if (zip) {
-    //if (!onefile)
-      //tabixVcf(sname); 
-    //tabixVcf(gname);
-  }
-
+  out_s.close();
+  if (!onefile)
+    out_g.close();
+  
 }
 
 
-// tabix the vcf
-/*void tabixVcf(const std::string &fn) {
-
-  // tabix it
-  tbx_conf_t conf = tbx_conf_gff;
-  tbx_conf_t * conf_ptr = &tbx_conf_vcf;
-  conf = *conf_ptr;
-  if ( tbx_index_build(fn.c_str(), 0, &conf) ) 
-    cerr << "tbx_index_build failed: " << fn << endl;
-
-    }*/
-
-VCFEntryPair::VCFEntryPair(std::shared_ptr<ReducedBreakPoint>& b) {
+//VCFEntryPair::VCFEntryPair(std::shared_ptr<ReducedBreakPoint>& b) {
+VCFEntryPair::VCFEntryPair(std::shared_ptr<BreakPoint>& b) {  
 
   bp = b;
   e1.bp = bp;
@@ -788,9 +752,8 @@ VCFEntryPair::VCFEntryPair(std::shared_ptr<ReducedBreakPoint>& b) {
     // come up with some string that describes this, to be hashed (doesn't have to be human readable)
     std::string s = std::to_string(bp->b1.gr.pos1) + "-" +
       std::to_string(bp->b2.gr.pos1) + "-" +
-      bp->b1.chr_name + "_" + bp->b2.chr_name + std::string(b->cname) +
-      //"-" + std::to_string(b->cov) + "-" + std::to_string(b->af_n) + "-" + std::to_string(b->tcigar) + 
-      //"-" + std::to_string(b->af_t) + std::to_string(b->quality) + 
+      std::to_string(bp->b1.gr.chr) + "_" + std::to_string(bp->b2.gr.chr) +
+      std::string(b->cname) +
       std::to_string(i);
     hashed  = __ac_Wang_hash(__ac_X31_hash_string(s.c_str()));
     ++i;
@@ -955,7 +918,7 @@ std::string VCFEntry::getRefString() const {
    return (std::string(p));
 }
 
-std::string VCFEntry::getAltString() const {
+std::string VCFEntry::getAltString(const SeqLib::BamHeader& header) const {
 
 
   if (bp->indel) {
@@ -976,9 +939,9 @@ std::string VCFEntry::getAltString() const {
 
   std::stringstream ptag;
   if (id_num == 1) {
-    ptag << bp->b2.chr_name << ":" << bp->b2.gr.pos1;
+    ptag << bp->b2.gr.ChrName(header) << ":" << bp->b2.gr.pos1;
   } else {
-    ptag << bp->b1.chr_name << ":" << bp->b1.gr.pos1;
+    ptag << bp->b1.gr.ChrName(header) << ":" << bp->b1.gr.pos1;
   }
   
   std::stringstream alt;

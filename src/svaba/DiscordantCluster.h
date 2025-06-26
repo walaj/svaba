@@ -47,7 +47,7 @@ public:
   
   /** Return a string representing the output file header */
   static std::string header() { 
-    return "chr1\tpos1\tstrand1\tchr2\tpos2\tstrand2\ttcount\tncount\ttcount_hq\tncount_hq\t\tmapq1\tmapq2\tcname\tregion_string\treads\tcompeting_id"; 
+    return "chr1\tpos1\tstrand1\tchr2\tpos2\tstrand2\ttcount\tncount\t\tmapq1\tmapq2\tcname\tid";
   }
   
   bool hasAssociatedAssemblyContig() const { return m_contig.length(); }
@@ -108,8 +108,9 @@ public:
   
   int tcount = 0;
   int ncount = 0; 
-  
-  std::unordered_map<std::string, int> counts; // supporting read counts per sample (e.g. t001 - 4, n001 - 6)
+
+  // supporting read counts per sample (e.g. t001 - 4, n001 - 6)  
+  std::unordered_map<std::string, int> counts;
 
   DiscordantReadMap reads, mates;
   

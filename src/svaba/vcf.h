@@ -69,17 +69,19 @@ struct VCFEntry {
   VCFEntry(const BreakEnd& b);
 
   // data
-  std::shared_ptr<ReducedBreakPoint> bp;
+  //std::shared_ptr<ReducedBreakPoint> bp;
+  std::shared_ptr<BreakPoint> bp;  
   uint32_t id;
   uint8_t id_num;
 
   std::string getRefString() const;
-  std::string getAltString() const;
+  std::string getAltString(const SeqLib::BamHeader& header) const;
   std::string getIdString() const;
   std::pair<std::string, std::string> getSampStrings() const;
 
   // output it to a string
-  friend std::ostream& operator<<(std::ostream& out, const VCFEntry& v);
+  //friend std::ostream& operator<<(std::ostream& out, const VCFEntry& v);
+  std::string toFileString(const SeqLib::BamHeader& header) const;
 
   // define how to sort
   bool operator<(const VCFEntry &v) const;
@@ -94,13 +96,15 @@ typedef std::vector<VCFEntry> VCFEntryVec;
 
 struct VCFEntryPair {
 
-  VCFEntryPair(std::shared_ptr<ReducedBreakPoint>& b);
+  //VCFEntryPair(std::shared_ptr<ReducedBreakPoint>& b);
+  VCFEntryPair(std::shared_ptr<BreakPoint>& b);  
   VCFEntryPair() {};
   ~VCFEntryPair() {};
 
   // data
   VCFEntry e1, e2;
-  std::shared_ptr<ReducedBreakPoint> bp;
+  //std::shared_ptr<BreakPoint> bp;
+  std::shared_ptr<BreakPoint> bp;
 
   //SupportingReadsMap supp_reads;
 
@@ -111,7 +115,8 @@ struct VCFEntryPair {
   std::string toCSVString() const;
 
   // output it to a string
-  friend std::ostream& operator<<(std::ostream& out, const VCFEntryPair& v);
+  //friend std::ostream& operator<<(std::ostream& out, const VCFEntryPair& v);
+  std::string toFileString(const SeqLib::BamHeader& header) const;
 
 };
 
@@ -159,11 +164,11 @@ struct VCFFile {
   bool writeCSV() const;
 
   //
-  void deduplicate();
+  void deduplicate(const SeqLib::BamHeader& header);
   
   //
-  void writeIndels(std::string basename, bool zip, bool onefile) const;
-  void writeSVs(std::string basename, bool zip, bool onefile) const;
+  void writeIndels(std::string basename, bool zip, bool onefile, const SeqLib::BamHeader& header) const;
+  void writeSVs(std::string basename, bool zip, bool onefile, const SeqLib::BamHeader& header) const;
   
 
 };

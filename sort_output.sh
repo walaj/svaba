@@ -2,7 +2,7 @@
 
 SAM=/usr/bin/samtools
 ID=$1
-MEM=16G
+MEM=2G
 
 # Preprocessing: merge thread BAMs if necessary
 for suffix in weird corrected; do
@@ -16,7 +16,7 @@ for suffix in weird corrected; do
   if [[ ${#bam_files[@]} -gt 1 ]]; then
       echo "Merging ${#bam_files[@]} BAM files for suffix '$suffix' into $target"
       echo "${SAM} merge -f $target ${bam_files[@]}"
-    ${SAM} merge -f "$target" "${bam_files[@]}"
+    ${SAM} merge -f "$target" "${bam_files[@]}" && rm "${bam_files[@]}"
   elif [[ ${#bam_files[@]} -eq 1 ]]; then
     echo "Renaming single-thread BAM ${bam_files[0]} to $target"
     mv "${bam_files[0]}" "$target"
@@ -28,7 +28,7 @@ for suffix in weird corrected contigs; do
   bam="${ID}.${suffix}.bam"
   sorted="${ID}.${suffix}.sorted.bam"
 
-  echo "Processing $bam..."
+  echo "Sorting and indexing $bam..."
 
   if [[ ! -f "$bam" ]]; then
     echo "  Skipping: $bam not found."

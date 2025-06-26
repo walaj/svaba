@@ -196,9 +196,9 @@ void SuffixArray::writeIndex(std::string& filename)
     SAWriter writer(filename);
     writer.writeHeader(m_numStrings, m_numStrings);
     for(size_t i = 0; i < m_data.size(); ++i)
-    {
+      {
       if(m_data[i].isFull()) 
-            writer.writeElem(m_data[i]);
+	writer.writeElem(m_data[i]);
     }
 }
 
@@ -246,7 +246,6 @@ void SuffixArray::writeIndex()
 
     m_data = sae;
 }
-
 
 // Output operator
 std::ostream& operator<<(std::ostream& out, const SuffixArray& sa)

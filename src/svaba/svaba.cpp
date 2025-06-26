@@ -14,7 +14,7 @@
 #include <string_view>
 #include "svabaOptions.h"
 
-void runToVCF(int argc, char** argv);
+//void runToVCF(int argc, char** argv);
 void runsvaba(int argc, char** argv);
 //void runRefilterBreakpoints(int argc, char** argv);
 
@@ -31,7 +31,7 @@ static void printUsage() {
               << "Commands:\n"
               << "  run       Run SV and indel detection on BAM(s)\n"
       //              << "  refilter  Refilter breakpoints into filtered VCF\n"
-              << "  tovcf     Convert bps.txt.gz into a VCF\n\n"
+      //        << "  tovcf     Convert bps.txt.gz into a VCF\n\n"
               << "Report bugs to jeremiah.wala@gmail.com\n";
 }
 
@@ -54,9 +54,9 @@ int main(int argc, char* argv[]) {
     //    else if (cmd == "refilter") {
     //        return (runRefilterBreakpoints(argc - 1, argv + 1), EXIT_SUCCESS);
     //    }
-    else if (cmd == "tovcf") {
-        return (runToVCF(argc - 1, argv + 1), EXIT_SUCCESS);
-    }
+    // else if (cmd == "tovcf") {
+    //     return (runToVCF(argc - 1, argv + 1), EXIT_SUCCESS);
+    // }
     else {
         std::cerr << "Unknown command: " << cmd << "\n\n";
         printUsage();
