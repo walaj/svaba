@@ -182,7 +182,7 @@ SeqLib::GRC svabaBamWalker::readBam(svabaThreadUnit& unit) {
     bool rule_pass = sc.mr.isValid(*s);
 
     // special rule to filter "RF" "discordants" that are just overlaps
-    if (s->PairOrientation() == RFORIENTATION &&
+    if (s->PairOrientation() == SeqLib::Orientation::RF &&
 	std::abs(s->InsertSize()) < std::max(200, sc.readlen * 2))
       rule_pass = false;
     
@@ -564,7 +564,7 @@ void svabaBamWalker::TagDiscordant(svabaReadPtr& r) {
   
   // accept as discordant if not FR, has large enough isize, is inter-chromosomal, 
   // and has both mates mapping. Also dont cluster on weird chr
-  bool weird_orientation = r->PairOrientation() != FRORIENTATION;
+  bool weird_orientation = r->PairOrientation() != SeqLib::Orientation::FR;
   if ( weird_orientation ||
        abs(r->FullInsertSize()) >= cc->second || // cc-> second is isize cutoff
        r->Interchromosomal()

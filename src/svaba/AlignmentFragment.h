@@ -65,8 +65,8 @@ public:
   
   BreakPointPtrVector m_indel_breaks; // indel variants on this alignment
   
-  Cigar m_cigar; //cigar oriented to assembled orientation
-  std::string m_seq; // seequence, orientated to assembled orientation
+  //Cigar m_cigar; //cigar oriented to assembled orientation
+  //std::string m_seq; // seequence, orientated to assembled orientation
   
   int break1 = -1; // 0-based breakpoint 1 on contig 
   int break2 = -1; // 0-based breakpoint 2 on contig 

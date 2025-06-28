@@ -50,7 +50,7 @@ AlignedContig::AlignedContig(BamRecordPtrVector& bav,
     }
 
     // set the sequence for the aligned contig in the flipped (or not) orientation
-    m_frag_v.back().m_seq = m_seq;
+    //m_frag_v.back().m_seq = m_seq;
     
     // set the aligned coverage
     SeqLib::Cigar cig = i->GetCigar();
@@ -74,6 +74,9 @@ AlignedContig::AlignedContig(BamRecordPtrVector& bav,
     f.SetIndels();
 
   // sort fragments by order on fwd-strand contig
+  // underneath this calls AlignmentFragment::operator<
+  // which is defined based on the "flip-convention"
+  // alignment position on the contig, NOT on the genome
   std::sort(m_frag_v.begin(), m_frag_v.end());
   
   // get rearrangement breaks out of it

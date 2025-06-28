@@ -161,7 +161,7 @@ void BamReadGroup::addRead(const SeqLib::BamRecord &r)
   
   // track the insert size
   int isizer = -1;
-  if (!r.PairMappedFlag() || r.Interchromosomal() || r.PairOrientation() != FRORIENTATION)
+  if (!r.PairMappedFlag() || r.Interchromosomal() || r.PairOrientation() != SeqLib::Orientation::FR)
     ;
   else if (!r.Interchromosomal())
     isize_vec.push_back(std::abs(r.InsertSize()));

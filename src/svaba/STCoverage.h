@@ -50,7 +50,7 @@ private:
   friend std::ostream& operator<<(std::ostream &out, const STCoverage &c);
 
   /** Return the coverage count at a position */
-  int getCoverageAtPosition(int chr, int pos) const;
+  uint32_t getCoverageAtPosition(int chr, int pos) const;
   
 };
 

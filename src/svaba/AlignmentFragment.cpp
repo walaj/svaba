@@ -44,11 +44,11 @@ AlignmentFragment::AlignmentFragment(BamRecordPtr &talign,
   // We only flip if we flipped the sequence, and that was determined
   // by the convention set in AlignedContig::AlignedContig, so we need
   // to pass that information explicitly
-  if (flip/*m_align->ReverseFlag()*/) {
-    m_cigar = m_align->GetReverseCigar();
-  } else { 
-    m_cigar = m_align->GetCigar();
-  }
+  // if (flip/*m_align->ReverseFlag()*/) {
+  //   m_cigar = m_align->GetReverseCigar();
+  // } else { 
+  //   m_cigar = m_align->GetCigar();
+  // }
 
   flipped = flip;
   
@@ -56,8 +56,13 @@ AlignmentFragment::AlignmentFragment(BamRecordPtr &talign,
   unsigned currlen  = 0; 
   
   // NB: CPOS is zero based
-  // cigar is oriented to as is from aligner
-  for (auto& i : m_cigar/*m_align->GetCigar()*/ /*align.CigarData*/) { //CigarOpVec::const_iterator j = align.cigar.begin(); j != align.cigar.end(); j++) {
+  // NB: for break1 and break2, we use these later in the
+  //     for either printing to alignments file, or for
+  //     getting the *contig* coordinate breakpoints
+  //     So this to account for "flip" convention across
+  //     AlignmentFragments
+  const auto& cig = flipped ? m_align->GetReverseCigar() : m_align->GetCigar();
+  for (auto& i : cig) { 
     
     // SET THE CONTIG BREAK (treats deletions and leading S differently)
     // the first M gets the break1, pos on the left
@@ -88,12 +93,12 @@ AlignmentFragment::AlignmentFragment(BamRecordPtr &talign,
   // }
   
   if (break1 < 0 || break2 < 0) {
-    throw std::runtime_error("Negative breakpoint detected in AlignmentFragment " + printToAlignmentsFile());
+    throw std::runtime_error("Negative breakpoint detected in AlignmentFragment "); //  + printToAlignmentsFile());
   }
   
   // find the start position of alignment ON CONTIG
   start = 0; 
-  for (auto& i : /*m_align.GetCigar()*/ m_cigar) {
+  for (auto& i : cig) { //m_align->GetCigar()) { //m_cigar) {
     if (i.Type() != 'M')
       start += i.Length();
     else
@@ -106,17 +111,18 @@ void AlignmentFragment::SetIndels() {
   
   if (m_align->SecondaryFlag())
     return; // ignore these
-  
+
+  const auto& cig = m_align->GetCigar();
   // loops the alignment fragment to extract indels
   // start at 1 and end at len-1 because we don't consider indels if they
   //   start the cigar string e.g. 1D5M, not reliable
-  for (size_t i = 1; i < m_cigar.size() - 1; ++i) { 
-    const CigarField& c = m_cigar[i];
-    const CigarField& pre = m_cigar[i-1];
-    const CigarField& post = m_cigar[i+1];
+  for (size_t i = 1; i < cig.size() - 1; ++i) { 
+    const CigarField& c = cig[i];
+    const CigarField& pre = cig[i-1];
+    const CigarField& post = cig[i+1];
     if ( (c.Type() == 'D' || c.Type() == 'I')) {
-      bool prev_match = pre.Type() == 'M'; /* && m_cigar[loc-2].Length() >= MIN_INDEL_MATCH_BRACKET*/
-      bool post_match = post.Type() == 'M';/* && m_cigar[loc].Length() >= MIN_INDEL_MATCH_BRACKET*/
+      bool prev_match = pre.Type() == 'M'; /* && cig[loc-2].Length() >= MIN_INDEL_MATCH_BRACKET*/
+      bool post_match = post.Type() == 'M';/* && cig[loc].Length() >= MIN_INDEL_MATCH_BRACKET*/
       
       // only consider indels if 
       if (prev_match && post_match) {
@@ -138,9 +144,15 @@ std::string AlignmentFragment::printToAlignmentsFile() const {
   char jsign = '>'; 
   if (m_align->ReverseFlag())
     jsign = '<';
+
+  // NB: for printing, this should actually finally
+  //   consider if this fragment is "flipped" relative
+  //   to the BWA alignment, since we want to sync
+  //   orientations across all of the fragments.
+  const auto& cig = flipped ? m_align->GetReverseCigar() : m_align->GetCigar(); 
   
   // print the cigar value per base
-  for (auto& j : /*m_align->GetCigar()*/ m_cigar) { //align.CigarData) { // print releative to forward strand
+  for (auto& j : cig) {
     if (j.Type() == 'M')
       out << std::string(j.Length(), jsign);
     else if (j.Type() == 'I') 

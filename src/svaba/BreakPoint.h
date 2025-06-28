@@ -60,55 +60,40 @@ typedef std::vector<BreakPointPtr> BreakPointPtrVector;
 
 typedef std::unordered_set<std::string> ReadNameSet;
 
-/*struct ReducedBreakEnd {
+struct BreakEnd {
   
+  BreakEnd() = default;
   
-  ReducedBreakEnd(): mapq(0), sub_n(0), nm(0) {}
+  void transferContigAlignmentData(const AlignmentFragment* f,
+				   bool isleft);
   
-  ReducedBreakEnd(const SeqLib::GenomicRegion& g, int mq);
+  void setLocal(const GenomicRegion& window);
+  
+  std::string printSimple(const BamHeader& h) const;
+  
+  std::string hash(int offset) const;
+  
+  std::string id;
+  GenomicRegion gr;
+  
+  // contig level informaiton set by AlignmentFragment
+  int mapq = -1; ///< mapping quality of alignment
+  int cpos = -1; ///< breakpoint position on the contig (0-based)
+  int nm = -1;   ///< number of mismatching bases/indels bases
+  int matchlen = -1; /// number of matching bases in the alignment
+  int as = -1;  ///< primary alignment score  
+  int sub = -1; ///< best secondary alignment score
 
-  friend std::ostream& operator<<(std::ostream& os, const ReducedBreakEnd& rbe);
+  LocalAlignment local = LocalAlignment::NOTSET;
   
-  SeqLib::GenomicRegion gr;
-  uint32_t mapq:8, sub_n:8, nm:16;  
+  // for high-confidence reads
+  std::unordered_map<std::string, int> split;  
+  
+  //   friend std::ostream& operator<<(std::ostream& out, const BreakEnd& b);
 };
-*/
-
- struct BreakEnd {
-   
-   BreakEnd() = default;
-
-   void transferContigAlignmentData(const AlignmentFragment* f,
-				    bool isleft);
-   
-   void setLocal(const GenomicRegion& window);
-
-   std::string printSimple(const BamHeader& h) const;
-
-   std::string hash(int offset) const;
-
-   std::string id;
-   GenomicRegion gr;
-   
-   // contig level informaiton set by AlignmentFragment
-   int mapq = -1;
-   int cpos = -1;
-   int nm = -1;
-   int matchlen = -1;
-   int sub_n = -1;
-   double as_frac= 0;
-   int as = -1;
-   LocalAlignment local = LocalAlignment::NOTSET;
-
-   // for high-confidence reads
-   std::unordered_map<std::string, int> split;  
-   //std::unordered_map<std::string, double> af;
-
-   //   friend std::ostream& operator<<(std::ostream& out, const BreakEnd& b);
- };
 
 class BreakPoint {
-
+  
 public:
   
   // for discordant clusters
@@ -149,7 +134,7 @@ public:
 		       "#chr1\tpos1\tstrand1\tchr2\tpos2\tstrand2\tref\talt\t"
 		       "span\tsplit\tcigar\talt\tcov\t"
 		       "dmq1\tdmq2\tdcn\tdct\t"
-		       "mapq1\tmapq2\tnm1\tnm2\tsub_n1\tsub_n2\t"
+		       "mapq1\tmapq2\tnm1\tnm2\tas1\tas2\tsub1\tsub2\t"
 		       "homol\tinsert\t"
 		       "contig_and_region\tnaln\tconf\ttype\tqual\t2ndary\t"
 		       "somatic\tsomlod\tmaxlod\tdbsnp"
@@ -192,7 +177,9 @@ public:
   const SvabaSharedConfig* sc;
   
   // keep track of how much of contig is covered by split
-  std::pair<int,int> split_cov_bounds = std::pair<int, int>(1e5, -1); // dummy to extreme opposite vals
+  // first is left-most position on contig that has a read aligned to it
+  // second is right-most
+  std::pair<int,int> split_cov_bounds;
 
   GenomicRegion BreakEndAsGenomicRegionLeft() const;
   
@@ -271,11 +258,9 @@ public:
   
   bool sameBreak(BreakPoint &bp) const;
   
-  void order();
-  
   bool isEmpty() const { return (b1.gr.pos1 == 0 && b2.gr.pos1 == 0); }
   
-  std::string toFileString(const BamHeader& header);
+  std::string toFileString(const BamHeader& header) const;
   
   bool hasDiscordant() const;
   
@@ -368,13 +353,13 @@ public:
      
    };
 
-    // Friend declarations so these free functions can see the private nested type
+  // Friend declarations so these free functions can see the private nested type
   friend std::ostream& operator<<(
-    std::ostream& out,
-    const BreakPoint::SampleInfo& a
+				  std::ostream& out,
+				  const BreakPoint::SampleInfo& a
   );
   friend BreakPoint::SampleInfo operator+(
-    const BreakPoint::SampleInfo& a1,
+					  const BreakPoint::SampleInfo& a1,
     const BreakPoint::SampleInfo& a2
   );
   

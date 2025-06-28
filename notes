@@ -1,0 +1,21 @@
+AlignedContig constructor from BamRecordPtrVector
+--- Makes the alignment fragments
+------ Makes the indel bps from each AlignmentFragment
+--- Make the SV BreakPoints
+------- Makes each BreakEnd -- this will take BamRecordPtr data from AlignmentFragment into the BreakEnd (e.g. nm)
+------- Makes the "local" breakpoints and "secondaries" breakpoints
+------- Sets the "global" breakpoint
+----------- Calls BreakPoint "set_homologies_insertions" for all global and local bps
+----------- Calls BreakPoint "order" for all 
+----------- Sets the BreakPoint SVType
+----------- Instantiates a new Prefix : SampleInfo map
+
+Directly from BreakPoints
+--- scoreBreakpoints
+------- "set_evidence" that sets DSCRD, INDEL, ASDIS, etc
+------- calls SampleInfo -> modelSelection
+--------------- sets the alt cov and total cov
+--------------- calls the __log_likelihood for alt or err
+--------------- calls the __log_likelihood for ref or alt
+--------------- calls the __genotype_likelihoods for 0/0, 0/1 or 1/1
+--------------- calls "score_somatic" that sets somatic_lod

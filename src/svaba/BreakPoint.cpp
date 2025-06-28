@@ -180,7 +180,10 @@ BreakPoint::BreakPoint(const SvabaSharedConfig* _sc,
 		       const AlignmentFragment* right,
 		       const AlignedContig* alc
 		       ) : sc(_sc) {
-  
+
+  // this is at least of type ASSMB (can upgrade later to ASDIS or TSI)
+  svtype = SVType::ASSMB;
+
   // instantiate the SampleInfo objects for each BAM
   for (auto const& p : sc->prefixes) {
     // if p isn't already present, constructs SampleInfo(this) in-place
@@ -204,15 +207,9 @@ BreakPoint::BreakPoint(const SvabaSharedConfig* _sc,
   bool isleft = true;
   b1.transferContigAlignmentData(left,    isleft);
   b2.transferContigAlignmentData(right, !isleft);
-  
-  // order the breakpoints
-  //order();
 
   // set the insertion / homology 
   set_homologies_insertions();
-
-  // this is at least of type ASSMB (can upgrade later to ASDIS or TSI)
-  svtype = SVType::ASSMB;
 
   // set seconary flag
   secondary = left->m_align->SecondaryFlag() ||
@@ -221,9 +218,9 @@ BreakPoint::BreakPoint(const SvabaSharedConfig* _sc,
 }
 
 // make the file string
-std::string BreakPoint::toFileString(const BamHeader& header) {
-    
-    // make sure we already ran scoring
+std::string BreakPoint::toFileString(const BamHeader& header) const {
+  
+  // make sure we already ran scoring
   assert(confidence.length());
   assert(svtype != SVType::NOTSET);
   
@@ -256,14 +253,15 @@ std::string BreakPoint::toFileString(const BamHeader& header) {
      << (b2.gr.pos1 +1) << sep
      << b2.gr.strand << sep //4-6
      << ref << sep << alt << sep //7-8
-     << getSpan() << sep //9
+     << getSpan() << sep //9 
      << a.split << sep << a.cigar << sep
      << a.alt << sep << a.cov << sep
      << dc.mapq1 << sep << dc.mapq2 << sep //14-15    
      << dc.ncount << sep << dc.tcount << sep
      << b1.mapq << sep << b2.mapq << sep //10-11
-     << b1.nm << sep << b2.nm << sep //12-13    
-     << b1.sub_n << sep << b2.sub_n << sep      
+     << b1.nm << sep << b2.nm << sep //12-13
+     << b1.as << sep << b2.as << sep
+     << b1.sub << sep << b2.sub << sep      
      << (homology.length() ? homology : "x") << sep 
      << (insertion.length() ? insertion : "x") << sep 
      << cname << sep
@@ -295,7 +293,10 @@ std::string BreakPoint::printSimple(const SeqLib::BamHeader& h) const {
   assert(svtype != SVType::NOTSET);
   assert(!cname.empty());
   assert(b1.gr.chr >= 0);
-  assert(b1.nm >= 0);
+  assert(svtype == SVType::DSCRD || b1.nm >= 0);
+  assert(svtype == SVType::DSCRD || b2.nm >= 0);  
+  assert(svtype == SVType::DSCRD || b1.as >= 0);
+  assert(svtype == SVType::DSCRD || b2.as >= 0);  
     
   if (svtype == SVType::INDEL) {
     out << ">" << (insertion.size() ? "INS: " : "DEL: ") << getSpan() << " " << 
@@ -337,6 +338,10 @@ std::string BreakPoint::printSimple(const SeqLib::BamHeader& h) const {
       }*/
 
 void BreakPoint::splitCoverage(svabaReadPtrVector& bav) {
+
+  // dummy left-most and right-most positions that have an
+  // overlapping read2contig alignment
+  split_cov_bounds = {std::numeric_limits<int>::max(), -1};
   
   // track if first and second mate covers same split. fishy and remove them both
   std::unordered_map<std::string, bool> qname_and_num;
@@ -566,10 +571,12 @@ void BreakEnd::transferContigAlignmentData(const AlignmentFragment* f,
   const BamRecordPtr &r = f->m_align;
   
   // get number of suboptimal alignments
-  r->GetIntTag("SQ", sub_n);
-  assert(sub_n >= 0);
-
-  // get number of mismatches
+  r->GetIntTag("XS", sub);  
+  // sub could be 0
+  
+  // get number of !SNV! mismatches
+  // this is a svaba internal trick, since we are interested in
+  // indels, so just track number of point mutation differences
   r->GetIntTag("NM", nm);
   assert(nm >= 0);
   nm = std::max(nm
@@ -580,7 +587,6 @@ void BreakEnd::transferContigAlignmentData(const AlignmentFragment* f,
   // get alignment score
   r->GetIntTag("AS", as);
   assert(as >= 0);
-  as_frac = double(as) / double(r->NumMatchBases());
 
   // transfer mapq and match length
   mapq     = r->MapQuality();
@@ -604,6 +610,8 @@ BreakPoint::BreakPoint(const AlignmentFragment* f,
 		       const int idx, 
 		       const SvabaSharedConfig* _sc) : sc(_sc)
 {
+
+  svtype = SVType::INDEL;
   
   // instantiate the SampleInfo objects for each BAM
   for (auto const& p : sc->prefixes) {
@@ -626,7 +634,6 @@ BreakPoint::BreakPoint(const AlignmentFragment* f,
   assert(cname.length());
   assert(seq.length());
   
-  svtype = SVType::INDEL;
   num_align = 1;
   
   b1.gr.strand = '+'; // always the case for indels
@@ -638,7 +645,7 @@ BreakPoint::BreakPoint(const AlignmentFragment* f,
   int curr = 0;     // current position on the contig (starting at zero)
   int gcurrlen = 0; // current position on the genome (starting at zero)
 
-  //debug
+  //debugprint
   // if (cname == "c_1_49001_74001_14C")
   //   std::cerr << "...constructing... " << idx <<
   //     " m_align " << *r << " flipped " << f->flipped << std::endl;
@@ -666,7 +673,6 @@ BreakPoint::BreakPoint(const AlignmentFragment* f,
     // update the right match side
     if (i.Type() == 'M' && count > idx)
       right_match += i.Length();
-    
     
     //////
     // set the breakpoint positions on the contig
@@ -698,7 +704,7 @@ BreakPoint::BreakPoint(const AlignmentFragment* f,
       // column, I'll add the leading reference base later
       // e.g. for a 2 bp insertion, insertion becomes e.g. AG while
       // in the ALT column of the VCF/bps it is GAG (if G is last reference match)
-      insertion = f->m_seq.substr(b1.cpos + 1, i.Length()); 
+      insertion = f->m_align->Sequence().substr(b1.cpos + 1, i.Length()); 
     }
     
     // update the contig position traversal -- consumes query
@@ -764,26 +770,31 @@ void BreakPoint::CombineWithDiscordantClusterMap(DiscordantClusterMap& dmap)
   // don't operate on indels
   if (svtype == SVType::INDEL)
     return;
-  
+
+  // since discordant clusters are ordered with the
+  // m_reg1 being more left on the genome, we want to
+  // match that convention for the breakpoint. However,
+  // we can't actually change the bp1 and bp2 ordering
+  // since this is set by the alignment orderings on the contig
+  // not on the genome. So can make a dummy swap just for purposes of
+  // finding the matching discorantcluster
+  // on the GENOME
   const int PAD = 100;
-  GenomicRegion bp1 = b1.gr;
-  GenomicRegion bp2 = b2.gr;
+  GenomicRegion bp1 = (b1.gr < b2.gr) ? b1.gr : b2.gr;
+  GenomicRegion bp2 = (b1.gr < b2.gr) ? b2.gr : b1.gr;
   bp1.Pad(PAD);
   bp2.Pad(PAD);
-  
+  assert(! (bp1 > bp2) );
+    
   for (auto& [_,d] : dmap) {
 
-    //debug
-    // std::cerr << d.toFileString(sc->header) << std::endl;
-    
     // checks basic things about discordant cluster
     if (!d.valid())
       continue;
 
-    // assuming both are ordered with side 1 being more "left"
-    assert(bp1 < bp2);
+
     assert(d.m_reg1 < d.m_reg2);
-    
+      
     // do either breakends overlap
     bool bp1reg1 = bp1.GetOverlap(d.m_reg1) > 0;
     bool bp2reg2 = bp2.GetOverlap(d.m_reg2) > 0;
@@ -800,13 +811,6 @@ void BreakPoint::CombineWithDiscordantClusterMap(DiscordantClusterMap& dmap)
     // both sides overlap and both orientions agree
     bool pass = bp1reg1 && bp2reg2 && s1 && s2;
 
-    //debug
-    // std::cerr << "Pos1 " << pos1 << " Pos2 " << pos2 <<
-    //   " s1 " << s1 << " s2 " << s2 << std::endl;
-
-    
-    
-    
     // check that the ends are not way off
     // if (std::abs(pos1 - b1.gr.pos1) > PAD ||
     // 	std::abs(pos2 - b2.gr.pos1) > PAD)
@@ -899,7 +903,12 @@ void BreakPoint::score_assembly_only() {
   // for (auto& rr : hirepr)
   //   if (seq.find(rr) != std::string::npos)
   //     hi_rep = true;
-  
+
+  float as_frac1  = static_cast<float>(b1.as)  / static_cast<float>(b1.matchlen);
+  float sub_frac1 = static_cast<float>(b1.sub) / static_cast<float>(b1.matchlen);  
+  float as_frac2  = static_cast<float>(b2.as)  / static_cast<float>(b2.matchlen);
+  float sub_frac2 = static_cast<float>(b2.sub) / static_cast<float>(b2.matchlen);  
+    
   if (local == LocalAlignment::FROM_DISTANT_REGION && svtype != SVType::TSI_LOCAL)  // added this back in v71
     // issue is that if a read is secondary aligned, it could be 
     // aligned to way off region. Saw cases where this happend in tumor
@@ -919,9 +928,9 @@ void BreakPoint::score_assembly_only() {
     confidence = "LOWMAPQ";
   else if ( std::min(b1.mapq, b2.mapq) <= 30 && a.split <= 8 ) 
     confidence = "LOWMAPQ";
-  else if (std::max(b1.nm, b2.nm) >= 10 || std::min(b1.as_frac, b2.as_frac) < 0.8) 
+  else if (std::max(b1.nm, b2.nm) >= 10 || std::min(as_frac1, as_frac2) < 0.8) 
     confidence = "LOWAS";
-  else if ( (std::max(b1.nm, b2.nm) >= 3 || std::min(b1.as_frac, b2.as_frac) < 0.85) && getSpan() < 0 )
+  else if ( (std::max(b1.nm, b2.nm) >= 3 || std::min(as_frac1, as_frac2) < 0.85) && getSpan() < 0 )
     confidence = "LOWAS";      
   //else if ((double)aligned_covered / (double)seq.length() < 0.80) // less than 80% of read is covered by some alignment
   //  confidence = "LOWAS";        
@@ -944,7 +953,7 @@ void BreakPoint::score_assembly_only() {
     confidence = "LOWMATCHLEN";    
   else if (std::min(b1.matchlen - homology.length(), b2.matchlen - homology.length()) < 40)
     confidence = "LOWMATCHLEN";          
-  else if ((b1.sub_n && b1.mapq < 50) || (b2.sub_n && b2.mapq < 50)) 
+  else if ((/*b1.sub_n && */b1.mapq < 50) || (/*b2.sub_n && */b2.mapq < 50)) 
     confidence = "MULTIMATCH";
   else if (secondary && std::min(b1.mapq, b2.mapq) < 30)
     confidence = "SECONDARY";
@@ -1057,8 +1066,8 @@ void BreakPoint::score_assembly_dscrd() {
   
   if ( (max_a_mapq < 30 && b1.local == LocalAlignment::FROM_DISTANT_REGION) ||
        (max_b_mapq < 30 && b2.local == LocalAlignment::FROM_DISTANT_REGION) ||
-       (b1.sub_n > 7 && b1.mapq < 10 && b1.local == LocalAlignment::FROM_DISTANT_REGION) ||
-       (b2.sub_n > 7 && b2.mapq < 10 && b2.local == LocalAlignment::FROM_DISTANT_REGION) )
+       (/*b1.sub_n > 7 && */b1.mapq < 10 && b1.local == LocalAlignment::FROM_DISTANT_REGION) ||
+       (/*b2.sub_n > 7 && */b2.mapq < 10 && b2.local == LocalAlignment::FROM_DISTANT_REGION) )
     confidence = "LOWMAPQ";
   else if ( std::min(b1.nm, b2.nm) >= 10)
     confidence = "LOWMAPQ";
@@ -1145,7 +1154,7 @@ void BreakPoint::score_indel() {
     confidence="LOWMAPQ";
   //else if (!is_refilter && (double)aligned_covered / (double)seq.length() < 0.80) // less than 80% of read is covered by some alignment
   //  confidence = "LOWAS";  
-  else if ((b1.sub_n && b1.mapq < 50) || (b2.sub_n && b2.mapq < 50)) 
+  else if ((/*b1.sub_n && */b1.mapq < 50) || (/*b2.sub_n && */b2.mapq < 50)) 
     confidence = "MULTIMATCH";      
   else if (max_lod < sc->opts.lod && rs.empty())        // non db snp site
     confidence = "LOWLOD";
@@ -1158,7 +1167,7 @@ void BreakPoint::score_indel() {
   else
     confidence="PASS";
 
-  //debug
+  //debugprint
   // std::cerr <<" MAPQ " << b1.mapq << " b1.sub_n " << b1.sub_n <<
   //   " b2.sub_n " << b2.sub_n << " max_lod " << max_lod << " af " << af << " is_refilter " << is_refilter <<
   //   std::endl;
@@ -1286,15 +1295,6 @@ void BreakPoint::scoreBreakpoint() {
   // quality = 0;
   // for (auto& a : allele)
   //   quality = std::max(a.second.NH_GQ, (double)quality); 
-  
-}
-
-void BreakPoint::order() {
-  
-  if (b1.gr < b2.gr)
-    return;
-  
-  std::swap(b1, b2);
   
 }
 
@@ -1651,7 +1651,7 @@ void BreakPoint::SampleInfo::modelSelection(double er, int readlen) {
   genotype_likelihoods[1] = GenotypeLikelihoods(1, er, scaled_alt, a_cov); // 0/1
   genotype_likelihoods[2] = GenotypeLikelihoods(0, er, scaled_alt, a_cov); // 1/1
   
-  //debug
+  //debugprint
   //std::cerr << " ALT " << alt << " scaled alt " << scaled_alt << " ER " << er << " A_COV " << a_cov << 
   //  " 0/0 " << genotype_likelihoods[0] << " 0/1 " << genotype_likelihoods[1] << 
   //  " 1/1 " << genotype_likelihoods[2] << " LOD " << LO << " LO_n " << LO_n << 
@@ -1671,7 +1671,7 @@ void BreakPoint::SampleInfo::modelSelection(double er, int readlen) {
     phred_likelihoods[i] = int(std::round( -10.0 * (genotype_likelihoods[i] - max_likelihood) ));
   }
   
-  //debug
+  //debugprint
   // std::cerr << " thiscov " << thiscov << " alt " << alt << " cigar " << cigar << " split " << split <<
   //   " a_cov " << a_cov << " af " << af << " scaled_alt " << scaled_alt << " ll_alt " << ll_alt <<
   //   " ll_err " << ll_err << " LO " << LO << " ll_alt_norm " <<
@@ -2034,6 +2034,8 @@ BreakPoint::BreakPoint(DiscordantCluster& tdc,
 		       const GenomicRegion& region,
 		       const SvabaSharedConfig* sc_) : sc(sc_) {
 
+  svtype = SVType::DSCRD;
+
   // instantiate the SampleInfo objects for each BAM
   for (auto const& p : sc->prefixes) {
     allele.try_emplace(p);
@@ -2107,7 +2109,7 @@ BreakPoint::BreakPoint(DiscordantCluster& tdc,
     "_" + std::to_string(region.pos2) + "D";
   
   // check if another cluster overlaps, but different strands
-  if (getSpan() > 800 || getSpan() == -1) // only check for large events.
+  if (getSpan() > 800 || getSpan() == -1) { // only check for large events.
     for (auto& [_,d] : dmap) {
       
       // don't overlap if on different chr, or same event
@@ -2127,7 +2129,5 @@ BreakPoint::BreakPoint(DiscordantCluster& tdc,
 	  d.m_id_competing = dc.ID();
 	}
     }
-
-  svtype = SVType::DSCRD;
-  
+  }
 }

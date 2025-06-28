@@ -55,7 +55,7 @@ void STCoverage::addRead(const BamRecord &r, int buff) { //, bool full_length) {
     
   }
 
-int STCoverage::getCoverageAtPosition(int chr, int pos) const {
+uint32_t STCoverage::getCoverageAtPosition(int chr, int pos) const {
 
   auto chr_it = m_map.find(chr);
   if (chr_it == m_map.end()) {

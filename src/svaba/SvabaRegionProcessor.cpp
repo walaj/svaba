@@ -286,7 +286,8 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
       walker->bfc.clear(); // erase all reads and training dat      
     }
     
-    sc.logger.log(sc.opts.verbose > 0, sc.opts.verbose_log, "...BFC corrected ", num_reads_corrected);
+    sc.logger.log(sc.opts.verbose > 0, sc.opts.verbose_log,
+		  "...BFC corrected ", SeqLib::AddCommas(num_reads_corrected));
     
     unit.st.stop("k");
   }
@@ -302,7 +303,7 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
 					unit.all_corrected_reads,
 					false,
 					0.6,
-					0);
+					0); // no secondary alignments
       }
     }
     sc.logger.log(sc.opts.verbose > 0, sc.opts.verbose_log,
@@ -335,10 +336,10 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
     for (const auto& [_, walker] : unit.walkers) {
 
       //debug
-      if (region.pos1 == 4287501) {
-	for (const auto& r : walker->reads)
-	  std::cout << " RSEQ " << r->CorrectedSeq() << std::endl;
-      }
+      // if (region.pos1 == 4287501) {
+      // 	for (const auto& r : walker->reads)
+      // 	  std::cout << " RSEQ " << r->CorrectedSeq() << std::endl;
+      // }
       
       engine.fillReadTable(walker->reads);
       dbg += walker->reads.size();
@@ -354,9 +355,9 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
     // retrieve contigs
     all_unaligned_contigs_this_region = engine.getContigs();
 
-    if (region.pos1 == 4287501) 
-      std::cerr << " contigs " <<
-	all_unaligned_contigs_this_region.size() << std::endl;
+    // if (region.pos1 == 4287501) 
+    //   std::cerr << " contigs " <<
+    // 	all_unaligned_contigs_this_region.size() << std::endl;
   }
   if (false)
     {
@@ -467,8 +468,9 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
     BamRecordPtrVector human_alignments;
     unit.bwa_aligner->alignSequence(i.Seq, i.Name,
 				    human_alignments,
-				    false, SECONDARY_FRAC, SECONDARY_CAP);
-    
+				    false, SECONDARY_FRAC,
+				    0); // don' consider secondary alignments
+
     
     // sort the alignments by position
     std::sort(human_alignments.begin(),
@@ -484,10 +486,6 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
     unit.master_contigs.insert(unit.master_contigs.end(),
 			       human_alignments.begin(),
 			       human_alignments.end());
-
-    if (region.pos1 == 4287501)
-      for (const auto& r : human_alignments)
-     	std::cout << "HA " << *r << std::endl;
     
     // make the AlignedContig object for this contig
     AlignedContig ac(human_alignments, region, &sc);
@@ -500,13 +498,13 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
   sc.logger.log(sc.opts.verbose > 0, sc.opts.verbose_log, "...contigs that meet size criteria: ",
 		count_contigs_of_size);
 
-  if (region.pos1 == 4287501) {
-    std::cerr <<" ALIGNED CONTIGS " << 
-      all_aligned_contigs_this_region.size() << std::endl;
-    for (const auto& r : all_unaligned_contigs_this_region)
-      std::cout << "PASSED CONTIG " << r.Name << "\t" <<
-	r.Seq << std::endl;
-  }
+  // if (region.pos1 == 4287501) {
+  //   std::cerr <<" ALIGNED CONTIGS " << 
+  //     all_aligned_contigs_this_region.size() << std::endl;
+  //   for (const auto& r : all_unaligned_contigs_this_region)
+  //     std::cout << "PASSED CONTIG " << r.Name << "\t" <<
+  // 	r.Seq << std::endl;
+  // }
 	
   // didnt get any contigs that made it all the way through
   if (!all_AlignedContigs_this_region.size()) {
@@ -589,8 +587,10 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
     } // short read realignment loop (all reads)  
   } // short read realignment loop (all bam walkers)
   
-  sc.logger.log(sc.opts.verbose > 0, sc.opts.verbose_log, "...done aligning reads to contigs for ",
-		all_read2contigs.size(), " reads. Processing variants");
+  sc.logger.log(sc.opts.verbose > 0, sc.opts.verbose_log,
+		"...done aligning reads to contigs for ",
+		SeqLib::AddCommas(all_read2contigs.size()),
+		" reads. Processing variants");
 
 
   // BPS need a repeat filter
@@ -631,6 +631,9 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
     bp_glob.insert(bp_glob.end(),
 		   tmp_allbreaks.begin(),
 		   tmp_allbreaks.end());
+    //debig
+    for (const auto& bp : bp_glob)
+      assert(bp);
   }
 
   // set each interal BreakEnd as to whether it overlaps with the
@@ -687,10 +690,12 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
 				   dmap,
 				   region,
 				   &sc);
+    assert(tmpbp);
     bp_glob.push_back(tmpbp);
   }
   
   // de duplicate the breakpoints
+  std::cerr << " BEFORE DEUPE " << bp_glob.size() << std::endl;
   std::sort(bp_glob.begin(), bp_glob.end(),
 	    [](auto const& a, auto const& b){
 	      return *a < *b;
@@ -702,6 +707,8 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
 			       // return true if *a and *b are "equal" in the sense of your operator<
 			       return !(*a < *b) && !(*b < *a);
 			     });
+  bp_glob.erase(new_end, bp_glob.end()); // remove the duplicates after they are sorted to the back
+  std::cerr <<" AFTER DEDUPE " << bp_glob.size() << std::endl;
   
   if (region.pos1 == 4287501) {
     for (const auto& bbb : bp_glob) {
@@ -714,8 +721,10 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
   for (auto& [key, walker] : unit.walkers) {
     covs[key] = &walker->cov;
   }
-  for (auto& i : bp_glob)
+  for (auto& i : bp_glob) {
+    assert(i); 
     i->addCovs(covs);
+  }
 
   // score the breakpoints
   for (auto& i : bp_glob) {

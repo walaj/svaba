@@ -88,7 +88,8 @@ public:
   
   static void __cluster_reads(svabaReadPtrVector& brv,
 			      svabaReadClusterVector& fwd,
-			      svabaReadClusterVector& rev, int orientation);
+			      svabaReadClusterVector& rev,
+			      SeqLib::Orientation orientation);
   
   static void __cluster_mate_reads(svabaReadClusterVector& brcv,
 				   svabaReadClusterVector& fwd,

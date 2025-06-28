@@ -38,10 +38,10 @@ DiscordantClusterMap DiscordantCluster::clusterReads(svabaReadPtrVector& bav,
   // }
   
   // make the fwd and reverse READ clusters. dont consider mate yet
-  __cluster_reads(bav, fwd, rev, FRORIENTATION);
-  __cluster_reads(bav, fwd, rev, FFORIENTATION);
-  __cluster_reads(bav, fwd, rev, RFORIENTATION);
-  __cluster_reads(bav, fwd, rev, RRORIENTATION);
+  __cluster_reads(bav, fwd, rev, SeqLib::Orientation::FR);
+  __cluster_reads(bav, fwd, rev, SeqLib::Orientation::FF);
+  __cluster_reads(bav, fwd, rev, SeqLib::Orientation::RF);
+  __cluster_reads(bav, fwd, rev, SeqLib::Orientation::RR);
   
 #ifdef DEBUG_CLUSTER
   for (auto& i : fwd) {
@@ -151,7 +151,7 @@ DiscordantClusterMap DiscordantCluster::clusterReads(svabaReadPtrVector& bav,
     m_reg1.pos1 = INT_MAX;
     m_reg2 = GenomicRegion(-1, -1, -1); // mate region
     m_reg2.pos1 = INT_MAX;
-    int por = 0;
+    SeqLib::Orientation por;
     for (const auto& [_, read] : reads) 
       {
 	por = read->PairOrientation();
@@ -192,11 +192,11 @@ DiscordantClusterMap DiscordantCluster::clusterReads(svabaReadPtrVector& bav,
     std::string ortid;
 
     switch (por) {
-    case FRORIENTATION: ortid = "FR"; break;
-    case FFORIENTATION: ortid = "FF"; break;
-    case RFORIENTATION: ortid = "RF"; break;
-    case RRORIENTATION: ortid = "RR"; break;
-    default: ortid = "UD"; break;  // fallback for UDORIENTATION or anything unexpected
+    case SeqLib::Orientation::FR: ortid = "FR"; break;
+    case SeqLib::Orientation::FF: ortid = "FF"; break;
+    case SeqLib::Orientation::RF: ortid = "RF"; break;
+    case SeqLib::Orientation::RR: ortid = "RR"; break;
+    default: ortid = "UD"; break;  // fallback for UD or anything unexpected
     }    
     
     m_id = ortid + "_" + m_reg1.ChrName(header) + "_" + std::to_string(m_reg1.pos1) +
@@ -594,7 +594,7 @@ void DiscordantCluster::__cluster_mate_reads(svabaReadClusterVector& brcv,
 void DiscordantCluster::__cluster_reads(svabaReadPtrVector& brv,
 					svabaReadClusterVector& fwd,
 					svabaReadClusterVector& rev,
-					int orientation) 
+					SeqLib::Orientation orientation) 
 {
   
   // hold the current cluster
@@ -602,9 +602,9 @@ void DiscordantCluster::__cluster_reads(svabaReadPtrVector& brv,
   
   std::unordered_set<std::string> tmp_set;
 
-  int pair_orientation = 0;
-  if (brv.size())
-    pair_orientation = brv.front()->PairOrientation();
+  // int pair_orientation = 0;
+  // if (brv.size())
+  //   pair_orientation = brv.front()->PairOrientation();
   
   // cluster in the READ direction, separately for fwd and rev
   for (svabaReadPtr& i : brv) {
@@ -613,7 +613,11 @@ void DiscordantCluster::__cluster_reads(svabaReadPtrVector& brv,
     if (i->SecondaryFlag())
       continue;
     
-    assert(pair_orientation == i->PairOrientation());
+    // if (pair_orientation != i->PairOrientation()) {
+    //   std::cerr << *i << std::endl;
+    //   std::cerr << i->PairOrientation() << std::endl;
+    //   std::cerr << pair_orientation << std::endl;
+    // }
 
     // not a discordant read, ignore it
     if (i->dd <= 0)
