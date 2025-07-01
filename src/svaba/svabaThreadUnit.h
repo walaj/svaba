@@ -45,7 +45,7 @@ public:
   size_t processed_count = 0;
   size_t total_count = 0; // total to process
   size_t processed_since_memory_dump = 0;
-  
+
   // results
   std::vector<AlignedContig>                 master_alc;
   BamRecordPtrVector                         master_contigs;

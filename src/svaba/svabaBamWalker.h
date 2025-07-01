@@ -52,8 +52,10 @@ class svabaBamWalker: public SeqLib::BamReader {
     
     get_coverage = true;
     get_mate_regions = true;
+    
+    local_blacklist.clear();
 
-    malloc_trim(0);//debug
+    //malloc_trim(0);//debug
   }
 
   void AddBackReadsToCorrect();
@@ -120,6 +122,9 @@ class svabaBamWalker: public SeqLib::BamReader {
   // set a hard limit on how many reads to accept
   size_t m_limit = 0;
 
+  // an extra learned region-specific blacklist
+  SeqLib::GRC local_blacklist;
+  
   SeqLib::BFC bfc;
 
  private:

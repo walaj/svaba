@@ -3,6 +3,8 @@
 #include <getopt.h>
 #include <iomanip>
 #include <cassert>
+#include <tuple>
+#include <optional>
 
 #include "gzstream.h"
 #include "svabaUtils.h"
@@ -14,6 +16,7 @@
 #include "SeqLib/BamHeader.h"
 #include "AlignmentFragment.h"
 #include "AlignedContig.h"
+#include "svabaModels.h"
 
 // n is the max integer given the int size (e.g. 255). x is string with int
 #define INTNSTOI(x,n) std::min((int)n, std::stoi(x));
@@ -121,49 +124,7 @@ BreakPoint::SampleInfo operator+(const BreakPoint::SampleInfo& a1, const BreakPo
 }
 
 
-// thresholds
-static constexpr size_t HOMOPOLYMER_MIN  = 16;  // e.g. 16 the same base
-static constexpr size_t DINUC_REPEAT_MIN = 8;   // e.g. 8 a nt motif
-
-static bool has_long_homopolymer(const std::string& s) {
-  if (s.size() < HOMOPOLYMER_MIN) return false;
-  size_t run = 1;
-  for (size_t i = 1; i < s.size(); ++i) {
-    if (s[i] == s[i-1]) {
-      if (++run >= HOMOPOLYMER_MIN) return true;
-    } else {
-      run = 1;
-    }
-  }
-  return false;
-}
-
-static bool has_long_dinuc_repeat(const std::string& s) {
-  // need at least 2 DINUC_REPEAT_MIN bases
-  if (s.size() < 2 * DINUC_REPEAT_MIN) return false;
-  // scan for each possible starting offset
-  for (size_t i = 0; i + 1 < s.size(); ++i) {
-    // check this pair against the next
-    if (i + 3 >= s.size() || s[i] != s[i+2] || s[i+1] != s[i+3]) 
-      continue;
-    // we have at least 1 repeat of the 2-mer
-    size_t reps = 1;
-    // extend as long as the 2-mer keeps repeating
-    while (i + 2*(reps+1) < s.size() &&
-           s[i]   == s[i + 2* reps]   &&
-           s[i+1] == s[i + 2* reps+1]) {
-      if (++reps >= DINUC_REPEAT_MIN) return true;
-    }
-  }
-  return false;
-}
-
-static bool checkHomopolymer(const std::string& seq) {
-  return has_long_homopolymer(seq) 
-      || has_long_dinuc_repeat(seq);
-}
-
-static constexpr double scale_factor = 5.0;
+static constexpr double scale_factor = 10.0;
 static std::unordered_map<int, double> ERROR_RATES =
   {{0, scale_factor * 1e-4}, {1, scale_factor * 1e-4},
    {2,  scale_factor * 1e-4}, {3,  scale_factor * 1e-4},
@@ -238,7 +199,7 @@ std::string BreakPoint::toFileString(const BamHeader& header) const {
   for (const auto& [pref,_] : allele) {
     if (pref.at(0) == 'n') { // need to have one normal to call somatic
       somatic_string = to_string(somatic);
-      somatic_lod_string = std::to_string(std::min((double)99,somatic_lod));
+      somatic_lod_string = std::to_string(std::min((double)99,LO_s));
     }
   }
   
@@ -263,7 +224,8 @@ std::string BreakPoint::toFileString(const BamHeader& header) const {
      << b1.as << sep << b2.as << sep
      << b1.sub << sep << b2.sub << sep      
      << (homology.length() ? homology : "x") << sep 
-     << (insertion.length() ? insertion : "x") << sep 
+     << (insertion.length() ? insertion : "x") << sep
+     << (repeat_seq.length() ? repeat_seq : "x") << sep
      << cname << sep
      << num_align << sep 
      << confidence << sep
@@ -373,8 +335,8 @@ void BreakPoint::splitCoverage(svabaReadPtrVector& bav) {
       int pos = 0;
       
       // if this is a nasty repeat, don't trust non-perfect alignmentx on r2c alignment
-      if (checkHomopolymer(j->Sequence())) 
-	read_should_be_skipped = true;
+      // if (checkHomopolymer(j->Sequence())) 
+      // 	read_should_be_skipped = true;
       
       // loop through r2c cigar and see positions
       for(auto& i : this_r2c.cig) {
@@ -762,6 +724,23 @@ BreakPoint::BreakPoint(const AlignmentFragment* f,
     std::cerr << "B1 " << b1.gr << " - " << b2.gr << std::endl;
     throw std::runtime_error("invalid BreakPoint creation in indels in AlignmentFragment");
   }
+
+
+  //// add the repeat sequence
+  const std::string& seq = f->m_align->Sequence();
+  const int REPBUFF = 3;
+  for (const auto& [start, end, rep] : svabaUtils::find_long_homopolymers(seq)) {
+    bool crosses_breakpoint = start > b1.cpos - REPBUFF && b2.cpos - REPBUFF < end;
+    if (rep.length() > repeat_seq.length() && crosses_breakpoint)
+      repeat_seq = rep;
+  }
+  
+  for (const auto& [start, end, rep] : svabaUtils::find_long_dinuc_repeats(seq)) {
+    bool crosses_breakpoint = start > b1.cpos - REPBUFF && b2.cpos - REPBUFF < end;
+    if (rep.length() > repeat_seq.length() && crosses_breakpoint)
+      repeat_seq = rep;
+  }
+  ///////////
 }
 
 void BreakPoint::CombineWithDiscordantClusterMap(DiscordantClusterMap& dmap)
@@ -972,7 +951,7 @@ void BreakPoint::score_assembly_only() {
   
 }
 
-void BreakPoint::score_somatic() {
+void BreakPoint::score_somatic(double error_fwd) {
   
   // this is LOD of normal being REF vs AF = 0.5+
   // We want this to be high for a somatic call
@@ -993,15 +972,68 @@ void BreakPoint::score_somatic() {
   //     somatic_lod += al.LO_n;
   //   }
   //}
-  
+
   // this is a more conservative approach - if any normal BAM shows evidence for
   // variant, then get the somatic score from that
-  somatic_lod = std::numeric_limits<double>::infinity();
-  for (const auto& [pref, al] : allele) {
+  int thiscov_n = n.cov;
+  if (n.alt >= n.cov)  
+    thiscov_n = n.alt;
+  int thiscov_t = t.cov;
+  if (t.alt >= t.cov)  
+    thiscov_t = t.alt;
+  
+  // adjust the alt count
+  if (n.alt < n.cigar)
+    n.alt = n.cigar;
+  if (t.alt < t.split)
+    t.alt = t.split;
+  if (t.alt < t.cigar)
+    t.alt = t.cigar;
+  if (t.alt < t.split)
+    t.alt = t.split;
+  
+  double a_cov_n = (double)thiscov_n * (double)(sc->readlen - 2 * T_SPLIT_BUFF)/sc->readlen;
+  double a_cov_t = (double)thiscov_t * (double)(sc->readlen - 2 * T_SPLIT_BUFF)/sc->readlen;  
+  double scaled_alt_n = std::min((double)n.alt, a_cov_n);  
+  double scaled_ref_n = a_cov_n- scaled_alt_n;
+  double scaled_alt_t = std::min((double)t.alt, a_cov_t);  
+  double scaled_ref_t = a_cov_t- scaled_alt_t;
+  double error_rev = 1e-6;
+  LO_s =
+    SvabaModels::SomaticLOD(scaled_alt_n, a_cov_n,
+			    scaled_alt_t, a_cov_t,
+			    error_fwd, error_rev);
+
+  if (false)
+  std::cerr << std::fixed << std::setprecision(6)
+	    << "[DEBUG] somatic_lod=" << LO_s
+	    << " | n.cov=" << n.cov
+	    << " | n.alt=" << n.alt
+	    << " | n.cigar=" << n.cigar
+	    << " | t.cov=" << t.cov
+	    << " | t.alt=" << t.alt
+	    << " | t.cigar=" << t.cigar
+	    << " | t.split=" << t.split
+	    << " | thiscov_n=" << thiscov_n
+	    << " | thiscov_t=" << thiscov_t
+	    << " | readlen=" << sc->readlen
+	    << " | T_SPLIT_BUFF=" << T_SPLIT_BUFF
+	    << " | a_cov_n=" << a_cov_n
+	    << " | a_cov_t=" << a_cov_t
+	    << " | scaled_alt_n=" << scaled_alt_n
+	    << " | scaled_ref_n=" << scaled_ref_n
+	    << " | scaled_alt_t=" << scaled_alt_t
+	    << " | scaled_ref_t=" << scaled_ref_t
+	    << " | error_fwd=" << error_fwd
+	    << " | error_rev=" << error_rev
+	    << " | somatic_LOD=" << LO_s
+	    << std::endl;
+  
+  /*for (const auto& [pref, al] : allele) {
     if (pref[0] == 'n') {
-      somatic_lod = std::min(somatic_lod, al.LO_n);
+      LO_s = std::min(somatic_lod, al.LO_n);
     }
-  }
+    }*/
   
   // find the somatic to normal ratio
   double ratio = n.alt > 0 ?
@@ -1012,7 +1044,7 @@ void BreakPoint::score_somatic() {
     // somatic score is just true or false for now
     // use the specified cutoff for indels, taking into account whether at dbsnp site
     double cutoff = (rs.empty() || rs=="x") ? sc->opts.lodSomatic : sc->opts.lodSomaticDb;
-    somatic = somatic_lod > cutoff ? SomaticState::SOMATIC_LOD : SomaticState::NORMAL_LOD;
+    somatic = LO_s > cutoff ? SomaticState::SOMATIC_LOD : SomaticState::NORMAL_LOD;
     
     // can't call somatic with 5+ normal reads or <5x more tum than norm ALT
     //if ((ratio <= 12 && n.cov > 10) || n.alt > 5)
@@ -1022,7 +1054,7 @@ void BreakPoint::score_somatic() {
   } else {
     
     // passes
-    somatic = (somatic_lod > sc->opts.lodSomatic) ? SomaticState::SOMATIC_LOD : SomaticState::NORMAL_LOD;
+    somatic = (LO_s > sc->opts.lodSomatic) ? SomaticState::SOMATIC_LOD : SomaticState::NORMAL_LOD;
     
     // require no reads in normal or MAX 1 read and tons of tumor reads
     if (ratio < MIN_SOMATIC_RATIO ||
@@ -1191,14 +1223,14 @@ void BreakPoint::scoreBreakpoint() {
 
   // some sanity checking
   assert(svtype != SVType::NOTSET);
-  if (!confidence.empty())
+  if (!confidence.empty() && confidence != "BLACKLIST")
     throw std::runtime_error("BreakPoint confidence already set (unexpected)");
 
   // set the error rate
   // depends on teh repeat context
   double error_rate = (repeat_seq.length() > 10) ?
     MAX_ERROR : ERROR_RATES[repeat_seq.length()];
-  
+
   // first calculate log-odds and genotype likelihoods for each individual bam
   std::vector<double> lods;
   for (auto& [_,al] : allele) {
@@ -1288,7 +1320,7 @@ void BreakPoint::scoreBreakpoint() {
     throw std::runtime_error("no scoring method called in BreakPoint::score_breakpoints");
   
   // set the somatic_score field to true or false
-  score_somatic(); 
+  score_somatic(error_rate); 
   
   // quality score is odds that read is
   // non-homozygous reference (max 99)
@@ -1462,7 +1494,7 @@ int BreakPoint::getSpan() const {
 //       case 28: quality = std::stod(val); break; //std::min((int)255,std::stoi(val)); break;
 //       case 29: secondary = val == "1" ? 1 : 0;
 //       case 30: somatic_score = std::stod(val); break;
-//       case 31: somatic_lod = std::stod(val); break;
+//       case 31: LO_s = std::stod(val); break;
 //       case 32: true_lod = std::stod(val); break;
 //       case 33: pon = std::min(255,std::stoi(val)); break;
 //       case 34: repeat_s = val; break; // repeat_seq
@@ -1495,103 +1527,24 @@ int BreakPoint::getSpan() const {
   
 // }
 
-double BreakPoint::SampleInfo::LogLikelihood(double ref,
-					     double alt,
-					     double f,
-					     double e_fwd,
-					     double e_back) {
-  
-  // less negative log-likelihoods means more likely
-  // eg for low error rate, odds that you see 5 ALT and 5 REF
-  // if you are testing for AF = 0 is going to be very low (eg -40)
-  // To test if something is true, we want to test the log-likelihood that
-  // it's AF is != 0, so we test LL(ref, alt, AF=0, er). If this is 
-  // a large negative number, it means that AF = 0 is very unlikely.
-  // If we use a larger error rate, then it is more likely that we will
-  // see ALT reads even if true AF = 0, so as ER goes up, then 
-  // LL(ref, alt, AF=0, er) becomes less negative.
-
-  // Unnormalized log10-likelihood of seeing 'ref' ref-reads and 'alt' alt-reads
-  // under a simple two-state error/mutation model.
-  double ll = 0.0;
-
-  // Clamp negative counts to zero
-  ref = std::max(0.0, ref);
-  alt = std::max(0.0, alt);
-
-  // P(read = REF):
-  //   (1-f)*(1-e_fwd)    true-ref, no forward error
-  // +  f*e_back          true-alt, mis-read back to ref
-  double p_ref = (1.0 - f) * (1.0 - e_fwd) // prior arg1
-    + f         *       e_back;
-  
-  // std::cerr << " pref " << p_ref << " ref " << ref << std::endl;
-  if (p_ref > 0.0) {
-    ll += ref * std::log10(p_ref);
-  } else if (ref > 0) {
-    return -1e12;  // zero probability but nonzero observations -> -Inf 
-  }
-  
-  // P(read = ALT):
-  //   f*(1-e_back)      true-alt, no back mutation
-  // + (1-f)*e_fwd       true-ref, forward error to alt
-
-  double p_alt = f         * (1.0 - e_back)
-    + (1.0 - f) *       e_fwd;
-  // std::cerr << " palt " << p_alt << " alt " << alt << std::endl;    
-  if (p_alt > 0.0) {
-    ll += alt * std::log10(p_alt);
-  } else if (alt > 0) {
-    return -1e12;
-  }  
-  
-  return ll;
-  
-}
-
-int BreakPoint::SampleInfo::GenotypeQuality(const std::vector<int>& PLs) {
-  int best = std::numeric_limits<int>::max();
-  int second = std::numeric_limits<int>::max();
-  for (int p : PLs) {
-    if (p < best) {
-      second = best;
-      best   = p;
-    }
-    else if (p < second) {
-      second = p;
-    }
-  }
-  return std::min(second, 99);
-}
 
 void BreakPoint::SampleInfo::modelSelection(double er, int readlen) {
   
   // can't have more alt reads than total reads
   // well you can for SVs...
 
-  int thiscov = cov;
-  if (alt >= cov)  
-    thiscov = alt;
-  
-  // adjust the alt count 
-  if (alt < cigar)
-    alt = cigar;
-  if (alt < split)
-    alt = split;
   
   // adjust the coverage to be more in line with restrictions on ALT.
   // namely that ALT reads must overlap the variant site by more than T_SPLIT_BUFF
   // bases, but the raw cov calc does not take this into account. Therefore, adjust here
   //  if (readlen) {
-  double a_cov = (double)thiscov * (double)(readlen - 2 * T_SPLIT_BUFF)/readlen;
+  double a_cov = (double)cov * (double)(readlen - 2 * T_SPLIT_BUFF)/readlen;
   a_cov = a_cov < 0 ? 0 : a_cov;
   //  } else {
   //    a_cov = thiscov;
   //  }
   af = a_cov > 0 ? (double)alt / (double)a_cov : 1;
   af = af > 1 ? 1 : af;
-  
-
   
   // mutect log liklihood against error
   // how likely to see these ALT counts if true AF is af
@@ -1615,8 +1568,8 @@ void BreakPoint::SampleInfo::modelSelection(double er, int readlen) {
   // non-zero chance that the ref is a back-mutate makes the LO not
   // become uncomputable (which would revert to -1e12 which is not really what we want)
   double er_back = 0.000001; 
-  double ll_alt = LogLikelihood(scaled_ref, scaled_alt, af, er, er_back);
-  double ll_err = LogLikelihood(scaled_ref, scaled_alt, 0 , er, er_back); // likelihood that variant is actually true REF
+  double ll_alt = SvabaModels::LogLikelihood(scaled_ref, scaled_alt, af, er, er_back);
+  double ll_err = SvabaModels::LogLikelihood(scaled_ref, scaled_alt, 0 , er, er_back); // likelihood that variant is actually true REF
   // std::cerr << "SCALD REF " << scaled_ref << " scaled alt " <<
   //   scaled_alt << " af " << af << " ll_ALT " << ll_alt <<
   //   " ll_err " << ll_err << " scaled af " << scaled_af << std::endl;
@@ -1640,16 +1593,16 @@ void BreakPoint::SampleInfo::modelSelection(double er, int readlen) {
   //     variant, specifically in the normal, is explained by sequencing errors with a ground-truth of not-present
   //     than by a germline indel. For the tumor, LO_n is not really meaningful, so we look at LO in general for
   //     whether the mutation is around AT ALL.
-  double ll_alt_norm = LogLikelihood(scaled_ref, scaled_alt, std::max(af, 0.5), er, er_back); // likelihood that variant is at AF >= 0.5 (as expected for germline)
+  double ll_alt_norm = SvabaModels::LogLikelihood(scaled_ref, scaled_alt, std::max(af, 0.5), er, er_back); // likelihood that variant is at AF >= 0.5 (as expected for germline)
   LO_n = ll_err - ll_alt_norm; // higher number means more likely to be AF = 0 (ref) than AF = 0.5 (alt). 
 
   // genotype calculation as provided in 
   // http://bioinformatics.oxfordjournals.org/content/early/2011/09/08/bioinformatics.btr509.full.pdf+html
   //int scaled_cov = std::floor((double)cov * 0.90);
   //int this_alt = std::min(alt, scaled_cov);
-  genotype_likelihoods[0] = GenotypeLikelihoods(2, er, scaled_alt, a_cov); // 0/0
-  genotype_likelihoods[1] = GenotypeLikelihoods(1, er, scaled_alt, a_cov); // 0/1
-  genotype_likelihoods[2] = GenotypeLikelihoods(0, er, scaled_alt, a_cov); // 1/1
+  genotype_likelihoods[0] = SvabaModels::GenotypeLikelihoods(2, er, scaled_alt, a_cov); // 0/0
+  genotype_likelihoods[1] = SvabaModels::GenotypeLikelihoods(1, er, scaled_alt, a_cov); // 0/1
+  genotype_likelihoods[2] = SvabaModels::GenotypeLikelihoods(0, er, scaled_alt, a_cov); // 1/1
   
   //debugprint
   //std::cerr << " ALT " << alt << " scaled alt " << scaled_alt << " ER " << er << " A_COV " << a_cov << 
@@ -1680,7 +1633,7 @@ void BreakPoint::SampleInfo::modelSelection(double er, int readlen) {
   //   " GT 1/1 " << genotype_likelihoods[2] << std::endl;
   
   // get the genotype quality
-  GQ = GenotypeQuality(phred_likelihoods);
+  GQ = SvabaModels::GenotypeQuality(phred_likelihoods);
   
   // get the genotype quality that it is not hom ref
   NH_GQ   = std::min(phred_likelihoods[0], 99);  
@@ -1752,25 +1705,6 @@ std::string BreakPoint::SampleInfo::toFileString(SVType svtype) const {
   
 }
 
-static std::vector<int> parsePLString(const std::string& pl_str) {
-  std::vector<int> out;
-  out.reserve(3);
-  std::stringstream ss(pl_str);
-  std::string tok;
-  while (std::getline(ss, tok, ',')) {
-    try {
-      out.push_back(std::stoi(tok));
-    }
-    catch (const std::exception& e) {
-      throw std::runtime_error("Invalid integer in PL string: " + tok);
-    }
-  }
-  if (out.size() != 3) {
-    throw std::runtime_error("PL string must have exactly 3 comma-separated values");
-  }
-  return out;
-}
-
 void BreakPoint::SampleInfo::FillFromString(const std::string& s,
 					    SVType svtype) { 
   
@@ -1797,7 +1731,7 @@ void BreakPoint::SampleInfo::FillFromString(const std::string& s,
 	disc = std::stoi(val);
       break;
     case 6: GQ = std::stod(val);  break;
-    case 7: phred_likelihoods = parsePLString(val);  break;
+    case 7: phred_likelihoods = svabaUtils::parsePLString(val);  break;
     case 8: LO =   std::stod(val); break;
     case 9: LO_n = std::stod(val); break;
     }
@@ -1925,56 +1859,6 @@ void BreakPoint::SampleInfo::UpdateAltCounts() {
   
 }
 
-// g is the number of reference alleles (e.g. g = 2 is homozygous reference)
-// assumes biallelic model
-// http://bioinformatics.oxfordjournals.org/content/early/2011/09/08/bioinformatics.btr509.full.pdf+html
-double BreakPoint::SampleInfo::GenotypeLikelihoods(int g,
-                                                      double er,
-                                                      int alt,
-                                                      int cov)
-{
-  // g = number of reference alleles: 2 = hom_ref, 1 = het, 0 = hom_alt
-  // er = per-read error rate (0 <= er <= 1)
-  // alt = count of alt reads
-  // cov = total read depth
-  // Returns log10-likelihood under a biallelic model.
-  
-  // Clamp inputs
-  g   = std::min(2, std::max(0, g));
-  alt = std::max(0, alt);
-  cov = std::max(0, cov);
-  er  = std::clamp(er, 0.0, 1.0);
-  if (alt > cov) return -1e12;
-  
-  int ref = cov - alt;
-  double norm = -cov * std::log10(2.0);  // accounts for dividing by 2
-  
-  // Compute numerators (before /2)
-  double num_ref = (2 - g) * er + g * (1.0 - er);
-  double num_alt = (2 - g) * (1.0 - er) + g * er;
-  
-  // True probabilities (divide by 2)
-  double p_ref = num_ref / 2.0;
-  double p_alt = num_alt / 2.0;
-  
-  double ll = norm;
-  
-  // Add ref-read contribution
-  if (p_ref > 0.0) {
-    ll += ref * std::log10(p_ref);
-  } else if (ref > 0) {
-    return -1e12;
-  }
-  
-  // Add alt-read contribution
-  if (p_alt > 0.0) {
-    ll += alt * std::log10(p_alt);
-  } else if (alt > 0) {
-    return -1e12;
-  }
-  
-  return ll;
-}
 
 // bool ReducedBreakPoint::operator<(const ReducedBreakPoint& bp) const { 
 

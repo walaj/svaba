@@ -135,16 +135,13 @@ public:
 		       "span\tsplit\tcigar\talt\tcov\t"
 		       "dmq1\tdmq2\tdcn\tdct\t"
 		       "mapq1\tmapq2\tnm1\tnm2\tas1\tas2\tsub1\tsub2\t"
-		       "homol\tinsert\t"
+		       "homol\tinsert\trepeat\t"
 		       "contig_and_region\tnaln\tconf\ttype\tqual\t2ndary\t"
 		       "somatic\tsomlod\tmaxlod\tdbsnp"
 		       );
   }
   
   SomaticState somatic = SomaticState::NOTSET;
-  
-  // LogOdds that variant not in normal   
-  double somatic_lod = std::numeric_limits<double>::infinity();
   
   std::string seq, cname, rs,
     insertion, homology, repeat_seq,
@@ -170,6 +167,8 @@ public:
   int secondary = -1; // is this a secondary
   int pass = -1;      //false;
   int num_align = 0;  // number of alignments for contigs that generated this
+  
+  double LO_s = 0; // log odds of variant being somatic (see svabaModels.cpp - SomaticLOD)
   
   SVType svtype = SVType::NOTSET;
   LocalAlignment local = LocalAlignment::NOTSET;
@@ -197,7 +196,7 @@ public:
   
    void setLocal(const GenomicRegion& window);
   
-  void score_somatic(); 
+  void score_somatic(double error_fwd); 
   
   void addCovs(const std::unordered_map<std::string, STCoverage*>& covs);
 
@@ -333,17 +332,7 @@ public:
     // not for read tracking but actually needed for breakpoint scoring
     ReadNameSet supporting_reads; 
     
-    static double LogLikelihood(double ref, double alt,
-				double f, double e_fwd,
-				double e_back);
-
-    static double GenotypeLikelihoods(int g, double er, int alt, int cov);
-
-    static int GenotypeQuality(const std::vector<int>& PLs);
-    
     void modelSelection(double err, int readlen);
-    
-
      
     std::string toFileString(SVType svtype) const;
      

@@ -168,7 +168,9 @@ SeqLib::GRC svabaBamWalker::readBam(svabaThreadUnit& unit) {
 	s->NumHardClip() ||
 	s->CountNBases() ||
 	sc.blacklist.CountOverlaps(s->AsGenomicRegionMate()) || 
-	sc.blacklist.CountOverlaps(s->AsGenomicRegion()))
+	sc.blacklist.CountOverlaps(s->AsGenomicRegion()) ||
+	local_blacklist.CountOverlaps(s->AsGenomicRegionMate()) ||
+	local_blacklist.CountOverlaps(s->AsGenomicRegion()))
       continue;
     
     // quality score trim read
@@ -388,6 +390,7 @@ void svabaBamWalker::calculateMateRegions() {
     // if mate not in main interval, add a padded version
     if (!main_region.GetOverlap(mate) &&
 	r->MapQuality() >= MIN_MAPQ_FOR_MATE_LOOKUP &&
+	!local_blacklist.CountOverlaps(mate) && 
 	!sc.blacklist.CountOverlaps(mate)) {
       tmp_mate_regions.add(mate);
     }
@@ -573,7 +576,9 @@ void svabaBamWalker::TagDiscordant(svabaReadPtr& r) {
 
   // not discordant if read or mate in blacklist
   if (sc.blacklist.CountOverlaps(r->AsGenomicRegion()) ||
-      sc.blacklist.CountOverlaps(r->AsGenomicRegionMate()))
+      sc.blacklist.CountOverlaps(r->AsGenomicRegionMate()) ||
+      local_blacklist.CountOverlaps(r->AsGenomicRegion()) ||
+      local_blacklist.CountOverlaps(r->AsGenomicRegionMate()))
     r->dd = 0; 
   
   //debug

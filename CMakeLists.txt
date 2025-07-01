@@ -75,6 +75,7 @@ src/svaba/svabaBamWalker.cpp
 #src/svaba/refilter.cpp
 src/svaba/LearnBamParams.cpp
 src/svaba/STCoverage.cpp
+src/svaba/svabaModels.cpp
 ##src/svaba/Histogram.cpp
 ##src/svaba/BamStats.cpp
 src/svaba/svabaRead.cpp

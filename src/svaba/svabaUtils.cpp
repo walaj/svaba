@@ -1,7 +1,6 @@
 #include "svabaUtils.h"
 
 #include <iomanip>
-
 #include <filesystem>  // C++17
 namespace fs = std::filesystem;
 
@@ -423,6 +422,132 @@ void checkHeaderCompatibility(const SeqLib::BamHeader& bamHeader,
   }
 }
 
+
+  std::vector<std::pair<int, int>> find_repeats(std::string_view seq, size_t single_repeat_count = 0, size_t dinuc_repeat_count = 0) {
+    std::vector<std::pair<int, int>> result;
+    size_t n = seq.size();
+
+    // Check for single-base repeats (e.g., "AAAA")
+    if (single_repeat_count > 0 && n >= single_repeat_count) {
+        for (size_t i = 0; i <= n - single_repeat_count; ++i) {
+            char base = seq[i];
+            size_t j = i + 1;
+            while (j < n && seq[j] == base) ++j;
+
+            size_t len = j - i;
+            if (len >= single_repeat_count) {
+                result.emplace_back(i, j - 1);
+                i = j - 1;  // advance to end of this repeat block
+            }
+        }
+    }
+
+    // Check for dinucleotide repeats (e.g., "AGAGAG")
+    if (dinuc_repeat_count > 0 && n >= 2 * dinuc_repeat_count) {
+        for (size_t i = 0; i <= n - 2 * dinuc_repeat_count; ++i) {
+            std::string_view unit = seq.substr(i, 2);
+            size_t j = i + 2;
+            size_t count = 1;
+
+            while (j + 1 < n && seq.substr(j, 2) == unit) {
+                ++count;
+                j += 2;
+            }
+
+            if (count >= dinuc_repeat_count) {
+                result.emplace_back(i, j - 1);
+                i = j - 2;  // advance to end of this repeat block
+            }
+        }
+    }
+
+    return result;
+  }
+  
+  std::vector<int> parsePLString(const std::string& pl_str) {
+    std::vector<int> out;
+    out.reserve(3);
+    std::stringstream ss(pl_str);
+    std::string tok;
+    while (std::getline(ss, tok, ',')) {
+      try {
+	out.push_back(std::stoi(tok));
+      }
+      catch (const std::exception& e) {
+	throw std::runtime_error("Invalid integer in PL string: " + tok);
+      }
+    }
+    if (out.size() != 3) {
+      throw std::runtime_error("PL string must have exactly 3 comma-separated values");
+    }
+    return out;
+  }
+  
+  // thresholds
+  constexpr size_t HOMOPOLYMER_MIN  = 3;  // e.g. 16 the same base
+  constexpr size_t DINUC_REPEAT_MIN = 2;   // e.g. 8 a nt motif
+  
+  SubstringList find_long_homopolymers(const std::string& s) {
+    
+    SubstringList results;
+    
+    if (s.size() < HOMOPOLYMER_MIN) return results;
+    
+    size_t run = 1;
+    for (size_t i = 1; i < s.size(); ++i) {
+        if (s[i] == s[i - 1]) {
+            ++run;
+        } else {
+            if (run >= HOMOPOLYMER_MIN) {
+                size_t end = i - 1;
+                size_t start = end - run + 1;
+                results.emplace_back(start, end, std::string(run, s[i - 1]));
+            }
+            run = 1;
+        }
+    }
+
+    // Catch repeat at end of string
+    if (run >= HOMOPOLYMER_MIN) {
+      size_t end = s.size() - 1;
+      size_t start = end - run + 1;
+      results.emplace_back(start, end, std::string(run, s.back()));
+    }
+    
+    return results;
+  }
+  
+  SubstringList find_long_dinuc_repeats(const std::string& s) {
+    
+    SubstringList results;
+    
+    if (s.size() < 2 * DINUC_REPEAT_MIN) return results;
+    
+    for (size_t i = 0; i + 2 * DINUC_REPEAT_MIN <= s.size(); ++i) {
+        std::string unit = s.substr(i, 2);
+        size_t reps = 1;
+
+        while (i + 2 * (reps + 1) <= s.size() &&
+               s.substr(i + 2 * reps, 2) == unit) {
+            ++reps;
+        }
+
+        if (reps >= DINUC_REPEAT_MIN) {
+            size_t start = i;
+            size_t end = i + 2 * reps - 1;
+
+            std::string repeated_seq;
+            for (size_t r = 0; r < reps; ++r)
+                repeated_seq += unit;
+
+            results.emplace_back(start, end, repeated_seq);
+
+            i = end - 1; // Skip ahead past this repeat
+        }
+    }
+
+    return results;
+}
 
   
 } // end namespace svabaUtils

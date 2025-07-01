@@ -169,6 +169,31 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
   unit.st.gr = region;
   unit.st.start();
   
+  // get the reference sequence of the local region
+  string lregion;
+  try {
+    lregion = unit.ref_genome->QueryRegion(sc.header.IDtoName(region.chr), region.pos1, region.pos2);
+  } catch (...) {
+    std::cerr << " Caught exception for lregion with reg " << region.ToString(sc.header);
+    lregion = "";
+  }
+  std::vector<std::pair<int,int>> repeats_to_avoid = svabaUtils::find_repeats(lregion, 20,10);
+  SeqLib::GRC local_blacklist;
+  for (auto& [key, walker] : unit.walkers) {  
+    for (const auto& [st, sp] : repeats_to_avoid) {
+      walker->local_blacklist.add(GenomicRegion(region.chr, region.pos1 + st, region.pos1 + sp));
+    }
+    walker->local_blacklist.MergeOverlappingIntervals();
+    walker->local_blacklist.CreateTreeMap();
+  }
+  if (repeats_to_avoid.size())
+    sc.logger.log(sc.opts.verbose > 1, sc.opts.verbose_log, "  found ref repeats at"); //debug
+  for (const auto& [st,sp] : repeats_to_avoid) {
+    sc.logger.log(sc.opts.verbose > 1, sc.opts.verbose_log, "  ",region.ChrName(sc.header),
+		  ":",region.pos1 + st, "-",region.pos1+sp);    
+  }
+  
+  
   // holder for Bam: (read : cigar)
   unordered_map<string, CigarMap> cigmap;
   
@@ -183,7 +208,7 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
       walker->SetRegions(sc.file_regions);
     // else: walk entire BAM (default)
     
-    sc.logger.log(sc.opts.verbose > 1, sc.opts.verbose_log, "---running svabaBamWalker", walker);
+    sc.logger.log(sc.opts.verbose > 1, sc.opts.verbose_log, "---running svabaBamWalker", *walker);
 
     // reset the walker params
     walker->m_limit = sc.opts.weird_read_limit;
@@ -572,11 +597,11 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
 	std::string contig_name = all_unaligned_contigs_this_region[r->ChrID()].Name; //chromomomse here = contig
 	i->AddR2C(contig_name, this_r2c); // i = AlignedContig
 
-	if (region.pos1 == 4287501) {
-	  std::cout << "R2C " << r->Qname() << " - " <<
-	    r->Sequence() << " contig " << r->ChrName(sc.header) <<
-	    std::endl;
-	}
+	// if (region.pos1 == 4287501) {
+	//   std::cout << "R2C " << r->Qname() << " - " <<
+	//     r->Sequence() << " contig " << r->ChrName(sc.header) <<
+	//     std::endl;
+	// }
 	
 	// add the read to the right contig
 	auto it = all_AlignedContigs_this_region.find(contig_name);
@@ -616,11 +641,11 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
     //alc.push_back(std::move(a));
   }
   
-  if (region.pos1 == 4287501) {
-    for (const auto& [_, bbb] : all_AlignedContigs_this_region) {
-      std::cout << " ALC " << bbb.printToAlignmentsFile(sc.header) << std::endl;
-    }
-  }
+  // if (region.pos1 == 4287501) {
+  //   for (const auto& [_, bbb] : all_AlignedContigs_this_region) {
+  //     std::cout << " ALC " << bbb.printToAlignmentsFile(sc.header) << std::endl;
+  //   }
+  // }
   
   unit.st.stop("as");
 
@@ -656,11 +681,11 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
     i->CombineWithDiscordantClusterMap(dmap);
   }
   
-  if (region.pos1 == 4287501) {
-    for (const auto& bbb : bp_glob) {
-      std::cout << " BPGLOB " << bbb->printSimple(sc.header) << std::endl;
-    }
-  }
+  // if (region.pos1 == 4287501) {
+  //   for (const auto& bbb : bp_glob) {
+  //     std::cout << " BPGLOB " << bbb->printSimple(sc.header) << std::endl;
+  //   }
+  // }
 
   // add in the discordant clusters as breakpoints
   for (auto& [_, d] : dmap) {
@@ -695,7 +720,6 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
   }
   
   // de duplicate the breakpoints
-  std::cerr << " BEFORE DEUPE " << bp_glob.size() << std::endl;
   std::sort(bp_glob.begin(), bp_glob.end(),
 	    [](auto const& a, auto const& b){
 	      return *a < *b;
@@ -708,13 +732,12 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
 			       return !(*a < *b) && !(*b < *a);
 			     });
   bp_glob.erase(new_end, bp_glob.end()); // remove the duplicates after they are sorted to the back
-  std::cerr <<" AFTER DEDUPE " << bp_glob.size() << std::endl;
   
-  if (region.pos1 == 4287501) {
-    for (const auto& bbb : bp_glob) {
-      std::cout << " AFTER BPGLOB " << bbb->printSimple(sc.header) << std::endl;
-    }
-  }
+  // if (region.pos1 == 4287501) {
+  //   for (const auto& bbb : bp_glob) {
+  //     std::cout << " AFTER BPGLOB " << bbb->printSimple(sc.header) << std::endl;
+  //   }
+  // }
   
   // add the coverage data to breaks for allelic fraction computation
   unordered_map<string, STCoverage*> covs;
@@ -820,11 +843,11 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
   
   unit.st.bps_count = bp_glob.size();
 
-  if (region.pos1 == 4287501) {
-    for (const auto& bbb : unit.m_bps/*bp_glob*/) {
-      std::cout << " FINAL BPGLOB " << bbb->printSimple(sc.header) << std::endl;
-    }
-  }
+  // if (region.pos1 == 4287501) {
+  //   for (const auto& bbb : unit.m_bps/*bp_glob*/) {
+  //     std::cout << " FINAL BPGLOB " << bbb->printSimple(sc.header) << std::endl;
+  //   }
+  // }
   
   // dump if getting to much memory
   unit.st.stop("pp");

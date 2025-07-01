@@ -17,8 +17,8 @@ inline constexpr int MIN_CLIP_FOR_LOCAL           = 40;
 inline constexpr int MAX_NM_FOR_LOCAL             = 10;
 
 // from BreakPoint
-inline constexpr double MAX_ERROR                   = 0.04;
-inline constexpr double MIN_ERROR                   = 0.0005;
+inline constexpr double MAX_ERROR                   = 0.25; // for very repetitive regions, what is the maximum expected error rate for an indel
+inline constexpr double MIN_ERROR                   = 0.0005; 
 inline constexpr int    T_SPLIT_BUFF                = 5;
 inline constexpr int    N_SPLIT_BUFF                = 5;
 inline constexpr int    INSERT_SIZE_TOO_BIG_SPAN_READS = 16;

@@ -5,6 +5,7 @@
 #include <unordered_map>
 #include <map>
 #include <chrono>
+#include <tuple>
 
 #include "svabaLogger.h"
 
@@ -13,13 +14,14 @@
 #include "SeqLib/RefGenome.h"
 #include "SeqLib/GenomicRegion.h"
 
-using CountPair    = std::pair<size_t, size_t>;
-
+typedef std::pair<size_t, size_t> CountPair; 
+typedef std::tuple<size_t, size_t, std::string> Substring;
+typedef std::vector<Substring> SubstringList;
 
 #define SRTAG(r) ((r).GetZTag("SR") + "_" + std::to_string((r).AlignmentFlag()) + "_" + (r).Qname())
 
 namespace svabaUtils {
-  
+
   // make a structure to store timing opt
   struct svabaTimer {
 
@@ -84,8 +86,6 @@ namespace svabaUtils {
     
   }
 
-  void print(std::stringstream& s, std::ofstream& log, bool cerr);
-  
   std::string fileDateString();
   
   bool __header_has_chr_prefix(bam_hdr_t * h);
@@ -102,5 +102,12 @@ namespace svabaUtils {
 			      const SeqLib::BamHeader& refHeader,
 				SvabaLogger& logger);
 
+  std::vector<std::pair<int, int>> find_repeats(std::string_view seq, size_t single_repeat_count, size_t dinuc_repeat_count);
+
+  std::vector<int> parsePLString(const std::string& pl_str);
+
+  SubstringList find_long_dinuc_repeats(const std::string& s);
+
+  SubstringList find_long_homopolymers(const std::string& s);  
   
 }
