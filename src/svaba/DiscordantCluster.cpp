@@ -579,8 +579,8 @@ void DiscordantCluster::__convertToDiscordantCluster(DiscordantClusterMap &dd,
     dd[d.m_id] = d;
     
     // Warn if widths are too large
-    if !(d.m_reg1.Width() < MAX_REGION_WIDTH && d.m_reg2.Width() < MAX_REGION_WIDTH) {
-      std::cerr << "Warning: Wide region " << d.m_id << " with region widths " 
+    if (d.m_reg1.Width() >= MAX_REGION_WIDTH || d.m_reg2.Width() >= MAX_REGION_WIDTH) {
+      std::cerr << "Warning: Wide cluster " << d.m_id << " with region widths "
                 << d.m_reg1.Width() << "bp and " << d.m_reg2.Width() << "bp (>= " << MAX_REGION_WIDTH << "bp limit)" << std::endl;
     }
   }
