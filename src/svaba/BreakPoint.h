@@ -168,7 +168,14 @@ public:
   int pass = -1;      //false;
   int num_align = 0;  // number of alignments for contigs that generated this
   
+  // Additional fields for VCF compatibility
+  int pon = 0;       // panel of normals count
+  bool dbsnp = false; // found in dbSNP
+  
   double LO_s = 0; // log odds of variant being somatic (see svabaModels.cpp - SomaticLOD)
+  
+  // Compatibility fields for VCF output
+  double somatic_score = 0; // alias for LO_s for VCF compatibility
   
   SVType svtype = SVType::NOTSET;
   LocalAlignment local = LocalAlignment::NOTSET;
@@ -428,7 +435,7 @@ public:
 
  //   std::string read_names, bxtable;
 
- //   std::vector<std::string> format_s;
+   std::vector<std::string> format_s;
 
  //   ReducedBreakEnd b1, b2;
  //   double somatic_score = 0;

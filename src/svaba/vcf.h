@@ -11,6 +11,8 @@
 
 #include "BreakPoint.h"
 
+class SvabaSharedConfig; // forward declaration
+
 typedef std::unordered_map<std::string, std::string> InfoMap;
 typedef std::unordered_map<std::string, std::string> FormatMap;
 typedef std::unordered_map<std::string, std::string> FilterMap;
@@ -135,7 +137,7 @@ struct VCFFile {
   // create a VCFFile from a csv
   VCFFile(std::string file, std::string id, const SeqLib::BamHeader& h,
 	  const VCFHeader& vheader, bool nopass,
-	  bool verbose);
+	  bool verbose, const SvabaSharedConfig* config = nullptr);
 
   std::string filename;
   std::string method;

@@ -1420,112 +1420,101 @@ int BreakPoint::getSpan() const {
     return -1;
 }
 
-// ReducedBreakPoint::ReducedBreakPoint(const std::string &line, const SeqLib::BamHeader& h) {
+// Constructor for reading BreakPoint from file line
+BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h, const SvabaSharedConfig* _sc) : sc(_sc) {
 
-//   if (h.isEmpty()) {
-//     std::cerr << "ReducedBreakPoint::ReducedBreakPoint - Must supply non-empty header" << std::endl;
-//     exit(EXIT_FAILURE);
-//   }
+  if (h.isEmpty()) {
+    std::cerr << "BreakPoint::BreakPoint - Must supply non-empty header" << std::endl;
+    exit(EXIT_FAILURE);
+  }
 
-//   std::istringstream iss(line);
-//   std::string val;
-//   size_t count = 0;
+  std::istringstream iss(line);
+  std::string val;
+  size_t count = 0;
   
-//   ref = nullptr;
-//   alt = nullptr;
-//   cname = nullptr;
-//   evidence = nullptr;
-//   confidence = nullptr;
-//   insertion = nullptr;
-//   homology = nullptr;
+  std::string ref_s, alt_s, cname_s, insertion_s, homology_s, evidence_s, confidence_s, read_names_s, bxtable_s;
   
-//   //float afn, aft;
-//   std::string ref_s, alt_s, cname_s, insertion_s, homology_s, evidence_s, confidence_s, read_names_s, bxtable_s;
-  
-//   std::string chr1, pos1, chr2, pos2, repeat_s; 
-//   char strand1 = '*', strand2 = '*';
-//   while (std::getline(iss, val, '\t')) {
-//     try{
-//       switch(++count) {
-//       case 1: chr1 = val; break;
-//       case 2: pos1 = val; break; 
-//       case 3: assert(val.length()); strand1 = val.at(0); break;
-//       case 4: chr2 = val; break;
-//       case 5: pos2 = val; break; 
-//       case 6: assert(val.length()); strand2 = val.at(0); break;
-//       case 7: 
-// 	ref_s = val;
-// 	break; 
-//       case 8: 
-// 	alt_s = val;
-// 	break;
-//       case 9: break; //span = stoi(val); break; // automatically calculated
-//       case 10: //mapq1
-// 	b1 = ReducedBreakEnd(GenomicRegion(chr1, pos1, pos1, h), std::stoi(val)); b1.gr.strand = strand1; break;
-//       case 11: //mapq2
-// 	b2 = ReducedBreakEnd(GenomicRegion(chr2, pos2, pos2, h), std::stoi(val)); b2.gr.strand = strand2; break;
-//       case 12: b1.nm = INTNSTOI(val,255); break;
-//       case 13: b2.nm = INTNSTOI(val,255); break;
-//       case 14: dc.mapq1 = INTNSTOI(val, 255); break;
-//       case 15: dc.mapq2 = INTNSTOI(val, 255); break;
-//       case 16: break; //split (not needed, since in genotype) 
-//       case 17: break; //cigar (not needed, since in genotype) 
-//       case 18: break; //alt (not needed, since in genotype)
-//       case 19: cov = INTNSTOI(val,65535); break;
-//       case 20: b1.sub_n = INTNSTOI(val,255); break;
-//       case 21: b2.sub_n = INTNSTOI(val,255); break;
-//       case 22: 
-// 	homology_s = val;
-// 	break; 
-//       case 23: 
-// 	insertion_s = val;
-// 	break; 
-//       case 24: cname_s = val; break;
-//       case 25: num_align = std::min((int)31, std::stoi(val)); break;
-//       case 26: 
-// 	pass = val == "PASS";
-// 	confidence_s = val;
-// 	break;
-//       case 27: 
-// 	evidence_s = val;
-// 	indel = val == "INDEL"; 
-// 	imprecise = val == "DSCRD"; 
-// 	break; 
-//       case 28: quality = std::stod(val); break; //std::min((int)255,std::stoi(val)); break;
-//       case 29: secondary = val == "1" ? 1 : 0;
-//       case 30: somatic_score = std::stod(val); break;
-//       case 31: LO_s = std::stod(val); break;
-//       case 32: true_lod = std::stod(val); break;
-//       case 33: pon = std::min(255,std::stoi(val)); break;
-//       case 34: repeat_s = val; break; // repeat_seq
-//       case 35: blacklist = (val=="1" ? 1 : 0); break;
-//       case 36: dbsnp = val != "x"; break;
-//       case 37: read_names_s = val; break; //reads
-//       case 38: bxtable_s = val; break; //bx tags
-//       default:
-// 	format_s.push_back(val);
-//       }
+  std::string chr1, pos1, chr2, pos2, repeat_s; 
+  char strand1 = '*', strand2 = '*';
+  while (std::getline(iss, val, '\t')) {
+    try{
+      switch(++count) {
+      case 1: chr1 = val; break;
+      case 2: pos1 = val; break; 
+      case 3: assert(val.length()); strand1 = val.at(0); break;
+      case 4: chr2 = val; break;
+      case 5: pos2 = val; break; 
+      case 6: assert(val.length()); strand2 = val.at(0); break;
+      case 7: 
+	ref_s = val;
+	break; 
+      case 8: 
+	alt_s = val;
+	break;
+      case 9: break; //span = stoi(val); break; // automatically calculated
+      case 10: //mapq1
+	b1 = BreakEnd(GenomicRegion(chr1, pos1, pos1, h), std::stoi(val)); b1.gr.strand = strand1; break;
+      case 11: //mapq2
+	b2 = BreakEnd(GenomicRegion(chr2, pos2, pos2, h), std::stoi(val)); b2.gr.strand = strand2; break;
+      case 12: b1.nm = INTNSTOI(val,255); break;
+      case 13: b2.nm = INTNSTOI(val,255); break;
+      case 14: dc.mapq1 = INTNSTOI(val, 255); break;
+      case 15: dc.mapq2 = INTNSTOI(val, 255); break;
+      case 16: break; //split (not needed, since in genotype) 
+      case 17: break; //cigar (not needed, since in genotype) 
+      case 18: break; //alt (not needed, since in genotype)
+      case 19: break; // cov = INTNSTOI(val,65535); break;
+      case 20: b1.sub_n = INTNSTOI(val,255); break;
+      case 21: b2.sub_n = INTNSTOI(val,255); break;
+      case 22: 
+	homology_s = val;
+	break; 
+      case 23: 
+	insertion_s = val;
+	break; 
+      case 24: cname_s = val; break;
+      case 25: num_align = std::min((int)31, std::stoi(val)); break;
+      case 26: 
+	pass = val == "PASS";
+	confidence_s = val;
+	break;
+      case 27: 
+	evidence_s = val;
+	svtype = (val == "INDEL") ? SVType::INDEL : SVType::BND; 
+	imprecise = val == "DSCRD" ? 1 : 0; 
+	break; 
+      case 28: quality = std::stod(val); break; //std::min((int)255,std::stoi(val)); break;
+      case 29: secondary = val == "1" ? 1 : 0; break;
+      case 30: somatic_score = std::stod(val); LO_s = somatic_score; break; // somatic_score in old format
+      case 31: LO_s = std::stod(val); somatic_score = LO_s; break; // LO_s 
+      case 32: a.LO = std::stod(val); break; // true_lod -> a.LO (all allele log odds)
+      case 33: pon = std::min(255,std::stoi(val)); break;
+      case 34: repeat_s = val; break; // repeat_seq
+      case 35: break; // blacklist = (val=="1" ? 1 : 0); break;
+      case 36: dbsnp = val != "x"; break;
+      case 37: read_names = val; break; //reads
+      case 38: bxtable = val; break; //bx tags
+      default:
+	format_s.push_back(val);
+      }
       
-//     } catch(...) {
-//       std::cerr << "caught stoi/stod/stof error on: " << val << " for count " << count << std::endl;
-//       std::cerr << line << std::endl;
-//       exit(1);
-//     }
-//   }
+    } catch(...) {
+      std::cerr << "caught stoi/stod/stof error on: " << val << " for count " << count << std::endl;
+      std::cerr << line << std::endl;
+      exit(1);
+    }
+  }
   
-//   confidence = __string_alloc2char(confidence_s, confidence);
-//   evidence   = __string_alloc2char(evidence_s, evidence);
-//   insertion  = __string_alloc2char(insertion_s, insertion);
-//   homology   = __string_alloc2char(homology_s, homology);
-//   cname      = __string_alloc2char(cname_s, cname);
-//   ref        = __string_alloc2char(ref_s, ref);
-//   alt        = __string_alloc2char(alt_s, alt);
-//   repeat     = repeat_s.empty() ? nullptr : __string_alloc2char(repeat_s, repeat);
-//   if (somatic_score && confidence_s == "PASS")
-//     read_names     = read_names_s; // == "x" ? nullptr : __string_alloc2char(read_names_s, read_names);
-//   bxtable = bxtable_s;
+  confidence = confidence_s;
+  seq = evidence_s;   // using seq field to store evidence
+  insertion = insertion_s;
+  homology = homology_s;
+  cname = cname_s;
+  ref = ref_s;
+  alt = alt_s;
+  repeat_seq = repeat_s.empty() ? "" : repeat_s;
   
-// }
+}
 
 
 void BreakPoint::SampleInfo::modelSelection(double er, int readlen) {

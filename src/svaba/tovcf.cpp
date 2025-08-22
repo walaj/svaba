@@ -8,6 +8,14 @@
 #include "vcf.h"
 #include "BreakPoint.h"
 #include "svabaUtils.h"
+#include "SvabaSharedConfig.h"
+#include "svabaOptions.h"
+#include "SvabaLogger.h"
+#include "svabaOutputWriter.h"
+#include "SvabaSharedConfig.h"
+#include "svabaOptions.h"
+#include "svabaLogger.h"
+#include "svabaOutputWriter.h"
 
 void parseToVCFOptions(int argc, char** argv);
 
@@ -98,6 +106,21 @@ void runToVCF(int argc, char** argv) {
   SeqLib::BamReader bwalker;
   assert(bwalker.Open(opt::bam));
   
+  // Create minimal configuration objects for VCF conversion
+  SvabaLogger logger(opt::verbose);
+  SvabaOptions opts;
+  SvabaOutputWriter writer;
+  
+  // Set default values for minimal functionality
+  opts.lod = 8.0;
+  opts.lodDb = 5.0;
+  opts.lodSomatic = 2.5;
+  opts.lodSomaticDb = 2.0;
+  
+  SvabaSharedConfig config(logger, opts, writer);
+  config.readlen = 150; // default read length
+  config.header = bwalker.Header();
+  
   // start a new VCF file
   VCFHeader header;
   header.filedate = svabaUtils::fileDateString();
@@ -129,7 +152,7 @@ void runToVCF(int argc, char** argv) {
   
   // convert to VCF
   VCFFile snowvcf(opt::input_file, opt::analysis_id, bwalker.Header(), header, true,
-		  opt::verbose > 0);
+		  opt::verbose > 0, &config);
   std::string basename = opt::analysis_id + ".svaba.unfiltered.";
   snowvcf.include_nonpass = true;
   snowvcf.writeIndels(basename, false, allele_names.size() == 1, bwalker.Header());

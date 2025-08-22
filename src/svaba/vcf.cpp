@@ -166,7 +166,8 @@ std::string VCFEntry::toFileString(const SeqLib::BamHeader& header) const {
       << be->gr.pos1 << sep << this->getIdString() << sep << this->getRefString() << sep << this->getAltString(header) << sep 
       << this->bp->quality << sep
       << this->bp->confidence << sep << info << sep 
-      << (this->bp->isindel ? indel_format : sv_format); // << sep << samps.first << sep << samps.second;
+      << (this->bp->isIndel() ? indel_format : sv_format); // << sep << samps.first << sep << samps.second;
+  // Add sample format strings from format_s
   for (auto& i : this->bp->format_s)
     out << sep << i;
   return out.str();
@@ -184,7 +185,7 @@ bool VCFEntry::operator<(const VCFEntry &v) const {
 
 // create a VCFFile from a svaba breakpoints file
 VCFFile::VCFFile(std::string file, std::string id, const SeqLib::BamHeader& h, const VCFHeader& vheader, bool nopass,
-		 bool m_verbose) {
+		 bool m_verbose, const SvabaSharedConfig* config) {
 
   verbose = m_verbose;
   analysis_id = id;
@@ -326,7 +327,7 @@ VCFFile::VCFFile(std::string file, std::string id, const SeqLib::BamHeader& h, c
 
     // parse the breakpoint from the file
     //std::shared_ptr<ReducedBreakPoint> bp(new ReducedBreakPoint(line, h));
-    std::shared_ptr<BreakPoint> bp(new BreakPoint(line, h));    
+    std::shared_ptr<BreakPoint> bp(new BreakPoint(line, h, config));    
 
     // add the VCFentry Pair
     std::shared_ptr<VCFEntryPair> vpair(new VCFEntryPair(bp));
@@ -347,7 +348,7 @@ VCFFile::VCFFile(std::string file, std::string id, const SeqLib::BamHeader& h, c
     if (!bp->pass)
       bp->bxtable = "x";
 
-    if (bp->isindel) {
+    if (bp->isIndel()) {
       indels.insert(pair<int, std::shared_ptr<VCFEntryPair>>(line_count, vpair));
     }
     else  {
