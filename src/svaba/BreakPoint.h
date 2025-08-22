@@ -440,7 +440,7 @@ public:
 
  //   std::string read_names, bxtable;
 
-   std::vector<std::string> format_s;
+ //   std::vector<std::string> format_s;
 
  //   ReducedBreakEnd b1, b2;
  //   double somatic_score = 0;
