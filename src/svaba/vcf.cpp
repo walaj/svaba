@@ -832,8 +832,8 @@ std::unordered_map<std::string, std::string> VCFEntry::fillInfoFields() const {
   if (!bp->bxtable.empty() && bp->bxtable != "x")
     info_fields["BX"] = bp->bxtable;
 
-  if (bp->repeat)
-    info_fields["REPSEQ"] = std::string(bp->repeat);
+  if (!bp->repeat_seq.empty())
+    info_fields["REPSEQ"] = bp->repeat_seq;
 
   if (bp->pon)
     info_fields["PON"] = std::to_string(bp->pon);
@@ -870,8 +870,8 @@ std::unordered_map<std::string, std::string> VCFEntry::fillInfoFields() const {
 	info_fields["SUBN"] = std::to_string(bp->b2.sub);
     }
 
-    if (bp->homology) info_fields["HOMSEQ"] = std::string(bp->homology);
-    if (bp->insertion) info_fields["INSERTION"] = std::string(bp->insertion);
+    if (!bp->homology.empty()) info_fields["HOMSEQ"] = bp->homology;
+    if (!bp->insertion.empty()) info_fields["INSERTION"] = bp->insertion;
     info_fields["NUMPARTS"] = std::to_string(bp->num_align);
 
     if (bp->imprecise)
@@ -890,7 +890,7 @@ std::unordered_map<std::string, std::string> VCFEntry::fillInfoFields() const {
 
   else {
 
-    lod_ss << std::setprecision(4) << bp->true_lod;
+    lod_ss << std::setprecision(4) << bp->LO_s;
     info_fields["LOD"] = lod_ss.str();
     lod_ss.str(std::string());
     //if (bp->blacklist)
@@ -905,18 +905,18 @@ std::unordered_map<std::string, std::string> VCFEntry::fillInfoFields() const {
 
 std::string VCFEntry::getRefString() const {
 
-  char* p;
+  std::string p;
   if (bp->indel || id_num == 1) 
   	p = bp->ref;
   else
     p = bp->alt;
     
-   if (!p) {
+   if (p.empty()) {
    	  std::cerr << "WARNING: Empty ref/alt field for bp " << std::endl;
    	  return (std::string("N"));
     }
    
-   return (std::string(p));
+   return p;
 }
 
 std::string VCFEntry::getAltString(const SeqLib::BamHeader& header) const {
@@ -924,15 +924,15 @@ std::string VCFEntry::getAltString(const SeqLib::BamHeader& header) const {
 
   if (bp->indel) {
   
-    char* p;
+    std::string p;
     p = bp->alt;
 
- 	if (!p) {
+ 	if (p.empty()) {
   	 	 std::cerr << "WARNING: Empty ref/alt field for bp " << std::endl;
    	 	 return (std::string("N"));
  	 }
  	 
- 	 return (std::string(p));
+ 	 return p;
   
   }
   
