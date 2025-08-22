@@ -19,7 +19,26 @@
 #include "svabaModels.h"
 
 // n is the max integer given the int size (e.g. 255). x is string with int
-#define INTNSTOI(x,n) std::min((int)n, std::stoi(x));
+#define INTNSTOI(x,n) std::min((int)n, safe_stoi(x, -1))
+
+// Safe conversions for missing values
+static inline double safe_stod(const std::string& val, double default_val = 0.0) {
+  if (val == "x" || val.empty()) return default_val;
+  try {
+    return std::stod(val);
+  } catch (const std::exception&) {
+    return default_val;
+  }
+}
+
+static inline int safe_stoi(const std::string& val, int default_val = -1) {
+  if (val == "x" || val.empty()) return default_val;
+  try {
+    return std::stoi(val);
+  } catch (const std::exception&) {
+    return default_val;
+  }
+}
 
 static inline std::string to_string(SVType t) {
   switch(t) {
@@ -1455,12 +1474,12 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h, cons
       case 10: //mapq1
 	b1.gr = GenomicRegion(chr1, pos1, pos1, h); 
 	b1.gr.strand = strand1; 
-	b1.mapq = std::stoi(val); 
+	b1.mapq = safe_stoi(val); 
 	break;
       case 11: //mapq2
 	b2.gr = GenomicRegion(chr2, pos2, pos2, h); 
 	b2.gr.strand = strand2; 
-	b2.mapq = std::stoi(val); 
+	b2.mapq = safe_stoi(val); 
 	break;
       case 12: b1.nm = INTNSTOI(val,255); break;
       case 13: b2.nm = INTNSTOI(val,255); break;
@@ -1505,12 +1524,12 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h, cons
 	indel = (val == "INDEL");  // Set indel flag for VCF compatibility
 	imprecise = val == "DSCRD" ? 1 : 0; 
 	break; 
-      case 28: quality = std::stod(val); break; //std::min((int)255,std::stoi(val)); break;
+      case 28: quality = safe_stod(val, 0.0); break; //std::min((int)255,std::stoi(val)); break;
       case 29: secondary = val == "1" ? 1 : 0; break;
-      case 30: somatic_score = std::stod(val); LO_s = somatic_score; break; // somatic_score in old format
-      case 31: LO_s = std::stod(val); somatic_score = LO_s; break; // LO_s 
-      case 32: a.LO = std::stod(val); break; // true_lod -> a.LO (all allele log odds)
-      case 33: pon = std::min(255,std::stoi(val)); break;
+      case 30: somatic_score = safe_stod(val); LO_s = somatic_score; break; // somatic_score in old format
+      case 31: LO_s = safe_stod(val); somatic_score = LO_s; break; // LO_s 
+      case 32: a.LO = safe_stod(val); break; // true_lod -> a.LO (all allele log odds)
+      case 33: pon = std::min(255, safe_stoi(val, 0)); break;
       case 34: repeat_s = val; break; // repeat_seq
       case 35: break; // blacklist = (val=="1" ? 1 : 0); break;
       case 36: dbsnp = val != "x"; break;

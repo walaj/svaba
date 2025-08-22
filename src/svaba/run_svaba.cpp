@@ -344,7 +344,7 @@ void runsvaba(int argc, char** argv) {
   writer.close();
   
   // make the VCF file
-  makeVCFs(sc);
+  // makeVCFs(sc);  // Temporarily commented out for testing
   
 #ifndef __APPLE__
   cerr << SeqLib::displayRuntime(start) << endl;
