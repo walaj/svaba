@@ -155,7 +155,7 @@ void makeVCFs(SvabaSharedConfig& sc) {
   snowvcf.writeIndels(basename, false, !case_control_run, sc.header);
   snowvcf.writeSVs(basename, false,    !case_control_run, sc.header);
 
-// } //anonymous namespace
+} //anonymous namespace
 
 void runsvaba(int argc, char** argv) {
 
