@@ -109,7 +109,7 @@ void runToVCF(int argc, char** argv) {
   
   // read in the bps.txt.gz file
   std::vector<std::string> allele_names; // store with real name
-  std::map<std::string, SampleInfo> tmp_alleles;
+  std::map<std::string, BreakPoint::SampleInfo> tmp_alleles;
   igzstream infile(opt::input_file.c_str(), std::ios::in);
   size_t line_count = 0;
   
@@ -134,12 +134,12 @@ void runToVCF(int argc, char** argv) {
 		  opt::verbose > 0);
   std::string basename = opt::analysis_id + ".svaba.unfiltered.";
   snowvcf.include_nonpass = true;
-  snowvcf.writeIndels(basename, false, allele_names.size() == 1);
-  snowvcf.writeSVs(basename, false, allele_names.size() == 1);
+  snowvcf.writeIndels(basename, false, allele_names.size() == 1, bwalker.Header());
+  snowvcf.writeSVs(basename, false, allele_names.size() == 1, bwalker.Header());
   basename = opt::analysis_id + ".svaba.";
   snowvcf.include_nonpass = false;
-  snowvcf.writeIndels(basename, false, allele_names.size() == 1);
-  snowvcf.writeSVs(basename, false, allele_names.size() == 1);
+  snowvcf.writeIndels(basename, false, allele_names.size() == 1, bwalker.Header());
+  snowvcf.writeSVs(basename, false, allele_names.size() == 1, bwalker.Header());
   
   return;
 }
