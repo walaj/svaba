@@ -145,7 +145,8 @@ public:
   
   std::string seq, cname, rs,
     insertion, homology, repeat_seq,
-    confidence, ref, alt;
+    confidence, ref, alt, evidence,
+    read_names, bxtable;
   
   // the evidence per break-end
   BreakEnd b1, b2;
@@ -171,6 +172,7 @@ public:
   // Additional fields for VCF compatibility
   int pon = 0;       // panel of normals count
   bool dbsnp = false; // found in dbSNP
+  bool indel = false; // is this an indel (for VCF compatibility)
   
   double LO_s = 0; // log odds of variant being somatic (see svabaModels.cpp - SomaticLOD)
   

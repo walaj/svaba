@@ -1453,9 +1453,15 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h, cons
 	break;
       case 9: break; //span = stoi(val); break; // automatically calculated
       case 10: //mapq1
-	b1 = BreakEnd(GenomicRegion(chr1, pos1, pos1, h), std::stoi(val)); b1.gr.strand = strand1; break;
+	b1.gr = GenomicRegion(chr1, pos1, pos1, h); 
+	b1.gr.strand = strand1; 
+	b1.mapq = std::stoi(val); 
+	break;
       case 11: //mapq2
-	b2 = BreakEnd(GenomicRegion(chr2, pos2, pos2, h), std::stoi(val)); b2.gr.strand = strand2; break;
+	b2.gr = GenomicRegion(chr2, pos2, pos2, h); 
+	b2.gr.strand = strand2; 
+	b2.mapq = std::stoi(val); 
+	break;
       case 12: b1.nm = INTNSTOI(val,255); break;
       case 13: b2.nm = INTNSTOI(val,255); break;
       case 14: dc.mapq1 = INTNSTOI(val, 255); break;
@@ -1464,8 +1470,8 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h, cons
       case 17: break; //cigar (not needed, since in genotype) 
       case 18: break; //alt (not needed, since in genotype)
       case 19: break; // cov = INTNSTOI(val,65535); break;
-      case 20: b1.sub_n = INTNSTOI(val,255); break;
-      case 21: b2.sub_n = INTNSTOI(val,255); break;
+      case 20: b1.sub = INTNSTOI(val,255); break;
+      case 21: b2.sub = INTNSTOI(val,255); break;
       case 22: 
 	homology_s = val;
 	break; 
@@ -1481,6 +1487,7 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h, cons
       case 27: 
 	evidence_s = val;
 	svtype = (val == "INDEL") ? SVType::INDEL : SVType::BND; 
+	indel = (val == "INDEL");  // Set indel flag for VCF compatibility
 	imprecise = val == "DSCRD" ? 1 : 0; 
 	break; 
       case 28: quality = std::stod(val); break; //std::min((int)255,std::stoi(val)); break;
@@ -1506,13 +1513,16 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h, cons
   }
   
   confidence = confidence_s;
-  seq = evidence_s;   // using seq field to store evidence
+  evidence = evidence_s;   // store evidence type (ASSMB, DSCRD, etc.)
   insertion = insertion_s;
   homology = homology_s;
   cname = cname_s;
   ref = ref_s;
   alt = alt_s;
   repeat_seq = repeat_s.empty() ? "" : repeat_s;
+  
+  // Set somatic_score for VCF compatibility
+  somatic_score = LO_s;
   
 }
 

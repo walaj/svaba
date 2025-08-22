@@ -522,8 +522,8 @@ void VCFFile::deduplicate(const SeqLib::BamHeader& header) {
       // this has worst read coverage that what it overlaps, so mark as dup. If tie, take left-most break
       if (*i.second->bp < *entry_pairs[j.first]->bp) { 
 	// check that its not a local clashing with a global, because they're supposed to be two annotations for one event
-	if ( (!strcmp(i.second->bp->evidence, "TSI_L") && !strcmp(entry_pairs[j.first]->bp->evidence, "TSI_G")) || // strcmp of 0 is match 
-	     (!strcmp(i.second->bp->evidence, "TSI_G") && !strcmp(entry_pairs[j.first]->bp->evidence, "TSI_L")) ) 
+	if ( (i.second->bp->evidence == "TSI_L" && entry_pairs[j.first]->bp->evidence == "TSI_G") || 
+	     (i.second->bp->evidence == "TSI_G" && entry_pairs[j.first]->bp->evidence == "TSI_L") ) 
 	  ; // don't add as a duplicate
 	else {
 	  dups.insert(j.first); 
@@ -864,10 +864,10 @@ std::unordered_map<std::string, std::string> VCFEntry::fillInfoFields() const {
   if (bp->num_align != 1) {
 
     if (id_num == 1) {
-      if (bp->b1.sub_n)
-	info_fields["SUBN"] = std::to_string(bp->b1.sub_n);
-      else if (bp->b2.sub_n)
-	info_fields["SUBN"] = std::to_string(bp->b2.sub_n);
+      if (bp->b1.sub)
+	info_fields["SUBN"] = std::to_string(bp->b1.sub);
+      else if (bp->b2.sub)
+	info_fields["SUBN"] = std::to_string(bp->b2.sub);
     }
 
     if (bp->homology) info_fields["HOMSEQ"] = std::string(bp->homology);
