@@ -371,6 +371,9 @@ public:
   // ordered to keep in alphabetical order by prefix (e.g. n001)
   std::map<std::string, SampleInfo> allele; 
   
+  // VCF format strings for each sample
+  std::vector<std::string> format_s;
+  
 };
 
  // struct ReducedDiscordantCluster {
