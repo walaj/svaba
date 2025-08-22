@@ -109,9 +109,7 @@ void runToVCF(int argc, char** argv) {
   
   // read in the bps.txt.gz file
   std::vector<std::string> allele_names; // store with real name
-  std::map<std::string, BreakPoint::SampleInfo> tmp_alleles;
   igzstream infile(opt::input_file.c_str(), std::ios::in);
-  size_t line_count = 0;
   
   // Read the header line first
   std::string headerLine;
