@@ -112,48 +112,48 @@ void sendThreads(const SeqLib::GRC& regionsToRun,
   pool.shutdown();
 }
   
-// void makeVCFs(SvabaSharedConfig& sc) {
+void makeVCFs(SvabaSharedConfig& sc) {
 
-//   // make the VCF file
-//   string file = sc.opts.analysisId + ".bps.txt.gz";  
-//   sc.logger.log(true, true, "...loading the bps file ", file," for conversion to VCF");
+  // make the VCF file
+  string file = sc.opts.analysisId + ".bps.txt.gz";  
+  sc.logger.log(true, true, "...loading the bps file ", file," for conversion to VCF");
 
-//   // make the header
-//   VCFHeader header;
-//   header.filedate = svabaUtils::fileDateString();
-//   header.source = sc.args;
-//   header.reference = sc.opts.refGenome;
+  // make the header
+  VCFHeader header;
+  header.filedate = svabaUtils::fileDateString();
+  header.source = sc.args;
+  header.reference = sc.opts.refGenome;
   
-//   for (int i = 0; i < sc.header.NumSequences(); ++i)
-//     header.addContigField(sc.header.IDtoName(i),sc.header.GetSequenceLength(i));
+  for (int i = 0; i < sc.header.NumSequences(); ++i)
+    header.addContigField(sc.header.IDtoName(i),sc.header.GetSequenceLength(i));
 
-//   for (auto& b : sc.opts.bams) {
-//     string fname = b.second; //bpf.filename();
-//     header.addSampleField(fname);
-//     header.colnames += "\t" + fname; 
-//   }
+  for (auto& b : sc.opts.bams) {
+    string fname = b.second; //bpf.filename();
+    header.addSampleField(fname);
+    header.colnames += "\t" + fname; 
+  }
 
-//   // check if it has a matched control. If so, output "somatic / germline" vcfs
-//   bool case_control_run = false;
-//   for (auto& b : sc.opts.bams)
-//     if (b.first.at(0) == 'n')
-//       case_control_run = true;
+  // check if it has a matched control. If so, output "somatic / germline" vcfs
+  bool case_control_run = false;
+  for (auto& b : sc.opts.bams)
+    if (b.first.at(0) == 'n')
+      case_control_run = true;
 
-//   // primary VCFs
-//   sc.logger.log(true, true, "...making the primary VCFs (unfiltered and filtered) from file ",file);
-//   VCFFile snowvcf(file, sc.opts.analysisId, sc.header, header, !false, sc.opts.verbose > 0);
+  // primary VCFs
+  sc.logger.log(true, true, "...making the primary VCFs (unfiltered and filtered) from file ",file);
+  VCFFile snowvcf(file, sc.opts.analysisId, sc.header, header, !false, sc.opts.verbose > 0);
   
-//   string basename = sc.opts.analysisId + ".svaba.unfiltered.";
-//   snowvcf.include_nonpass = true;
-//   sc.logger.log(true, true, "...writing unfiltered VCFs");
-//   snowvcf.writeIndels(basename, false, !case_control_run, sc.header);
-//   snowvcf.writeSVs(basename, false,    !case_control_run, sc.header);
+  string basename = sc.opts.analysisId + ".svaba.unfiltered.";
+  snowvcf.include_nonpass = true;
+  sc.logger.log(true, true, "...writing unfiltered VCFs");
+  snowvcf.writeIndels(basename, false, !case_control_run, sc.header);
+  snowvcf.writeSVs(basename, false,    !case_control_run, sc.header);
   
-//   sc.logger.log(true, true, "...writing filtered VCFs");
-//   basename = sc.opts.analysisId + ".svaba.";
-//   snowvcf.include_nonpass = false;
-//   snowvcf.writeIndels(basename, false, !case_control_run, sc.header);
-//   snowvcf.writeSVs(basename, false,    !case_control_run, sc.header);
+  sc.logger.log(true, true, "...writing filtered VCFs");
+  basename = sc.opts.analysisId + ".svaba.";
+  snowvcf.include_nonpass = false;
+  snowvcf.writeIndels(basename, false, !case_control_run, sc.header);
+  snowvcf.writeSVs(basename, false,    !case_control_run, sc.header);
 
 // } //anonymous namespace
 
@@ -344,7 +344,7 @@ void runsvaba(int argc, char** argv) {
   writer.close();
   
   // make the VCF file
-  //makeVCFs(sc);
+  makeVCFs(sc);
   
 #ifndef __APPLE__
   cerr << SeqLib::displayRuntime(start) << endl;
