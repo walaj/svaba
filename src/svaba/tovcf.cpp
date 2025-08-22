@@ -10,7 +10,7 @@
 #include "svabaUtils.h"
 #include "SvabaSharedConfig.h"
 #include "svabaOptions.h"
-#include "SvabaLogger.h"
+#include "svabaLogger.h"
 #include "svabaOutputWriter.h"
 #include "SvabaSharedConfig.h"
 #include "svabaOptions.h"
