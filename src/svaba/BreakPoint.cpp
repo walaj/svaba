@@ -1486,7 +1486,22 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h, cons
 	break;
       case 27: 
 	evidence_s = val;
-	svtype = (val == "INDEL") ? SVType::INDEL : SVType::BND; 
+	// Map evidence types to SVType enum values
+	if (val == "INDEL") {
+	  svtype = SVType::INDEL;
+	} else if (val == "ASSMB") {
+	  svtype = SVType::ASSMB;
+	} else if (val == "ASDIS") {
+	  svtype = SVType::ASDIS;
+	} else if (val == "DSCRD") {
+	  svtype = SVType::DSCRD;
+	} else if (val == "TSI_L") {
+	  svtype = SVType::TSI_LOCAL;
+	} else if (val == "TSI_G") {
+	  svtype = SVType::TSI_GLOBAL;
+	} else {
+	  svtype = SVType::NOTSET;
+	}
 	indel = (val == "INDEL");  // Set indel flag for VCF compatibility
 	imprecise = val == "DSCRD" ? 1 : 0; 
 	break; 
