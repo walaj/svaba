@@ -12,10 +12,6 @@
 #include "svabaOptions.h"
 #include "svabaLogger.h"
 #include "svabaOutputWriter.h"
-#include "SvabaSharedConfig.h"
-#include "svabaOptions.h"
-#include "svabaLogger.h"
-#include "svabaOutputWriter.h"
 
 void parseToVCFOptions(int argc, char** argv);
 
@@ -107,15 +103,16 @@ void runToVCF(int argc, char** argv) {
   assert(bwalker.Open(opt::bam));
   
   // Create minimal configuration objects for VCF conversion
-  SvabaLogger logger(opt::verbose);
+  SvabaLogger logger;  // Use default constructor
   SvabaOptions opts;
-  SvabaOutputWriter writer;
   
   // Set default values for minimal functionality
   opts.lod = 8.0;
   opts.lodDb = 5.0;
   opts.lodSomatic = 2.5;
   opts.lodSomaticDb = 2.0;
+  
+  SvabaOutputWriter writer(logger, opts);  // Pass logger and opts as required
   
   SvabaSharedConfig config(logger, opts, writer);
   config.readlen = 150; // default read length
