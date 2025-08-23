@@ -1498,7 +1498,7 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h, cons
 	insertion_s = val;
 	break; 
       case 24: cname_s = val; break;
-      case 25: num_align = std::min((int)31, std::stoi(val)); break;
+      case 25: num_align = std::min((int)31, safe_stoi(val, 1)); break;
       case 26: 
 	pass = val == "PASS";
 	confidence_s = val;
@@ -1514,12 +1514,14 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h, cons
 	  svtype = SVType::ASDIS;
 	} else if (val == "DSCRD") {
 	  svtype = SVType::DSCRD;
-	} else if (val == "TSI_L") {
+	} else if (val == "TSI_L" || val == "TSI_LOCAL") {
 	  svtype = SVType::TSI_LOCAL;
-	} else if (val == "TSI_G") {
+	} else if (val == "TSI_G" || val == "TSI_GLOBAL") {
 	  svtype = SVType::TSI_GLOBAL;
 	} else {
-	  svtype = SVType::NOTSET;
+	  // Default to ASSMB for unknown types to avoid NOTSET
+	  svtype = SVType::ASSMB;
+	  std::cerr << "Warning: Unknown evidence type '" << val << "', defaulting to ASSMB" << std::endl;
 	}
 	indel = (val == "INDEL");  // Set indel flag for VCF compatibility
 	imprecise = val == "DSCRD" ? 1 : 0; 

@@ -38,7 +38,6 @@ inline constexpr int         THREAD_CONTIG_LIMIT    =   5'000;
 // from svabaAssemblerEngine
 inline constexpr std::size_t MAX_OVERLAPS_PER_ASSEMBLY = 20'000;
 inline constexpr int         MIN_CONTIG_MATCH           =    35;
-inline constexpr int         MATE_LOOKUP_MIN            =     10000000;
 inline constexpr int         SECONDARY_CAP              =    10;
 inline constexpr int         MAX_MATE_ROUNDS            =     1;
 inline constexpr std::size_t MAX_NUM_MATE_WINDOWS      = 50'000'000;
