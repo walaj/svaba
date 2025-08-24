@@ -1,6 +1,8 @@
 #include <getopt.h>
 #include <sstream>
 #include <iostream>
+#include <fstream>
+#include <cstdio>
 
 #include "gzstream.h"
 #include "SeqLib/BamReader.h"
@@ -127,13 +129,40 @@ void runToVCF(int argc, char** argv) {
   // open BAM
   SeqLib::BamHeader hdr = bwalker.Header();
   
-  // read in the bps.txt.gz file
+  // read in the bps.txt.gz file (which may or may not actually be gzipped)
   std::vector<std::string> allele_names; // store with real name
-  igzstream infile(opt::input_file.c_str(), std::ios::in);
   
-  // Read the header line first
+  // Try to determine if file is actually gzipped by checking magic bytes
+  std::ifstream test_file(opt::input_file.c_str(), std::ios::binary);
+  char magic[2] = {0};
+  if (test_file.is_open()) {
+    test_file.read(magic, 2);
+    test_file.close();
+  }
+  
+  bool is_gzipped = (magic[0] == '\x1f' && magic[1] == '\x8b');
+  
   std::string headerLine;
-  if (std::getline(infile, headerLine)) {
+  if (is_gzipped) {
+    igzstream infile(opt::input_file.c_str(), std::ios::in);
+    if (!infile) {
+      std::cerr << "Can't read gzipped file " << opt::input_file << std::endl;
+      exit(EXIT_FAILURE);
+    }
+    std::getline(infile, headerLine);
+    infile.close();
+  } else {
+    std::ifstream infile(opt::input_file.c_str());
+    if (!infile) {
+      std::cerr << "Can't read file " << opt::input_file << std::endl;
+      exit(EXIT_FAILURE);
+    }
+    std::getline(infile, headerLine);
+    infile.close();
+  }
+  
+  // Parse header to get sample names
+  if (!headerLine.empty()) {
     std::vector<std::string> headerv = svabaUtils::tokenize_delimited(headerLine, '\t');
 
     // assume a certain format for bps.txt
@@ -147,8 +176,25 @@ void runToVCF(int argc, char** argv) {
   }
 
   
+  // Handle the file format issue: VCFFile constructor expects .gz files to be gzipped
+  // but svaba writes .bps.txt.gz files as plain text. Create a temporary file if needed.
+  std::string vcf_input_file = opt::input_file;
+  bool need_temp_file = false;
+  
+  if (!is_gzipped && opt::input_file.substr(opt::input_file.length() - 3) == ".gz") {
+    // File has .gz extension but isn't gzipped - create temp file
+    vcf_input_file = opt::analysis_id + ".temp.bps.txt";
+    need_temp_file = true;
+    
+    std::ifstream src(opt::input_file.c_str());
+    std::ofstream dst(vcf_input_file.c_str());
+    dst << src.rdbuf();
+    src.close();
+    dst.close();
+  }
+  
   // convert to VCF
-  VCFFile snowvcf(opt::input_file, opt::analysis_id, bwalker.Header(), header, true,
+  VCFFile snowvcf(vcf_input_file, opt::analysis_id, bwalker.Header(), header, true,
 		  opt::verbose > 0, &config);
   std::string basename = opt::analysis_id + ".svaba.unfiltered.";
   snowvcf.include_nonpass = true;
@@ -158,6 +204,11 @@ void runToVCF(int argc, char** argv) {
   snowvcf.include_nonpass = false;
   snowvcf.writeIndels(basename, false, allele_names.size() == 1, bwalker.Header());
   snowvcf.writeSVs(basename, false, allele_names.size() == 1, bwalker.Header());
+  
+  // Clean up temp file if created
+  if (need_temp_file) {
+    std::remove(vcf_input_file.c_str());
+  }
   
   return;
 }

@@ -6,6 +6,17 @@ namespace fs = std::filesystem;
 
 namespace svabaUtils {
 
+// Template specialization for ogzstream
+template <>
+void fopen<ogzstream>(const std::string& s, ogzstream& o) {
+  o.open(s.c_str());
+
+  if (!o) {
+    std::cerr << "Failed to open gzipped file: " << s << std::endl;
+    exit(EXIT_FAILURE);
+  }
+}
+
 static std::string POLYA = "AAAAAAAAAAAAAAAAAAA";
 static std::string POLYT = "TTTTTTTTTTTTTTTTTTT";
 static std::string POLYC = "CCCCCCCCCCCCCCCCCCC";

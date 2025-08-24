@@ -8,6 +8,7 @@
 #include <tuple>
 
 #include "svabaLogger.h"
+#include "gzstream.h"
 
 #include "SeqLib/BamReader.h"
 #include "SeqLib/BamWriter.h"
@@ -85,6 +86,10 @@ namespace svabaUtils {
     }
     
   }
+
+  // Declare specialization for ogzstream
+  template <>
+  void fopen<ogzstream>(const std::string& s, ogzstream& o);
 
   std::string fileDateString();
   

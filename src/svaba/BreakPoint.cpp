@@ -698,7 +698,7 @@ BreakPoint::BreakPoint(const AlignmentFragment* f,
     //////
     
     // set the genome breakpoint
-    if (b1.cpos > 0 && count == idx) {
+    if (b1.cpos >= 0 && count == idx) {
 
       if (i.Type() != 'I' && i.Type() != 'D')
 	throw std::runtime_error("BreakPoint indel parsing - unexpected to get non del/ins CIGAR field");
@@ -737,6 +737,14 @@ BreakPoint::BreakPoint(const AlignmentFragment* f,
     // set the dummy other end
   b1.gr.pos2 = b1.gr.pos1; 
   b2.gr.pos2 = b2.gr.pos1;
+  
+  // Check if positions were properly set
+  if (b1.gr.pos1 == -1 || b2.gr.pos1 == -1) {
+    std::cerr << "ERROR: Failed to set breakpoint positions during CIGAR parsing" << std::endl;
+    std::cerr << "b1.gr: " << b1.gr << ", b2.gr: " << b2.gr << std::endl;
+    std::cerr << "idx: " << idx << ", contig: " << cname << std::endl;
+    throw std::runtime_error("invalid BreakPoint creation - positions not set in AlignmentFragment");
+  }
   
   // should have been explicitly ordered in the creation above
   if (!(b1.gr < b2.gr)) {
@@ -1503,7 +1511,7 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h, cons
 	pass = val == "PASS";
 	confidence_s = val;
 	break;
-      case 27: 
+      case 31: 
 	evidence_s = val;
 	// Map evidence types to SVType enum values
 	if (val == "INDEL") {
@@ -1526,17 +1534,12 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h, cons
 	indel = (val == "INDEL");  // Set indel flag for VCF compatibility
 	imprecise = val == "DSCRD" ? 1 : 0; 
 	break; 
-      case 28: quality = safe_stod(val, 0.0); break; //std::min((int)255,std::stoi(val)); break;
-      case 29: secondary = val == "1" ? 1 : 0; break;
-      case 30: somatic_score = safe_stod(val); LO_s = somatic_score; break; // somatic_score in old format
-      case 31: LO_s = safe_stod(val); somatic_score = LO_s; break; // LO_s 
-      case 32: a.LO = safe_stod(val); break; // true_lod -> a.LO (all allele log odds)
-      case 33: pon = std::min(255, safe_stoi(val, 0)); break;
-      case 34: repeat_s = val; break; // repeat_seq
-      case 35: break; // blacklist = (val=="1" ? 1 : 0); break;
-      case 36: dbsnp = val != "x"; break;
-      case 37: read_names = val; break; //reads
-      case 38: bxtable = val; break; //bx tags
+      case 32: quality = safe_stod(val, 0.0); break; //std::min((int)255,std::stoi(val)); break;
+      case 33: secondary = val == "1" ? 1 : 0; break;
+      case 34: somatic_score = safe_stod(val); LO_s = somatic_score; break; // somatic_score in old format
+      case 35: LO_s = safe_stod(val); somatic_score = LO_s; break; // LO_s 
+      case 36: a.LO = safe_stod(val); break; // true_lod -> a.LO (all allele log odds)
+      case 37: rs = val; break; // dbsnp field
       default:
 	format_s.push_back(val);
       }

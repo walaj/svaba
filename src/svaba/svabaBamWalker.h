@@ -4,7 +4,7 @@
 #include <sstream>
 #include <unordered_map>
 #include <unordered_set>
-#include "malloc.h" //debug
+#include <cstdlib> //debug
 
 #include "SeqLib/BamReader.h"
 #include "SeqLib/ReadFilter.h"
