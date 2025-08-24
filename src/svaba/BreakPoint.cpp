@@ -1479,39 +1479,39 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h, cons
 	alt_s = val;
 	break;
       case 9: break; //span = stoi(val); break; // automatically calculated
-      case 10: //mapq1
+      case 10: break; //split (not needed, since in genotype) 
+      case 11: break; //cigar (not needed, since in genotype) 
+      case 12: /* cov = INTNSTOI(val,65535); */ break;
+      case 13: dc.mapq1 = INTNSTOI(val, 255); break;
+      case 14: dc.mapq2 = INTNSTOI(val, 255); break;
+      case 15: dc.ncount = INTNSTOI(val,255); break;
+      case 16: dc.tcount = INTNSTOI(val,255); break;
+      case 17: //mapq1
 	b1.gr = GenomicRegion(chr1, pos1, pos1, h); 
 	b1.gr.strand = strand1; 
 	b1.mapq = safe_stoi(val); 
 	break;
-      case 11: //mapq2
+      case 18: //mapq2
 	b2.gr = GenomicRegion(chr2, pos2, pos2, h); 
 	b2.gr.strand = strand2; 
 	b2.mapq = safe_stoi(val); 
 	break;
-      case 12: b1.nm = INTNSTOI(val,255); break;
-      case 13: b2.nm = INTNSTOI(val,255); break;
-      case 14: dc.mapq1 = INTNSTOI(val, 255); break;
-      case 15: dc.mapq2 = INTNSTOI(val, 255); break;
-      case 16: break; //split (not needed, since in genotype) 
-      case 17: break; //cigar (not needed, since in genotype) 
-      case 18: break; //alt (not needed, since in genotype)
-      case 19: break; // cov = INTNSTOI(val,65535); break;
-      case 20: b1.sub = INTNSTOI(val,255); break;
-      case 21: b2.sub = INTNSTOI(val,255); break;
-      case 22: 
-	homology_s = val;
-	break; 
-      case 23: 
-	insertion_s = val;
-	break; 
-      case 24: cname_s = val; break;
-      case 25: num_align = std::min((int)31, safe_stoi(val, 1)); break;
-      case 26: 
+      case 19: b1.nm = INTNSTOI(val,255); break;
+      case 20: b2.nm = INTNSTOI(val,255); break;
+      case 21: b1.as = INTNSTOI(val,255); break;
+      case 22: b2.as = INTNSTOI(val,255); break;
+      case 23: b1.sub = INTNSTOI(val,255); break;
+      case 24: b2.sub = INTNSTOI(val,255); break;
+      case 25: homology_s = val; break;
+      case 26: insertion_s = val; break;
+      case 27: repeat_s = val; break;
+      case 28: cname_s = val; break;
+      case 30: num_align = std::min((int)31, safe_stoi(val, 1)); break;
+      case 31: 
 	pass = val == "PASS";
 	confidence_s = val;
 	break;
-      case 31: 
+      case 32: 
 	evidence_s = val;
 	// Map evidence types to SVType enum values
 	if (val == "INDEL") {
@@ -1534,12 +1534,12 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h, cons
 	indel = (val == "INDEL");  // Set indel flag for VCF compatibility
 	imprecise = val == "DSCRD" ? 1 : 0; 
 	break; 
-      case 32: quality = safe_stod(val, 0.0); break; //std::min((int)255,std::stoi(val)); break;
-      case 33: secondary = val == "1" ? 1 : 0; break;
-      case 34: somatic_score = safe_stod(val); LO_s = somatic_score; break; // somatic_score in old format
-      case 35: LO_s = safe_stod(val); somatic_score = LO_s; break; // LO_s 
-      case 36: a.LO = safe_stod(val); break; // true_lod -> a.LO (all allele log odds)
-      case 37: rs = val; break; // dbsnp field
+      case 33: quality = safe_stod(val, 0.0); break; //std::min((int)255,std::stoi(val)); break;
+      case 34: secondary = val == "1" ? 1 : 0; break;
+      case 35: somatic_score = safe_stod(val); LO_s = somatic_score; break; // somatic_score in old format
+      case 36: LO_s = safe_stod(val); somatic_score = LO_s; break; // LO_s 
+      case 37: a.LO = safe_stod(val); break; // true_lod -> a.LO (all allele log odds)
+      case 38: rs = val; break; // dbsnp field
       default:
 	format_s.push_back(val);
       }
