@@ -730,13 +730,13 @@ BreakPoint::BreakPoint(const AlignmentFragment* f,
   const std::string& seq = f->m_align->Sequence();
   const int REPBUFF = 3;
   for (const auto& [start, end, rep] : svabaUtils::find_long_homopolymers(seq)) {
-    bool crosses_breakpoint = start > b1.cpos - REPBUFF && b2.cpos - REPBUFF < end;
-    if (rep.length() > repeat_seq.length() && crosses_breakpoint)
+    bool crosses_breakpoint = start < (b1.cpos + REPBUFF) && (b2.cpos - REPBUFF) < end;
+    if (rep.length() > repeat_seq.length() && crosses_breakpoint) 
       repeat_seq = rep;
   }
   
   for (const auto& [start, end, rep] : svabaUtils::find_long_dinuc_repeats(seq)) {
-    bool crosses_breakpoint = start > b1.cpos - REPBUFF && b2.cpos - REPBUFF < end;
+    bool crosses_breakpoint = start < (b1.cpos + REPBUFF) && (b2.cpos - REPBUFF) < end;
     if (rep.length() > repeat_seq.length() && crosses_breakpoint)
       repeat_seq = rep;
   }

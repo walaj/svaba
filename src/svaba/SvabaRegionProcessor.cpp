@@ -229,6 +229,11 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
     
     // Store CIGARs
     cigmap[key] = walker->cigmap;
+
+    //debug
+    for (const auto& [_,cm] : cigmap) {
+      ;
+    }
   } //end BAM loop
 
   sc.logger.log(sc.opts.verbose > 1, sc.opts.verbose_log,
@@ -350,7 +355,7 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
 
   // setup the engine and peform assembly
   UnalignedSequenceVector all_unaligned_contigs_this_region;
-  if (true)
+#ifndef FERMI  
   {
     
     svabaAssemblerEngine engine(ctg_prefix, sc.opts.sgaErrorRate,
@@ -384,7 +389,7 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
     //   std::cerr << " contigs " <<
     // 	all_unaligned_contigs_this_region.size() << std::endl;
   }
-  if (false)
+#else
     {
       // build the reads structure
       size_t n_reads = 0;
@@ -432,7 +437,8 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
       free(fseq);
       
     }
-  
+#endif
+    
   unit.st.contig_count = all_unaligned_contigs_this_region.size();
   
   sc.logger.log(sc.opts.verbose > 0, sc.opts.verbose_log, "...assembled ",
