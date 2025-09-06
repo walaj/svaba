@@ -1459,7 +1459,7 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h, cons
   std::string val;
   size_t count = 0;
   
-  std::string ref_s, alt_s, cname_s, insertion_s, homology_s, evidence_s, confidence_s, read_names_s, bxtable_s;
+  std::string ref_s, alt_s, cname_s, insertion_s, homology_s, evidence_s, confidence_s, read_names_s, bxtable_s, contig_and_region_s;
   
   std::string chr1, pos1, chr2, pos2, repeat_s; 
   char strand1 = '*', strand2 = '*';
@@ -1506,6 +1506,7 @@ BreakPoint::BreakPoint(const std::string &line, const SeqLib::BamHeader& h, cons
       case 26: insertion_s = val; break;
       case 27: repeat_s = val; break;
       case 28: cname_s = val; break;
+      case 29: contig_and_region_s = val; break; // unused
       case 30: num_align = std::min((int)31, safe_stoi(val, 1)); break;
       case 31: 
 	pass = val == "PASS";
