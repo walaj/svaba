@@ -64,7 +64,8 @@ static inline std::string to_string(SomaticState s) {
 }
 
 std::ostream& operator<<(std::ostream& out, const BreakPoint::SampleInfo& a) {
-  out << " split: " << a.split << " cigar " << a.cigar << " alt " << a.alt << " cov " << a.cov << " disc " << a.disc;
+  out << " split: " << a.split << " cigar " << a.cigar << " alt " << a.alt << " cov " << a.cov 
+      << " cov1 " << a.cov1 << " cov2 " << a.cov2 << " disc " << a.disc;
   return out;
 }
 
@@ -125,6 +126,8 @@ BreakPoint::SampleInfo operator+(const BreakPoint::SampleInfo& a1, const BreakPo
   a.split = a1.split + a2.split;
   a.cigar = a1.cigar + a2.cigar;
   a.cov = a1.cov + a2.cov;
+  a.cov1 = a1.cov1 + a2.cov1;  // Add individual breakpoint coverages
+  a.cov2 = a1.cov2 + a2.cov2;
   
   // add the reads
   for (auto& i : a1.supporting_reads)
@@ -1682,12 +1685,22 @@ void BreakPoint::SampleInfo::modelSelection(double er, int readlen) {
 void BreakPoint::addCovs(const std::unordered_map<std::string, STCoverage*>& covs) {
   
   for (auto& [pref,i] : covs)  {
-    int c = 0;
+    int c1 = 0, c2 = 0;
+    // Calculate coverage at breakpoint 1
     for (int j = -COVERAGE_AVG_BUFF; j <= COVERAGE_AVG_BUFF; ++j) {
-      c +=  i->getCoverageAtPosition(b1.gr.chr, b1.gr.pos1 + j);
-      c +=  i->getCoverageAtPosition(b2.gr.chr, b2.gr.pos1 + j);
+      c1 += i->getCoverageAtPosition(b1.gr.chr, b1.gr.pos1 + j);
     }
-    allele.at(pref).cov = c / 2 / (COVERAGE_AVG_BUFF*2 + 1);
+    // Calculate coverage at breakpoint 2
+    for (int j = -COVERAGE_AVG_BUFF; j <= COVERAGE_AVG_BUFF; ++j) {
+      c2 += i->getCoverageAtPosition(b2.gr.chr, b2.gr.pos1 + j);
+    }
+    
+    // Store individual breakpoint coverages
+    allele.at(pref).cov1 = c1 / (COVERAGE_AVG_BUFF*2 + 1);
+    allele.at(pref).cov2 = c2 / (COVERAGE_AVG_BUFF*2 + 1);
+    
+    // Keep average for backward compatibility
+    allele.at(pref).cov = (c1 + c2) / 2 / (COVERAGE_AVG_BUFF*2 + 1);
   }
   
 }
@@ -1716,12 +1729,23 @@ std::string BreakPoint::SampleInfo::toFileString(SVType svtype) const {
   
   std::stringstream ss;
 
-  //GT:AD:DP:SR:DR:GQ:PL:LO:LO_n
+  // Calculate ref_depth and alt_depth for AD field
+  int alt_depth, ref_depth;
+  if (svtype == SVType::INDEL) {
+    alt_depth = std::max(split, cigar);
+  } else {
+    alt_depth = std::max(split, disc);
+  }
+  ref_depth = std::max(0, cov - alt_depth);
+
+  //GT:AD:DP:DP1:DP2:SR:DR/CR:GQ:PL:LO:LO_n
   if (svtype == SVType::INDEL)
     ss << std::setprecision(4)
        << genotype << ":"
-       << std::max(alt, cigar) << ":"
+       << ref_depth << "," << alt_depth << ":"
        << cov << ":"
+       << cov1 << ":"
+       << cov2 << ":"
        << split << ":"
        << cigar << ":"
        << GQ << ":"
@@ -1731,8 +1755,10 @@ std::string BreakPoint::SampleInfo::toFileString(SVType svtype) const {
   else
     ss << std::setprecision(4)
        << genotype << ":"
-       << alt << ":"
+       << ref_depth << "," << alt_depth << ":"
        << cov << ":"
+       << cov1 << ":"
+       << cov2 << ":"
        << split << ":"
        << disc << ":"
        << GQ << ":"
@@ -1760,19 +1786,33 @@ void BreakPoint::SampleInfo::FillFromString(const std::string& s,
     switch(++count) {
 
     case 1: genotype = val; break;      
-    case 2: alt = std::stoi(val); break;
-    case 3: cov = std::stoi(val); break;
-    case 4: split = std::stoi(val); break;
-    case 5: 
-      if (svtype == SVType::INDEL)
-	cigar = std::stoi(val);
-      else
-	disc = std::stoi(val);
+    case 2: {
+      // Parse AD field as ref_depth,alt_depth
+      size_t comma_pos = val.find(',');
+      if (comma_pos != std::string::npos) {
+        int ref_depth = std::stoi(val.substr(0, comma_pos));
+        alt = std::stoi(val.substr(comma_pos + 1));
+        // Note: We don't store ref_depth separately, but it can be calculated as cov - alt
+      } else {
+        // Fallback for old format
+        alt = std::stoi(val);
+      }
       break;
-    case 6: GQ = std::stod(val);  break;
-    case 7: phred_likelihoods = svabaUtils::parsePLString(val);  break;
-    case 8: LO =   std::stod(val); break;
-    case 9: LO_n = std::stod(val); break;
+    }
+    case 3: cov = std::stoi(val); break;
+    case 4: cov1 = std::stoi(val); break;  // DP1
+    case 5: cov2 = std::stoi(val); break;  // DP2
+    case 6: split = std::stoi(val); break; // SR
+    case 7: 
+      if (svtype == SVType::INDEL)
+	cigar = std::stoi(val);  // CR
+      else
+	disc = std::stoi(val);   // DR
+      break;
+    case 8: GQ = std::stod(val);  break;
+    case 9: phred_likelihoods = svabaUtils::parsePLString(val);  break;
+    case 10: LO =   std::stod(val); break;
+    case 11: LO_n = std::stod(val); break;
     }
   }
 

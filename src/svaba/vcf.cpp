@@ -18,8 +18,8 @@
 
 using namespace std;
 
-static std::string sv_format = "GT:AD:DP:GQ:PL:SR:DR:LR:LO"; 
-static std::string indel_format = "GT:AD:DP:GQ:PL:SR:CR:LR:LO";
+static std::string sv_format = "GT:AD:DP:DP1:DP2:SR:DR:GQ:PL:LR:LO"; 
+static std::string indel_format = "GT:AD:DP:DP1:DP2:SR:CR:GQ:PL:LR:LO";
 static InfoMap flag_map;
 static std::stringstream lod_ss;
 
@@ -277,23 +277,27 @@ VCFFile::VCFFile(std::string file, std::string id, const SeqLib::BamHeader& h, c
   indel_header.addInfoField("SPAN","1","Integer","Size of the indel");
   indel_header.addInfoField("REPSEQ","1","String","Repeat sequence near the variant");
   indel_header.addFormatField("GT", "1","String", "Most likely genotype");
-  indel_header.addFormatField("AD", "1","Integer", "Allele depth: Number of reads supporting the variant");
-  indel_header.addFormatField("DP","1","Integer","Depth of coverage: Number of reads covering site.");
-  indel_header.addFormatField("GQ", "1","String", "Genotype quality (currently not supported. Always 0)");
-  indel_header.addFormatField("PL",".","Float","Normalized likelihood of the current genotype");
+  indel_header.addFormatField("AD", "2","Integer", "Allelic depths: ref_depth,alt_depth");
+  indel_header.addFormatField("DP","1","Integer","Total depth of coverage: Number of reads covering site.");
+  indel_header.addFormatField("DP1","1","Integer","Depth of coverage at breakpoint 1");
+  indel_header.addFormatField("DP2","1","Integer","Depth of coverage at breakpoint 2");
   indel_header.addFormatField("SR","1","Integer","Number of spanning reads for this variants");
   indel_header.addFormatField("CR","1","Integer","Number of cigar-supported reads for this variant");
+  indel_header.addFormatField("GQ", "1","String", "Genotype quality (currently not supported. Always 0)");
+  indel_header.addFormatField("PL",".","Float","Normalized likelihood of the current genotype");
   indel_header.addFormatField("LR","1","Float","Log-odds that this variant is AF=0 vs AF>=0.5");
   indel_header.addFormatField("LO","1","Float","Log-odds that this variant is real vs artifact");
   indel_header.addFormatField("SL","1","Float","Alignment-quality Scaled log-odds, where LO is LO * (MAPQ - 2*NM)/60");
 
   sv_header.addFormatField("GT", "1","String", "Most likely genotype");
-  sv_header.addFormatField("AD", "1","Integer", "Allele depth: Number of reads supporting the variant");
-  sv_header.addFormatField("DP","1","Integer","Depth of coverage: Number of reads covering site.");
-  sv_header.addFormatField("GQ", "1","String", "Genotype quality (currently not supported. Always 0)");
-  sv_header.addFormatField("PL",".","Float","Normalized likelihood of the current genotype");
+  sv_header.addFormatField("AD", "2","Integer", "Allelic depths: ref_depth,alt_depth");
+  sv_header.addFormatField("DP","1","Integer","Total depth of coverage: Number of reads covering site.");
+  sv_header.addFormatField("DP1","1","Integer","Depth of coverage at breakpoint 1");
+  sv_header.addFormatField("DP2","1","Integer","Depth of coverage at breakpoint 2");
   sv_header.addFormatField("SR","1","Integer","Number of spanning reads for this variants");
   sv_header.addFormatField("DR","1","Integer","Number of discordant-supported reads for this variant");
+  sv_header.addFormatField("GQ", "1","String", "Genotype quality (currently not supported. Always 0)");
+  sv_header.addFormatField("PL",".","Float","Normalized likelihood of the current genotype");
   sv_header.addFormatField("LR","1","Float","Log-odds that this variant is REF vs AF=0.5");
   sv_header.addFormatField("LO","1","Float","Log-odds that this variant is real vs artifact");
   sv_header.addFormatField("SL","1","Float","Alignment-quality Scaled log-odds, where LO is LO * (MAPQ - 2*NM)/60");

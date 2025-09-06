@@ -318,7 +318,9 @@ public:
     int split = 0;
     int cigar = 0;
     int alt = 0;
-    int cov = 0;
+    int cov = 0;     // average coverage (for backward compatibility)
+    int cov1 = 0;    // coverage at breakpoint 1
+    int cov2 = 0;    // coverage at breakpoint 2
     int disc = 0;
     
     // genotype info
