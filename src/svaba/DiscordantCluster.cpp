@@ -10,6 +10,8 @@
 
 #define DISC_PAD 150
 #define MIN_PER_CLUST 2
+#define MAX_CLUSTER_WIDTH 3000
+#define MAX_REGION_WIDTH 5000
 #define DEFAULT_ISIZE_THRESHOLD 2000 // shouldn't be hit if isize was learned
 
 //#define DEBUG_CLUSTER 1
@@ -172,12 +174,22 @@ DiscordantClusterMap DiscordantCluster::clusterReads(svabaReadPtrVector& bav,
 	if (read->MatePosition() > m_reg2.pos2) 
 	  m_reg2.pos2 = read->MatePosition() + read->Length(); // since don't have mate end
 	
-	assert(m_reg1.Width() < 5000);
-	assert(m_reg2.Width() < 5000);	
+	// Check region width constraints after building regions
+	if (m_reg1.Width() >= MAX_REGION_WIDTH) {
+	  std::cerr << "Warning: Region 1 width (" << m_reg1.Width() << "bp) exceeds "
+		    << MAX_REGION_WIDTH << "bp limit. Cluster is too large." << std::endl;
+	}
+	if (m_reg2.Width() >= MAX_REGION_WIDTH) {
+	  std::cerr << "Warning: Region 2 width (" << m_reg2.Width() << "bp) exceeds "
+		    << MAX_REGION_WIDTH << "bp limit. Cluster is too large." << std::endl;
+	}
       }
     
     mapq1 = __getMeanMapq(reads);
     mapq2 = __getMeanMapq(mates);
+    nm1   = __getMeanNM(reads);
+    nm2   = __getMeanNM(mates);
+    
     assert(mapq1 >= 0);
     assert(mapq2 >= -1); // can have -1 as placeholder if no mate reads (bc didnt do lookup)
     
@@ -278,6 +290,18 @@ double DiscordantCluster::__getMeanMapq(const DiscordantReadMap& m) const {
   return total / m.size();
 }
 
+double DiscordantCluster::__getMeanNM(const DiscordantReadMap& m) const {
+  if (m.empty()) return -1.0;
+  // sum them up
+  double total = 0.0;
+  for (auto const& kv : m) {
+    int nm = 0;
+    kv.second->GetIntTag("NM", nm);
+    total += nm;
+  }
+  return total / m.size();
+}
+
 void DiscordantCluster::labelReads() {
 
   for (auto& [_, r] : reads) {
@@ -340,7 +364,6 @@ bool DiscordantCluster::valid() const {
   
 }
 
-
 // define how to print to file
 std::string DiscordantCluster::toFileString(const SeqLib::BamHeader& h, bool with_read_names) const { 
   
@@ -353,8 +376,9 @@ std::string DiscordantCluster::toFileString(const SeqLib::BamHeader& h, bool wit
   out << h.IDtoName(m_reg1.chr) << sep << pos1 << sep << m_reg1.strand << sep 
       << h.IDtoName(m_reg2.chr) << sep << pos2 << sep << m_reg2.strand << sep 
       << tcount << sep << ncount
-      << sep << mapq1 << sep 
-      << mapq2 << sep << (m_contig.length() ? m_contig : "x") << sep << m_id;
+      << sep << mapq1 << sep << mapq2 << sep
+      << nm1 << sep << nm2 << sep 
+      << (m_contig.length() ? m_contig : "x") << sep << m_id;
   
   return (out.str());
   
@@ -433,126 +457,6 @@ bool DiscordantCluster::__add_read_to_cluster(svabaReadClusterVector& cvec,
   }
 }
 
-/*
-  bool DiscordantCluster::__add_read_to_cluster(svabaReadClusterVector &cvec,
-  svabaReadVector &clust,
-  const svabaRead &a,
-  bool mate) {
-  
-  // get the position of the previous read. If none, we're starting a new one so make a dummy
-  std::pair<int,int> last_info;
-  if (clust.size() == 0)
-  last_info = {-1, -1};
-  else if (mate)
-  last_info = {clust.back().MateChrID(), clust.back().MatePosition()};
-  else
-  last_info = {clust.back().ChrID(), clust.back().Position()};
-  
-  // get the position of the current read
-  std::pair<int,int> this_info;
-  if (mate)
-  this_info = {a.MateChrID(), a.MatePosition()};
-  else 
-  this_info = {a.ChrID(), a.Position()};
-  
-  // is this cluster too big? happens if too many discordant reads. Enforce a hard cutoff
-  bool too_big;
-  if (mate)
-  too_big = (clust.size() > 1 && (clust.back().MatePosition() - clust[0].MatePosition()) > 3000);
-  else
-  too_big = (clust.size() > 1 && (clust.back().Position() - clust[0].Position()) > 3000);      
-  
-  // note to self. this rarely gets hit?
-  //if (too_big) 
-  //  std::cerr << "Cluster too big at " << clust[0].Brief() << " to " << clust.back().Brief() << ". Breaking off after 3000bp" << std::endl;
-  
-  // check if this read is close enough to the last
-  if (!too_big &&  (this_info.first == last_info.first) && (this_info.second - last_info.second) <= DISC_PAD) {
-  
-  // read belongs in current cluster, so add
-  clust.push_back(a);
-  last_info = this_info;
-  return true;
-  
-  // read does not belong to cluster. close this cluster and add to cvec
-  } else {
-  
-  // if enough supporting reads, add as a cluster
-  if (clust.size() >= MIN_PER_CLUST) {
-  cvec.push_back(clust);
-    }
-    
-    // clear this cluster and start a new one
-    clust.clear();
-    clust.push_back(a);
-    
-    return false;
-  }
-}
-
-
-void DiscordantCluster::__cluster_mate_reads(svabaReadClusterVector& brcv, svabaReadClusterVector& fwd, svabaReadClusterVector& rev)
-{
-    // loop through the clusters, and cluster within clusters based on mate read
-    for (auto& v : brcv) 
-      {
-	
-	svabaReadVector this_fwd, this_rev;
-	std::sort(v.begin(), v.end(), SeqLib::BamRecordSort::ByMatePosition());
-
-	for (auto& r : v) 
-	  {
-	    
-	    // not a discordant read, ignore it
-	    if (r.dd <= 0)
-	      continue;
-
-	    // forward clustering
-	    if (!r.MateReverseFlag())
-	      __add_read_to_cluster(fwd, this_fwd, r, true);
-	    // reverse clustering 
-	    else if (r.MateReverseFlag()) 
-	      __add_read_to_cluster(rev, this_rev, r, true);
-	    
-	  }
-	// finish the last clusters
-	if (this_fwd.size() > 0)
-	  fwd.push_back(this_fwd);
-	if (this_rev.size() > 0)
-	  rev.push_back(this_rev);
-      } // finish main cluster loop
-  }
-void DiscordantCluster::__cluster_mate_reads(std::vector<std::vector<const svabaRead*>>& brcv,
-                                             std::vector<std::vector<const svabaRead*>>& fwd,
-                                             std::vector<std::vector<const svabaRead*>>& rev)
-{
-  for (auto& cluster : brcv) {
-    std::vector<const svabaRead*> this_fwd, this_rev;
-
-    std::sort(cluster.begin(), cluster.end(),
-              [](const svabaRead* a, const svabaRead* b) {
-                return (a->b.MateChrID() < b->b.MateChrID()) ||
-                       (a->b.MateChrID() == b->b.MateChrID() &&
-                        a->b.MatePosition() < b->b.MatePosition());
-              });
-
-    for (const svabaRead* r : cluster) {
-      if (r->dd <= 0)
-        continue;
-
-      if (!r->MateReverseFlag())
-        __add_read_to_cluster(fwd, this_fwd, r, true);
-      else
-        __add_read_to_cluster(rev, this_rev, r, true);
-    }
-
-    if (!this_fwd.empty())
-      fwd.push_back(this_fwd);
-    if (!this_rev.empty())
-      rev.push_back(this_rev);
-  }
-}
-*/
 void DiscordantCluster::__cluster_mate_reads(svabaReadClusterVector& brcv,
                                              svabaReadClusterVector& fwd,
                                              svabaReadClusterVector& rev)
@@ -584,9 +488,9 @@ void DiscordantCluster::__cluster_mate_reads(svabaReadClusterVector& brcv,
     }
 
     // finish the last clusters
-    if (__valid_cluster(this_fwd, true) & this_fwd.size() >= MIN_PER_CLUST)
+    if (__valid_cluster(this_fwd, true) && this_fwd.size() >= MIN_PER_CLUST)
       fwd.push_back(this_fwd);
-    if (__valid_cluster(this_rev, true) & this_rev.size() >= MIN_PER_CLUST)
+    if (__valid_cluster(this_rev, true) && this_rev.size() >= MIN_PER_CLUST)
       rev.push_back(this_rev);
   }
 }
@@ -661,9 +565,9 @@ bool DiscordantCluster::__valid_cluster(svabaReadPtrVector& clust, bool ismate) 
   // check if getting too wide
   bool too_wide;
   if (ismate)
-    too_wide = (clust.size() > 1 && (clust.back()->Position() - clust[0]->Position()) > 3000);
+    too_wide = (clust.size() > 1 && (clust.back()->Position() - clust[0]->Position()) > MAX_CLUSTER_WIDTH);
   else
-    too_wide = (clust.size() > 1 && (clust.back()->Position() - clust[0]->Position()) > 3000); 
+    too_wide = (clust.size() > 1 && (clust.back()->Position() - clust[0]->Position()) > MAX_CLUSTER_WIDTH); 
 
   return !too_wide;
 }

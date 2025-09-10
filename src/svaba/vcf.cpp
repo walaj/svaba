@@ -14,6 +14,7 @@
 
 #include "gzstream.h"
 #include "SeqLib/GenomicRegionCollection.h"
+#include "BreakPoint.h"
 #include "svabaOptions.h"
 
 using namespace std;
@@ -29,6 +30,20 @@ static std::unordered_set<uint32_t> hash_avoid; // being extra careful for hash 
 
 #define HIGH_OVERLAP_LIMIT 500
 #define BAD_REGION_PAD 200
+
+static inline std::string to_string(SVType t) {
+  switch(t) {
+    case SVType::NOTSET:     return "NOTSET";
+    case SVType::TSI_LOCAL:  return "TSI_LOCAL";
+    case SVType::TSI_GLOBAL: return "TSI_GLOBAL";
+    case SVType::ASSMB:      return "ASSMB";
+    case SVType::ASDIS:      return "ASDIS";
+    case SVType::DSCRD:      return "DSCRD";
+    case SVType::INDEL:      return "INDEL";
+  }
+  return "UNKNOWN_SVTYPE";
+}
+
 
 // comparator for info fields
 // lhs < rhs
@@ -159,16 +174,15 @@ std::string VCFEntry::toFileString(const SeqLib::BamHeader& header) const {
     info = info.substr(0, info.length() - 1);
 
   std::string sep = "\t";
-  //ReducedBreakEnd * be = this->id_num == 1 ? &this->bp->b1 : &this->bp->b2;
   BreakEnd * be = this->id_num == 1 ? &this->bp->b1 : &this->bp->b2;  
 
   out << be->gr.ChrName(header) << sep  
       << be->gr.pos1 << sep << this->getIdString() << sep << this->getRefString() << sep << this->getAltString(header) << sep 
       << this->bp->quality << sep
       << this->bp->confidence << sep << info << sep 
-      << (this->bp->isindel ? indel_format : sv_format); // << sep << samps.first << sep << samps.second;
-  for (auto& i : this->bp->format_s)
-    out << sep << i;
+      << (this->bp->svtype == SVType::INDEL ? indel_format : sv_format); // << sep << samps.first << sep << samps.second;
+  //  for (auto& i : this->bp->format_s) //HMS
+  //  out << sep << i; //HMS
   return out.str();
 }
 
@@ -183,7 +197,11 @@ bool VCFEntry::operator<(const VCFEntry &v) const {
 }
 
 // create a VCFFile from a svaba breakpoints file
-VCFFile::VCFFile(std::string file, std::string id, const SeqLib::BamHeader& h, const VCFHeader& vheader, bool nopass,
+VCFFile::VCFFile(std::string file,
+		 std::string id,
+		 const SvabaSharedConfig &sc, 
+		 const VCFHeader& vheader,
+		 bool nopass,
 		 bool m_verbose) {
 
   verbose = m_verbose;
@@ -246,12 +264,9 @@ VCFFile::VCFFile(std::string file, std::string id, const SeqLib::BamHeader& h, c
   indel_header.addFilterField("PASS", "LOD score pass");
   indel_header.addFilterField("VLOWAF", "allelic fraction < 0.05");
   indel_header.addFilterField("REPVAR", "Multiple conflicting variants at a highly repetitive region");
-  indel_header.addFilterField("SINGLEBX","Variant is supported by only a single BX tag (if run with 10X Genomics data)");
 
   //add the SV info fields
   sv_header.addInfoField("REPSEQ","1","String","Repeat sequence near the event");
-  sv_header.addInfoField("READNAMES",".","String","IDs of ALT reads");
-  sv_header.addInfoField("BX",".","String","Table of BX tag counts for supporting reads");
   sv_header.addInfoField("NM","1","Integer","Number of mismatches of this alignment fragment to reference");
   sv_header.addInfoField("MATENM","1","Integer","Number of mismatches of partner alignment fragment to reference");
   sv_header.addInfoField("SVTYPE","1","String","Type of structural variant");
@@ -297,7 +312,6 @@ VCFFile::VCFFile(std::string file, std::string id, const SeqLib::BamHeader& h, c
   sv_header.addFormatField("LO","1","Float","Log-odds that this variant is real vs artifact");
   sv_header.addFormatField("SL","1","Float","Alignment-quality Scaled log-odds, where LO is LO * (MAPQ - 2*NM)/60");
 
-  indel_header.addInfoField("PON","1","Integer","Number of normal samples that have this indel present");
   indel_header.addInfoField("NM","1","Integer","Number of mismatches of this alignment fragment to reference");
   indel_header.addInfoField("READNAMES",".","String","IDs of ALT reads");
   indel_header.addInfoField("BX",".","String","Table of BX tag counts for supporting reads");
@@ -325,8 +339,7 @@ VCFFile::VCFFile(std::string file, std::string id, const SeqLib::BamHeader& h, c
       continue;
 
     // parse the breakpoint from the file
-    //std::shared_ptr<ReducedBreakPoint> bp(new ReducedBreakPoint(line, h));
-    std::shared_ptr<BreakPoint> bp(new BreakPoint(line, h));    
+    std::shared_ptr<BreakPoint> bp(new BreakPoint(line, &sc));
 
     // add the VCFentry Pair
     std::shared_ptr<VCFEntryPair> vpair(new VCFEntryPair(bp));
@@ -343,11 +356,7 @@ VCFFile::VCFFile(std::string file, std::string id, const SeqLib::BamHeader& h, c
 	continue;
       }
     
-    // remove BX tags for unfiltered
-    if (!bp->pass)
-      bp->bxtable = "x";
-
-    if (bp->isindel) {
+    if (bp->svtype == SVType::INDEL) {
       indels.insert(pair<int, std::shared_ptr<VCFEntryPair>>(line_count, vpair));
     }
     else  {
@@ -361,7 +370,7 @@ VCFFile::VCFFile(std::string file, std::string id, const SeqLib::BamHeader& h, c
 
   std::cerr << "...vcf - read in " << SeqLib::AddCommas(indels.size()) << " indels and " << SeqLib::AddCommas(entry_pairs.size()) << " SVs " << std::endl;
   std::cerr << "...vcf - SV deduplicating " << SeqLib::AddCommas(entry_pairs.size()) << " events" << std::endl;
-  deduplicate(h);
+  deduplicate(sc.header);
   std::cerr << "...vcf - SV deduplicated down to " << SeqLib::AddCommas((entry_pairs.size() - dups.size())) << " break pairs" << std::endl;
   
 }
@@ -521,8 +530,8 @@ void VCFFile::deduplicate(const SeqLib::BamHeader& header) {
       // this has worst read coverage that what it overlaps, so mark as dup. If tie, take left-most break
       if (*i.second->bp < *entry_pairs[j.first]->bp) { 
 	// check that its not a local clashing with a global, because they're supposed to be two annotations for one event
-	if ( (!strcmp(i.second->bp->evidence, "TSI_L") && !strcmp(entry_pairs[j.first]->bp->evidence, "TSI_G")) || // strcmp of 0 is match 
-	     (!strcmp(i.second->bp->evidence, "TSI_G") && !strcmp(entry_pairs[j.first]->bp->evidence, "TSI_L")) ) 
+	if (( i.second->bp->svtype != SVType::TSI_LOCAL && entry_pairs[j.first]->bp->svtype != SVType::TSI_GLOBAL) || 
+	  (i.second->bp->svtype != SVType::TSI_GLOBAL && entry_pairs[j.first]->bp->svtype != SVType::TSI_LOCAL) ) 
 	  ; // don't add as a duplicate
 	else {
 	  dups.insert(j.first); 
@@ -582,36 +591,31 @@ void VCFFile::writeIndels(string basename, bool zip, bool onefile,
   std::string gname_nz = basename + "germline.indel.vcf";
   std::string sname_nz = basename + "somatic.indel.vcf";
 
-  if (onefile) {
-    gname_nz = basename + "indel.vcf";
-    gname    = basename + "indel.vcf.gz";
-  }
+  // if (onefile) {
+  //   gname_nz = basename + "indel.vcf";
+  //   gname    = basename + "indel.vcf.gz";
+  // }
     
-  ofstream out_g, out_s;
+  ofstream out_i;
 
   BGZF* g_bg = NULL;
-  BGZF* s_bg = NULL;
 
-  if (zip) {
-    g_bg = bgzf_open(gname.c_str(), "w");
-    if (!onefile) s_bg = bgzf_open(sname.c_str(), "w");
-    std::stringstream indel_h;
-    indel_h << indel_header << endl;
-    if (!bgzf_write(g_bg, indel_h.str().c_str(), indel_h.str().length())) {
-      cerr << "Could not write bzipped vcf" << endl;
-    }
-    if (!onefile)
-      if (!bgzf_write(s_bg, indel_h.str().c_str(), indel_h.str().length())) {
-	cerr << "Could not write bzipped vcf" << endl;
-    }
-  } else {
-    out_g.open(gname_nz.c_str());
-    if (!onefile)
-      out_s.open(sname_nz.c_str());
-    out_g << indel_header << endl;
-    if (!onefile)
-      out_s << indel_header << endl;
-  }
+  // if (zip) {
+  //   g_bg = bgzf_open(gname.c_str(), "w");
+  //   if (!onefile) s_bg = bgzf_open(sname.c_str(), "w");
+  //   std::stringstream indel_h;
+  //   indel_h << indel_header << endl;
+  //   if (!bgzf_write(g_bg, indel_h.str().c_str(), indel_h.str().length())) {
+  //     cerr << "Could not write bzipped vcf" << endl;
+  //   }
+  //   if (!onefile)
+  //     if (!bgzf_write(s_bg, indel_h.str().c_str(), indel_h.str().length())) {
+  // 	cerr << "Could not write bzipped vcf" << endl;
+  //   }
+  // } else {
+  out_i.open(gname_nz.c_str());
+  out_i << indel_header << endl;
+  //}
 
   VCFEntryVec tmpvec;
 
@@ -630,31 +634,32 @@ void VCFFile::writeIndels(string basename, bool zip, bool onefile,
       continue;
 
     std::stringstream ss;
-    if (!onefile && i.bp->somatic_score >= SOMATIC_LOD) {
-      out_s << i.toFileString(header) << endl;
-      
-    } else {
-      out_g << i.toFileString(header) << endl;
-    }
+    // HMS
+    //if (!onefile && i.bp->somatic_score >= SOMATIC_LOD) {
+    out_i << i.toFileString(header) << endl;
+    
+    //} else { //HMS
+    //out_g << i.toFileString(header) << endl;
+    //}
     
   }
 
-  if (zip) {
-    bgzf_close(g_bg);
-    if (!onefile)
-      bgzf_close(s_bg);
-  } else {
-    out_g.close();
-    if (!onefile)
-      out_s.close();
-  }
+  // if (zip) {
+  //   bgzf_close(g_bg);
+  //   if (!onefile)
+  //     bgzf_close(s_bg);
+  //  } else {
+    out_i.close();
+    // if (!onefile)
+    //  out_s.close();
+    //}
   
-  if (zip) {
+    //  if (zip) {
     // tabix it
     //tabixVcf(gname);
     //if (!onefile)
     //  tabixVcf(sname);
-  }
+    //  }
   
 }
 
@@ -668,39 +673,38 @@ void VCFFile::writeSVs(std::string basename, bool zip, bool onefile,
   gname_nz = basename + "germline.sv.vcf";
   sname_nz = basename + "somatic.sv.vcf";
 
-  if (onefile) {
-    gname    = basename + "sv.vcf.gz";
-    gname_nz = basename + "sv.vcf";
+  // if (onefile) {
+  //   gname    = basename + "sv.vcf.gz";
+  //   gname_nz = basename + "sv.vcf";
 
-  }
+  // }
 
-  ofstream out_g, out_s;
+  ofstream out_sv;
 
   BGZF* s_bg = NULL;
-  BGZF* g_bg = NULL;
 
-  if (zip) {
-    g_bg = bgzf_open(gname.c_str(), "w");
-    if (!onefile)
-      s_bg = bgzf_open(sname.c_str(), "w");
-    std::stringstream sv_h;
-    sv_h << sv_header << endl;
-    if (!bgzf_write(g_bg, sv_h.str().c_str(), sv_h.str().length())) {
-      cerr << "Could not write bzipped vcf" << endl;
-    }
-    if (!onefile)
-      if (!bgzf_write(s_bg, sv_h.str().c_str(), sv_h.str().length())) {
-	cerr << "Could not write bzipped vcf" << endl;
-      }
-  } else {
-    out_g.open(gname_nz.c_str());
-    if (!onefile)
-      out_s.open(sname_nz.c_str());
+  // if (zip) {
+  //   g_bg = bgzf_open(gname.c_str(), "w");
+  //   if (!onefile)
+  //     s_bg = bgzf_open(sname.c_str(), "w");
+  //   std::stringstream sv_h;
+  //   sv_h << sv_header << endl;
+  //   if (!bgzf_write(g_bg, sv_h.str().c_str(), sv_h.str().length())) {
+  //     cerr << "Could not write bzipped vcf" << endl;
+  //   }
+  //   if (!onefile)
+  //     if (!bgzf_write(s_bg, sv_h.str().c_str(), sv_h.str().length())) {
+  // 	cerr << "Could not write bzipped vcf" << endl;
+  //     }
+  // } else {
+  out_sv.open(gname_nz.c_str());
+  // if (!onefile)
+  //   out_s.open(sname_nz.c_str());
 
-    out_g << sv_header << endl;
-    if (!onefile)
-      out_s << sv_header << endl;
-  }
+  out_sv << sv_header << endl;
+  // if (!onefile)
+  //   out_s << sv_header << endl;
+  //  }
     
   VCFEntryVec tmpvec;
 
@@ -724,18 +728,18 @@ void VCFFile::writeSVs(std::string basename, bool zip, bool onefile,
       continue;
     
     // somatic
-    if (!onefile &&  i.bp->somatic_score >= SOMATIC_LOD) { 
-      out_s << i.toFileString(header) << endl;
+    //if (!onefile &&  i.bp->somatic_score >= SOMATIC_LOD) { 
+      out_sv << i.toFileString(header) << endl;
       // germline
-    } else {
-      out_g << i.toFileString(header) << endl;
-    }
+    // } else {
+    //   out_g << i.toFileString(header) << endl;
+    // }
 
   }
   
-  out_s.close();
-  if (!onefile)
-    out_g.close();
+  out_sv.close();
+  // if (!onefile)
+  //   out_g.close();
   
 }
 
@@ -820,22 +824,13 @@ std::unordered_map<std::string, std::string> VCFEntry::fillInfoFields() const {
   // put all the common fields in 
   info_fields["SPAN"] = std::to_string(bp->getSpan());
   info_fields["SCTG"] = bp->cname;
-  if (!bp->indel) {
-    info_fields["EVDNC"] = bp->evidence;
+  if (bp->svtype != SVType::INDEL) {
+    info_fields["EVDNC"] = to_string(bp->svtype); 
     info_fields["SVTYPE"] = "BND";
   }
 
-  if (!bp->read_names.empty() && bp->read_names != "x")
-    info_fields["READNAMES"] = bp->read_names;
-
-  if (!bp->bxtable.empty() && bp->bxtable != "x")
-    info_fields["BX"] = bp->bxtable;
-
-  if (bp->repeat)
-    info_fields["REPSEQ"] = std::string(bp->repeat);
-
-  if (bp->pon)
-    info_fields["PON"] = std::to_string(bp->pon);
+  if (!bp->repeat_seq.empty())
+    info_fields["REPSEQ"] = bp->repeat_seq;
 
   if (bp->num_align != 1) {
     info_fields["MATEID"] = std::to_string(id) + ":" + std::to_string(id_num == 1 ? 2 : 1);
@@ -863,19 +858,19 @@ std::unordered_map<std::string, std::string> VCFEntry::fillInfoFields() const {
   if (bp->num_align != 1) {
 
     if (id_num == 1) {
-      if (bp->b1.sub_n)
-	info_fields["SUBN"] = std::to_string(bp->b1.sub_n);
-      else if (bp->b2.sub_n)
-	info_fields["SUBN"] = std::to_string(bp->b2.sub_n);
+      if (bp->b1.sub)
+	info_fields["SUBN"] = std::to_string(bp->b1.sub);
+      else if (bp->b2.sub)
+	info_fields["SUBN"] = std::to_string(bp->b2.sub);
     }
 
-    if (bp->homology) info_fields["HOMSEQ"] = std::string(bp->homology);
-    if (bp->insertion) info_fields["INSERTION"] = std::string(bp->insertion);
+    if (!bp->homology.empty()) info_fields["HOMSEQ"]     = bp->homology;
+    if (!bp->insertion.empty()) info_fields["INSERTION"] = bp->insertion;
     info_fields["NUMPARTS"] = std::to_string(bp->num_align);
 
-    if (bp->imprecise)
+    if (bp->imprecise > 0)
       info_fields["IMPRECISE"] = ""; 
-    if (bp->secondary) 
+    if (bp->secondary > 0) 
       info_fields["SECONDARY"] = "";
 
     if (info_fields["EVDNC"] != "ASSMB") {
@@ -889,13 +884,15 @@ std::unordered_map<std::string, std::string> VCFEntry::fillInfoFields() const {
 
   else {
 
-    lod_ss << std::setprecision(4) << bp->true_lod;
+    double max_lod = 0;
+    for (const auto&  [_,al] : bp->allele) 
+      max_lod = std::max(max_lod, al.LO);
+    
+    lod_ss << std::setprecision(4) << max_lod;
     info_fields["LOD"] = lod_ss.str();
     lod_ss.str(std::string());
-    //if (bp->blacklist)
-    //  info_fields["GRAYLIST"]  = std::string();
-    if (bp->dbsnp)
-      info_fields["DBSNP"] = std::string(); 
+    if (!bp->rs.empty())
+      info_fields["DBSNP"] = bp->rs; 
   }
 
   return info_fields;
@@ -904,34 +901,34 @@ std::unordered_map<std::string, std::string> VCFEntry::fillInfoFields() const {
 
 std::string VCFEntry::getRefString() const {
 
-  char* p;
-  if (bp->indel || id_num == 1) 
-  	p = bp->ref;
+  std::string p;
+  if (bp->svtype == SVType::INDEL || id_num == 1) 
+    p = bp->ref;
   else
     p = bp->alt;
-    
-   if (!p) {
-   	  std::cerr << "WARNING: Empty ref/alt field for bp " << std::endl;
-   	  return (std::string("N"));
-    }
-   
-   return (std::string(p));
+  
+  if (p.empty()) {
+    std::cerr << "WARNING: Empty ref/alt field for bp " << std::endl;
+    return (std::string("N"));
+  }
+  
+  return p;
 }
 
 std::string VCFEntry::getAltString(const SeqLib::BamHeader& header) const {
 
 
-  if (bp->indel) {
+  if (bp->svtype == SVType::INDEL) {
   
-    char* p;
+    std::string p;
     p = bp->alt;
-
- 	if (!p) {
-  	 	 std::cerr << "WARNING: Empty ref/alt field for bp " << std::endl;
-   	 	 return (std::string("N"));
- 	 }
- 	 
- 	 return (std::string(p));
+    
+    if (p.empty()) {
+      std::cerr << "WARNING: Empty ref/alt field for bp " << std::endl;
+      return (std::string("N"));
+    }
+    
+    return p;
   
   }
   
@@ -966,7 +963,7 @@ std::string VCFEntry::getAltString(const SeqLib::BamHeader& header) const {
 
 std::string VCFEntry::getIdString() const {
 
-  if (!bp->indel)
+  if (bp->svtype != SVType::INDEL)
     return(std::to_string(id) + ":" + std::to_string(id_num));
 
   return(std::to_string(id));
@@ -986,7 +983,7 @@ std::string VCFEntry::getIdString() const {
   numn = bp->dc.ncount + bp->nsplit; 
   
   std::string samp1, samp2;
-  if (!bp->indel) {
+  if (!bp->svtype == SVType::INDEL) {
     samp2 = std::to_string(numt) + ":" + std::to_string(bp->dc.tcount) + ":" + std::to_string(bp->tsplit) + ":" + new_readid_t;
     samp1 = std::to_string(numn) + ":" + std::to_string(bp->dc.ncount) + ":" + std::to_string(bp->nsplit) + ":" + new_readid_n;
   } else {

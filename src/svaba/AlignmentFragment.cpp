@@ -176,12 +176,6 @@ std::string AlignmentFragment::printToAlignmentsFile() const {
   return out.str();
 }
 
-// void AlignmentFragment::indelCigarMatches(const std::unordered_map<std::string, SeqLib::CigarMap>& cmap) {
-
-//     // loop through the indel breakpoints
-//     for (auto& i : m_indel_breaks) {
-      
-
 // void AlignmentFragment::fillRearrangementBreakEnd(bool left,
 // 					 BreakEnd& b) {
     

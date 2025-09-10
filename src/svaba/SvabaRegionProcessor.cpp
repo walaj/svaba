@@ -35,6 +35,8 @@ using std::unordered_map;
 using std::unordered_set;
 using std::string;
 
+
+
 SvabaRegionProcessor::SvabaRegionProcessor(SvabaSharedConfig& sh_cf) : sc(sh_cf)
 { }
 
@@ -231,9 +233,13 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
     cigmap[key] = walker->cigmap;
 
     //debug
-    for (const auto& [_,cm] : cigmap) {
-      ;
-    }
+    // for (const auto& [walker_name,cm] : cigmap) {
+    //   for (const auto& [key, ccount] : cm) {
+    // 	std::cerr << "Walker: " << walker_name << " key: " <<
+    // 	  key << " count " << ccount << std::endl;
+    //   }
+    // }
+    
   } //end BAM loop
 
   sc.logger.log(sc.opts.verbose > 1, sc.opts.verbose_log,
@@ -640,9 +646,6 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
     // check that the complex breaks are OK
     //a.refilterComplex();
     
-    // add in the cigar matches
-    //a.checkAgainstCigarMatches(cigmap);
-    
     // add to the final structure
     //alc.push_back(std::move(a));
   }
@@ -755,6 +758,11 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
     i->addCovs(covs);
   }
 
+  // check the cigar matches
+  for (auto& i : bp_glob) {
+    i->indelCigarCheck(cigmap);
+  }
+  
   // score the breakpoints
   for (auto& i : bp_glob) {
     i->scoreBreakpoint(); 

@@ -47,7 +47,7 @@ public:
   
   /** Return a string representing the output file header */
   static std::string header() { 
-    return "chr1\tpos1\tstrand1\tchr2\tpos2\tstrand2\ttcount\tncount\t\tmapq1\tmapq2\tcname\tid";
+    return "chr1\tpos1\tstrand1\tchr2\tpos2\tstrand2\ttcount\tncount\t\tmapq1\tmapq2\tnm1\tnm2\tcname\tid";
   }
   
   bool hasAssociatedAssemblyContig() const { return m_contig.length(); }
@@ -127,6 +127,8 @@ public:
   
   int mapq1;
   int mapq2;
+  float nm1;
+  float nm2;
   
   std::string m_id_competing; // id of discordant cluster with same span, different strands
   
@@ -135,6 +137,10 @@ private:
   
   // return the mean mapping quality for this cluster
   double __getMeanMapq(const DiscordantReadMap& m) const;
+
+  // return the mean mismatch score for this cluster
+  double __getMeanNM(const DiscordantReadMap& m) const;
+  
 };
 
 //! vector of AlignmentFragment objects

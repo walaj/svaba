@@ -105,6 +105,7 @@ BreakPoint::SampleInfo operator+(const BreakPoint::SampleInfo& a1, const BreakPo
   a.disc = a1.disc + a2.disc;
   a.split = a1.split + a2.split;
   a.cigar = a1.cigar + a2.cigar;
+  a.cigar_near = a1.cigar_near + a2.cigar_near;
   a.cov = a1.cov + a2.cov;
   
   // add the reads
@@ -215,12 +216,13 @@ std::string BreakPoint::toFileString(const BamHeader& header) const {
      << b2.gr.strand << sep //4-6
      << ref << sep << alt << sep //7-8
      << getSpan() << sep //9 
-     << a.split << sep << a.cigar << sep
+     << a.split << sep
      << a.alt << sep << a.cov << sep
-     << dc.mapq1 << sep << dc.mapq2 << sep //14-15    
+     << a.cigar << sep << a.cigar_near << sep    
+     << dc.mapq1 << sep << dc.mapq2 << sep
      << dc.ncount << sep << dc.tcount << sep
-     << b1.mapq << sep << b2.mapq << sep //10-11
-     << b1.nm << sep << b2.nm << sep //12-13
+     << b1.mapq << sep << b2.mapq << sep 
+     << b1.nm << sep << b2.nm << sep
      << b1.as << sep << b2.as << sep
      << b1.sub << sep << b2.sub << sep      
      << (homology.length() ? homology : "x") << sep 
@@ -582,7 +584,7 @@ BreakPoint::BreakPoint(const AlignmentFragment* f,
   
   b1.transferContigAlignmentData(f, true);
   b2.transferContigAlignmentData(f, true);
-  
+
   // re-zero the positions, not set yet
   b1.gr.pos1 = b1.gr.pos2 = -1;
   b2.gr.pos1 = b2.gr.pos2 = -1;
@@ -627,7 +629,7 @@ BreakPoint::BreakPoint(const AlignmentFragment* f,
   // Since we are parsing indels from a single alignment, which is always
   // referenced to the forward strand, just go with the raw BamRecord data
   for (auto& i : f->m_align->GetCigar()) { 
-    
+
     // update the left match side
     if (i.Type() == 'M' && count < idx)
       left_match += i.Length();
@@ -635,6 +637,9 @@ BreakPoint::BreakPoint(const AlignmentFragment* f,
     // update the right match side
     if (i.Type() == 'M' && count > idx)
       right_match += i.Length();
+
+    // std::cerr << "LM " << left_match << " RM " << right_match << " count " <<
+    //   count << " idx " << idx << std::endl; //debug
     
     //////
     // set the breakpoint positions on the contig
@@ -679,7 +684,8 @@ BreakPoint::BreakPoint(const AlignmentFragment* f,
     //////
     
     // set the genome breakpoint
-    if (b1.cpos > 0 && count == idx) {
+
+    if (b1.cpos >= 0 && count == idx) {
 
       if (i.Type() != 'I' && i.Type() != 'D')
 	throw std::runtime_error("BreakPoint indel parsing - unexpected to get non del/ins CIGAR field");
@@ -721,7 +727,8 @@ BreakPoint::BreakPoint(const AlignmentFragment* f,
   
   // should have been explicitly ordered in the creation above
   if (!(b1.gr < b2.gr)) {
-    std::cerr << "B1 " << b1.gr << " - " << b2.gr << std::endl;
+    std::cerr << "B1 " << b1.gr << " - " << b2.gr << " " << cname << " b1.cpos " << b1.cpos << " b2.cpos " << b2.cpos << std::endl;
+    std::cerr << f->printToAlignmentsFile() << std::endl;
     throw std::runtime_error("invalid BreakPoint creation in indels in AlignmentFragment");
   }
 
@@ -932,8 +939,8 @@ void BreakPoint::score_assembly_only() {
     confidence = "LOWMATCHLEN";    
   else if (std::min(b1.matchlen - homology.length(), b2.matchlen - homology.length()) < 40)
     confidence = "LOWMATCHLEN";          
-  else if ((/*b1.sub_n && */b1.mapq < 50) || (/*b2.sub_n && */b2.mapq < 50)) 
-    confidence = "MULTIMATCH";
+  else if ((/*b1.sub_n && */b1.mapq < 30) || (/*b2.sub_n && */b2.mapq < 30)) 
+    confidence = "LOWMAPQ";
   else if (secondary && std::min(b1.mapq, b2.mapq) < 30)
     confidence = "SECONDARY";
   // else if ((repeat_seq.length() >= 10 && std::max(t.split, n.split) < 7) || hi_rep)
@@ -981,10 +988,14 @@ void BreakPoint::score_somatic(double error_fwd) {
   int thiscov_t = t.cov;
   if (t.alt >= t.cov)  
     thiscov_t = t.alt;
+
+  // now to be conservative, also count normal near-cigar matches
+  // as alt reads
+  int normal_cigar = n.cigar + n.cigar_near;
   
   // adjust the alt count
-  if (n.alt < n.cigar)
-    n.alt = n.cigar;
+  if (n.alt < normal_cigar)
+    n.alt = normal_cigar;
   if (t.alt < t.split)
     t.alt = t.split;
   if (t.alt < t.cigar)
@@ -999,6 +1010,7 @@ void BreakPoint::score_somatic(double error_fwd) {
   double scaled_alt_t = std::min((double)t.alt, a_cov_t);  
   double scaled_ref_t = a_cov_t- scaled_alt_t;
   double error_rev = 1e-6;
+  
   LO_s =
     SvabaModels::SomaticLOD(scaled_alt_n, a_cov_n,
 			    scaled_alt_t, a_cov_t,
@@ -1129,7 +1141,8 @@ void BreakPoint::score_dscrd() {
   
   t.alt = dc.tcount;
   n.alt = dc.ncount;
-  
+
+  int nm_count = std::max(dc.nm1, dc.nm2);
   int disc_count = dc.ncount + dc.tcount;
   //int hq_disc_count = dc.ncount_hq + dc.tcount_hq;
   int disc_cutoff = 8;
@@ -1140,6 +1153,8 @@ void BreakPoint::score_dscrd() {
     confidence = "LOWSPANDSCRD";
   else if ((disc_count < disc_cutoff || std::min(dc.mapq1, dc.mapq2) < 15))
     confidence = "LOWMAPQDISC";
+  else if (nm_count >= 4)
+    confidence = "HIGHNM"; 
   else if (!dc.m_id_competing.empty())
     confidence = "COMPETEDISC";
   else if ( disc_count < disc_cutoff)
@@ -1153,7 +1168,6 @@ void BreakPoint::score_dscrd() {
 void BreakPoint::score_indel() {
   
   assert(b1.mapq == b2.mapq);
-
   
   bool is_refilter = !confidence.empty(); // act differently if this is refilter run
   
@@ -1181,13 +1195,16 @@ void BreakPoint::score_indel() {
   double af_t = t.cov > 0 ? (double)t.alt / (double)t.cov : 0;
   double af_n = n.cov > 0 ? (double)n.alt / (double)n.cov : 0;
   double af = std::max(af_t, af_n);
-  
+
+  assert(b1.local != LocalAlignment::NOTSET);  
+  if (b1.local != LocalAlignment::FROM_LOCAL_REGION)
+    confidence="NOLOCAL";
   if (b1.mapq < 10) 
     confidence="LOWMAPQ";
   //else if (!is_refilter && (double)aligned_covered / (double)seq.length() < 0.80) // less than 80% of read is covered by some alignment
   //  confidence = "LOWAS";  
-  else if ((/*b1.sub_n && */b1.mapq < 50) || (/*b2.sub_n && */b2.mapq < 50)) 
-    confidence = "MULTIMATCH";      
+  else if ((/*b1.sub_n && */b1.mapq < 30) || (/*b2.sub_n && */b2.mapq < 30)) 
+    confidence = "LOWMAPQ";      
   else if (max_lod < sc->opts.lod && rs.empty())        // non db snp site
     confidence = "LOWLOD";
   else if (max_lod < sc->opts.lodDb && !rs.empty()) // be more permissive for dbsnp site
@@ -1233,7 +1250,7 @@ void BreakPoint::scoreBreakpoint() {
 
   // first calculate log-odds and genotype likelihoods for each individual bam
   std::vector<double> lods;
-  for (auto& [_,al] : allele) {
+  for (auto& [pref,al] : allele) {
     al.modelSelection(error_rate, sc->readlen);
     lods.push_back(al.LO);
   }
@@ -1570,6 +1587,8 @@ void BreakPoint::SampleInfo::modelSelection(double er, int readlen) {
   double er_back = 0.000001; 
   double ll_alt = SvabaModels::LogLikelihood(scaled_ref, scaled_alt, af, er, er_back);
   double ll_err = SvabaModels::LogLikelihood(scaled_ref, scaled_alt, 0 , er, er_back); // likelihood that variant is actually true REF
+
+  //std::cerr << "scaled_ref " << scaled_ref << " scaled_alt " << scaled_alt << " af " << af << " er " << er << " er back " << er_back << " ll_alt " << ll_alt << " ll_err " << ll_err << std::endl;
   // std::cerr << "SCALD REF " << scaled_ref << " scaled alt " <<
   //   scaled_alt << " af " << af << " ll_ALT " << ll_alt <<
   //   " ll_err " << ll_err << " scaled af " << scaled_af << std::endl;
@@ -1815,6 +1834,21 @@ bool BreakPoint::hasMinimal() const {
   return false;
 }
 
+std::string BreakPoint::getHashString() const {
+
+  if (!isIndel())
+    return "";
+
+  bool isdel = insertion.length() == 0;
+  std::string st = std::to_string(b1.gr.chr) +
+    "_" + std::to_string(b1.gr.pos1) +  
+    "_" + std::to_string(this->getSpan()) +
+    (isdel ? "D" : "I");
+  
+  return st;
+  
+}
+
 void BreakPoint::setLocal(const GenomicRegion& window) {
   
   b1.setLocal(window);
@@ -2014,4 +2048,49 @@ BreakPoint::BreakPoint(DiscordantCluster& tdc,
 	}
     }
   }
+}
+
+
+void BreakPoint::indelCigarCheck(const CigarMapMap& cmap) {
+
+  if (!isIndel())
+    return;
+
+  // get the hash count for this
+  std::string hash = getHashString();
+
+  // tally the number of reads that have cigar that support this
+  // NB: the totalling for tumor, normal occur late in scoreBreakpoints
+  for (auto& [sample,si] : allele) {
+    size_t val = cmap.at(sample).count(hash) ? cmap.at(sample).at(hash) : 0;
+    //std::cerr << " OG HASH VAL " << val << " hash " << hash << " sample " << sample << std::endl;
+    si.cigar += val;
+  }
+
+  int span = getSpan();
+  // for somatic, be extra careful and score "nearby" cigars
+  // so e.g. if the normal has
+  // this is really weird and inefficient way to do this, but should be so fast it's inconsequential
+  char in_del[2] = {'D', 'I'};
+  const int CIGAR_NEAR_BUFFER = 4;
+  std::string thischr = std::to_string(b1.gr.chr) + "_";
+  for (int i = -CIGAR_NEAR_BUFFER; i <= CIGAR_NEAR_BUFFER; i++) {
+    for (int len = 1; len < (span + 5); len++) {
+      std::string lenst = std::to_string(len);
+      for (int ii = 0; ii < 2; ii++) { // loop I or D
+	char c = in_del[ii];
+	std::string st = thischr + std::to_string(b1.gr.pos1 + i) + "_" + lenst + c;
+	//std::cerr << " cname " << cname << " st " << st << " hash " << hash << " i " << i << " len " << len << " ii " << ii << " span " << span << std::endl;
+
+	if (hash == st)
+	  continue; // don't redo this
+	for (auto& [sample, si] : allele) {
+	  size_t val = cmap.at(sample).count(st) ? cmap.at(sample).at(st) : 0;
+	  si.cigar_near += val;
+	  //	  std::cerr << " sample " << sample << " cname " << cname << " st " << st << " hash " << hash << " val " << val << std::endl;	  
+	}
+      }
+    }
+  }
+  
 }

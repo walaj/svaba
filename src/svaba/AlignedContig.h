@@ -35,9 +35,6 @@ class AlignedContig {
 
   bool checkLocal(const SeqLib::GenomicRegion& window);
   
-  // Loop through all the alignment framgents and their indel breaks and check against cigar database
-  //void checkAgainstCigarMatches(const std::unordered_map<std::string, SeqLib::CigarMap>& cmap); 
-
   // apply repeat filter to each indel break
   //void assessRepeats();
   

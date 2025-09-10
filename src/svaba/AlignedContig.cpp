@@ -435,15 +435,6 @@ std::string AlignedContig::printDiscordantClusters(const SeqLib::BamHeader& h) c
 // }
 
 
-// void AlignedContig::checkAgainstCigarMatches(const std::unordered_map<std::string, SeqLib::CigarMap>& cmap) {
-
-//     for (auto& i : m_frag_v)
-//       i.indelCigarMatches(cmap);
-    
-//   }
-
-
-
 BreakPointPtrVector AlignedContig::getAllBreakPoints() const {
   
   BreakPointPtrVector out;

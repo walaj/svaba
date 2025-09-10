@@ -1,5 +1,4 @@
-#ifndef SVABA_VCF_GEN_H
-#define SVABA_VCF_GEN_H
+#pragma once
 
 #include <memory>
 #include <vector>
@@ -8,6 +7,7 @@
 #include <unordered_set>
 
 #include "SeqLib/GenomicRegion.h"
+#include "SvabaSharedConfig.h"
 
 #include "BreakPoint.h"
 
@@ -133,7 +133,7 @@ struct VCFFile {
   VCFFile(std::string file, std::string tmethod);
 
   // create a VCFFile from a csv
-  VCFFile(std::string file, std::string id, const SeqLib::BamHeader& h,
+  VCFFile(std::string file, std::string id, const SvabaSharedConfig &sc,
 	  const VCFHeader& vheader, bool nopass,
 	  bool verbose);
 
@@ -180,5 +180,3 @@ template<typename T> T mergeHeaderMaps(T const &m1, T const &m2);
 SupportingReadsMap ReadIDToReads(std::string readid);
 InfoMap mergeInfoFields(InfoMap const &m1, InfoMap const &m2);
 FormatRecordMap FormatStringToFormatRecordMap(std::string format, std::string samp1, std::string samp2);
-
-#endif

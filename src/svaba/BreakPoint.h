@@ -10,6 +10,8 @@
 #include "SeqLib/BamRecord.h"
 #include "svabaRead.h"
 
+using CigarMapMap = std::unordered_map<std::string, SeqLib::CigarMap>;
+
 enum class LocalAlignment {
   NOTSET,          
   NONVAR_LOCAL_REALIGNMENT,   // contig aligns to local region without variant
@@ -115,7 +117,6 @@ public:
 
   // for readback from file
   BreakPoint(const std::string &line,
-	     const BamHeader& h,
 	     const SvabaSharedConfig* _sc);
 
   // enforce one of above modalities
@@ -132,7 +133,7 @@ public:
   static std::string header() {
     return std::string(
 		       "#chr1\tpos1\tstrand1\tchr2\tpos2\tstrand2\tref\talt\t"
-		       "span\tsplit\tcigar\talt\tcov\t"
+		       "span\tsplit\talt\tcov\tcigar\tcigar_near\t"
 		       "dmq1\tdmq2\tdcn\tdct\t"
 		       "mapq1\tmapq2\tnm1\tnm2\tas1\tas2\tsub1\tsub2\t"
 		       "homol\tinsert\trepeat\t"
@@ -194,9 +195,11 @@ public:
   
   void __rep(int rep_num, std::string& rseq, bool fwd = true);
   
-   void setLocal(const GenomicRegion& window);
+  void setLocal(const GenomicRegion& window);
   
-  void score_somatic(double error_fwd); 
+  void score_somatic(double error_fwd);
+
+  void indelCigarCheck(const CigarMapMap& cmap);
   
   void addCovs(const std::unordered_map<std::string, STCoverage*>& covs);
 
@@ -308,6 +311,7 @@ public:
 
     int split = 0;
     int cigar = 0;
+    int cigar_near = 0; // cigar matches close (but not same) 
     int alt = 0;
     int cov = 0;
     int disc = 0;

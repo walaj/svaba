@@ -42,8 +42,6 @@ public:
   // sort AlignmentFragment objects by start position
   bool operator < (const AlignmentFragment& str) const; 
   
-  void indelCigarMatches(const std::unordered_map<std::string, CigarMap>& cmap);
-  
   // print the AlignmentFragment
   std::string printToAlignmentsFile() const;
   

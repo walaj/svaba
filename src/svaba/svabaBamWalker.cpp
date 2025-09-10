@@ -4,20 +4,26 @@
 #include "svabaOptions.h"
 #include "svabaLogger.h"
 #include "svabaThreadUnit.h"
+#include <string_view>
 
-//#define QNAME "H01PEALXX140819:3:2218:11657:19504"
-//#define QFLAG -1
+#define QNAME "LH00502:144:22NTL3LT4:3:1168:29088:29025"
+#define QFLAG 83
 
 using SeqLib::AddCommas;
 using SeqLib::UnalignedSequenceVector;
 using SeqLib::UnalignedSequence;
 
-#ifdef QNAME
-#define DEBUG(msg, read)						\
-  { if (read.Qname() == QNAME && (read.AlignmentFlag() == QFLAG || QFLAG == -1)) { std::cerr << (msg) << " read " << (read) << std::endl; } }
-#else
-#define DEBUG(msg, read)
-#endif
+inline void debug_read(std::string_view msg,
+                       const svabaReadPtr read,
+                       std::string_view qname_filter = {},
+                       int qflag_filter = -1) {
+
+    if (!read) return;
+    if (!qname_filter.empty() && read->Qname() != qname_filter) return;
+    if (qflag_filter != -1 && read->AlignmentFlag() != qflag_filter) return;
+
+    std::cerr << "DEBUG: " << msg << " read " << read << '\n';
+}
 
 //static const std::string ILLUMINA_PE_PRIMER_2p0 = "CAAGCAGAAGACGGCAT";
 //static const std::string FWD_ADAPTER_A = "AGATCGGAAGAGC";
@@ -27,17 +33,27 @@ using SeqLib::UnalignedSequence;
 svabaBamWalker::svabaBamWalker(SvabaSharedConfig& sc_) : sc(sc_) {}
 
 void svabaBamWalker::addCigar(const svabaReadPtr& r) {
+  
   if (r->CigarSize() == 1)
     return;
-  
-  int pos = r->Position();  // position ON REFERENCE
-  
+
+  // NB: the -1 is NOT a 0- vs 1-based thing.
+  // It's that VCF (and BP) store location of an indel as the base PRIOR to the event.
+  // but accumulating positions here has "pos" starting at the first base of the next
+  // position - which would be the first base of the indel, so we minus 1 to keep
+  // convention c/w BPs file. It's all 0-based as usual
+  int pos = r->Position() - 1;  // position ON REFERENCE
+
   for (const auto& i : r->GetCigar()) {
     if (i.Type() == 'D' || i.Type() == 'I') {
       std::string key = std::to_string(r->ChrID()) + "_" +
 	std::to_string(pos) + "_" +
 	std::to_string(i.Length()) + i.Type();
       ++cigmap[key];
+      // //debug
+      // if (pos > 79347219 & pos < 79347403)
+      // 	std::cerr << r->Qname() << " pos " << r->Position() << " pos " << pos <<
+      // 	  " " << i.Length() << i.Type() << std::endl;
     }
     
     // advance along the reference for alignment types that consume reference
@@ -154,45 +170,35 @@ SeqLib::GRC svabaBamWalker::readBam(svabaThreadUnit& unit) {
       } 
     }
 
-    //debug
-    // if (s->Qname() ==
-    // 	"LH00306:235:22NHGWLT4:6:1184:29201:10203") {
-    //   std::cerr << *s << std::endl;
-    // }
-    
-
+    debug_read("read seen", s, QNAME, QFLAG);
     
     // check if this read passes the rules for potential SV reads
     if (s->DuplicateFlag() ||
 	s->QCFailFlag() ||
 	s->NumHardClip() ||
-	s->CountNBases() ||
+	//s->CountNBases() ||
 	sc.blacklist.CountOverlaps(s->AsGenomicRegionMate()) || 
 	sc.blacklist.CountOverlaps(s->AsGenomicRegion()) ||
 	local_blacklist.CountOverlaps(s->AsGenomicRegionMate()) ||
 	local_blacklist.CountOverlaps(s->AsGenomicRegion()))
       continue;
+
+    debug_read("read first filter", s, QNAME, QFLAG);
     
     // quality score trim read
     s->QualityTrimRead(); // copies sequence into svabaRead.seq_corrected
 
-    // if its less than 40, dont even mess with it
-    if (s->CorrectedSeqLength() < 40)
-      continue;
-    
     // this is the main rule check 
     bool rule_pass = sc.mr.isValid(*s);
 
+    // if its less than 40, dont even mess with it
+    if (s->CorrectedSeqLength() < 40)
+      rule_pass = false;
+    
     // special rule to filter "RF" "discordants" that are just overlaps
     if (s->PairOrientation() == SeqLib::Orientation::RF &&
 	std::abs(s->InsertSize()) < std::max(200, sc.readlen * 2))
       rule_pass = false;
-    
-    //debug
-    // if (s->Qname() ==
-    // 	"LH00306:129:227V5CLT4:6:2114:6074:25724") {    
-    //   std::cerr << " RULE " << rule_pass << *s << std::endl;
-    // }
     
     // for mate regions, be more strict
     if (!get_mate_regions && s->MapQuality() == 0)
@@ -208,7 +214,7 @@ SeqLib::GRC svabaBamWalker::readBam(svabaThreadUnit& unit) {
       weird_cov.addRead(*s, 0); 
     
     // add to the cigar map for all non-duplicate reads
-    if (rule_pass && get_mate_regions) // only add cigar for non-mate regions
+    if (get_mate_regions) // only add cigar for non-mate regions
       addCigar(s);
     
     // add all the reads for kmer correction
@@ -226,11 +232,15 @@ SeqLib::GRC svabaBamWalker::readBam(svabaThreadUnit& unit) {
 
       
     }
+
+    debug_read("read seen 2", s, QNAME, QFLAG);
     
     // if not a weird read, move on
     if (!rule_pass)
       continue;
 
+    debug_read("read seen 3d", s, QNAME, QFLAG);
+    
     // label as discordant or not
     // modifies r in place
     TagDiscordant(s);
