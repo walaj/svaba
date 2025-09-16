@@ -276,12 +276,13 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
   DiscordantClusterMap dmap = DiscordantCluster::clusterReads(all_discordant_reads, 
 							      region,
 							      sc.header);
+	 
   all_discordant_reads.clear();
   unit.st.dc_cluster_count = dmap.size();
   
   // add the discordant clusters to the svabathreadunit for writing later
   unit.m_disc.insert(dmap.begin(), dmap.end());
-  
+
   // for dumping all reads
   if (sc.opts.dump_weird_reads) {
     for (auto& [_, dc] : dmap) {
@@ -682,13 +683,22 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
   //}
   
   // filter against blacklist
-  for (auto& i : bp_glob) 
+  for (auto& i : bp_glob) {
     i->checkBlacklist(sc.blacklist);
+
+    // remove anything in a high-repeat blacklist
+    for (const auto& [_, walker] : unit.walkers) {
+      if (walker->local_blacklist.CountOverlaps(i->b1.gr) ||
+	  walker->local_blacklist.CountOverlaps(i->b2.gr))
+	i->confidence = "BLACKLIST";
+    }
+  }
 
   // add discordant reads
   for (auto& i : bp_glob) {
     i->CombineWithDiscordantClusterMap(dmap);
   }
+
   
   // if (region.pos1 == 4287501) {
   //   for (const auto& bbb : bp_glob) {

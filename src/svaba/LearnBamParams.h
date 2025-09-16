@@ -79,6 +79,7 @@ public:
   // per BAM readlen / mapq max
   int readlen_max = 0;
   int mapq_max = 0;
+  double isize_max = 0;
   
 private:
  

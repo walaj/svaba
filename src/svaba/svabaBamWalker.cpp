@@ -6,8 +6,8 @@
 #include "svabaThreadUnit.h"
 #include <string_view>
 
-#define QNAME "LH00502:144:22NTL3LT4:3:1168:29088:29025"
-#define QFLAG 83
+#define QNAME "LH00306:129:227V5CLT4:6:1268:41599:27601" 
+#define QFLAG 147
 
 using SeqLib::AddCommas;
 using SeqLib::UnalignedSequenceVector;
@@ -170,7 +170,8 @@ SeqLib::GRC svabaBamWalker::readBam(svabaThreadUnit& unit) {
       } 
     }
 
-    debug_read("read seen", s, QNAME, QFLAG);
+    //    debug_read("read seen", s, QNAME, QFLAG);
+    
     
     // check if this read passes the rules for potential SV reads
     if (s->DuplicateFlag() ||
@@ -178,12 +179,12 @@ SeqLib::GRC svabaBamWalker::readBam(svabaThreadUnit& unit) {
 	s->NumHardClip() ||
 	//s->CountNBases() ||
 	sc.blacklist.CountOverlaps(s->AsGenomicRegionMate()) || 
-	sc.blacklist.CountOverlaps(s->AsGenomicRegion()) ||
-	local_blacklist.CountOverlaps(s->AsGenomicRegionMate()) ||
-	local_blacklist.CountOverlaps(s->AsGenomicRegion()))
+	sc.blacklist.CountOverlaps(s->AsGenomicRegion()))
+	//local_blacklist.CountOverlaps(s->AsGenomicRegionMate()) ||
+	//local_blacklist.CountOverlaps(s->AsGenomicRegion()))
       continue;
 
-    debug_read("read first filter", s, QNAME, QFLAG);
+    //    debug_read("read first filter", s, QNAME, QFLAG);
     
     // quality score trim read
     s->QualityTrimRead(); // copies sequence into svabaRead.seq_corrected
@@ -233,13 +234,13 @@ SeqLib::GRC svabaBamWalker::readBam(svabaThreadUnit& unit) {
       
     }
 
-    debug_read("read seen 2", s, QNAME, QFLAG);
+    //    debug_read("read seen 2", s, QNAME, QFLAG);
     
     // if not a weird read, move on
     if (!rule_pass)
       continue;
 
-    debug_read("read seen 3d", s, QNAME, QFLAG);
+    //    debug_read("read seen 3d", s, QNAME, QFLAG);
     
     // label as discordant or not
     // modifies r in place

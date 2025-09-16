@@ -173,7 +173,7 @@ DiscordantClusterMap DiscordantCluster::clusterReads(svabaReadPtrVector& bav,
 	  m_reg1.pos2 = read->PositionEnd();
 	if (read->MatePosition() > m_reg2.pos2) 
 	  m_reg2.pos2 = read->MatePosition() + read->Length(); // since don't have mate end
-	
+
 	// Check region width constraints after building regions
 	if (m_reg1.Width() >= MAX_REGION_WIDTH) {
 	  std::cerr << "Warning: Region 1 width (" << m_reg1.Width() << "bp) exceeds "
@@ -210,10 +210,12 @@ DiscordantClusterMap DiscordantCluster::clusterReads(svabaReadPtrVector& bav,
     case SeqLib::Orientation::RR: ortid = "RR"; break;
     default: ortid = "UD"; break;  // fallback for UD or anything unexpected
     }    
-    
-    m_id = ortid + "_" + m_reg1.ChrName(header) + "_" + std::to_string(m_reg1.pos1) +
-      "___" + m_reg2.ChrName(header) + "_" + std::to_string(m_reg2.pos1);
-    
+
+    int pos1 = m_reg1.strand == '+' ? m_reg1.pos2 : m_reg1.pos1;
+    int pos2 = m_reg2.strand == '+' ? m_reg2.pos2 : m_reg2.pos1;
+    m_id = ortid + "_" + m_reg1.ChrName(header) + "_" + std::to_string(pos1) +
+      "___" + m_reg2.ChrName(header) + "_" + std::to_string(pos2);
+
   }
 
 void DiscordantCluster::addMateReads(const svabaReadPtrVector& bav) 
@@ -368,13 +370,17 @@ bool DiscordantCluster::valid() const {
 std::string DiscordantCluster::toFileString(const SeqLib::BamHeader& h, bool with_read_names) const { 
   
   std::string sep = "\t";
-  
-  int pos1 = m_reg1.strand == '+' ? m_reg1.pos2 : m_reg1.pos1; // get the edge of the cluster
+
+  // get the edge of the cluster
+  int pos1 = m_reg1.strand == '+' ? m_reg1.pos2 : m_reg1.pos1; 
   int pos2 = m_reg2.strand == '+' ? m_reg2.pos2 : m_reg2.pos1;
+
+  std::string chr1 = isEmpty() ? "NOTSET" : h.IDtoName(m_reg1.chr);
+  std::string chr2 = isEmpty() ? "NOTSET" : h.IDtoName(m_reg2.chr);
   
   std::stringstream out;
-  out << h.IDtoName(m_reg1.chr) << sep << pos1 << sep << m_reg1.strand << sep 
-      << h.IDtoName(m_reg2.chr) << sep << pos2 << sep << m_reg2.strand << sep 
+  out << chr1 << sep << pos1 << sep << m_reg1.strand << sep 
+      << chr2 << sep << pos2 << sep << m_reg2.strand << sep 
       << tcount << sep << ncount
       << sep << mapq1 << sep << mapq2 << sep
       << nm1 << sep << nm2 << sep 
@@ -462,12 +468,12 @@ void DiscordantCluster::__cluster_mate_reads(svabaReadClusterVector& brcv,
                                              svabaReadClusterVector& rev)
 {
   // loop the nascent "clustesr" which are just clustered based on
-  // left read, not on the right (mate) read yet
+  // left read, not on the right read yet
   for (auto& cluster : brcv) {
     
     svabaReadPtrVector this_fwd, this_rev;
 
-    // sort the reads in the 
+    // sort the reads in the cluster
     std::sort(cluster.begin(), cluster.end(),
 	      [](const svabaReadPtr& a, const svabaReadPtr& b) {
 		return (a->MateChrID() < b->MateChrID()) ||
@@ -481,7 +487,7 @@ void DiscordantCluster::__cluster_mate_reads(svabaReadClusterVector& brcv,
       assert(r->dd > 0);
 
       // see __cluster_reads for logic. Exactly the same, just now for mates
-      if (!r->MateReverseFlag())
+      if ( !r->MateReverseFlag())
         __add_read_to_cluster(fwd, this_fwd, r, true);
       else
         __add_read_to_cluster(rev, this_rev, r, true);
@@ -528,20 +534,29 @@ void DiscordantCluster::__cluster_reads(svabaReadPtrVector& brv,
       continue;
     
     // only cluster FR reads together, RF reads together, FF together and RR together
+    // PairOrientation is invariant to if you are looking at read or mate
+    // - that is, if you are FR from read, then the mate is not read as RF.
+    // - it ensures that the left most read (lowest chr and pos) is the index read
     if (i->PairOrientation() != orientation) {
       continue;
     }
       
-    std::string qq = i->Qname();
-    
     // only cluster if not seen before (e.g. left-most is READ, right most is MATE)
-    if (i->PairMappedFlag() && tmp_set.count(qq) == 0) {
-      
-      tmp_set.insert(qq);
-      
+    if (i->PairMappedFlag() && tmp_set.count(i->Qname()) == 0) {
+
+      //20250911
+      // right most read acts like the "mate".
+      // the reason to do this is that if I have both the read and it's mate, I dont
+      // want to arbitrarily add one of the two to either fwd or reverse
+      if (!i->IsLeftMostAlignment())
+	continue;
+
+      tmp_set.insert(i->Qname());
+
       // forward clustering -- this_fwd is just the most current cluster and
       // fwd (or rev) is the collection of clusters that grows here
-      if (!i->ReverseFlag()) 
+      // convention here is that the left-most read acts like the "index read" and the
+      if ( !i->ReverseFlag()) 
 	__add_read_to_cluster(fwd, this_fwd, i, false);
       // reverse clustering 
       else 

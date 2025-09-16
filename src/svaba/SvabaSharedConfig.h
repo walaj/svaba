@@ -60,6 +60,7 @@ class SvabaSharedConfig {
   SeqLib::GRC           germline_svs;
 
   int readlen = -1;
+  double insertsize = -1;
   
   std::shared_ptr<DBSnpFilter>           dbsnp_filter;
 

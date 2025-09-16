@@ -6,6 +6,12 @@
 #include <tuple>
 #include <optional>
 
+#include <sstream>
+#include <vector>
+#include <stdexcept>
+#include <algorithm>
+#include <cctype>
+
 #include "gzstream.h"
 #include "svabaUtils.h"
 #include "STCoverage.h"
@@ -778,7 +784,6 @@ void BreakPoint::CombineWithDiscordantClusterMap(DiscordantClusterMap& dmap)
     if (!d.valid())
       continue;
 
-
     assert(d.m_reg1 < d.m_reg2);
       
     // do either breakends overlap
@@ -801,18 +806,21 @@ void BreakPoint::CombineWithDiscordantClusterMap(DiscordantClusterMap& dmap)
     // if (std::abs(pos1 - b1.gr.pos1) > PAD ||
     // 	std::abs(pos2 - b2.gr.pos1) > PAD)
     //   pass = false;
-    
-    //std::cerr << " cname " << cname << " pad " << PAD << " pass " << pass << " DC pos1 " << pos1 << " DC pos2 " << pos2 << 
-    //  " s1 " << s1 << " s2 " << s2 << " bp1reg1 " << bp1reg1 << " bp2reg2 " << bp2reg2 << " diff1 " << std::abs(pos1 - b1.gr.pos1) <<
-    //  " diff2 " << std::abs(pos2 - b2.gr.pos1) << " bp pos1 " << b1.gr.pos1 << " bp pos2 " << b2.gr.pos1 << std::endl;
 
+    // std::cerr << b1.gr << " - " << b2.gr << std::endl;
+    // std::cerr << " cname " << cname << " pad " << PAD << " pass " << pass << " DC pos1 " << pos1 << " DC pos2 " << pos2 << 
+    //   " s1 " << s1 << " s2 " << s2 << " bp1reg1 " << bp1reg1 << " bp2reg2 " << bp2reg2 << " diff1 " << std::abs(pos1 - b1.gr.pos1) <<
+    //   " diff2 " << std::abs(pos2 - b2.gr.pos1) << " bp pos1 " << b1.gr.pos1 << " bp pos2 " << b2.gr.pos1 << " " <<
+    //   d.toFileString(sc->header, false) << std::endl;
+    
     if (!pass)
-      return;
+      continue;
     
     // check that we haven't already added a cluster to this breakpoint
-    // if so, chose the one with more tumor support
-    if (dc.isEmpty() || dc.tcount < d.tcount) {
-      
+    // if so, chose the one with more normal support first, then more
+    // tumor support second
+    if (dc.isEmpty() || (dc.ncount < d.ncount) || (dc.ncount==d.ncount && dc.tcount < d.tcount)) {
+
       dc = d;
       d.m_contig = cname;
       
@@ -842,10 +850,16 @@ void BreakPoint::CombineWithDiscordantClusterMap(DiscordantClusterMap& dmap)
       // (i.e. per SampleInfo object in our BreakPoint "alleles" structure)
       for (auto& [_,al] : allele)
        	al.UpdateAltCounts();
-    } 
+    }
   }
 
-  svtype = SVType::ASDIS;
+
+  // make sure not claiming discordant + assembly for small spans
+  if (  (getSpan() < 2 * sc->insertsize && getSpan() >= 0)  && b1.gr.strand == '+' && b2.gr.strand == '-')
+    svtype = SVType::ASSMB;
+  else
+    svtype = SVType::ASDIS;
+
 }
 
 // void BreakPoint::set_evidence() {
@@ -2093,4 +2107,190 @@ void BreakPoint::indelCigarCheck(const CigarMapMap& cmap) {
     }
   }
   
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+namespace {
+// split a tab-delimited line (keeps empty fields)
+inline std::vector<std::string> split_tabs(const std::string& s) {
+    std::vector<std::string> out;
+    out.reserve(48);
+    std::string cur;
+    cur.reserve(64);
+    for (char c : s) {
+        if (c == '\t') { out.push_back(cur); cur.clear(); }
+        else if (c != '\r' && c != '\n') { cur.push_back(c); }
+    }
+    out.push_back(cur);
+    return out;
+}
+
+inline long to_long(const std::string& s) {
+    if (s.empty()) return 0;
+    return std::stol(s);
+}
+inline int to_int(const std::string& s) {
+    if (s.empty()) return 0;
+    return std::stoi(s);
+}
+inline double to_double(const std::string& s) {
+    if (s.empty()) return 0.0;
+    return std::stod(s);
+}
+inline char parse_strand(const std::string& s) {
+    return s.empty() ? '.' : s[0]; // expect '+' or '-'
+}
+
+inline std::string upper(std::string v){
+    std::transform(v.begin(), v.end(), v.begin(),
+                   [](unsigned char c){ return std::toupper(c); });
+    return v;
+}
+
+// Map type string to SVType enum; adjust cases to match your enum names.
+inline SVType parse_svtype(const std::string& s_in) {
+    const std::string s = upper(s_in);
+    if (s == "NOTSET") return SVType::NOTSET;
+    if (s == "TSI_LOCAL") return SVType::TSI_LOCAL; 
+    if (s == "TSI_GLOBAL") return SVType::TSI_GLOBAL;
+    if (s == "ASSMB") return SVType::ASSMB;
+    if (s == "ASDIS") return SVType::ASDIS;
+    if (s == "DSCRD") return SVType::DSCRD;
+    if (s == "INDEL") return SVType::INDEL;
+    return SVType::NOTSET;
+}
+
+// Map somatic field to SomaticState enum; tweak to match your enum.
+inline SomaticState parse_somatic(const std::string& s_in) {
+    const std::string s = upper(s_in);
+    if (s_in == "1") return SomaticState::SOMATIC_LOD;
+    return SomaticState::NORMAL_LOD;
+}
+
+// stod that tolerates "NA", ".", "".
+inline double stod_safe(const std::string& s) {
+    if (s.empty()) return 0.0;
+    std::string u; u.reserve(s.size());
+    for (char c: s) u.push_back(std::toupper(static_cast<unsigned char>(c)));
+    if (u == "NA" || u == ".") return 0.0;
+    return std::stod(s);
+}
+  
+} // namespace
+
+
+BreakPoint::BreakPoint(const std::string& line, const SvabaSharedConfig* _sc)
+: sc(_sc)
+{
+  if (!line.empty() && line[0] == '#') {
+    throw std::invalid_argument("BreakPoint: header/comment line cannot be parsed as data");
+  }
+  
+  const auto tok = split_tabs(line);
+  if (tok.size() < 39) {
+    throw std::runtime_error("BreakPoint parse error: expected at least 39 columns, got " + std::to_string(tok.size()));
+  }
+  int i = 0;
+  
+  // ---- fixed columns (1..39) ----
+  const std::string chr1 = tok[i++];
+  const long pos1_1idx   = to_long(tok[i++]);
+  const char s1          = tok[i++].empty() ? '.' : tok[i-1][0];
+  
+  const std::string chr2 = tok[i++];
+  const long pos2_1idx   = to_long(tok[i++]);
+  const char s2          = tok[i++].empty() ? '.' : tok[i-1][0];
+  
+  ref = tok[i++];                          // 7
+  alt = tok[i++];                          // 8
+    /* span */ (void)to_int(tok[i++]);       // 9
+
+    a.split      = to_int(tok[i++]);         // 10
+    a.alt        = to_int(tok[i++]);         // 11
+    a.cov        = to_int(tok[i++]);         // 12
+    a.cigar      = to_int(tok[i++]);         // 13
+    a.cigar_near = to_int(tok[i++]);         // 14
+
+    dc.mapq1 = to_int(tok[i++]);             // 15
+    dc.mapq2 = to_int(tok[i++]);             // 16
+    dc.ncount = to_int(tok[i++]);            // 17
+    dc.tcount = to_int(tok[i++]);            // 18
+
+    b1.mapq = to_int(tok[i++]);              // 19
+    b2.mapq = to_int(tok[i++]);              // 20
+    b1.nm   = to_int(tok[i++]);              // 21
+    b2.nm   = to_int(tok[i++]);              // 22
+    b1.as   = to_int(tok[i++]);              // 23
+    b2.as   = to_int(tok[i++]);              // 24
+    b1.sub  = to_int(tok[i++]);              // 25
+    b2.sub  = to_int(tok[i++]);              // 26
+
+    homology   = tok[i++]; if (homology   == "x") homology.clear();      // 27
+    insertion  = tok[i++]; if (insertion  == "x") insertion.clear();     // 28
+    repeat_seq = tok[i++]; if (repeat_seq == "x") repeat_seq.clear();    // 29
+
+    cname      = tok[i++];                    // 30
+    num_align  = to_int(tok[i++]);            // 31
+    confidence = tok[i++];                    // 32
+
+    svtype    = parse_svtype(tok[i++]);       // 33
+    quality   = to_int(tok[i++]);             // 34
+    secondary = to_int(tok[i++]);             // 35
+
+    somatic = parse_somatic(tok[i++]);        // 36
+    LO_s    = stod_safe(tok[i++]);            // 37
+    max_lod = stod_safe(tok[i++]);            // 38
+
+    rs = tok[i++]; if (rs == "x") rs.clear(); // 39
+
+    // Genomic regions (file is 1-based; internal is 0-based)
+    b1.gr.chr    = sc->header.Name2ID(chr1); b1.gr.pos1 = static_cast<int>(pos1_1idx - 1);
+    b1.gr.pos2   = b1.gr.pos1; b1.gr.strand = s1;
+    b2.gr.chr    = sc->header.Name2ID(chr2); b2.gr.pos1 = static_cast<int>(pos2_1idx - 1);
+    b2.gr.pos2   = b2.gr.pos1; b2.gr.strand = s2;
+
+    local     = LocalAlignment::NOTSET;
+    imprecise = 0;
+    pass      = 0;
+
+    // ---- trailing per-sample fields (map by order to sc->opts.bams) ----
+    const size_t rem = tok.size() - static_cast<size_t>(i);
+    std::vector<std::string> bam_list;
+    for (const auto& [pref,_] : sc->opts.bams)
+      bam_list.push_back(pref);
+    const size_t nsamples_expected = bam_list.size();
+    
+    if (rem < nsamples_expected) {
+      std::cerr << "Warning: BreakPoint parse: trailing sample fields fewer than expected ("
+		<< rem << " < " << nsamples_expected << ").\n";
+    }
+    
+    const size_t nsamples = std::min(rem, nsamples_expected);
+    for (size_t j = 0; j < nsamples; ++j) {
+      // sample key = first 4 chars of sc->opts.bams[j]
+        const std::string& bam = bam_list[j];
+        const size_t key_len = std::min<size_t>(4, bam.size());
+        const std::string key = bam.substr(0, key_len);
+
+        SampleInfo si;
+        si.FillFromString(tok[i + static_cast<int>(j)], svtype);
+        allele[key] = std::move(si);
+    }
+
+    // Optionally warn if there are extra tokens beyond expected samples
+    if (rem > nsamples_expected) {
+        std::cerr << "Warning: BreakPoint parse: " << (rem - nsamples_expected)
+                  << " extra trailing token(s) ignored.\n";
+    }
 }

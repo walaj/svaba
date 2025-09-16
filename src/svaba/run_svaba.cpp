@@ -273,11 +273,14 @@ void runsvaba(int argc, char** argv) {
 
   int globalReadLen = 0;
   int globalMaxMapQ = 0;
-  for (const auto& ll : sc.bamStats) {
-    globalReadLen = std::max(globalReadLen, ll.second.readlen_max);
-    globalMaxMapQ = std::max(globalMaxMapQ, ll.second.mapq_max);
+  double globalInsertSize = 0;
+  for (const auto& [_, learn_bam_param] : sc.bamStats) {
+    globalReadLen = std::max(globalReadLen, learn_bam_param.readlen_max);
+    globalMaxMapQ = std::max(globalMaxMapQ, learn_bam_param.mapq_max);
+    globalInsertSize = std::max(globalInsertSize, learn_bam_param.isize_max);    
   }
   sc.readlen = globalReadLen;
+  sc.insertsize = globalInsertSize;
   
   // --- set the SGA min overlap if user didn't ---
   if (opts.sgaMinOverlap == 0) {

@@ -134,9 +134,10 @@ void LearnBamParams::learnParams() {
   // compute isize stats
   // store the max readlen and mapq for this entire bam across RGs
   for (auto& br : bam_read_groups) {
+    br.second.computeStats();    
     readlen_max = std::max(readlen_max, br.second.readlen_max);
-    mapq_max = std::max(mapq_max, br.second.mapq_max);	  
-    br.second.computeStats();
+    mapq_max = std::max(mapq_max, br.second.mapq_max);
+    isize_max = std::max(isize_max, br.second.isize_mean);
   }
 }
 

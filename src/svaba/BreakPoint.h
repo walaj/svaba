@@ -170,6 +170,7 @@ public:
   int num_align = 0;  // number of alignments for contigs that generated this
   
   double LO_s = 0; // log odds of variant being somatic (see svabaModels.cpp - SomaticLOD)
+  double max_lod = 0; // the highest LOD across all samples
   
   SVType svtype = SVType::NOTSET;
   LocalAlignment local = LocalAlignment::NOTSET;
@@ -341,7 +342,7 @@ public:
     std::string toFileString(SVType svtype) const;
      
     void FillFromString(const std::string& s, SVType svtype);
-     
+    
      void UpdateAltCounts();
      
    };
