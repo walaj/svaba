@@ -382,9 +382,8 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
       dbg += walker->reads.size();
     }
     
-    // do the discordant read clustering
     sc.logger.log(sc.opts.verbose > 1, false, 
-		  "...assembling reads");
+		  "...assembling reads with SGA");
     
     // do the actual assembly
     engine.performAssembly(1/*sc.opts.num_assembly_rounds*/);
@@ -420,6 +419,10 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
       fml_opt_t opt;
       fml_opt_init(&opt);
 
+      sc.logger.log(sc.opts.verbose > 1, false, 
+		  "...assembling reads with Fermi-lite");
+    
+      
       // 3) Run the assembler
       int n_utgs = 0;
       fml_utg_t *utgs = nullptr;
