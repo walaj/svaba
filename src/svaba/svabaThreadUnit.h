@@ -73,7 +73,7 @@ public:
   svabaThreadUnit(const svabaThreadUnit&) = delete;
   svabaThreadUnit& operator=(const svabaThreadUnit&) = delete;
   svabaThreadUnit(svabaThreadUnit&&) noexcept = default;
-  svabaThreadUnit& operator=(svabaThreadUnit&&) noexcept = default;
+  svabaThreadUnit& operator=(svabaThreadUnit&&) noexcept = delete;
 
   void clear();
 

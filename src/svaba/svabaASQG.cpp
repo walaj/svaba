@@ -16,7 +16,7 @@ namespace svabaASQG
 const int HEADER_VERSION = 1;
 
 // Record ID tags
-static int RECORD_TAG_SIZE = 2; // do not include null terminator 
+static constexpr int RECORD_TAG_SIZE = 2; // do not include null terminator 
 static char HEADER_TAG[] = "HT";
 static char VERTEX_TAG[] = "VT";
 static char EDGE_TAG[] = "ED";
