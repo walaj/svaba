@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>SvABA BPS Viewer</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <div class="background-glow background-glow-a"></div>
+    <div class="background-glow background-glow-b"></div>
+
+    <main class="page">
+      <header class="hero panel reveal">
+        <div class="hero-copy">
+          <p class="eyebrow">SvABA raw call explorer</p>
+          <h1>Inspect <code>bps.txt</code> and <code>bps.txt.gz</code> calls in the browser.</h1>
+          <p class="hero-text">
+            Load a breakpoint table, filter it by LOD, confidence, event type, and evidence,
+            then drill into per-sample support without leaving the file.
+          </p>
+
+          <div class="hero-actions">
+            <label class="button button-primary file-picker">
+              <input id="file-input" type="file" accept=".txt,.gz,.bps,.bps.txt,.bps.txt.gz,text/plain,application/gzip">
+              Open BPS file
+            </label>
+            <button id="load-example" class="button button-secondary" type="button">Load bundled example</button>
+            <button id="export-button" class="button button-ghost" type="button" disabled>Export filtered TSV</button>
+          </div>
+
+          <p id="status-text" class="status">
+            No file loaded yet. Use the file picker or the bundled example in <code>viewer/svaba/am.bps.txt.gz</code>.
+          </p>
+        </div>
+
+        <div class="hero-stats" id="hero-stats">
+          <article class="stat-card">
+            <span class="stat-label">Rows</span>
+            <strong class="stat-value" id="stat-total">0</strong>
+          </article>
+          <article class="stat-card">
+            <span class="stat-label">Shown</span>
+            <strong class="stat-value" id="stat-shown">0</strong>
+          </article>
+          <article class="stat-card">
+            <span class="stat-label">PASS</span>
+            <strong class="stat-value" id="stat-pass">0</strong>
+          </article>
+          <article class="stat-card">
+            <span class="stat-label">Evidence</span>
+            <strong class="stat-value" id="stat-top-evidence">-</strong>
+          </article>
+        </div>
+      </header>
+
+      <section class="panel filters reveal">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Filters</p>
+            <h2>Slice by score, event class, and support</h2>
+          </div>
+          <button id="reset-filters" class="button button-ghost button-small" type="button">Reset filters</button>
+        </div>
+
+        <div class="filter-grid">
+          <label class="field">
+            <span class="field-label">Free text</span>
+            <input id="search-input" type="search" placeholder="chr1, contig, dbsnp id, ref/alt, confidence...">
+          </label>
+
+          <label class="field">
+            <span class="field-label">Min somlod</span>
+            <input id="somlod-min" type="number" step="0.1" placeholder="any">
+          </label>
+
+          <label class="field">
+            <span class="field-label">Max somlod</span>
+            <input id="somlod-max" type="number" step="0.1" placeholder="any">
+          </label>
+
+          <label class="field">
+            <span class="field-label">Min maxlod</span>
+            <input id="maxlod-min" type="number" step="0.1" placeholder="any">
+          </label>
+
+          <label class="field">
+            <span class="field-label">Max maxlod</span>
+            <input id="maxlod-max" type="number" step="0.1" placeholder="any">
+          </label>
+
+          <label class="field">
+            <span class="field-label">Min qual</span>
+            <input id="qual-min" type="number" step="1" placeholder="any">
+          </label>
+
+          <label class="field">
+            <span class="field-label">Min split support</span>
+            <input id="split-min" type="number" step="1" min="0" placeholder="any">
+          </label>
+
+          <label class="field">
+            <span class="field-label">Min ALT support</span>
+            <input id="alt-min" type="number" step="1" min="0" placeholder="any">
+          </label>
+
+          <label class="field">
+            <span class="field-label">Min discordant support</span>
+            <input id="discordant-min" type="number" step="1" min="0" placeholder="any">
+          </label>
+
+          <label class="field select-field">
+            <span class="field-label">DBSNP</span>
+            <select id="dbsnp-filter">
+              <option value="all">All calls</option>
+              <option value="present">DBSNP only</option>
+              <option value="absent">No DBSNP hit</option>
+            </select>
+          </label>
+
+          <label class="field select-field">
+            <span class="field-label">Rows per page</span>
+            <select id="page-size">
+              <option value="50">50</option>
+              <option value="100" selected>100</option>
+              <option value="250">250</option>
+              <option value="500">500</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="preset-row">
+          <div class="preset-group">
+            <span class="preset-label">somlod presets</span>
+            <button class="chip preset-button" type="button" data-target="somlod-min" data-value="0">>= 0</button>
+            <button class="chip preset-button" type="button" data-target="somlod-min" data-value="3">>= 3</button>
+            <button class="chip preset-button" type="button" data-target="somlod-min" data-value="6">>= 6</button>
+            <button class="chip preset-button" type="button" data-target="somlod-min" data-value="10">>= 10</button>
+          </div>
+          <div class="preset-group">
+            <span class="preset-label">maxlod presets</span>
+            <button class="chip preset-button" type="button" data-target="maxlod-min" data-value="0">>= 0</button>
+            <button class="chip preset-button" type="button" data-target="maxlod-min" data-value="3">>= 3</button>
+            <button class="chip preset-button" type="button" data-target="maxlod-min" data-value="6">>= 6</button>
+            <button class="chip preset-button" type="button" data-target="maxlod-min" data-value="10">>= 10</button>
+          </div>
+        </div>
+
+        <div class="chip-section">
+          <div class="chip-block">
+            <div class="chip-heading">
+              <span class="eyebrow">Variant type</span>
+              <strong>Derived event class</strong>
+            </div>
+            <div id="event-type-chips" class="chip-list"></div>
+          </div>
+
+          <div class="chip-block">
+            <div class="chip-heading">
+              <span class="eyebrow">Evidence</span>
+              <strong>Raw <code>type</code> field</strong>
+            </div>
+            <div id="evidence-chips" class="chip-list"></div>
+          </div>
+
+          <div class="chip-block">
+            <div class="chip-heading">
+              <span class="eyebrow">Confidence</span>
+              <strong>Raw <code>conf</code> field</strong>
+            </div>
+            <div id="confidence-chips" class="chip-list"></div>
+          </div>
+
+          <div class="chip-block">
+            <div class="chip-heading">
+              <span class="eyebrow">Somatic state</span>
+              <strong>Raw <code>somatic</code> field</strong>
+            </div>
+            <div id="somatic-chips" class="chip-list"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="workspace reveal">
+        <div class="panel table-panel">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Calls</p>
+              <h2 id="results-title">No variants loaded</h2>
+            </div>
+            <div class="table-meta">
+              <span id="results-summary">Load a file to start browsing calls.</span>
+            </div>
+          </div>
+
+          <div class="table-shell">
+            <table>
+              <thead>
+                <tr>
+                  <th><button class="sort-button" data-sort="locus" type="button">Locus</button></th>
+                  <th><button class="sort-button" data-sort="eventType" type="button">Type</button></th>
+                  <th><button class="sort-button" data-sort="evidence" type="button">Evidence</button></th>
+                  <th><button class="sort-button" data-sort="conf" type="button">Confidence</button></th>
+                  <th><button class="sort-button" data-sort="qual" type="button">Qual</button></th>
+                  <th><button class="sort-button" data-sort="somlod" type="button">Somlod</button></th>
+                  <th><button class="sort-button" data-sort="maxlod" type="button">Maxlod</button></th>
+                  <th><button class="sort-button" data-sort="supportPeak" type="button">Peak support</button></th>
+                  <th><button class="sort-button" data-sort="spanAbs" type="button">Span</button></th>
+                  <th><button class="sort-button" data-sort="contig_and_region" type="button">Contig</button></th>
+                </tr>
+              </thead>
+              <tbody id="table-body">
+                <tr>
+                  <td colspan="10" class="empty-table">
+                    No data yet. Load a <code>bps.txt</code> or <code>bps.txt.gz</code> file.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="pagination">
+            <button id="prev-page" class="button button-ghost button-small" type="button" disabled>Previous</button>
+            <span id="page-summary">Page 0 of 0</span>
+            <button id="next-page" class="button button-ghost button-small" type="button" disabled>Next</button>
+          </div>
+        </div>
+
+        <aside class="panel detail-panel">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Selected call</p>
+              <h2>Variant detail</h2>
+            </div>
+          </div>
+          <div id="detail-content" class="detail-content detail-empty">
+            Select a row to inspect the raw breakpoint call, support metrics, and sample-level values.
+          </div>
+        </aside>
+      </section>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
