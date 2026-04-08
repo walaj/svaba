@@ -1,6 +1,6 @@
 #!/bin/bash
 
-SAM=/usr/bin/samtools
+SAM=samtools
 ID=$1
 MEM=2G
 
