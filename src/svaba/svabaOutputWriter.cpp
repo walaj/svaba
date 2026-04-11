@@ -77,8 +77,13 @@ void SvabaOutputWriter::writeUnit(svabaThreadUnit& unit,
     }
     
     for (const auto& r : unit.all_weird_reads) {
+
+      // switch out the qname so it indicates also which BAM it was from
+      r->SetQname(r->UniqueName());
+      
       bool ok = it->second->WriteRecord(*r);
-      assert(ok);
+      if (!ok)
+	std::cerr << "...unable to write weird read record" << std::endl;
     }
   }
 
@@ -91,8 +96,14 @@ void SvabaOutputWriter::writeUnit(svabaThreadUnit& unit,
     
     for (const auto& r : unit.all_weird_reads) {
       if (r->dd > 0) {
+
+	// switch out the qname so it indicates also which BAM it was from
+	r->SetQname(r->UniqueName());
+
+	// write it
 	bool ok = it->second->WriteRecord(*r);
-	assert(ok);
+	if (!ok)
+	  std::cerr << "...unable to write discordant read record" << std::endl;
       }
     }
 
@@ -109,7 +120,8 @@ void SvabaOutputWriter::writeUnit(svabaThreadUnit& unit,
     
     for (const auto& r : unit.all_corrected_reads) {
       bool ok = it->second->WriteRecord(*r);
-      assert(ok);
+      if (!ok)
+	std::cerr << "...unable to write corrected read record" << std::endl;
     }
   }    
   lock_guard<mutex> guard(writeMutex_); // lock the writers

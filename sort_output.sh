@@ -13,7 +13,7 @@ DEDUP_SUFFIXES="weird corrected discordant"
 # source tag (e.g. a read named "t001_H1234..." gets routed into
 # ${ID}.${suffix}.t001.bam). Override at invocation with:
 #     SPLIT_BY_SOURCE=1 ./sort_output.sh ID
-SPLIT_BY_SOURCE="${SPLIT_BY_SOURCE:-0}"
+SPLIT_BY_SOURCE="${SPLIT_BY_SOURCE:-1}"
 
 # Preprocessing: merge thread BAMs if necessary
 for suffix in discordant weird corrected; do

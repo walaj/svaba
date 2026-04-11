@@ -318,34 +318,6 @@ void svabaBamWalker::ErrorCorrect() {
   bfc.ErrorCorrect();
 }
 
-// void svabaBamWalker::subSampleToWeirdCoverage(double max_coverage) {
-  
-//   svabaReadVector new_reads;
-  
-//   for (const auto& r : reads) {
-//     double this_cov1 = weird_cov.getCoverageAtPosition(r->ChrID(), r->Position());
-//     double this_cov2 = weird_cov.getCoverageAtPosition(r->ChrID(), r->PositionEnd());
-//     double this_cov = std::max(this_cov1, this_cov2);
-//     double sample_rate = 1; // dummy, always set if max_coverage > 0
-//     if (this_cov > 0) 
-//       sample_rate = 1 - (this_cov - max_coverage) / this_cov; // if cov->inf, sample_rate -> 0. if cov -> max_cov, sample_rate -> 1
-    
-//     // this read should be randomly sampled, cov is too high
-//     if (this_cov > max_coverage) 
-//       {
-// 	uint32_t k = __ac_Wang_hash(__ac_X31_hash_string(r.Qname().c_str()) ^ m_seed);
-// 	if ((double)(k&0xffffff) / 0x1000000 <= sample_rate) // passed the random filter
-// 	  new_reads.push_back(r);
-//       }
-//     else // didn't have a coverage problems
-//       {
-// 	new_reads.push_back(r);
-//       }
-    
-//   }
-  
-//   reads = new_reads;
-// }
 
 void svabaBamWalker::subSampleToWeirdCoverage(double max_coverage) {
   auto keep = [&](const std::shared_ptr<svabaRead>& r) {
