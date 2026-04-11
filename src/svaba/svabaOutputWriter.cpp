@@ -61,32 +61,6 @@ void SvabaOutputWriter::init(const string& analysis_id,
   }
   b_contig_writer_.WriteHeader();
   
-  // // BAM output for weird reads
-  // if (opts.dump_weird_reads) {
-  //   std::string weird_read_bam_path = analysis_id;
-  //   weird_read_bam_path.append(".weird.bam");
-  //   b_weird_read_writer_ = SeqLib::BamWriter(SeqLib::BAM);
-  //   b_weird_read_writer_.SetHeader(b_header);
-  //   if (!b_weird_read_writer_.Open(weird_read_bam_path)) {
-  //     std::cerr << "ERROR: could not open output weird read writer " <<
-  // 	weird_read_bam_path << std::endl;
-  //     exit(EXIT_FAILURE);
-  //   }
-  //   b_weird_read_writer_.WriteHeader();
-  // }
-
-  // if (opts.dump_corrected_reads) {
-  //   std::string corrected_read_bam_path = analysis_id;
-  //   corrected_read_bam_path.append(".corrected.bam");
-  //   b_corrected_read_writer_ = SeqLib::BamWriter(SeqLib::BAM);
-  //   b_corrected_read_writer_.SetHeader(b_header);
-  //   if (!b_corrected_read_writer_.Open(corrected_read_bam_path)) {    
-  //     std::cerr << "ERROR: could not open output corrected read writer " <<
-  // 	corrected_read_bam_path << std::endl;
-  //     exit(EXIT_FAILURE);
-  //   }
-  //   b_corrected_read_writer_.WriteHeader();
-  // }
   
 }
 
@@ -98,8 +72,7 @@ void SvabaOutputWriter::writeUnit(svabaThreadUnit& unit,
     
     auto it = unit.writers.find("w");
     if (it == unit.writers.end()) {
-      std::cerr << " read found with prefix " << " w " <<
-	" that is not in the weird read writers\n";
+      std::cerr << " BAM writer for weird reads not found" << std::endl;
       exit(EXIT_FAILURE);
     }
     
@@ -109,6 +82,22 @@ void SvabaOutputWriter::writeUnit(svabaThreadUnit& unit,
     }
   }
 
+  // write the discordant reads
+  if (sc.opts.dump_discordant_reads) {
+    auto it = unit.writers.find("d");
+    if (it == unit.writers.end()) {
+      std::cerr << " BAM writer for discordant reads not found" << std::endl;
+    }
+    
+    for (const auto& r : unit.all_weird_reads) {
+      if (r->dd > 0) {
+	bool ok = it->second->WriteRecord(*r);
+	assert(ok);
+      }
+    }
+
+  }
+  
   // write the corrected reads
   if (sc.opts.dump_corrected_reads) {
     auto it = unit.writers.find("c");
@@ -127,10 +116,6 @@ void SvabaOutputWriter::writeUnit(svabaThreadUnit& unit,
   
   sc.total_regions_done += unit.processed_since_memory_dump;
   unit.processed_since_memory_dump = 0;
-  
-  // std::cerr << "...svabaOutputWriter - flushing thread " << unit.threadId << " -- " <<
-  //   SeqLib::AddCommas(sc.total_regions_done) << " of " << SeqLib::AddCommas(sc.total_regions_to_process) <<
-  //   "\n";
 
   // alignment plot lines
   for (const auto& alc : unit.master_alc) {

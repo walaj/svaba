@@ -135,11 +135,22 @@ static inline double SomaticLOD_withSplitErrors(double aN, double dN, double aT,
     const double f_het = std::clamp(0.5, epsilon, 1.0 - epsilon);
     const double f_hom = std::clamp(1.0, epsilon, 1.0 - epsilon);
 
-    // Shared MLE (pooled) - simple closed form; ok to keep (fast).
+    // GERM_shared is only meaningful if the normal actually contributes signal.
+    // Otherwise f_shared just tracks the tumor MLE, collapsing the somatic LOD.
+    const double f_n_obs              = aN / dN_safe;
+    const double min_germ_af_shared   = 0.15;   // AFs below this are not plausibly germline
+    const bool   normal_supports_variant = (aN >= 2) && (f_n_obs >= 0.05);
+    
+    double ll_germ_shared = -std::numeric_limits<double>::infinity();
+    
     double f_shared_hat_raw = (aN + aT) / (dN_safe + dT_safe);
-    double f_shared_hat     = std::clamp(f_shared_hat_raw, epsilon, 1.0 - epsilon);
+    double f_shared_hat     = std::clamp(f_shared_hat_raw, min_germ_af_shared, 1.0 - epsilon);
+    if (normal_supports_variant) {
+      ll_germ_shared = LL_N(dN_safe, aN, f_shared_hat)
+	+ LL_T(dT_safe, aT, f_shared_hat);
+    }
 
-    double ll_germ_shared = LL_N(dN_safe, aN, f_shared_hat) + LL_T(dT_safe, aT, f_shared_hat);
+    // other model options (germline het, germline homozygous, germline artifact)
     double ll_germ_het    = LL_N(dN_safe, aN, f_het)        + LL_T(dT_safe, aT, f_het);
     double ll_germ_hom    = LL_N(dN_safe, aN, f_hom)        + LL_T(dT_safe, aT, f_hom);
     double ll_germ_art    = LL_art(dN_safe, aN, f_art)      + LL_art(dT_safe, aT, f_art);
@@ -188,126 +199,6 @@ static inline double SomaticLOD_withSplitErrors(double aN, double dN, double aT,
     return lod_somatic_vs_germ; // log10
 }
   
-//   /*  Somatic Log-Odds
-//    *
-//    *  epsilon : small floor on allele fraction to keep f in (0,1) and
-//    *            avoid log(0).  Typical 1e4 to 1e5.
-//    */
-// double SomaticLOD(double aN, double dN, double aT, double dT,
-//                   double e_fwd, double e_rev)
-// {
-//     const double epsilon = 1e-6;
-//     const double dN_safe = std::max(1.0, dN);
-//     const double dT_safe = std::max(1.0, dT);
-
-//     // MLE tumor AF under 'true somatic' component
-//     double fT_hat_raw = aT / dT_safe;
-//     double fT_hat     = std::clamp(fT_hat_raw, epsilon, 1.0 - epsilon);
-
-//     // --- Likelihood helpers (your signature: LogLikelihood(ref, alt, f, e_fwd, e_rev))
-//     auto LL = [&](double d, double a, double f) {
-//         return LogLikelihood(d - a, a, f, e_fwd, e_rev); // returns log10
-//     };
-
-//     // =========================
-//     // Artifact allele fraction
-//     // =========================
-//     // Tie artifact AF to your error scale; clamp to a plausible tiny band.
-//     const double base_err = std::max(e_fwd, e_rev);
-//     const double f_art = std::clamp(base_err, 1e-5, 1e-2);
-
-//     // =========================
-//     // SOMATIC (H1): max over
-//     //   (A) True somatic: N ~ 0, T ~ fT_hat
-//     //   (B) Artifact-in-tumor: N ~ f_art, T ~ f_art
-//     // =========================
-//     // (A) True somatic
-//     double llN_som_true = LL(dN_safe, aN, 0.0);      // normal ~ no variant
-//     double llT_som_true = LL(dT_safe, aT, fT_hat);   // tumor ~ fitted AF
-//     double ll_som_true  = llN_som_true + llT_som_true;
-
-//     // (B) Tumor artifact (and normal artifact)
-//     double llN_som_art  = LL(dN_safe, aN, f_art);
-//     double llT_som_art  = LL(dT_safe, aT, f_art);
-//     double ll_som_art   = llN_som_art + llT_som_art;
-    
-//     double ll_som = std::max(ll_som_true, ll_som_art);
-
-//     // =========================
-//     // GERMLINE (H0): max over
-//     //   (H) Heterozygous f=0.5
-//     //   (M) Hom-alt f=1.0
-//     //   (A) Shared artifact: N ~ f_art, T ~ f_art
-//     // =========================
-//     const double f_het = std::clamp(0.5, epsilon, 1.0 - epsilon);
-//     const double f_hom = std::clamp(1.0, epsilon, 1.0 - epsilon); // = 1 - eps
-
-//     // --- shared low-AF germline component (H0)
-//     // Single f shared by N and T; MLE is the pooled ALT fraction.
-//     double f_shared_hat_raw = (aN + aT) / (dN_safe + dT_safe);
-//     double f_shared_hat     = std::clamp(f_shared_hat_raw, epsilon, 1.0 - epsilon);
-
-//     double llN_shared = LL(dN_safe, aN, f_shared_hat); // log10
-//     double llT_shared = LL(dT_safe, aT, f_shared_hat);
-//     double ll_germ_shared = llN_shared + llT_shared;
- 
-//     // Heterozygous
-//     double llN_het = LL(dN_safe, aN, f_het);
-//     double llT_het = LL(dT_safe, aT, f_het);
-//     double ll_germ_het = llN_het + llT_het;
-
-//     // Hom-alt
-//     double llN_hom = LL(dN_safe, aN, f_hom);
-//     double llT_hom = LL(dT_safe, aT, f_hom);
-//     double ll_germ_hom = llN_hom + llT_hom;
-
-//     // Artifact
-//     double llN_art = LL(dN_safe, aN, f_art);
-//     double llT_art = LL(dT_safe, aT, f_art);
-//     double ll_germ_art = llN_art + llT_art;
-
-//     double ll_germ = std::max({ll_germ_het, ll_germ_hom, ll_germ_art, ll_germ_shared});
-
-//     double lod_somatic_vs_germ = ll_som - ll_germ;
-
-//     if (true) {
-//     // Which SOMATIC branch won?
-//     const bool som_true_better = (ll_som_true >= ll_som_art);
-//     const char* som_branch = som_true_better ? "SOM:true" : "SOM:art";
-
-//     // Which GERMLINE branch won?
-//     double ll_germ_best = ll_germ_het;
-//     const char* germ_branch = "GERM:het";
-//     if (ll_germ_hom    > ll_germ_best) { ll_germ_best = ll_germ_hom;    germ_branch = "GERM:hom"; }
-//     if (ll_germ_art    > ll_germ_best) { ll_germ_best = ll_germ_art;    germ_branch = "GERM:art"; }
-//     if (ll_germ_shared > ll_germ_best) { ll_germ_best = ll_germ_shared; germ_branch = "GERM:shared"; }
-
-//     std::cerr
-//         << "SomaticLOD"
-//         << " | aN=" << aN << " dN=" << dN
-//         << " aT=" << aT << " dT=" << dT
-//         << " e_fwd=" << e_fwd << " e_rev=" << e_rev
-//         << " eps=" << epsilon
-//         << " fT_hat_raw=" << fT_hat_raw << " fT_hat=" << fT_hat
-//         << " f_art=" << f_art
-//         << " f_shared_raw=" << f_shared_hat_raw << " f_shared=" << f_shared_hat
-
-//         << " || SOM_TRUE(N,T,sum)=(" << llN_som_true << "," << llT_som_true << "," << ll_som_true << ")"
-//         << " SOM_ART(N,T,sum)=("     << llN_som_art  << "," << llT_som_art  << "," << ll_som_art  << ")"
-//         << " SOM=" << ll_som << " [" << som_branch << "]"
-
-//         << " || GERM_HET(N,T,sum)=("    << llN_het    << "," << llT_het    << "," << ll_germ_het    << ")"
-//         << " GERM_HOM(N,T,sum)=("       << llN_hom    << "," << llT_hom    << "," << ll_germ_hom    << ")"
-//         << " GERM_ART(N,T,sum)=("       << llN_art    << "," << llT_art    << "," << ll_germ_art    << ")"
-//         << " GERM_SHARED(N,T,sum)=("    << llN_shared << "," << llT_shared << "," << ll_germ_shared << ")"
-//         << " GERM=" << ll_germ << " [" << germ_branch << "]"
-
-//         << " || LOD10=" << lod_somatic_vs_germ
-//         << std::endl;
-// }
-    
-//     return lod_somatic_vs_germ; // log10 scale
-// }
 
   int GenotypeQuality(const std::vector<int>& PLs) {
     int best = std::numeric_limits<int>::max();
