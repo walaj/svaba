@@ -79,8 +79,9 @@ class SvabaOptions {
   size_t mate_region_lookup_limit = 5'000;
 
   // dumping
-  bool dump_weird_reads      = false;
-  bool dump_corrected_reads  = false;
+  bool dump_weird_reads           = true;
+  bool dump_discordant_reads      = true;  
+  bool dump_corrected_reads       = true;
   
     // inputs
   std::vector<std::string> caseBams;

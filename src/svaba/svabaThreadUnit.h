@@ -58,7 +58,6 @@ public:
 
   // very verbose outpout
   svabaReadPtrVector                            all_weird_reads;
-  svabaReadPtrVector                            all_discordant_reads;
   BamRecordPtrVector                            all_corrected_reads;    
 
   // time and temp log dump until goes to file

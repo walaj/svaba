@@ -27,6 +27,7 @@ svabaThreadUnit::svabaThreadUnit(SvabaSharedConfig& sc_,
 
   // setup the weird read writers
   if (sc.opts.dump_weird_reads) {
+    
     // instantiate a new BAM writer
     std::string bamname =sc.opts.analysisId +
       ".thread" + std::to_string(threadId) + ".weird.bam";
@@ -57,6 +58,24 @@ svabaThreadUnit::svabaThreadUnit(SvabaSharedConfig& sc_,
     }
     it->second->WriteHeader();    
   }
+
+  // setup the discordant read writers
+  if (sc.opts.dump_discordant_reads) {
+    
+    // instantiate a new BAM writer
+    std::string bamname =sc.opts.analysisId +
+      ".thread" + std::to_string(threadId) + ".discordant.bam";
+    
+    auto [it, inserted] = writers.try_emplace("d", std::make_shared<SeqLib::BamWriter>(SeqLib::BAM));
+    it->second->SetHeader(sc.header);
+    if (!it->second->Open(bamname)) {
+      std::cerr << "ERROR: could not open discordant read writer for thread " <<
+	threadId << " at path " << bamname << "/n";
+      exit(EXIT_FAILURE);
+    }
+    it->second->WriteHeader();
+  }
+
   
 }
 
@@ -72,7 +91,6 @@ void svabaThreadUnit::clear() {
   //badd.clear();
 
   all_weird_reads.clear();
-  all_discordant_reads.clear();
   all_corrected_reads.clear();
   
   ss.str("");       // Clear the string content
@@ -102,7 +120,6 @@ void svabaThreadUnit::flush() {
 bool svabaThreadUnit::MemoryLimit(size_t readLimit, size_t contLimit) const {
   
   size_t stored_reads = all_weird_reads.size() +
-    all_discordant_reads.size() +
     all_corrected_reads.size();
 
   bool mem_exceeded = stored_reads > readLimit ||

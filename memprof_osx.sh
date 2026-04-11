@@ -17,17 +17,19 @@ while kill -0 "$PID" 2>/dev/null; do
   NOW=$(date +%s)
   ELAPSED=$(( NOW - START ))
   # macOS: footprint reports physical memory in bytes (matches Activity Monitor)
-  MEM_BYTES=$(footprint -p "$PID" 2>/dev/null \
-    | awk '/Physical footprint:/ {
-        val=$3; unit=$4;
-        if (unit ~ /^K/) val*=1024;
-        else if (unit ~ /^M/) val*=1024*1024;
-        else if (unit ~ /^G/) val*=1024*1024*1024;
-        print val; exit
+MEM_MB=$(footprint -p "$PID" 2>/dev/null \
+    | awk '/^[[:space:]]*phys_footprint:/ {
+        val=$2; unit=$3;
+        if (unit == "B")  val=val/1024/1024;
+        else if (unit == "KB") val=val/1024;
+        else if (unit == "GB") val=val*1024;
+        # MB stays as-is
+        printf "%d\n", val; exit
       }')
-  MEM_BYTES=${MEM_BYTES:-0}
+  MEM_MB=${MEM_MB:-0}
   # Convert to KB to match the original log format (R script divides by 1024/1024 for GB)
-  MEM=$(( MEM_BYTES / 1024 ))
+  MEM=$(( MEM_MB * 1024 ))  
+
   echo "$ELAPSED $MEM" >> "$OUT_LOG"
   if (( NOW - LAST_PLOT >= 30 )); then
     LAST_PLOT=$NOW

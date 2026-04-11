@@ -35,7 +35,7 @@ using std::unordered_map;
 using std::unordered_set;
 using std::string;
 
-
+//#define FERMI 1
 
 SvabaRegionProcessor::SvabaRegionProcessor(SvabaSharedConfig& sh_cf) : sc(sh_cf)
 { }
@@ -276,6 +276,7 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
   DiscordantClusterMap dmap = DiscordantCluster::clusterReads(all_discordant_reads, 
 							      region,
 							      sc.header);
+
 	 
   all_discordant_reads.clear();
   unit.st.dc_cluster_count = dmap.size();
@@ -364,7 +365,7 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
   UnalignedSequenceVector all_unaligned_contigs_this_region;
 #ifndef FERMI  
   {
-    
+    //    std::cerr << " SGA" << std::endl;
     svabaAssemblerEngine engine(ctg_prefix, sc.opts.sgaErrorRate,
 				sc.opts.sgaMinOverlap,
 				sc.readlen);
@@ -397,6 +398,7 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
   }
 #else
     {
+    std::cerr << "FERMI" << std::endl;      
       // build the reads structure
       size_t n_reads = 0;
       for (const auto& [_, walker] : unit.walkers) {
