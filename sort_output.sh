@@ -4,6 +4,13 @@ SAM=samtools
 ID=$1
 MEM=2G
 
+# If set to "1", run an extra module that splits the discordant/weird/corrected
+# BAMs into per-source BAMs, using the first 4 chars of each read name as the
+# source tag (e.g. a read named "t001_H1234..." gets routed into
+# ${ID}.${suffix}.t001.bam). Override at invocation with:
+#     SPLIT_BY_SOURCE=1 ./sort_output.sh ID
+SPLIT_BY_SOURCE="${SPLIT_BY_SOURCE:-0}"
+
 # Preprocessing: merge thread BAMs if necessary
 for suffix in weird corrected; do
   pattern="${ID}.thread*.${suffix}.bam"
@@ -41,3 +48,45 @@ for suffix in weird corrected contigs; do
 
   echo "  Done: $bam"
 done
+
+# Optional: split BAMs by read-name source prefix (first 4 chars of QNAME).
+# Enabled by setting SPLIT_BY_SOURCE=1 at the top of this script or on the
+# command line. Produces files like ${ID}.${suffix}.${prefix}.bam (e.g.
+# ${ID}.weird.t001.bam) for each distinct 4-char prefix found.
+if [[ "$SPLIT_BY_SOURCE" == "1" ]]; then
+  echo "SPLIT_BY_SOURCE=1: splitting BAMs by read-name source prefix"
+  for suffix in discordant weird corrected; do
+    bam="${ID}.${suffix}.bam"
+    if [[ ! -f "$bam" ]]; then
+      echo "  Skipping split: $bam not found."
+      continue
+    fi
+
+    echo "  Splitting $bam by first 4 chars of QNAME..."
+    tmpdir=$(mktemp -d)
+    header="${tmpdir}/header.sam"
+    ${SAM} view -H "$bam" > "$header"
+
+    # Single pass: route each record to a per-prefix body file.
+    ${SAM} view "$bam" | awk -v tmpdir="$tmpdir" '{
+      prefix = substr($1, 1, 4)
+      out = tmpdir "/body." prefix ".sam"
+      print >> out
+    }'
+
+    # Reassemble each per-prefix SAM into a sorted+indexed BAM.
+    shopt -s nullglob
+    for body in "${tmpdir}"/body.*.sam; do
+      base=$(basename "$body" .sam)
+      prefix="${base#body.}"
+      out="${ID}.${suffix}.${prefix}.bam"
+      echo "    Writing $out"
+      cat "$header" "$body" | ${SAM} view -bS - | \
+        ${SAM} sort -m ${MEM} -o "$out" - && \
+        ${SAM} index "$out"
+    done
+    shopt -u nullglob
+
+    rm -rf "$tmpdir"
+  done
+fi
