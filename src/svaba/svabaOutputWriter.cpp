@@ -80,7 +80,9 @@ void SvabaOutputWriter::writeUnit(svabaThreadUnit& unit,
 
       // switch out the qname so it indicates also which BAM it was from
       r->SetQname(r->UniqueName());
-      
+
+      r->RemoveTag("RG");
+      r->RemoveTag("PG");
       bool ok = it->second->WriteRecord(*r);
       if (!ok)
 	std::cerr << "...unable to write weird read record" << std::endl;
@@ -101,6 +103,8 @@ void SvabaOutputWriter::writeUnit(svabaThreadUnit& unit,
 	r->SetQname(r->UniqueName());
 
 	// write it
+	r->RemoveTag("RG");
+	r->RemoveTag("PG");
 	bool ok = it->second->WriteRecord(*r);
 	if (!ok)
 	  std::cerr << "...unable to write discordant read record" << std::endl;
@@ -119,6 +123,8 @@ void SvabaOutputWriter::writeUnit(svabaThreadUnit& unit,
     }
     
     for (const auto& r : unit.all_corrected_reads) {
+      r->RemoveTag("RG");
+      r->RemoveTag("PG");
       bool ok = it->second->WriteRecord(*r);
       if (!ok)
 	std::cerr << "...unable to write corrected read record" << std::endl;

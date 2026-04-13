@@ -55,7 +55,7 @@ set(SOURCES
 src/svaba/run_svaba.cpp
 src/svaba/svabaOutputWriter.cpp
 src/svaba/BreakPoint.cpp
-src/svaba/BreakPointSort.cpp
+#src/svaba/BreakPointSort.cpp
 src/svaba/AlignedContig.cpp
 src/svaba/AlignmentFragment.cpp
 src/svaba/DiscordantCluster.cpp

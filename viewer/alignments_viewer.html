@@ -1,0 +1,459 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>svaba alignments viewer</title>
+<style>
+  :root {
+    --bg: #0e1116;
+    --panel: #161b22;
+    --panel-2: #1c2230;
+    --fg: #e6edf3;
+    --muted: #8b949e;
+    --border: #30363d;
+    --accent: #58a6ff;
+    --warn: #f0883e;
+    --header-bg: #1f2a3a;
+    --variant-bg: #2d1b1b;
+    --contig-bg: #16321a;
+    --marker-bg: #2a1f3a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--fg);
+    font-family: ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif; height: 100%; }
+  body { display: flex; flex-direction: column; }
+
+  header.toolbar {
+    flex: 0 0 auto;
+    padding: 10px 14px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  }
+  header.toolbar h1 {
+    margin: 0; font-size: 14px; font-weight: 600; color: var(--accent);
+    letter-spacing: 0.02em;
+  }
+  header.toolbar .spacer { flex: 1; }
+  header.toolbar label.btn,
+  header.toolbar button {
+    background: var(--panel-2); color: var(--fg);
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 6px 10px; font-size: 12px; cursor: pointer;
+    font-family: inherit;
+  }
+  header.toolbar button:hover, header.toolbar label.btn:hover { border-color: var(--accent); }
+  header.toolbar input[type="file"] { display: none; }
+  header.toolbar input[type="search"] {
+    background: var(--panel-2); color: var(--fg);
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 6px 8px; font-size: 12px; min-width: 220px;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+  }
+  header.toolbar .opt {
+    display: inline-flex; align-items: center; gap: 6px;
+    color: var(--muted); font-size: 12px;
+  }
+  header.toolbar .opt input[type="number"] {
+    width: 56px; background: var(--panel-2); color: var(--fg);
+    border: 1px solid var(--border); border-radius: 4px;
+    padding: 2px 4px; font-size: 12px;
+  }
+  header.toolbar .opt input[type="range"] { width: 110px; }
+
+  .legend {
+    flex: 0 0 auto;
+    padding: 6px 14px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+    font-size: 12px; color: var(--muted);
+  }
+  .legend .swatch {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 2px 6px; border-radius: 4px;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    color: #fff;
+  }
+
+  .stage {
+    flex: 1 1 auto;
+    overflow: auto;        /* horizontal AND vertical scroll, no wrap */
+    background: var(--bg);
+  }
+  .empty {
+    height: 100%;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  pre.alignments {
+    margin: 0;
+    padding: 8px 14px;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 13px;
+    line-height: 1.25;
+    white-space: pre;          /* hard requirement: no soft wrap */
+    color: var(--fg);
+    width: max-content;        /* let lines drive horizontal width */
+    min-width: 100%;
+  }
+  pre.alignments .row {
+    display: block;
+    padding: 0 6px;
+    border-radius: 2px;
+  }
+  pre.alignments .row.hl {
+    outline: 1px solid var(--accent);
+  }
+  pre.alignments .row.hidden { display: none; }
+
+  /* Row classes */
+  .row.r-indel    { background: var(--variant-bg); color: #ffb4a8; font-weight: 600; }
+  .row.r-cigar    { background: var(--header-bg); color: #c9d1d9; }
+  .row.r-marker   { background: var(--marker-bg); color: #d2a8ff; }
+  .row.r-contig   { background: var(--contig-bg); color: #9eea9e; font-weight: 600; }
+  .row.r-other    { color: var(--muted); }
+
+  /* highlight matched search text */
+  .row .match { background: var(--accent); color: #000; }
+</style>
+</head>
+<body>
+
+<header class="toolbar">
+  <h1>svaba alignments viewer</h1>
+
+  <label class="btn" for="fileInput">Open file…</label>
+  <input id="fileInput" type="file" accept=".txt,.gz,.alignments,.tsv,*">
+
+  <button id="pasteBtn">Paste…</button>
+  <button id="clearBtn">Clear</button>
+
+  <span class="opt">
+    font
+    <input id="fontSize" type="range" min="9" max="20" value="13" step="1">
+    <span id="fontSizeVal">13px</span>
+  </span>
+
+  <span class="opt">
+    line-height
+    <input id="lineHeight" type="range" min="1" max="2" value="1.25" step="0.05">
+  </span>
+
+  <span class="opt"><input id="readsOnly" type="checkbox"> reads only</span>
+
+  <div class="spacer"></div>
+
+  <input id="search" type="search" placeholder="filter rows (substring or /regex/)">
+  <span id="stats" style="color: var(--muted); font-size: 12px;"></span>
+</header>
+
+<div id="legend" class="legend"></div>
+
+<div id="stage" class="stage">
+  <div class="empty" id="empty">
+    Open or paste a pre-grep'd alignments block.<br>
+    Each contig section starts with one or more <code>Indel:</code> lines, followed by the contig CIGAR/sequence and the per-read alignments.
+  </div>
+</div>
+
+<script>
+"use strict";
+
+const $ = (id) => document.getElementById(id);
+const stage = $("stage");
+const empty = $("empty");
+const legendEl = $("legend");
+const statsEl = $("stats");
+
+// ---- color palette for source-BAM prefixes (t001, n001, etc.) -------------
+// Picked for legibility on dark bg. Cycles if more than N prefixes.
+const PALETTE = [
+  "#1f6feb", // t-blue
+  "#a371f7", // n-purple
+  "#3fb950", // green
+  "#f0883e", // orange
+  "#db61a2", // pink
+  "#56d4dd", // cyan
+  "#d29922", // amber
+  "#ff7b72", // red
+  "#7ee787", // mint
+  "#79c0ff", // sky
+  "#bc8cff", // lavender
+  "#ffa657", // peach
+];
+
+// Stable assignment of color to prefix
+const prefixColor = new Map();
+let prefixCounter = 0;
+function colorFor(prefix) {
+  if (!prefix) return null;
+  if (!prefixColor.has(prefix)) {
+    prefixColor.set(prefix, PALETTE[prefixCounter % PALETTE.length]);
+    prefixCounter++;
+  }
+  return prefixColor.get(prefix);
+}
+
+// ---- line classification --------------------------------------------------
+//
+// The svaba alignments dump has these line shapes (per contig section):
+//
+//   Indel: >DEL: 7 chr12:...  c_chr...  n001:2 t001:15 -- c_chr...
+//                                          ^^ variant header(s) at the top
+//
+//   >>>>>>>>>>>>>>>IIIIIII>>>>>>>>>>>>>>>>>\t<contig coords>\tAligned to: ...
+//                                          ^^ contig CIGAR-encoded line
+//
+//                          ||   c_chr...
+//                                          ^^ marker line ('|' chars over breakpoint)
+//
+//   ATATACCATG...AAACGAAAGACTATT    c_chr...
+//                                          ^^ contig consensus sequence
+//
+//   <leading spaces><sequence>    t001_83_t001_83_LH00306:...  r2c CIGAR: 150M, c_chr...
+//                                          ^^ a single read alignment row
+//
+// We try to read the source-BAM prefix from the QNAME on read rows. svaba
+// names them "t001_..." / "n001_..." / etc. We accept any 4-char prefix made
+// of [a-z][0-9]{3} and treat it as the routing key.
+
+const RE_INDEL    = /^Indel:\s/;
+const RE_CIGAR    = /^[>I<]{8,}\s/;            // contig CIGAR-encoded ASCII
+const RE_MARKER   = /^\s*\|+\s+\S/;            // pipes over the breakpoint
+const RE_CONTIG   = /^[ACGTN-]{20,}\s+c_/;     // pure-base sequence ending with contig name
+const RE_PREFIX   = /\b([a-z]\d{3})_/;         // first occurrence of e.g. t001_, n001_
+
+function classify(line) {
+  if (line.length === 0)            return { kind: "blank" };
+  if (RE_INDEL.test(line))          return { kind: "indel" };
+  if (RE_CIGAR.test(line))          return { kind: "cigar" };
+  if (RE_MARKER.test(line))         return { kind: "marker" };
+  if (RE_CONTIG.test(line))         return { kind: "contig" };
+  // anything else: probably a per-read alignment row
+  const m = line.match(RE_PREFIX);
+  return { kind: "read", prefix: m ? m[1] : null };
+}
+
+// ---- rendering ------------------------------------------------------------
+
+let currentText = "";   // raw text we're currently displaying
+let currentRows = [];   // [{el, kind, prefix, text}]
+
+function escapeHtml(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function render(text) {
+  currentText = text;
+  currentRows = [];
+  prefixColor.clear();
+  prefixCounter = 0;
+
+  if (!text.trim()) {
+    empty.style.display = "";
+    stage.querySelectorAll("pre.alignments").forEach(n => n.remove());
+    legendEl.innerHTML = "";
+    statsEl.textContent = "";
+    return;
+  }
+  empty.style.display = "none";
+
+  // Pre-pass: assign colors so legend reflects file order
+  const lines = text.split(/\r?\n/);
+  // strip trailing blank lines so the rendered block doesn't have a tail
+  while (lines.length && lines[lines.length - 1] === "") lines.pop();
+  for (const ln of lines) {
+    const c = classify(ln);
+    if (c.kind === "read" && c.prefix) colorFor(c.prefix);
+  }
+
+  // Build DOM
+  const pre = document.createElement("pre");
+  pre.className = "alignments";
+
+  let nReads = 0;
+  const perPrefix = new Map();
+
+  for (const ln of lines) {
+    const c = classify(ln);
+    const span = document.createElement("span");
+    span.className = "row r-" + (c.kind === "read" ? "other" : c.kind);
+    if (c.kind === "read" && c.prefix) {
+      const col = colorFor(c.prefix);
+      span.style.background = col + "33";    // ~20% alpha
+      span.style.borderLeft = "3px solid " + col;
+      span.style.paddingLeft = "3px";
+      span.dataset.prefix = c.prefix;
+      nReads++;
+      perPrefix.set(c.prefix, (perPrefix.get(c.prefix) || 0) + 1);
+    } else if (c.kind === "read") {
+      // unknown-source read row (no prefix matched)
+      span.style.borderLeft = "3px solid #555";
+      span.style.paddingLeft = "3px";
+      nReads++;
+    }
+    span.dataset.kind = c.kind;
+    span.textContent = ln === "" ? " " : ln; // keep blank rows visible
+    span.appendChild(document.createTextNode("\n"));
+    pre.appendChild(span);
+    currentRows.push({ el: span, kind: c.kind, prefix: c.prefix || null, text: ln });
+  }
+
+  // Replace old pre
+  stage.querySelectorAll("pre.alignments").forEach(n => n.remove());
+  stage.appendChild(pre);
+
+  renderLegend(perPrefix);
+  statsEl.textContent =
+    `${lines.length} rows · ${nReads} reads · ${perPrefix.size} sources`;
+
+  applyFilters();
+}
+
+function renderLegend(perPrefix) {
+  legendEl.innerHTML = "";
+  if (perPrefix.size === 0) {
+    legendEl.style.display = "none";
+    return;
+  }
+  legendEl.style.display = "";
+
+  const label = document.createElement("span");
+  label.textContent = "source BAM:";
+  legendEl.appendChild(label);
+
+  // Sort prefixes alphabetically for stable display
+  const prefixes = [...perPrefix.keys()].sort();
+  for (const p of prefixes) {
+    const sw = document.createElement("span");
+    sw.className = "swatch";
+    sw.style.background = colorFor(p);
+    sw.textContent = `${p} · ${perPrefix.get(p)}`;
+    sw.title = `Click to toggle ${p}`;
+    sw.style.cursor = "pointer";
+    sw.dataset.prefix = p;
+    sw.dataset.on = "1";
+    sw.addEventListener("click", () => {
+      const on = sw.dataset.on === "1";
+      sw.dataset.on = on ? "0" : "1";
+      sw.style.opacity = on ? "0.35" : "1";
+      applyFilters();
+    });
+    legendEl.appendChild(sw);
+  }
+}
+
+// ---- filtering / search ---------------------------------------------------
+
+function applyFilters() {
+  const q = $("search").value;
+  const readsOnly = $("readsOnly").checked;
+
+  // Determine which prefixes are toggled off
+  const off = new Set();
+  legendEl.querySelectorAll(".swatch").forEach(sw => {
+    if (sw.dataset.on === "0") off.add(sw.dataset.prefix);
+  });
+
+  let matcher = null;
+  if (q) {
+    if (q.length > 2 && q.startsWith("/") && q.endsWith("/")) {
+      try { matcher = new RegExp(q.slice(1, -1)); }
+      catch { matcher = null; }
+    }
+    if (!matcher) {
+      const lower = q.toLowerCase();
+      matcher = { test: (s) => s.toLowerCase().includes(lower) };
+    }
+  }
+
+  let shown = 0;
+  for (const r of currentRows) {
+    let visible = true;
+    if (readsOnly && r.kind !== "read") visible = false;
+    if (visible && r.prefix && off.has(r.prefix)) visible = false;
+    if (visible && matcher && !matcher.test(r.text)) visible = false;
+    r.el.classList.toggle("hidden", !visible);
+    if (visible) shown++;
+  }
+  if (q || readsOnly || off.size) {
+    statsEl.textContent =
+      `${shown}/${currentRows.length} rows shown` +
+      (off.size ? ` · ${off.size} source(s) hidden` : "");
+  } else {
+    statsEl.textContent = `${currentRows.length} rows`;
+  }
+}
+
+// ---- input handlers -------------------------------------------------------
+
+$("fileInput").addEventListener("change", async (ev) => {
+  const f = ev.target.files && ev.target.files[0];
+  if (!f) return;
+
+  // Support .gz transparently if the browser has DecompressionStream
+  let text;
+  if (f.name.endsWith(".gz") && typeof DecompressionStream !== "undefined") {
+    try {
+      const ds = new DecompressionStream("gzip");
+      const stream = f.stream().pipeThrough(ds);
+      text = await new Response(stream).text();
+    } catch (e) {
+      alert("Could not gunzip in-browser: " + e.message +
+            "\nPlease decompress first.");
+      return;
+    }
+  } else {
+    text = await f.text();
+  }
+  render(text);
+});
+
+$("pasteBtn").addEventListener("click", async () => {
+  // Try the clipboard first; fall back to a prompt
+  try {
+    if (navigator.clipboard && navigator.clipboard.readText) {
+      const t = await navigator.clipboard.readText();
+      if (t) { render(t); return; }
+    }
+  } catch (_) { /* fall through */ }
+
+  const t = window.prompt("Paste alignment block:");
+  if (t) render(t);
+});
+
+$("clearBtn").addEventListener("click", () => render(""));
+
+$("search").addEventListener("input", applyFilters);
+$("readsOnly").addEventListener("change", applyFilters);
+
+$("fontSize").addEventListener("input", (e) => {
+  const px = e.target.value + "px";
+  $("fontSizeVal").textContent = px;
+  document.querySelectorAll("pre.alignments").forEach(p => p.style.fontSize = px);
+});
+$("lineHeight").addEventListener("input", (e) => {
+  document.querySelectorAll("pre.alignments").forEach(p => p.style.lineHeight = e.target.value);
+});
+
+// ---- drag-and-drop --------------------------------------------------------
+window.addEventListener("dragover", (e) => { e.preventDefault(); });
+window.addEventListener("drop", async (e) => {
+  e.preventDefault();
+  const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+  if (!f) return;
+  let text;
+  if (f.name.endsWith(".gz") && typeof DecompressionStream !== "undefined") {
+    const ds = new DecompressionStream("gzip");
+    text = await new Response(f.stream().pipeThrough(ds)).text();
+  } else {
+    text = await f.text();
+  }
+  render(text);
+});
+</script>
+
+</body>
+</html>
