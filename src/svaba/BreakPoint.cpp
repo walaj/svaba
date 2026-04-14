@@ -13,16 +13,16 @@
 #include <cctype>
 
 #include "gzstream.h"
-#include "svabaUtils.h"
+#include "SvabaUtils.h"
 #include "STCoverage.h"
-#include "svabaOptions.h"
+#include "SvabaOptions.h"
 
 #include "SeqLib/GenomicRegionCollection.h"
 #include "SeqLib/GenomicRegion.h"
 #include "SeqLib/BamHeader.h"
 #include "AlignmentFragment.h"
 #include "AlignedContig.h"
-#include "svabaModels.h"
+#include "SvabaModels.h"
 #include "ContigAlignmentScore.h"
 
 // n is the max integer given the int size (e.g. 255). x is string with int

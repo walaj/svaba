@@ -35,7 +35,7 @@
 #include "SeqLib/GenomicRegionCollection.h"
 
 #include "BreakPoint.h"
-#include "svabaOptions.h"
+#include "SvabaOptions.h"
 
 // ---------------------------------------------------------------------------
 // File-local constants and helpers.

@@ -6,7 +6,7 @@
 #include <unordered_set>
 
 #include "SeqLib/BamWalker.h"
-#include "svabaUtils.h"
+#include "SvabaUtils.h"
 
 #define DISC_PAD 150
 #define MIN_PER_CLUST 2

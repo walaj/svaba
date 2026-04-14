@@ -12,7 +12,7 @@
 // svaba.cpp
 #include <iostream>
 #include <string_view>
-#include "svabaOptions.h"
+#include "SvabaOptions.h"
 
 //void runToVCF(int argc, char** argv);
 void runsvaba(int argc, char** argv);

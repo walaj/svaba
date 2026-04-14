@@ -4,11 +4,11 @@
 #include <map>
 #include <string>
 #include <fstream>
-#include "svabaThreadUnit.h"
+#include "SvabaThreadUnit.h"
 #include "SeqLib/BamWriter.h"
 #include "gzstream.h"
-#include "svabaLogger.h"
-#include "svabaOptions.h"
+#include "SvabaLogger.h"
+#include "SvabaOptions.h"
 
 
 using std::ofstream;

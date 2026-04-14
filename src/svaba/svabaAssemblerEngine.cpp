@@ -1,15 +1,15 @@
-#include "svabaAssemblerEngine.h"
-#include "svabaUtils.h"
+#include "SvabaAssemblerEngine.h"
+#include "SvabaUtils.h"
 
 #include <map>
 #include <algorithm>
 
 #include "SGACommon.h"
 
-#include "svabaASQG.h"
-#include "svabaAssemble.h"
-#include "svabaOverlapAlgorithm.h"
-#include "svabaOptions.h"
+#include "SvabaASQG.h"
+#include "SvabaAssemble.h"
+#include "SvabaOverlapAlgorithm.h"
+#include "SvabaOptions.h"
 
 #include "OverlapCommon.h"
 #include "CorrectionThresholds.h"

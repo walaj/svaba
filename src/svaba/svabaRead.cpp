@@ -1,4 +1,4 @@
-#include "svabaRead.h"
+#include "SvabaRead.h"
 
 svabaRead::svabaRead() = default;
 

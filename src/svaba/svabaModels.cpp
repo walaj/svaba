@@ -1,4 +1,4 @@
-#include "svabaModels.h"
+#include "SvabaModels.h"
 
 #include <iostream>
 #include <cmath>

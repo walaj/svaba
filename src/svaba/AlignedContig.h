@@ -10,7 +10,7 @@
 #include "BreakPoint.h"
 #include "DiscordantCluster.h"
 #include "AlignmentFragment.h"
-#include "svabaRead.h"
+#include "SvabaRead.h"
 
 /*! Contains the mapping of an aligned contig to the reference genome,
  * along with pointer to all of the reads aligned to this contig, and a 

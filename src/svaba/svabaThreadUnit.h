@@ -6,13 +6,13 @@
 #include <vector>
 #include <mutex>
 
-#include "svabaBamWalker.h"
-#include "svabaLogger.h"
-#include "svabaOptions.h"
+#include "SvabaBamWalker.h"
+#include "SvabaLogger.h"
+#include "SvabaOptions.h"
 #include "AlignedContig.h"
 #include "DiscordantCluster.h"
 #include "BreakPoint.h"
-#include "svabaUtils.h"
+#include "SvabaUtils.h"
 
 #include "SeqLib/RefGenome.h"
 #include "SvabaSharedConfig.h"

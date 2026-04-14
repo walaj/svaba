@@ -5,8 +5,8 @@
 #include <sstream>  // For std::ostringstream
 #include <chrono>
 
-#include "svabaUtils.h"
-#include "svabaOutputWriter.h"
+#include "SvabaUtils.h"
+#include "SvabaOutputWriter.h"
 #include "ContigAlignmentScore.h"
 
 #include "SeqLib/BWAAligner.h"
@@ -15,8 +15,8 @@
 #include "SeqLib/BFC.h"
 #include "SeqLib/BamRecord.h"
 
-#include "svabaRead.h"
-#include "svabaAssemblerEngine.h"
+#include "SvabaRead.h"
+#include "SvabaAssemblerEngine.h"
 
 using SeqLib::GenomicRegion;
 using SeqLib::GRC;
@@ -36,7 +36,7 @@ using std::unordered_map;
 using std::unordered_set;
 using std::string;
 
-#define FERMI 1
+#include "SvabaAssemblerConfig.h"
 
 SvabaRegionProcessor::SvabaRegionProcessor(SvabaSharedConfig& sh_cf) : sc(sh_cf)
 { }
@@ -354,8 +354,12 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
 		region); 
   
   // set the contig prefix
-  string ctg_prefix = "c_" +
-    region.ChrName(sc.header) + "_" + 
+  // Include the active assembler tag (fermi / sga) so that contig names
+  // carry a record of which engine produced them, e.g.
+  //   c_fermi_chr12_18000000_20000000_0
+  //   c_sga_chr12_18000000_20000000_0
+  string ctg_prefix = string("c_") + svaba::kAssemblerTag + "_" +
+    region.ChrName(sc.header) + "_" +
     std::to_string(region.pos1) + "_" +
     std::to_string(region.pos2);
   

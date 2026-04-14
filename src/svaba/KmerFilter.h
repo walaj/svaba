@@ -7,7 +7,7 @@
 
 #include "CorrectionThresholds.h"
 #include "OverlapCommon.h"
-#include "svabaRead.h"
+#include "SvabaRead.h"
 
 typedef std::map<std::string, int> KmerCountMap;
 

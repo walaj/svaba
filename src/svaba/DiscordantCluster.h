@@ -6,7 +6,7 @@
 #include <iostream>
 #include <unordered_map>
 
-#include "svabaRead.h"
+#include "SvabaRead.h"
 #include "SvabaSharedConfig.h"
 
 class DiscordantCluster;

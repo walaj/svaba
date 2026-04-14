@@ -1,9 +1,9 @@
-#include "svabaBamWalker.h"
-#include "svabaRead.h"
+#include "SvabaBamWalker.h"
+#include "SvabaRead.h"
 #include "SvabaSharedConfig.h"
-#include "svabaOptions.h"
-#include "svabaLogger.h"
-#include "svabaThreadUnit.h"
+#include "SvabaOptions.h"
+#include "SvabaLogger.h"
+#include "SvabaThreadUnit.h"
 #include <string_view>
 
 #define QNAME "LH00306:129:227V5CLT4:6:1268:41599:27601" 

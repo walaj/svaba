@@ -5,7 +5,7 @@
 //-----------------------------------------------
 
 // This has been modified (slightly) for svaba
-#include "svabaOverlapAlgorithm.h"
+#include "SvabaOverlapAlgorithm.h"
 #include "ASQG.h"
 #include <math.h>
 

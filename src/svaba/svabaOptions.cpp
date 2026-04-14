@@ -1,4 +1,4 @@
-#include "svabaOptions.h"
+#include "SvabaOptions.h"
 
 #include <sstream>           // for std::ostringstream
 #include <iomanip>           // for std::setw and std::setfill
@@ -6,7 +6,7 @@
 #include <iostream>
 #include <stdexcept>
 
-#include "svabaLogger.h"
+#include "SvabaLogger.h"
 
 void SvabaOptions::printUsage() {
   std::cout << R"(

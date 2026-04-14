@@ -21,16 +21,17 @@
 #include "SeqLib/ReadFilter.h"
 
 #include "SvabaRegionProcessor.h"
-#include "svabaLogger.h"
+#include "SvabaLogger.h"
 #include "KmerFilter.h"
 #include "vcf.h"
 #include "DBSnpFilter.h"
-#include "svabaUtils.h"
+#include "SvabaUtils.h"
 #include "SeqLib/BFC.h"
 
-#include "svabaFileLoader.h"
-#include "svabaOutputWriter.h"
-#include "svabaAssemblerEngine.h"
+#include "SvabaFileLoader.h"
+#include "SvabaOutputWriter.h"
+#include "SvabaAssemblerEngine.h"
+#include "SvabaAssemblerConfig.h"
 
 using SeqLib::BWAIndex;
 using SeqLib::BWAAligner;
@@ -195,8 +196,16 @@ void runsvaba(int argc, char** argv) {
   sc.header = bwa_header;
   
   // start the timer
-  std::cerr << " STARTING THE CLOCK!" << std::endl;
   clock_gettime(CLOCK_MONOTONIC, &sc.start);
+
+  // report which local-assembly engine was compiled in
+  std::cerr << "...local-assembly engine: " << svaba::kAssemblerName
+#if SVABA_ASSEMBLER_FERMI
+            << " (FERMI assembly enabled)"
+#else
+            << " (SGA assembly enabled)"
+#endif
+            << std::endl;
 
   // check that the two headers are equivalant
   // open the main bam to get header info

@@ -10,9 +10,9 @@
 #include <atomic>
 
 #include "SvabaSharedConfig.h"
-#include "svabaOutputWriter.h"
-#include "svabaOptions.h"
-#include "svabaThreadUnit.h"
+#include "SvabaOutputWriter.h"
+#include "SvabaOptions.h"
+#include "SvabaThreadUnit.h"
 
 // A simple thread safe queue for unique_ptr jobs
 template<typename Job>

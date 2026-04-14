@@ -7,7 +7,7 @@
 #include "ReadTable.h"
 #include "SeqLib/BamRecord.h"
 #include "SeqLib/UnalignedSequence.h"
-#include "svabaRead.h"
+#include "SvabaRead.h"
 
 class svabaAssemblerEngine
 {

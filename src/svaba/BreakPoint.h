@@ -8,7 +8,7 @@
 
 #include "DiscordantCluster.h"
 #include "SeqLib/BamRecord.h"
-#include "svabaRead.h"
+#include "SvabaRead.h"
 
 using CigarMapMap = std::unordered_map<std::string, SeqLib::CigarMap>;
 

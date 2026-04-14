@@ -1,6 +1,6 @@
 #include "AlignedContig.h"
 #include "PlottedRead.h"
-#include "svabaUtils.h"
+#include "SvabaUtils.h"
 
 // bav is all of the alignments of the contig to the reference
 AlignedContig::AlignedContig(BamRecordPtrVector& bav,

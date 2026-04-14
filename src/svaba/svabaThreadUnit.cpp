@@ -1,5 +1,5 @@
-#include "svabaThreadUnit.h"
-#include "svabaOutputWriter.h"
+#include "SvabaThreadUnit.h"
+#include "SvabaOutputWriter.h"
 
 #if defined(__GLIBC__)
   #include <malloc.h>

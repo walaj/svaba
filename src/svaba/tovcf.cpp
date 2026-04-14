@@ -7,7 +7,7 @@
 
 #include "vcf.h"
 #include "BreakPoint.h"
-#include "svabaUtils.h"
+#include "SvabaUtils.h"
 
 void parseToVCFOptions(int argc, char** argv);
 

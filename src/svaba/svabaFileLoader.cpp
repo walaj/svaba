@@ -3,11 +3,11 @@
 #include <memory>                           // for std::unique_ptr
 #include <string>                           // for std::string
 #include <vector>                           // if you use any std::vector in this file
-#include "svabaFileLoader.h"                // your own header
+#include "SvabaFileLoader.h"                // your own header
 
 #include "SvabaSharedConfig.h"
-#include "svabaLogger.h"
-#include "svabaOptions.h"
+#include "SvabaLogger.h"
+#include "SvabaOptions.h"
 #include "SeqLib/RefGenome.h"               // defines SeqLib::RefGenome
 #include "SeqLib/GenomicRegionCollection.h" // defines SeqLib::GRC
 #include "SeqLib/BamHeader.h"               // if you use SeqLib::BamHeader anywhere
@@ -40,7 +40,7 @@ void SvabaFileLoader::loadBedRegions(const std::string& path,
     gr  = SeqLib::GRC(path, sc.header);
     gr.CreateTreeMap();    
     sc.logger.log(true, true,
-             "Loaded BED file '", path, "' (", gr.size(), " regions)");
+             "...loaded BED file '", path, "' (", gr.size(), " regions)");
   } catch (const std::exception& e) {
     sc.logger.log(true, true,
              "ERROR: cannot read BED file '", path, "': ", e.what());

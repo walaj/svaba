@@ -1,8 +1,8 @@
 // svabaOutputWriter.cpp
 
-#include "svabaOutputWriter.h"
-#include "svabaThreadUnit.h"
-#include "svabaUtils.h"
+#include "SvabaOutputWriter.h"
+#include "SvabaThreadUnit.h"
+#include "SvabaUtils.h"
 #include "BreakPoint.h"
 #include "DiscordantCluster.h"
 #include "SvabaSharedConfig.h"

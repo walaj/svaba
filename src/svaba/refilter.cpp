@@ -10,7 +10,7 @@
 
 #include "vcf.h"
 #include "BreakPoint.h"
-#include "svabaUtils.h"
+#include "SvabaUtils.h"
 
 
 static DBSnpFilter * dbsnp_filter;

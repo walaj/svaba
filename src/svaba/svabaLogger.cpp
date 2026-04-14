@@ -1,5 +1,5 @@
-#include "svabaLogger.h"
-#include "svabaOptions.h"
+#include "SvabaLogger.h"
+#include "SvabaOptions.h"
 
 SvabaLogger::~SvabaLogger() {
   if (logFile_.is_open()) logFile_.close();

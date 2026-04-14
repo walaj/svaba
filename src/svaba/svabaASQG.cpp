@@ -7,7 +7,7 @@
 // ASQG - Definitions and functions
 // for handling ASGQ files
 //
-#include "svabaASQG.h"
+#include "SvabaASQG.h"
 #include <iterator>
 
 namespace svabaASQG

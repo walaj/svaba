@@ -4,8 +4,8 @@
 #include "SeqLib/BamRecord.h"
 #include "SeqLib/BamReader.h"
 #include "SvabaSharedConfig.h"
-#include "svabaOptions.h"
-#include "svabaLogger.h"
+#include "SvabaOptions.h"
+#include "SvabaLogger.h"
 
 #include <stdexcept>
 #include <sstream>

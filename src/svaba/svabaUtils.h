@@ -7,7 +7,7 @@
 #include <chrono>
 #include <tuple>
 
-#include "svabaLogger.h"
+#include "SvabaLogger.h"
 
 #include "SeqLib/BamReader.h"
 #include "SeqLib/BamWriter.h"

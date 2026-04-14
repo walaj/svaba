@@ -1,7 +1,7 @@
 #include "DBSnpFilter.h"
 #include "gzstream.h"
 
-#include "svabaLogger.h"
+#include "SvabaLogger.h"
 #include "BreakPoint.h"
 
 #include "SeqLib/BamHeader.h"

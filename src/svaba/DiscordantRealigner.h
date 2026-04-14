@@ -3,7 +3,7 @@
 namespace SeqLib {
   class BWAAligner;
 }
-#include "svabaRead.h"
+#include "SvabaRead.h"
 
 // object that holds functions for re-aligning a discordant read
 // and checking if it is a true discordant read

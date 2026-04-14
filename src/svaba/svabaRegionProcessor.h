@@ -1,8 +1,8 @@
 #pragma once
 
 #include <cstddef>                            // for size_t
-#include "svabaThreadUnit.h"                  // for svabaThreadUnit
-#include "svabaUtils.h"
+#include "SvabaThreadUnit.h"                  // for svabaThreadUnit
+#include "SvabaUtils.h"
 
 class SvabaLogger;
 class SvabaOptions;

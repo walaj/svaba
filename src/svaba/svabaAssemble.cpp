@@ -10,7 +10,7 @@
 #include <iostream>
 #include <fstream>
 #include "Util.h"
-#include "svabaAssemble.h"
+#include "SvabaAssemble.h"
 #include "SGUtil.h"
 #include "SGAlgorithms.h"
 #include "SGVisitors.h"

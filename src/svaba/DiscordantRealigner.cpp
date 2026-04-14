@@ -1,5 +1,5 @@
 #include "DiscordantRealigner.h"
-#include "svabaUtils.h"
+#include "SvabaUtils.h"
 #include "SeqLib/BWAAligner.h"
 
 #ifdef QNAME
