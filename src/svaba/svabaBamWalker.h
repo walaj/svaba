@@ -113,6 +113,7 @@ class svabaBamWalker: public SeqLib::BamReader {
 
   // should we keep reads for learning correction 
   double kmer_subsample = 0.5;
+  
   // should we subsample the learning reads?
   bool do_kmer_filtering = true;
 

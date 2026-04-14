@@ -23,6 +23,7 @@
 #include "AlignmentFragment.h"
 #include "AlignedContig.h"
 #include "svabaModels.h"
+#include "ContigAlignmentScore.h"
 
 // n is the max integer given the int size (e.g. 255). x is string with int
 #define INTNSTOI(x,n) std::min((int)n, std::stoi(x));
@@ -245,7 +246,9 @@ std::string BreakPoint::toFileString(const BamHeader& header) const {
      << max_lod << sep 
     //<< pon << sep
     // << (repeat_seq.length() ? repeat_seq : "x") << sep 
-     << (rs.length() ? rs : "x");
+     << (rs.length() ? rs : "x") << sep
+     << b1.contig_conf << sep
+     << b2.contig_conf;;
   
   for (const auto& [_,al] : allele)
     ss << sep << al.toFileString(svtype);
@@ -558,6 +561,13 @@ void BreakEnd::transferContigAlignmentData(const AlignmentFragment* f,
   r->GetIntTag("AS", as);
   assert(as >= 0);
 
+  // SvABA2.0: pull the contig-alignment confidence tag. If `zc` wasn't
+  // written recompute
+  // from the record directly so behavior is consistent either way.
+  double cc = svaba::readContigConfTag(*r);
+  if (cc < 0.0) cc = svaba::scoreContigAlignment(*r).confidence;
+  contig_conf = cc;  
+  
   // transfer mapq and match length
   mapq     = r->MapQuality();
   matchlen = r->NumMatchBases();
@@ -908,6 +918,7 @@ void BreakPoint::score_assembly_only() {
   float sub_frac1 = static_cast<float>(b1.sub) / static_cast<float>(b1.matchlen);  
   float as_frac2  = static_cast<float>(b2.as)  / static_cast<float>(b2.matchlen);
   float sub_frac2 = static_cast<float>(b2.sub) / static_cast<float>(b2.matchlen);  
+  const double min_cc = std::min(b1.contig_conf, b2.contig_conf);
     
   if (local == LocalAlignment::FROM_DISTANT_REGION && svtype != SVType::TSI_LOCAL)  // added this back in v71
     // issue is that if a read is secondary aligned, it could be 
@@ -965,6 +976,8 @@ void BreakPoint::score_assembly_only() {
   //   confidence = "SIMPLESEQUENCE";
   else if ((int)homology.length() * HOMOLOGY_FACTOR > sc->readlen) // if homology is too high, tough to tell from mis-assemly
     confidence = "HIGHHOMOLOGY";
+  else if (min_cc < svaba::kContigConfPassThreshold) 
+    confidence = "WEAKCONTIG";
   else
     confidence = "PASS";
   
@@ -1103,6 +1116,9 @@ void BreakPoint::score_assembly_dscrd() {
   
   int max_a_mapq = std::max(this_mapq1, dc.mapq1);
   int max_b_mapq = std::max(this_mapq2, dc.mapq2);
+
+  const double min_cc = std::min(b1.contig_conf, b2.contig_conf);
+  
   
   // how much of contig is covered by split reads
   int cov_span = split_cov_bounds.second - split_cov_bounds.first ;
@@ -1147,7 +1163,9 @@ void BreakPoint::score_assembly_dscrd() {
     else 
     confidence = "PASS";
     }*/
-  else
+  else if (confidence == "PASS" && min_cc < svaba::kContigConfPassThreshold) 
+    confidence = "WEAKCONTIG";
+  else 
     confidence = "PASS";
 }
  
@@ -1197,6 +1215,8 @@ void BreakPoint::score_indel() {
   for (const auto& [_,al] : allele) 
     max_lod = std::max(max_lod, al.LO);
 
+  const double min_cc = std::min(b1.contig_conf, b2.contig_conf);
+ 
   // check if homozygous reference is most likely GT
   // bool homozygous_ref = true;
   // for (auto& [_,al] : allele) {
@@ -1223,11 +1243,11 @@ void BreakPoint::score_indel() {
     confidence = "LOWLOD";
   else if (max_lod < sc->opts.lodDb && !rs.empty()) // be more permissive for dbsnp site
     confidence = "LOWLOD";
-  else if (af < 0.05) // if really low AF, get rid of 
-    confidence = "VLOWAF";
   else if (!is_refilter && std::min(left_match, right_match) < 20) 
     confidence = "SHORTALIGNMENT"; // no conf in indel if match on either side is too small
-  else
+  else if (confidence == "PASS" && min_cc < svaba::kContigConfPassThreshold) 
+    confidence = "WEAKCONTIG";
+  else 
     confidence="PASS";
 
   //debugprint

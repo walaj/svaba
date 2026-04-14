@@ -5,6 +5,25 @@
   #include <malloc.h>
 #endif
 
+// Build a new BamHeader that prepends an @HD line (with the given sort order)
+// to the @SQ block of `src`. Avoids SeqLib::BamHeader::AsString(), which
+// blindly dereferences h->text; in modern htslib that field is lazy and is
+// often NULL until sam_hdr_str() materializes it, causing a segfault.
+static SeqLib::BamHeader make_header_with_hd(const SeqLib::BamHeader& src,
+                                             const std::string& so) {
+  std::string txt = "@HD\tVN:1.6\tSO:" + so + "\n";
+
+  const bam_hdr_t* h = src.get();
+  if (h) {
+    // sam_hdr_str forces htslib to regenerate the textual form from its
+    // internal representation and caches it in h->text.
+    const char* cur = sam_hdr_str(const_cast<bam_hdr_t*>(h));
+    if (cur) txt += cur;
+  }
+
+  return SeqLib::BamHeader(txt);
+}
+
 svabaThreadUnit::svabaThreadUnit(SvabaSharedConfig& sc_,
 				 int thread) : sc(sc_), threadId(thread) {
   
@@ -25,6 +44,9 @@ svabaThreadUnit::svabaThreadUnit(SvabaSharedConfig& sc_,
     it->second->SetPrefix(pref);
   }
 
+  // make the header in case dumping reads for debugging
+  auto hdr_unsorted = make_header_with_hd(sc.header, "unsorted");
+  
   // setup the weird read writers
   if (sc.opts.dump_weird_reads) {
     
@@ -33,7 +55,7 @@ svabaThreadUnit::svabaThreadUnit(SvabaSharedConfig& sc_,
       ".thread" + std::to_string(threadId) + ".weird.bam";
     
     auto [it, inserted] = writers.try_emplace("w", std::make_shared<SeqLib::BamWriter>(SeqLib::BAM));
-    it->second->SetHeader(sc.header);
+    it->second->SetHeader(hdr_unsorted);
     if (!it->second->Open(bamname)) {
       std::cerr << "ERROR: could not open weird read writer for thread " <<
 	threadId << " at path " << bamname << "/n";
@@ -50,7 +72,7 @@ svabaThreadUnit::svabaThreadUnit(SvabaSharedConfig& sc_,
       ".thread" + std::to_string(threadId) + ".corrected.bam";
     
     auto [it, inserted] = writers.try_emplace("c", std::make_shared<SeqLib::BamWriter>(SeqLib::BAM));
-    it->second->SetHeader(sc.header);
+    it->second->SetHeader(hdr_unsorted);
     if (!it->second->Open(bamname)) {
       std::cerr << "ERROR: could not open corrected read writer for thread " <<
 	threadId << " at path " << bamname << "/n";
@@ -67,7 +89,7 @@ svabaThreadUnit::svabaThreadUnit(SvabaSharedConfig& sc_,
       ".thread" + std::to_string(threadId) + ".discordant.bam";
     
     auto [it, inserted] = writers.try_emplace("d", std::make_shared<SeqLib::BamWriter>(SeqLib::BAM));
-    it->second->SetHeader(sc.header);
+    it->second->SetHeader(hdr_unsorted);
     if (!it->second->Open(bamname)) {
       std::cerr << "ERROR: could not open discordant read writer for thread " <<
 	threadId << " at path " << bamname << "/n";

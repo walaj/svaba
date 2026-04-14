@@ -86,6 +86,13 @@ struct BreakEnd {
   int as = -1;  ///< primary alignment score  
   int sub = -1; ///< best secondary alignment score
 
+  // Svaba2.0: composite reliability of the contig-alignment fragment backing
+  // this breakend, in [0, 1]. For an SV BreakPoint the two ends can come
+  // from different BWA fragments of the same split-aligned contig, so
+  // each side stores its own score. Default 1.0 so legacy code paths
+  // that never set it don't accidentally demote calls.
+  double contig_conf = 1.0;
+  
   LocalAlignment local = LocalAlignment::NOTSET;
   
   // for high-confidence reads
@@ -138,7 +145,7 @@ public:
 		       "mapq1\tmapq2\tnm1\tnm2\tas1\tas2\tsub1\tsub2\t"
 		       "homol\tinsert\trepeat\t"
 		       "contig_and_region\tnaln\tconf\ttype\tqual\t2ndary\t"
-		       "somatic\tsomlod\tmaxlod\tdbsnp"
+		       "somatic\tsomlod\tmaxlod\tdbsnp\tcontig_conf1\tcontig_conf2"
 		       );
   }
   

@@ -207,20 +207,16 @@ int overlapSize(const SeqLib::BamRecord& query, const SeqLib::BamRecordVector& s
 	       (int)num_t_reads, (int)num_n_reads, 
 	       (int)contig_counter);
       ss << std::string(buffer) << st << " | ";
-#ifndef __APPLE__
       ss << SeqLib::displayRuntime(start);
-#endif
     } else if (num_t_reads + num_n_reads > 0) {
       char buffer[180];
-      snprintf (buffer, 180, "Ran Whole Genome | T: %5d N: %5d C: %5d | ", 
-	       (int)num_t_reads, (int)num_n_reads, 
+      snprintf (buffer, 180, "Ran Whole Genome | T: %5d N: %5d C: %5d | ",
+	       (int)num_t_reads, (int)num_n_reads,
 	       (int)contig_counter);
-      
+
       ss << std::string(buffer) << st << " | ";
-#ifndef __APPLE__
       ss << SeqLib::displayRuntime(start);
-#endif
-    }    
+    }
     return ss.str();
   }
 

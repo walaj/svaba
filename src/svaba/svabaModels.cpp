@@ -134,22 +134,62 @@ static inline double SomaticLOD_withSplitErrors(double aN, double dN, double aT,
     // =========================
     const double f_het = std::clamp(0.5, epsilon, 1.0 - epsilon);
     const double f_hom = std::clamp(1.0, epsilon, 1.0 - epsilon);
-
-    // GERM_shared is only meaningful if the normal actually contributes signal.
-    // Otherwise f_shared just tracks the tumor MLE, collapsing the somatic LOD.
-    const double f_n_obs              = aN / dN_safe;
-    const double min_germ_af_shared   = 0.15;   // AFs below this are not plausibly germline
-    const bool   normal_supports_variant = (aN >= 2) && (f_n_obs >= 0.05);
     
+// =========================================================================
+    // GERM_shared: pooled-MLE allele fraction across N+T.
+    //
+    // We do NOT gate this branch on raw counts (e.g. `aN >= 2`). In a high-
+    // artifact region, 2-3 normal alt reads can be perfectly genuine artifact,
+    // and shutting GERM_shared off in that regime is the bug that inflates
+    // somlod for things like  aN=2/dN=68  vs  aT=16/dT=151  in repeat tracts.
+    //
+    // Instead, suppress GERM_shared only when *both* of the following hold:
+    //   (a) the pooled MLE f_shared sits below the "germline-plausible" band,
+    //       AND
+    //   (b) the normal contributes essentially no evidence for any nonzero f,
+    //       i.e. fitting the normal's own MLE barely improves on f=0
+    //       (normal_evidence < ~1 log10  ==  less than ~10x likelihood gain).
+    //
+    // If either (a) is false (shared looks germline-y -> could be LOH), or (b)
+    // is false (normal does have real alt-supporting evidence -> shared could
+    // be artifact-in-both), then GERM_shared is allowed to compete and rescue
+    // the call from a spurious somlod.
+    //
+    // We also let f_shared_hat float to its true MLE (no 0.15 floor). The old
+    // `clamp(..., 0.15, ...)` turned the "free-MLE" branch into a "germline-
+    // only-MLE" branch, which is exactly what we don't want when explaining
+    // low-VAF shared signal.
+    // =========================================================================
+
+    // Pooled MLE across both samples, free to land anywhere in (0,1).
+    const double f_shared_hat_raw = (aN + aT) / (dN_safe + dT_safe);
+    const double f_shared_hat     = std::clamp(f_shared_hat_raw, epsilon, 1.0 - epsilon);
+
+    // Threshold below which an AF is not plausibly germline (het ~0.5,
+    // hom ~1.0, with some slack for LOH-driven shifts in tumor). This is a
+    // statement about *what germline AFs look like*, not about counts.
+    const double germ_plausible_floor = 0.15;
+    const bool   shared_in_germline_band = (f_shared_hat >= germ_plausible_floor);
+
+    // Normal-side MLE and "evidence for any nonzero f" in log10. This is the
+    // error-rate-aware replacement for the old `aN >= 2` count gate -- in a
+    // high-artifact region (large eN_fwd), normal_evidence stays small even
+    // for aN=2 or 3, because those reads are well explained as errors.
+    const double f_n_mle = std::clamp(aN / dN_safe, epsilon, 1.0 - epsilon);
+    const double normal_evidence =
+        LL_N(dN_safe, aN, f_n_mle) - LL_N(dN_safe, aN, 0.0);
+    const double normal_evidence_threshold = 1.0;  // log10  (~10x likelihood)
+    const bool   normal_has_real_signal = (normal_evidence >= normal_evidence_threshold);
+
     double ll_germ_shared = -std::numeric_limits<double>::infinity();
-    
-    double f_shared_hat_raw = (aN + aT) / (dN_safe + dT_safe);
-    double f_shared_hat     = std::clamp(f_shared_hat_raw, min_germ_af_shared, 1.0 - epsilon);
-    if (normal_supports_variant) {
-      ll_germ_shared = LL_N(dN_safe, aN, f_shared_hat)
-	+ LL_T(dT_safe, aT, f_shared_hat);
+    if (shared_in_germline_band || normal_has_real_signal) {
+        ll_germ_shared = LL_N(dN_safe, aN, f_shared_hat)
+                       + LL_T(dT_safe, aT, f_shared_hat);
     }
-
+    // Else: pure low-AF somatic with no real normal signal -> GERM_shared
+    // stays at -inf and the somatic branch wins on its own merits, just as
+    // intended for clean somatic calls.
+    
     // other model options (germline het, germline homozygous, germline artifact)
     double ll_germ_het    = LL_N(dN_safe, aN, f_het)        + LL_T(dT_safe, aT, f_het);
     double ll_germ_hom    = LL_N(dN_safe, aN, f_hom)        + LL_T(dT_safe, aT, f_hom);

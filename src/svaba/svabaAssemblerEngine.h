@@ -64,7 +64,7 @@ class svabaAssemblerEngine
   bool bPerformTR = false; // transitivie edge reducetion
   bool bValidate = false;
   int resolveSmallRepeatLen = -1; 
-  int maxIndelLength = 20;
+  int maxIndelLength = 100;
   bool bExact = true;
   std::string outVariantsFile = ""; // dummy
   

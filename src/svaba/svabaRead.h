@@ -93,6 +93,8 @@ class svabaRead : public SeqLib::BamRecord {
 
   friend class svabaBamWalker;
 
+  bool to_assemble = true;
+  
  private:
 
   std::string p; // prefix for file ID (e.g. t001)

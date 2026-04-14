@@ -49,9 +49,6 @@ using std::make_shared;
 // 2 is heavy
 constexpr inline int log_level = 1;
 
-// time
-static struct timespec start;
-
 // forward declaration, need non-static and not in
 // anonymous namespace to keep external linkage
 void  runsvaba       (int argc, char** argv);
@@ -198,9 +195,9 @@ void runsvaba(int argc, char** argv) {
   sc.header = bwa_header;
   
   // start the timer
-#ifndef __APPLE__
+  std::cerr << " STARTING THE CLOCK!" << std::endl;
   clock_gettime(CLOCK_MONOTONIC, &sc.start);
-#endif
+
   // check that the two headers are equivalant
   // open the main bam to get header info
   SeqLib::BamReader first_tumor_bam_reader;  
@@ -327,11 +324,6 @@ void runsvaba(int argc, char** argv) {
   for (int i = 0; i < argc; ++i)
     sc.args += string(argv[i]) + " ";
 
-  // start the timer
-#ifndef __APPLE__
-  clock_gettime(CLOCK_MONOTONIC, &start);
-#endif
-
   if (regionsToRun.size()) {
     logger.log(true, true, "...running on ", SeqLib::AddCommas(regionsToRun.size()),
 		" chunks"); 
@@ -347,11 +339,9 @@ void runsvaba(int argc, char** argv) {
   writer.close();
   
   // make the VCF file
-  makeVCFs(sc);
+  //makeVCFs(sc);
   
-#ifndef __APPLE__
-  cerr << SeqLib::displayRuntime(start) << endl;
-#endif
+  cerr << SeqLib::displayRuntime(sc.start) << endl;
 }
 
 

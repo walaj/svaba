@@ -7,6 +7,7 @@
 
 #include "svabaUtils.h"
 #include "svabaOutputWriter.h"
+#include "ContigAlignmentScore.h"
 
 #include "SeqLib/BWAAligner.h"
 #include "SeqLib/GenomicRegion.h"
@@ -35,7 +36,7 @@ using std::unordered_map;
 using std::unordered_set;
 using std::string;
 
-//#define FERMI 1
+#define FERMI 1
 
 SvabaRegionProcessor::SvabaRegionProcessor(SvabaSharedConfig& sh_cf) : sc(sh_cf)
 { }
@@ -398,17 +399,23 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
   }
 #else
     {
-    std::cerr << "FERMI" << std::endl;      
+      //    std::cerr << "FERMI" << std::endl;      
       // build the reads structure
       size_t n_reads = 0;
       for (const auto& [_, walker] : unit.walkers) {
-	n_reads += walker->reads.size();
+	for (const auto& r : walker->reads)
+	  n_reads += static_cast<size_t>(r->to_assemble);
       }
       fseq1_t *fseq = (fseq1_t*)calloc(n_reads, sizeof(fseq1_t));
 
       size_t i = 0;
       for (const auto& [_, walker] : unit.walkers) {
 	for (const auto& r : walker->reads) {
+
+	  // skip reads that we want to track but not assemble
+	  if (!r->to_assemble)
+	    continue;
+	  
 	  fseq[i].seq     = strdup(r->CorrectedSeq().c_str());
 	  fseq[i].l_seq   = r->CorrectedSeq().length();
 	  
@@ -514,6 +521,14 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
 				    false, SECONDARY_FRAC,
 				    0); // don' consider secondary alignments
 
+
+    // provide a svaba-specific continuous "alignment score"
+    for (auto& ba : human_alignments) {
+      if (!ba) continue;
+      if (!ba->MappedFlag()) continue;
+      const auto s = svaba::scoreContigAlignment(*ba);
+      svaba::tagContigAlignment(*ba, s);
+    }
     
     // sort the alignments by position
     std::sort(human_alignments.begin(),
@@ -572,9 +587,12 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
       if (seen % 1000 == 0)
 	sc.logger.log(sc.opts.verbose > 4, sc.opts.verbose_log, "- r2c ", SeqLib::AddCommas(seen));
 
+      // get the sequence
+      std::string seq = i->to_assemble ? i->CorrectedSeq() : i->Sequence();
+      
       // do the read to contig alignment for a single read
       BamRecordPtrVector read2contigs;
-      contig_bwa_aligner.alignSequence(i->CorrectedSeq(),
+      contig_bwa_aligner.alignSequence(seq,
 				       i->Qname(),
 				       read2contigs,
 				       false,

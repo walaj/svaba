@@ -7,15 +7,36 @@
 #include "DiscordantCluster.h"
 #include "SvabaSharedConfig.h"
 
+#include <htslib/sam.h>
+
 #include <mutex>
 
 using namespace std;
 
 namespace {
-  
+
   // one mutex to serialize ALL threads writes
   static mutex writeMutex_;
 
+}
+
+// Build a new BamHeader that prepends an @HD line (with the given sort order)
+// to the @SQ block of `src`. Avoids SeqLib::BamHeader::AsString(), which
+// blindly dereferences h->text; in modern htslib that field is lazy and is
+// often NULL until sam_hdr_str() materializes it, causing a segfault.
+static SeqLib::BamHeader make_header_with_hd(const SeqLib::BamHeader& src,
+                                             const std::string& so) {
+  std::string txt = "@HD\tVN:1.6\tSO:" + so + "\n";
+
+  const bam_hdr_t* h = src.get();
+  if (h) {
+    // sam_hdr_str forces htslib to regenerate the textual form from its
+    // internal representation and caches it in h->text.
+    const char* cur = sam_hdr_str(const_cast<bam_hdr_t*>(h));
+    if (cur) txt += cur;
+  }
+
+  return SeqLib::BamHeader(txt);
 }
 
 SvabaOutputWriter::SvabaOutputWriter(SvabaLogger& logger_, SvabaOptions& opts_)
@@ -53,7 +74,8 @@ void SvabaOutputWriter::init(const string& analysis_id,
   std::string aligned_contigs_bam_path = analysis_id;
   aligned_contigs_bam_path.append(".contigs.bam");
   b_contig_writer_ = SeqLib::BamWriter(SeqLib::BAM);
-  b_contig_writer_.SetHeader(b_header);
+  auto hdr_unsorted = make_header_with_hd(b_header, "unsorted");
+  b_contig_writer_.SetHeader(hdr_unsorted);  
   if (!b_contig_writer_.Open(aligned_contigs_bam_path)) {    
     std::cerr << "ERROR: could not open aligned contig writer " <<
       aligned_contigs_bam_path << std::endl;

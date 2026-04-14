@@ -79,7 +79,7 @@ class SvabaOptions {
   size_t mate_region_lookup_limit = 5'000;
 
   // dumping
-  bool dump_weird_reads           = true;
+  bool dump_weird_reads           = false;
   bool dump_discordant_reads      = true;  
   bool dump_corrected_reads       = true;
   
@@ -108,13 +108,13 @@ class SvabaOptions {
   int32_t maxReadsPerAssem  = -1;
 
   // this is site-level Log-odds cutoff for PASS that is variant 
-  double lod                = 8.0;
+  double lod                = 1.0; //8.0;
   // this is site-level Log-odds cuttof for PASS that is variant, if also has supporting DBSNP site
-  double lodDb              = 6.0;
+  double lodDb              = 1.0; //6.0;
   // this is log-odds that this is REF in the "worst" normal (the one with the most potential alt reads)
-  double lodSomatic         = 6.0;
+  double lodSomatic         = 0.0; //6.0;
   // same, but be more strict if this somatic variant overlaps a dbsnp site
-  double lodSomaticDb       = 10.0;
+  double lodSomaticDb       = 2.0; // 10.0;
   
   int    maxCov             = 100;
 

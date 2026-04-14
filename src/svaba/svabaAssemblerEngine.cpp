@@ -31,30 +31,14 @@ static const std::string POLYCG = "CGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCGCG";
 static const std::string POLYTG = "TGTGTGTGTGTGTGTGTGTGTGTGTGTGTGTGTGTGTGTG";
 static const std::string POLYCA = "CACACACACACACACACACACACACACACACACACACACA";
 
-/*void svabaAssemblerEngine::fillReadTable(const std::vector<std::string>& r) {
-
-  int count = 0;
-  for (auto& i : r) {
-
-    if (i.length() < m_min_overlap)
-      continue;
-    
-    SeqItem si;
-    
-    assert(i.length() && i.length() >= m_min_overlap);
-    si.id = "read_" + std::to_string(++count); 
-    si.seq = i;
-    
-    m_pRT.addRead(si);
-    
-  }
-  
-}
-*/
 void svabaAssemblerEngine::fillReadTable(const svabaReadPtrVector& reads) {
   
   // make the reads tables
   for (const auto& i : reads) {
+
+    // skip if not for assembly
+    if (!i->to_assemble)
+      continue;
     
     // get the sequence and unique ID
     std::string sr = std::to_string(++count);

@@ -171,18 +171,20 @@ SeqLib::GRC svabaBamWalker::readBam(svabaThreadUnit& unit) {
     }
 
     //    debug_read("read seen", s, QNAME, QFLAG);
+
     
     
     // check if this read passes the rules for potential SV reads
     if (s->DuplicateFlag() ||
 	s->QCFailFlag() ||
 	s->NumHardClip() ||
-	//s->CountNBases() ||
 	sc.blacklist.CountOverlaps(s->AsGenomicRegionMate()) || 
 	sc.blacklist.CountOverlaps(s->AsGenomicRegion()))
-	//local_blacklist.CountOverlaps(s->AsGenomicRegionMate()) ||
-	//local_blacklist.CountOverlaps(s->AsGenomicRegion()))
-      continue;
+      {
+	s->to_assemble = false;
+	read_buffer.push_back(s);
+	continue;
+      }
 
     //    debug_read("read first filter", s, QNAME, QFLAG);
     
@@ -192,6 +194,17 @@ SeqLib::GRC svabaBamWalker::readBam(svabaThreadUnit& unit) {
     // this is the main rule check 
     bool rule_pass = sc.mr.isValid(*s);
 
+    // special case to also check against high mismatch
+    if (!rule_pass) {
+      int32_t nm_tag = 0;
+      s->GetIntTag("NM", nm_tag);
+      if (static_cast<float>(nm_tag) / static_cast<float>(s->Length()) > 0.02) {
+	s->to_assemble = false;
+	read_buffer.push_back(s);
+      }
+	
+    }
+    
     // if its less than 40, dont even mess with it
     if (s->CorrectedSeqLength() < 40)
       rule_pass = false;
@@ -261,6 +274,7 @@ SeqLib::GRC svabaBamWalker::readBam(svabaThreadUnit& unit) {
   } // end the read loop
   
     // "reads" is total cache for this walker.
+
     // "read_buffer" was temporary cache in readBam for last region
   /*reads.insert(reads.end(),
     std::make_move_iterator(read_buffer.begin()),
@@ -272,19 +286,18 @@ SeqLib::GRC svabaBamWalker::readBam(svabaThreadUnit& unit) {
   train_buffer.clear();
   
   // in bfc addsequence, memory is copied. for all_seqs (SGA correction), copy explicitly
+  // this will move all of the "rule pass" = weird reads into the correction table
   for (const auto& r : reads) {
-    bool ok = bfc.AddSequence(r->CorrectedSeq(), "", r->UniqueName());
-    assert(ok);
-    // if (regions_.at(0).pos1 == 31017001)
-    //   std::cout << "TRAIN R " << r->UniqueName() << "\t" << r->CorrectedSeq() << std::endl;
+    if (r->to_assemble) {
+      bool ok = bfc.AddSequence(r->CorrectedSeq(), "", r->UniqueName());
+      assert(ok);
+    }
   }
 
-  // and the "non-weird" reads to train corrector on
+  // and now add the "non-weird" reads to the correction table
   for (const auto& u : train_reads) {
     bool ok = bfc.AddSequence(u.Seq, "", u.Name);
     assert(ok);
-    // if (regions_.at(0).pos1 == 31017001)
-    //   std::cout << "TRAIN N " << u.Name << "\t" << u.Seq << std::endl;    
   }
   
   // subsamples reads if too high of coverage
@@ -302,6 +315,7 @@ SeqLib::GRC svabaBamWalker::readBam(svabaThreadUnit& unit) {
 
 void svabaBamWalker::AddBackReadsToCorrect() {
   for (const auto& r : reads) {
+    if (!r->to_assemble) continue;   // same filter as Train() side
     bfc.AddSequence(r->CorrectedSeq(), "", r->UniqueName());
   }
 }

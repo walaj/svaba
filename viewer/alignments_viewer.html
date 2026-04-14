@@ -12,7 +12,9 @@
     --muted: #8b949e;
     --border: #30363d;
     --accent: #58a6ff;
+    --accent-2: #3fb950;
     --warn: #f0883e;
+    --danger: #f85149;
     --header-bg: #1f2a3a;
     --variant-bg: #2d1b1b;
     --contig-bg: #16321a;
@@ -21,102 +23,234 @@
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; background: var(--bg); color: var(--fg);
     font-family: ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif; height: 100%; }
-  body { display: flex; flex-direction: column; }
+  body { display: flex; flex-direction: column; overflow: hidden; }
 
   header.toolbar {
     flex: 0 0 auto;
-    padding: 10px 14px;
+    padding: 8px 14px;
     background: var(--panel);
     border-bottom: 1px solid var(--border);
-    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
   }
   header.toolbar h1 {
-    margin: 0; font-size: 14px; font-weight: 600; color: var(--accent);
+    margin: 0 8px 0 0; font-size: 14px; font-weight: 600; color: var(--accent);
     letter-spacing: 0.02em;
   }
-  header.toolbar .spacer { flex: 1; }
-  header.toolbar label.btn,
-  header.toolbar button {
+  .group {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 2px 8px; border: 1px solid var(--border);
+    border-radius: 6px; background: var(--panel-2);
+  }
+  .group .label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .group .filename { font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 12px; color: var(--fg); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .group .filename.empty { color: var(--muted); font-style: italic; }
+
+  label.btn, button, input[type="search"], input[type="text"] {
     background: var(--panel-2); color: var(--fg);
     border: 1px solid var(--border); border-radius: 6px;
-    padding: 6px 10px; font-size: 12px; cursor: pointer;
+    padding: 5px 10px; font-size: 12px; cursor: pointer;
     font-family: inherit;
   }
-  header.toolbar button:hover, header.toolbar label.btn:hover { border-color: var(--accent); }
-  header.toolbar input[type="file"] { display: none; }
-  header.toolbar input[type="search"] {
-    background: var(--panel-2); color: var(--fg);
-    border: 1px solid var(--border); border-radius: 6px;
-    padding: 6px 8px; font-size: 12px; min-width: 220px;
+  button:hover, label.btn:hover { border-color: var(--accent); }
+  input[type="file"] { display: none; }
+  input[type="search"], input[type="text"] {
+    cursor: text;
     font-family: ui-monospace, Menlo, Consolas, monospace;
   }
-  header.toolbar .opt {
-    display: inline-flex; align-items: center; gap: 6px;
-    color: var(--muted); font-size: 12px;
-  }
-  header.toolbar .opt input[type="number"] {
-    width: 56px; background: var(--panel-2); color: var(--fg);
-    border: 1px solid var(--border); border-radius: 4px;
-    padding: 2px 4px; font-size: 12px;
-  }
-  header.toolbar .opt input[type="range"] { width: 110px; }
+  input[type="search"] { min-width: 260px; }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 600; }
+  button.primary:hover { filter: brightness(1.1); }
+  button.danger { color: var(--danger); }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
 
-  .legend {
+  .spacer { flex: 1; }
+
+  #status {
     flex: 0 0 auto;
-    padding: 6px 14px;
+    padding: 4px 14px;
     background: var(--panel);
     border-bottom: 1px solid var(--border);
-    display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
-    font-size: 12px; color: var(--muted);
-  }
-  .legend .swatch {
-    display: inline-flex; align-items: center; gap: 6px;
-    padding: 2px 6px; border-radius: 4px;
+    color: var(--muted);
+    font-size: 12px;
     font-family: ui-monospace, Menlo, Consolas, monospace;
-    color: #fff;
+    display: none;
   }
+  #status.show { display: block; }
+  #status.err { color: var(--danger); }
+  #status.ok  { color: var(--accent-2); }
 
-  .stage {
+  /* split layout */
+  main.split {
     flex: 1 1 auto;
-    overflow: auto;        /* horizontal AND vertical scroll, no wrap */
-    background: var(--bg);
+    display: flex; flex-direction: column;
+    min-height: 0;
   }
+  section.pane {
+    min-height: 0; min-width: 0;
+    display: flex; flex-direction: column;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+  }
+  section.pane:last-child { border-bottom: none; }
+  section.pane > .pane-header {
+    flex: 0 0 auto;
+    padding: 4px 10px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--muted); display: flex; align-items: center; gap: 8px;
+  }
+  section.pane > .pane-body {
+    flex: 1 1 auto;
+    overflow: auto;   /* hor + vert scroll, no wrap */
+    min-height: 0;
+  }
+  #bpsPane { flex: 0 0 35%; }
+  #alnPane { flex: 1 1 auto; }
+
+  .divider {
+    flex: 0 0 5px;
+    background: var(--border);
+    cursor: row-resize;
+  }
+  .divider:hover { background: var(--accent); }
+
   .empty {
     height: 100%;
     display: flex; align-items: center; justify-content: center;
     color: var(--muted);
-    font-size: 14px;
+    font-size: 13px;
+    padding: 24px;
+    text-align: center;
   }
+  .empty code { background: var(--panel-2); padding: 1px 6px; border-radius: 3px; }
+
   pre.alignments {
     margin: 0;
-    padding: 8px 14px;
+    padding: 6px 12px;
     font-family: ui-monospace, Menlo, Consolas, monospace;
-    font-size: 13px;
+    font-size: 12px;
     line-height: 1.25;
-    white-space: pre;          /* hard requirement: no soft wrap */
+    white-space: pre;
     color: var(--fg);
-    width: max-content;        /* let lines drive horizontal width */
+    width: max-content;
     min-width: 100%;
   }
   pre.alignments .row {
     display: block;
-    padding: 0 6px;
+    padding: 0 4px;
     border-radius: 2px;
-  }
-  pre.alignments .row.hl {
-    outline: 1px solid var(--accent);
   }
   pre.alignments .row.hidden { display: none; }
 
-  /* Row classes */
-  .row.r-indel    { background: var(--variant-bg); color: #ffb4a8; font-weight: 600; }
-  .row.r-cigar    { background: var(--header-bg); color: #c9d1d9; }
-  .row.r-marker   { background: var(--marker-bg); color: #d2a8ff; }
-  .row.r-contig   { background: var(--contig-bg); color: #9eea9e; font-weight: 600; }
-  .row.r-other    { color: var(--muted); }
+  .row.r-indel  { background: var(--variant-bg); color: #ffb4a8; font-weight: 600; }
+  .row.r-cigar  { background: var(--header-bg); color: #c9d1d9; }
+  .row.r-marker { background: var(--marker-bg); color: #d2a8ff; }
+  .row.r-contig { background: var(--contig-bg); color: #9eea9e; font-weight: 600; }
+  .row.r-other  { color: var(--muted); }
 
-  /* highlight matched search text */
-  .row .match { background: var(--accent); color: #000; }
+  /* bps table */
+  .bps-table {
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 11px;
+    border-collapse: collapse;
+    width: max-content;
+    min-width: 100%;
+  }
+  .bps-table thead th {
+    position: sticky; top: 0; z-index: 2;
+    background: var(--panel); color: var(--muted);
+    text-align: left; padding: 4px 8px;
+    border-bottom: 1px solid var(--border);
+    font-weight: 600; text-transform: lowercase;
+    white-space: nowrap;
+  }
+  .bps-table tbody td {
+    padding: 2px 8px; border-bottom: 1px solid rgba(48,54,61,0.4);
+    white-space: nowrap;
+  }
+  .bps-table tbody tr { cursor: default; }
+  .bps-table tbody tr:hover { background: #1f2937; }
+  .bps-table tbody tr.selected { background: #1e3a5f; }
+  .bps-table tbody td { user-select: text; -webkit-user-select: text; }
+  .bps-table td.c-contig {
+    cursor: pointer;
+    text-decoration: underline dotted;
+    text-underline-offset: 2px;
+  }
+  .bps-table td.c-contig:hover { color: #fff; background: #1e3a5f; }
+  .bps-table td.c-load {
+    cursor: pointer;
+    color: var(--accent);
+    text-align: center;
+    width: 1.5em;
+    font-weight: 700;
+    user-select: none;
+  }
+  .bps-table td.c-load:hover { background: #1e3a5f; color: #fff; }
+  .bps-table tbody tr.pass td.c-conf { color: var(--accent-2); font-weight: 600; }
+  .bps-table tbody tr td.c-contig { color: var(--accent); }
+  .bps-table tbody tr td.c-somlod,
+  .bps-table tbody tr td.c-maxlod { text-align: right; }
+  .bps-table th.sample-col,
+  .bps-table td.sample-col {
+    background: rgba(88, 166, 255, 0.06);
+    border-left: 1px solid rgba(88,166,255,0.18);
+  }
+  .bps-table td.sample-col { color: #c9d1d9; }
+  .bps-table thead th.sample-col { color: var(--accent); }
+
+  /* Genotype FORMAT key panel above the bps table */
+  .format-key {
+    padding: 6px 10px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    font-size: 11px;
+    color: var(--muted);
+    display: flex; flex-direction: column; gap: 3px;
+    position: sticky; top: 0; z-index: 3;
+  }
+  .format-key .fk-title { color: var(--fg); font-weight: 600; font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.04em; }
+  .format-key .fk-row { display: flex; align-items: center; gap: 8px;
+    font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; color: var(--fg); }
+  .format-key .fk-tag {
+    display: inline-block; padding: 0 6px; border-radius: 3px;
+    font-family: ui-sans-serif, sans-serif; font-size: 10px;
+    font-weight: 700; letter-spacing: 0.05em;
+  }
+  .format-key .fk-tag.fk-sv    { background: #1f3a5f; color: #79c0ff; }
+  .format-key .fk-tag.fk-indel { background: #3a1f5f; color: #d2a8ff; }
+  .format-key code { background: transparent; color: inherit; }
+  .format-key .fk-defs {
+    display: flex; flex-wrap: wrap; gap: 4px 12px;
+    margin-top: 2px; font-family: ui-sans-serif, sans-serif;
+  }
+  .format-key .fk-def code {
+    background: var(--panel-2); padding: 0 4px; border-radius: 3px;
+    color: var(--accent-2); font-family: ui-monospace, Menlo, Consolas, monospace;
+    margin-right: 3px;
+  }
+
+  .legend {
+    padding: 4px 10px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+    font-size: 11px; color: var(--muted);
+  }
+  .legend .swatch {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 1px 6px; border-radius: 3px;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    color: #fff; font-size: 11px; cursor: pointer;
+  }
+
+  #progress { display: none; }
+  #progress.show { display: inline-block; }
+
+  .hint { color: var(--muted); font-size: 11px; }
 </style>
 </head>
 <body>
@@ -124,336 +258,799 @@
 <header class="toolbar">
   <h1>svaba alignments viewer</h1>
 
-  <label class="btn" for="fileInput">Open file…</label>
-  <input id="fileInput" type="file" accept=".txt,.gz,.alignments,.tsv,*">
-
-  <button id="pasteBtn">Paste…</button>
-  <button id="clearBtn">Clear</button>
-
-  <span class="opt">
-    font
-    <input id="fontSize" type="range" min="9" max="20" value="13" step="1">
-    <span id="fontSizeVal">13px</span>
+  <span class="group" title="bps.txt or bps.txt.gz — used to look up contig by breakpoint position">
+    <span class="label">bps</span>
+    <label class="btn" for="bpsFile">choose</label>
+    <input id="bpsFile" type="file" accept=".txt,.gz,.tsv,*">
+    <span id="bpsFileName" class="filename empty">(not set)</span>
   </span>
 
-  <span class="opt">
-    line-height
-    <input id="lineHeight" type="range" min="1" max="2" value="1.25" step="0.05">
+  <span class="group" title="alignments.txt or alignments.txt.gz">
+    <span class="label">aln</span>
+    <label class="btn" for="alnFile">choose</label>
+    <input id="alnFile" type="file" accept=".txt,.gz,*">
+    <span id="alnFileName" class="filename empty">(not set)</span>
   </span>
 
-  <span class="opt"><input id="readsOnly" type="checkbox"> reads only</span>
+  <input id="query" type="search" placeholder="c_chr12_...  |  chr12:86677754  |  chr12:86677500-86677800">
+  <button id="searchBtn" class="primary">Find</button>
+  <button id="cancelBtn" disabled>Cancel</button>
 
-  <div class="spacer"></div>
+  <span class="spacer"></span>
 
-  <input id="search" type="search" placeholder="filter rows (substring or /regex/)">
-  <span id="stats" style="color: var(--muted); font-size: 12px;"></span>
+  <span id="progress" class="hint"></span>
+  <button id="pasteBtn" title="Paste a pre-grep'd alignment block directly">Paste block</button>
 </header>
 
-<div id="legend" class="legend"></div>
+<div id="status"></div>
 
-<div id="stage" class="stage">
-  <div class="empty" id="empty">
-    Open or paste a pre-grep'd alignments block.<br>
-    Each contig section starts with one or more <code>Indel:</code> lines, followed by the contig CIGAR/sequence and the per-read alignments.
-  </div>
-</div>
+<main class="split">
+  <section id="bpsPane" class="pane">
+    <div class="pane-header">
+      <span>bps matches</span>
+      <span id="bpsStats" class="hint"></span>
+      <span class="spacer"></span>
+      <span class="hint">click a row to load its contig</span>
+    </div>
+    <div class="pane-body" id="bpsBody">
+      <div class="empty">
+        No bps results yet. Set the <code>bps</code> file and enter a breakpoint
+        (<code>chr:pos</code> or <code>chr:pos1-pos2</code>) or a contig name.
+      </div>
+    </div>
+  </section>
+
+  <div class="divider" id="divider" title="drag to resize"></div>
+
+  <section id="alnPane" class="pane">
+    <div class="pane-header">
+      <span>alignments</span>
+      <span id="alnStats" class="hint"></span>
+      <span class="spacer"></span>
+      <span class="hint">
+        <label title="Hide reads whose r2c CIGAR contains an I or D (i.e. show only perfect-match reads)"><input id="perfectOnly" type="checkbox"> perfect matches only (no I/D)</label>
+      </span>
+    </div>
+    <div id="legend" class="legend" style="display:none"></div>
+    <div class="pane-body" id="alnBody">
+      <div class="empty">
+        No alignments loaded. Pick a contig above or drop/paste a block.
+      </div>
+    </div>
+  </section>
+</main>
 
 <script>
 "use strict";
 
-const $ = (id) => document.getElementById(id);
-const stage = $("stage");
-const empty = $("empty");
-const legendEl = $("legend");
-const statsEl = $("stats");
+// =========================================================================
+// File state
+// =========================================================================
+let bpsFile = null;
+let alnFile = null;
+let bpsHeader = null;   // array of column names (from first '#...' line)
 
-// ---- color palette for source-BAM prefixes (t001, n001, etc.) -------------
-// Picked for legibility on dark bg. Cycles if more than N prefixes.
-const PALETTE = [
-  "#1f6feb", // t-blue
-  "#a371f7", // n-purple
-  "#3fb950", // green
-  "#f0883e", // orange
-  "#db61a2", // pink
-  "#56d4dd", // cyan
-  "#d29922", // amber
-  "#ff7b72", // red
-  "#7ee787", // mint
-  "#79c0ff", // sky
-  "#bc8cff", // lavender
-  "#ffa657", // peach
-];
+// Column indices for known bps columns (0-based). These are assigned after
+// parsing the header.
+const BPS_COLS = {
+  chr1: 0, pos1: 1, strand1: 2,
+  chr2: 3, pos2: 4, strand2: 5,
+  conf: 31, type: 32, somlod: 36, maxlod: 37,
+  contig: 29
+};
 
-// Stable assignment of color to prefix
-const prefixColor = new Map();
-let prefixCounter = 0;
-function colorFor(prefix) {
-  if (!prefix) return null;
-  if (!prefixColor.has(prefix)) {
-    prefixColor.set(prefix, PALETTE[prefixCounter % PALETTE.length]);
-    prefixCounter++;
+// =========================================================================
+// Streaming helpers
+// =========================================================================
+
+// Return a ReadableStream<Uint8Array> that decompresses the file if .gz.
+function openFileStream(file) {
+  const raw = file.stream();
+  if (file.name.endsWith(".gz") && typeof DecompressionStream !== "undefined") {
+    return raw.pipeThrough(new DecompressionStream("gzip"));
   }
-  return prefixColor.get(prefix);
+  return raw;
 }
 
-// ---- line classification --------------------------------------------------
-//
-// The svaba alignments dump has these line shapes (per contig section):
-//
-//   Indel: >DEL: 7 chr12:...  c_chr...  n001:2 t001:15 -- c_chr...
-//                                          ^^ variant header(s) at the top
-//
-//   >>>>>>>>>>>>>>>IIIIIII>>>>>>>>>>>>>>>>>\t<contig coords>\tAligned to: ...
-//                                          ^^ contig CIGAR-encoded line
-//
-//                          ||   c_chr...
-//                                          ^^ marker line ('|' chars over breakpoint)
-//
-//   ATATACCATG...AAACGAAAGACTATT    c_chr...
-//                                          ^^ contig consensus sequence
-//
-//   <leading spaces><sequence>    t001_83_t001_83_LH00306:...  r2c CIGAR: 150M, c_chr...
-//                                          ^^ a single read alignment row
-//
-// We try to read the source-BAM prefix from the QNAME on read rows. svaba
-// names them "t001_..." / "n001_..." / etc. We accept any 4-char prefix made
-// of [a-z][0-9]{3} and treat it as the routing key.
+// Stream a file line-by-line. `onLine` may return false to stop early.
+// Returns { lines, bytes, aborted }.
+async function streamLines(file, onLine, signal) {
+  const reader = openFileStream(file).pipeThrough(new TextDecoderStream()).getReader();
+  let buf = "";
+  let lines = 0, bytes = 0;
+  let aborted = false;
+  try {
+    while (true) {
+      if (signal && signal.aborted) { aborted = true; break; }
+      const { value, done } = await reader.read();
+      if (done) break;
+      bytes += value.length;
+      buf += value;
+      let i, start = 0;
+      while ((i = buf.indexOf("\n", start)) !== -1) {
+        const line = buf.slice(start, i);
+        lines++;
+        const ret = onLine(line, lines, bytes);
+        if (ret === false) { aborted = true; start = buf.length; break; }
+        start = i + 1;
+      }
+      buf = buf.slice(start);
+    }
+    if (!aborted && buf.length > 0) {
+      lines++;
+      onLine(buf, lines, bytes);
+    }
+  } finally {
+    try { reader.cancel(); } catch(_) {}
+  }
+  return { lines, bytes, aborted };
+}
 
-const RE_INDEL    = /^Indel:\s/;
-const RE_CIGAR    = /^[>I<]{8,}\s/;            // contig CIGAR-encoded ASCII
-const RE_MARKER   = /^\s*\|+\s+\S/;            // pipes over the breakpoint
-const RE_CONTIG   = /^[ACGTN-]{20,}\s+c_/;     // pure-base sequence ending with contig name
-const RE_PREFIX   = /\b([a-z]\d{3})_/;         // first occurrence of e.g. t001_, n001_
+// =========================================================================
+// bps column-index resolution
+//
+// bps.txt starts with a header like '#chr1  pos1  strand1 ...'. We look up
+// the column indices we care about by header name so we don't depend on the
+// exact order, but we fall back to the canonical order documented in
+// CLAUDE.md if the header is missing.
+// =========================================================================
+function resolveBpsColumns(headerLine) {
+  if (!headerLine || headerLine[0] !== "#") return false;
+  const cols = headerLine.replace(/^#/, "").split("\t");
+  bpsHeader = cols;
+  const idx = (name) => cols.indexOf(name);
+  const map = {
+    chr1:   idx("chr1"),
+    pos1:   idx("pos1"),
+    strand1:idx("strand1"),
+    chr2:   idx("chr2"),
+    pos2:   idx("pos2"),
+    strand2:idx("strand2"),
+    conf:   idx("confidence") !== -1 ? idx("confidence") : idx("conf"),
+    type:   idx("type") !== -1 ? idx("type") : idx("svtype"),
+    somlod: idx("somlod") !== -1 ? idx("somlod") : idx("somatic_lod"),
+    maxlod: idx("maxlod") !== -1 ? idx("maxlod") : idx("max_lod"),
+    // contig column name is 'contig_and_region' in newer outputs
+    contig: idx("contig_and_region") !== -1 ? idx("contig_and_region") : idx("contig"),
+  };
+  for (const k of Object.keys(map)) if (map[k] !== -1) BPS_COLS[k] = map[k];
+  return true;
+}
+
+// =========================================================================
+// Query parsing
+//
+// Accepted forms:
+//   contig name:  c_chr12_86656501_86681501_54C
+//   bp position:  chr12:86677754              (exact, on either end)
+//   bp range:     chr12:86677500-86677800     (either end within range)
+//   bp pair:      chr12:86677500..chr12:86677800  (explicit pair; order-insensitive)
+// =========================================================================
+function parseQuery(q) {
+  q = q.trim();
+  if (!q) return null;
+  if (/^c_/.test(q)) return { kind: "contig", contig: q };
+
+  // pair: chrA:posA..chrB:posB
+  const pair = q.match(/^(\S+):(\d+)\.\.(\S+):(\d+)$/);
+  if (pair) {
+    return { kind: "pair",
+      a: { chr: pair[1], pos: +pair[2] },
+      b: { chr: pair[3], pos: +pair[4] } };
+  }
+
+  // range: chr:pos1-pos2
+  const range = q.match(/^(\S+):(\d+)-(\d+)$/);
+  if (range) {
+    return { kind: "range", chr: range[1], lo: +range[2], hi: +range[3] };
+  }
+
+  // point: chr:pos  (with optional tolerance ±N via chr:pos~tol)
+  const point = q.match(/^(\S+):(\d+)(?:~(\d+))?$/);
+  if (point) {
+    return { kind: "point", chr: point[1], pos: +point[2], tol: +(point[3] || 0) };
+  }
+
+  return { kind: "contig", contig: q };  // fall back: assume contig id
+}
+
+// =========================================================================
+// BPS search
+// =========================================================================
+async function searchBps(file, query, signal) {
+  const matches = [];
+  let sawHeader = false;
+
+  await streamLines(file, (line, lineno, bytes) => {
+    if (!line) return;
+    if (line[0] === "#") {
+      if (!sawHeader) { resolveBpsColumns(line); sawHeader = true; }
+      return;
+    }
+    const cols = line.split("\t");
+    const chr1 = cols[BPS_COLS.chr1];
+    const pos1 = +cols[BPS_COLS.pos1];
+    const chr2 = cols[BPS_COLS.chr2];
+    const pos2 = +cols[BPS_COLS.pos2];
+
+    let hit = false;
+    if (query.kind === "contig") {
+      const contig = cols[BPS_COLS.contig] || "";
+      hit = contig.includes(query.contig) || line.includes(query.contig);
+    } else if (query.kind === "point") {
+      const t = query.tol;
+      hit = (chr1 === query.chr && Math.abs(pos1 - query.pos) <= t) ||
+            (chr2 === query.chr && Math.abs(pos2 - query.pos) <= t);
+    } else if (query.kind === "range") {
+      hit = (chr1 === query.chr && pos1 >= query.lo && pos1 <= query.hi) ||
+            (chr2 === query.chr && pos2 >= query.lo && pos2 <= query.hi);
+    } else if (query.kind === "pair") {
+      const a = query.a, b = query.b;
+      const matchA = (chr1 === a.chr && pos1 === a.pos) && (chr2 === b.chr && pos2 === b.pos);
+      const matchB = (chr1 === b.chr && pos1 === b.pos) && (chr2 === a.chr && pos2 === a.pos);
+      hit = matchA || matchB;
+    }
+    if (hit) matches.push({ cols, line });
+    // throttle progress updates
+    if (lineno % 50000 === 0) updateProgress(`bps: scanned ${lineno.toLocaleString()} rows…`);
+  }, signal);
+
+  return matches;
+}
+
+// =========================================================================
+// Alignments extraction
+//
+// Contig blocks are contiguous: every non-blank line within the block mentions
+// the contig id. We scan linearly, accumulate matching lines, and (since the
+// block is contiguous) early-exit once we've seen N consecutive non-matching
+// lines after first match.
+// =========================================================================
+async function extractAlnBlocks(file, contigIds, signal) {
+  // We may want to collect blocks for multiple contigs in one pass.
+  const targets = new Set(contigIds);
+  const perContig = new Map();  // contigId -> string[] of lines
+  const blanksAfterLast = new Map(); // for early-exit bookkeeping
+  const sawAny = new Set();
+  let exitableCount = 0;        // number of contigs that have been "closed"
+
+  await streamLines(file, (line, lineno, bytes) => {
+    if (targets.size === 0) return false;
+
+    let matchedThisLine = false;
+    for (const cid of targets) {
+      if (line.indexOf(cid) !== -1) {
+        matchedThisLine = true;
+        if (!perContig.has(cid)) perContig.set(cid, []);
+        perContig.get(cid).push(line);
+        sawAny.add(cid);
+        blanksAfterLast.set(cid, 0);
+      }
+    }
+    if (!matchedThisLine) {
+      // Increment "since last hit" for each contig we've seen, and when it
+      // exceeds the tolerance, close that contig (stop accumulating further).
+      for (const cid of [...targets]) {
+        if (sawAny.has(cid)) {
+          blanksAfterLast.set(cid, (blanksAfterLast.get(cid) || 0) + 1);
+          // alignments sections are contiguous; a gap of 4+ non-matching
+          // lines is a clear signal we've left this contig's block.
+          if (blanksAfterLast.get(cid) > 4) {
+            targets.delete(cid);
+          }
+        }
+      }
+    }
+    if (lineno % 100000 === 0) {
+      updateProgress(`aln: scanned ${lineno.toLocaleString()} lines, ${perContig.size}/${contigIds.length} contigs found…`);
+    }
+  }, signal);
+
+  return perContig;
+}
+
+// =========================================================================
+// Rendering — bps table
+// =========================================================================
+const bpsBody = document.getElementById("bpsBody");
+const alnBody = document.getElementById("alnBody");
+const bpsStats = document.getElementById("bpsStats");
+const alnStats = document.getElementById("alnStats");
+const legendEl = document.getElementById("legend");
+
+// =========================================================================
+// Per-sample FORMAT strings, lifted from src/svaba/vcf.cpp:
+//   const std::string kSvFormat    = "GT:AD:DP:SR:DR:GQ:PL:LO:LO_n";
+//   const std::string kIndelFormat = "GT:AD:DP:SR:CR:GQ:PL:LO:LO_n";
+// =========================================================================
+const SV_FORMAT    = "GT:AD:DP:SR:DR:GQ:PL:LO:LO_n";
+const INDEL_FORMAT = "GT:AD:DP:SR:CR:GQ:PL:LO:LO_n";
+const FORMAT_KEY = {
+  GT:    "Genotype",
+  AD:    "Allele depth (alt-supporting reads)",
+  DP:    "Total read depth",
+  SR:    "Split-read alt support",
+  DR:    "Discordant read pair alt support (SVs)",
+  CR:    "Cigar-derived alt support (indels)",
+  GQ:    "Genotype quality (phred)",
+  PL:    "Phred-scaled likelihoods (0/0,0/1,1/1)",
+  LO:    "Per-sample LOD (variant vs error)",
+  LO_n:  "Per-sample normalized LOD",
+};
+function formatForType(type) {
+  return (type === "INDEL") ? INDEL_FORMAT : SV_FORMAT;
+}
+
+// Heuristic: a column is a per-sample (genotype) column iff its header looks
+// like "n001_..." / "t001_..." or it contains a path / .bam.
+function isSampleHeader(h) {
+  if (!h) return false;
+  if (/^[a-z]\d{3}[_.-]/.test(h)) return true;
+  if (/\.bam$/i.test(h)) return true;
+  if (/[\\/]/.test(h)) return true;     // contains a path separator
+  return false;
+}
+
+function renderBpsTable(matches, query) {
+  bpsBody.innerHTML = "";
+  if (!matches.length) {
+    const e = document.createElement("div");
+    e.className = "empty";
+    e.textContent = "No bps rows matched that query.";
+    bpsBody.appendChild(e);
+    bpsStats.textContent = "0 matches";
+    return;
+  }
+
+  // Use the bps header if we have it; otherwise generate column names from
+  // the widest matched row.
+  const ncols = Math.max(
+    bpsHeader ? bpsHeader.length : 0,
+    ...matches.map(m => m.cols.length)
+  );
+  const headers = [];
+  for (let i = 0; i < ncols; i++) {
+    headers.push((bpsHeader && bpsHeader[i]) || `col${i+1}`);
+  }
+  const sampleColIdx = new Set(headers.map((h, i) => isSampleHeader(h) ? i : -1).filter(i => i >= 0));
+
+  // ---- format key panel for the genotype columns -----------------------
+  if (sampleColIdx.size > 0) {
+    const key = document.createElement("div");
+    key.className = "format-key";
+    key.innerHTML =
+      `<div class="fk-title">Per-sample column FORMAT</div>` +
+      `<div class="fk-row"><span class="fk-tag fk-sv">SV</span> ` +
+        `<code>${SV_FORMAT}</code></div>` +
+      `<div class="fk-row"><span class="fk-tag fk-indel">INDEL</span> ` +
+        `<code>${INDEL_FORMAT}</code></div>` +
+      `<div class="fk-defs">` +
+        Object.entries(FORMAT_KEY).map(([k,v]) =>
+          `<span class="fk-def"><code>${k}</code>=${v}</span>`).join("") +
+      `</div>`;
+    bpsBody.appendChild(key);
+  }
+
+  // ---- table -----------------------------------------------------------
+  const table = document.createElement("table");
+  table.className = "bps-table full";
+  const thead = document.createElement("thead");
+  const trh = document.createElement("tr");
+  // leading "load" column header
+  {
+    const th = document.createElement("th");
+    th.textContent = "";
+    th.title = "Click → to load alignments";
+    trh.appendChild(th);
+  }
+  for (let i = 0; i < ncols; i++) {
+    const th = document.createElement("th");
+    th.textContent = headers[i];
+    if (sampleColIdx.has(i)) th.classList.add("sample-col");
+    if (i === BPS_COLS.contig) th.classList.add("contig-col");
+    if (i === BPS_COLS.conf)   th.classList.add("conf-col");
+    if (i === BPS_COLS.somlod || i === BPS_COLS.maxlod) th.classList.add("lod-col");
+    trh.appendChild(th);
+  }
+  thead.appendChild(trh);
+  table.appendChild(thead);
+
+  const tbody = document.createElement("tbody");
+  function loadFromRow(tr, contigVal) {
+    if (!contigVal) return;
+    tbody.querySelectorAll("tr.selected").forEach(r => r.classList.remove("selected"));
+    tr.classList.add("selected");
+    loadAlignmentsForContig(contigVal);
+  }
+
+  for (const m of matches) {
+    const tr = document.createElement("tr");
+    const confVal  = m.cols[BPS_COLS.conf] || "";
+    const typeVal  = (m.cols[BPS_COLS.type !== undefined ? BPS_COLS.type : 32] || "").trim();
+    const fmtForRow = formatForType(typeVal);
+    const fmtParts  = fmtForRow.split(":");
+    if (confVal === "PASS") tr.classList.add("pass");
+    const contigVal = m.cols[BPS_COLS.contig] || "";
+    tr.dataset.contig = contigVal;
+
+    // leading load cell (the only thing wired to fire the alignments scan)
+    const tdLoad = document.createElement("td");
+    tdLoad.className = "c-load";
+    tdLoad.textContent = "▶";
+    tdLoad.title = `Load alignments for ${contigVal}`;
+    tdLoad.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      loadFromRow(tr, contigVal);
+    });
+    tr.appendChild(tdLoad);
+
+    for (let i = 0; i < ncols; i++) {
+      const td = document.createElement("td");
+      const v = m.cols[i] ?? "";
+      td.textContent = v;
+      if (sampleColIdx.has(i)) {
+        td.classList.add("sample-col");
+        const parts = v.split(":");
+        const tip = parts.map((p, k) => {
+          const key = fmtParts[k] || `f${k+1}`;
+          const desc = FORMAT_KEY[key] || "";
+          return `${key}=${p}${desc?"  ("+desc+")":""}`;
+        }).join("\n");
+        td.title = `FORMAT (${typeVal||"?"}): ${fmtForRow}\n\n${tip}`;
+      }
+      if (i === BPS_COLS.contig) {
+        td.classList.add("c-contig");
+        td.title = `Click to load alignments for ${contigVal}\n(double-click to select the contig name for copy)`;
+        td.addEventListener("click", (ev) => {
+          // Allow text selection: if the user has actively selected text,
+          // don't navigate.
+          const sel = window.getSelection();
+          if (sel && sel.toString().length > 0 &&
+              td.contains(sel.anchorNode)) return;
+          ev.stopPropagation();
+          loadFromRow(tr, contigVal);
+        });
+      }
+      if (i === BPS_COLS.conf)    td.classList.add("c-conf");
+      if (i === BPS_COLS.somlod)  td.classList.add("c-somlod");
+      if (i === BPS_COLS.maxlod)  td.classList.add("c-maxlod");
+      tr.appendChild(td);
+    }
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  bpsBody.appendChild(table);
+  bpsStats.textContent =
+    `${matches.length} match${matches.length===1?"":"es"} · ${ncols} columns`;
+}
+
+// =========================================================================
+// Rendering — alignments
+// =========================================================================
+const PALETTE = [
+  "#1f6feb","#a371f7","#3fb950","#f0883e","#db61a2","#56d4dd",
+  "#d29922","#ff7b72","#7ee787","#79c0ff","#bc8cff","#ffa657",
+];
+const prefixColor = new Map();
+let prefixCounter = 0;
+function colorFor(p) {
+  if (!p) return null;
+  if (!prefixColor.has(p)) {
+    prefixColor.set(p, PALETTE[prefixCounter % PALETTE.length]);
+    prefixCounter++;
+  }
+  return prefixColor.get(p);
+}
+
+const RE_INDEL  = /^Indel:\s/;
+const RE_CIGAR  = /^[>I<]{8,}\s/;
+const RE_MARKER = /^\s*\|+\s+\S/;
+const RE_CONTIG = /^[ACGTN-]{20,}\s+c_/;
+const RE_PREFIX = /\b([a-z]\d{3})_/;
 
 function classify(line) {
-  if (line.length === 0)            return { kind: "blank" };
-  if (RE_INDEL.test(line))          return { kind: "indel" };
-  if (RE_CIGAR.test(line))          return { kind: "cigar" };
-  if (RE_MARKER.test(line))         return { kind: "marker" };
-  if (RE_CONTIG.test(line))         return { kind: "contig" };
-  // anything else: probably a per-read alignment row
+  if (line.length === 0)     return { kind: "blank" };
+  if (RE_INDEL.test(line))   return { kind: "indel" };
+  if (RE_CIGAR.test(line))   return { kind: "cigar" };
+  if (RE_MARKER.test(line))  return { kind: "marker" };
+  if (RE_CONTIG.test(line))  return { kind: "contig" };
   const m = line.match(RE_PREFIX);
   return { kind: "read", prefix: m ? m[1] : null };
 }
 
-// ---- rendering ------------------------------------------------------------
+let alnRows = [];  // { el, kind, prefix, text }
 
-let currentText = "";   // raw text we're currently displaying
-let currentRows = [];   // [{el, kind, prefix, text}]
-
-function escapeHtml(s) {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-
-function render(text) {
-  currentText = text;
-  currentRows = [];
+function renderAlnLines(lines) {
+  alnBody.innerHTML = "";
   prefixColor.clear();
   prefixCounter = 0;
+  alnRows = [];
 
-  if (!text.trim()) {
-    empty.style.display = "";
-    stage.querySelectorAll("pre.alignments").forEach(n => n.remove());
-    legendEl.innerHTML = "";
-    statsEl.textContent = "";
+  if (!lines || lines.length === 0) {
+    const e = document.createElement("div");
+    e.className = "empty";
+    e.textContent = "No alignments block for that contig.";
+    alnBody.appendChild(e);
+    alnStats.textContent = "";
+    legendEl.style.display = "none";
     return;
   }
-  empty.style.display = "none";
 
-  // Pre-pass: assign colors so legend reflects file order
-  const lines = text.split(/\r?\n/);
-  // strip trailing blank lines so the rendered block doesn't have a tail
-  while (lines.length && lines[lines.length - 1] === "") lines.pop();
+  // Pre-assign colors in file order
   for (const ln of lines) {
     const c = classify(ln);
     if (c.kind === "read" && c.prefix) colorFor(c.prefix);
   }
 
-  // Build DOM
   const pre = document.createElement("pre");
   pre.className = "alignments";
 
-  let nReads = 0;
   const perPrefix = new Map();
-
+  let nReads = 0;
   for (const ln of lines) {
     const c = classify(ln);
     const span = document.createElement("span");
     span.className = "row r-" + (c.kind === "read" ? "other" : c.kind);
-    if (c.kind === "read" && c.prefix) {
-      const col = colorFor(c.prefix);
-      span.style.background = col + "33";    // ~20% alpha
-      span.style.borderLeft = "3px solid " + col;
-      span.style.paddingLeft = "3px";
-      span.dataset.prefix = c.prefix;
+    if (c.kind === "read") {
       nReads++;
-      perPrefix.set(c.prefix, (perPrefix.get(c.prefix) || 0) + 1);
-    } else if (c.kind === "read") {
-      // unknown-source read row (no prefix matched)
-      span.style.borderLeft = "3px solid #555";
-      span.style.paddingLeft = "3px";
-      nReads++;
+      if (c.prefix) {
+        const col = colorFor(c.prefix);
+        span.style.background = col + "33";
+        span.style.borderLeft = "3px solid " + col;
+        span.style.paddingLeft = "3px";
+        span.dataset.prefix = c.prefix;
+        perPrefix.set(c.prefix, (perPrefix.get(c.prefix) || 0) + 1);
+      } else {
+        span.style.borderLeft = "3px solid #555";
+        span.style.paddingLeft = "3px";
+      }
     }
     span.dataset.kind = c.kind;
-    span.textContent = ln === "" ? " " : ln; // keep blank rows visible
+    span.textContent = ln === "" ? " " : ln;
     span.appendChild(document.createTextNode("\n"));
     pre.appendChild(span);
-    currentRows.push({ el: span, kind: c.kind, prefix: c.prefix || null, text: ln });
+    alnRows.push({ el: span, kind: c.kind, prefix: c.prefix || null, text: ln });
   }
-
-  // Replace old pre
-  stage.querySelectorAll("pre.alignments").forEach(n => n.remove());
-  stage.appendChild(pre);
+  alnBody.appendChild(pre);
 
   renderLegend(perPrefix);
-  statsEl.textContent =
-    `${lines.length} rows · ${nReads} reads · ${perPrefix.size} sources`;
-
-  applyFilters();
+  alnStats.textContent = `${lines.length} rows · ${nReads} reads · ${perPrefix.size} sources`;
+  applyAlnFilter();
 }
 
 function renderLegend(perPrefix) {
   legendEl.innerHTML = "";
-  if (perPrefix.size === 0) {
-    legendEl.style.display = "none";
-    return;
-  }
+  if (perPrefix.size === 0) { legendEl.style.display = "none"; return; }
   legendEl.style.display = "";
-
   const label = document.createElement("span");
-  label.textContent = "source BAM:";
+  label.textContent = "source:";
   legendEl.appendChild(label);
-
-  // Sort prefixes alphabetically for stable display
   const prefixes = [...perPrefix.keys()].sort();
   for (const p of prefixes) {
     const sw = document.createElement("span");
     sw.className = "swatch";
     sw.style.background = colorFor(p);
-    sw.textContent = `${p} · ${perPrefix.get(p)}`;
-    sw.title = `Click to toggle ${p}`;
-    sw.style.cursor = "pointer";
+    sw.textContent = `${p} (${perPrefix.get(p)})`;
     sw.dataset.prefix = p;
     sw.dataset.on = "1";
     sw.addEventListener("click", () => {
       const on = sw.dataset.on === "1";
       sw.dataset.on = on ? "0" : "1";
       sw.style.opacity = on ? "0.35" : "1";
-      applyFilters();
+      applyAlnFilter();
     });
     legendEl.appendChild(sw);
   }
 }
 
-// ---- filtering / search ---------------------------------------------------
+// A read row is "imperfect" if the r2c CIGAR string contains I or D operators.
+// Format on a read line is e.g.  ' r2c CIGAR: 24M1D15M7I1M7D103M, c_chr...'
+// We extract the CIGAR token and look for I/D ops only there (so the letter D
+// inside a contig name or read name doesn't false-positive).
+const RE_R2C_CIGAR = /\br2c CIGAR:\s*([0-9MIDNSHP=X]+)/;
+function readIsImperfect(line) {
+  const m = line.match(RE_R2C_CIGAR);
+  if (!m) return false;        // no CIGAR -> can't tell, leave visible
+  return /[ID]/.test(m[1]);
+}
 
-function applyFilters() {
-  const q = $("search").value;
-  const readsOnly = $("readsOnly").checked;
-
-  // Determine which prefixes are toggled off
+function applyAlnFilter() {
+  const perfectOnly = document.getElementById("perfectOnly").checked;
   const off = new Set();
   legendEl.querySelectorAll(".swatch").forEach(sw => {
     if (sw.dataset.on === "0") off.add(sw.dataset.prefix);
   });
-
-  let matcher = null;
-  if (q) {
-    if (q.length > 2 && q.startsWith("/") && q.endsWith("/")) {
-      try { matcher = new RegExp(q.slice(1, -1)); }
-      catch { matcher = null; }
-    }
-    if (!matcher) {
-      const lower = q.toLowerCase();
-      matcher = { test: (s) => s.toLowerCase().includes(lower) };
-    }
-  }
-
   let shown = 0;
-  for (const r of currentRows) {
+  for (const r of alnRows) {
     let visible = true;
-    if (readsOnly && r.kind !== "read") visible = false;
-    if (visible && r.prefix && off.has(r.prefix)) visible = false;
-    if (visible && matcher && !matcher.test(r.text)) visible = false;
+    if (r.prefix && off.has(r.prefix)) visible = false;
+    if (visible && perfectOnly && r.kind === "read" && readIsImperfect(r.text)) visible = false;
     r.el.classList.toggle("hidden", !visible);
     if (visible) shown++;
   }
-  if (q || readsOnly || off.size) {
-    statsEl.textContent =
-      `${shown}/${currentRows.length} rows shown` +
-      (off.size ? ` · ${off.size} source(s) hidden` : "");
-  } else {
-    statsEl.textContent = `${currentRows.length} rows`;
+}
+
+// =========================================================================
+// Controllers
+// =========================================================================
+let currentAbort = null;
+
+function setStatus(msg, cls) {
+  const el = document.getElementById("status");
+  el.className = cls ? ("show " + cls) : (msg ? "show" : "");
+  el.textContent = msg || "";
+}
+function updateProgress(msg) {
+  const el = document.getElementById("progress");
+  el.textContent = msg;
+  el.classList.add("show");
+}
+function clearProgress() {
+  document.getElementById("progress").classList.remove("show");
+}
+
+async function loadAlignmentsForContig(contigId) {
+  if (!alnFile) { setStatus("Set the alignments file first.", "err"); return; }
+  if (!contigId) { setStatus("Empty contig id.", "err"); return; }
+  setStatus(`Scanning alignments for ${contigId}…`);
+  currentAbort = new AbortController();
+  document.getElementById("cancelBtn").disabled = false;
+  try {
+    const t0 = performance.now();
+    const perContig = await extractAlnBlocks(alnFile, [contigId], currentAbort.signal);
+    const dt = ((performance.now() - t0)/1000).toFixed(1);
+    clearProgress();
+    const lines = perContig.get(contigId) || [];
+    renderAlnLines(lines);
+    if (lines.length === 0) setStatus(`No alignments found for ${contigId} (${dt}s).`, "err");
+    else setStatus(`${contigId}: ${lines.length} lines (${dt}s)`, "ok");
+  } catch (e) {
+    setStatus("Error: " + e.message, "err");
+  } finally {
+    document.getElementById("cancelBtn").disabled = true;
+    currentAbort = null;
   }
 }
 
-// ---- input handlers -------------------------------------------------------
+async function runQuery() {
+  const raw = document.getElementById("query").value;
+  const q = parseQuery(raw);
+  if (!q) { setStatus("Empty query.", "err"); return; }
 
-$("fileInput").addEventListener("change", async (ev) => {
-  const f = ev.target.files && ev.target.files[0];
-  if (!f) return;
+  // Contig query: skip bps, jump straight to alignments
+  if (q.kind === "contig") {
+    // still search bps if available, useful for context
+    if (bpsFile) {
+      setStatus(`Looking up ${q.contig} in bps…`);
+      currentAbort = new AbortController();
+      document.getElementById("cancelBtn").disabled = false;
+      try {
+        const m = await searchBps(bpsFile, q, currentAbort.signal);
+        renderBpsTable(m, q);
+      } catch (e) {
+        setStatus("bps error: " + e.message, "err");
+      } finally {
+        document.getElementById("cancelBtn").disabled = true;
+        currentAbort = null;
+        clearProgress();
+      }
+    }
+    await loadAlignmentsForContig(q.contig);
+    return;
+  }
 
-  // Support .gz transparently if the browser has DecompressionStream
-  let text;
-  if (f.name.endsWith(".gz") && typeof DecompressionStream !== "undefined") {
-    try {
-      const ds = new DecompressionStream("gzip");
-      const stream = f.stream().pipeThrough(ds);
-      text = await new Response(stream).text();
-    } catch (e) {
-      alert("Could not gunzip in-browser: " + e.message +
-            "\nPlease decompress first.");
+  // Position query: bps first (mandatory)
+  if (!bpsFile) {
+    setStatus("Set the bps file to query by position.", "err");
+    return;
+  }
+  setStatus(`Scanning bps for ${raw}…`);
+  currentAbort = new AbortController();
+  document.getElementById("cancelBtn").disabled = false;
+  try {
+    const t0 = performance.now();
+    const matches = await searchBps(bpsFile, q, currentAbort.signal);
+    const dt = ((performance.now() - t0)/1000).toFixed(1);
+    clearProgress();
+    renderBpsTable(matches, q);
+    if (matches.length === 0) {
+      setStatus(`No bps matches for ${raw} (${dt}s).`, "err");
+      renderAlnLines([]);
       return;
     }
-  } else {
-    text = await f.text();
-  }
-  render(text);
-});
-
-$("pasteBtn").addEventListener("click", async () => {
-  // Try the clipboard first; fall back to a prompt
-  try {
-    if (navigator.clipboard && navigator.clipboard.readText) {
-      const t = await navigator.clipboard.readText();
-      if (t) { render(t); return; }
+    setStatus(`${matches.length} bps matches (${dt}s). Auto-loading first contig.`, "ok");
+    // Auto-select first row; user can click another to switch
+    const firstContig = matches[0].cols[BPS_COLS.contig];
+    if (firstContig && alnFile) {
+      const firstRow = bpsBody.querySelector("tbody tr");
+      if (firstRow) firstRow.classList.add("selected");
+      await loadAlignmentsForContig(firstContig);
+    } else if (!alnFile) {
+      setStatus(`${matches.length} bps matches — set the alignments file to load reads.`, "ok");
     }
-  } catch (_) { /* fall through */ }
-
-  const t = window.prompt("Paste alignment block:");
-  if (t) render(t);
-});
-
-$("clearBtn").addEventListener("click", () => render(""));
-
-$("search").addEventListener("input", applyFilters);
-$("readsOnly").addEventListener("change", applyFilters);
-
-$("fontSize").addEventListener("input", (e) => {
-  const px = e.target.value + "px";
-  $("fontSizeVal").textContent = px;
-  document.querySelectorAll("pre.alignments").forEach(p => p.style.fontSize = px);
-});
-$("lineHeight").addEventListener("input", (e) => {
-  document.querySelectorAll("pre.alignments").forEach(p => p.style.lineHeight = e.target.value);
-});
-
-// ---- drag-and-drop --------------------------------------------------------
-window.addEventListener("dragover", (e) => { e.preventDefault(); });
-window.addEventListener("drop", async (e) => {
-  e.preventDefault();
-  const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
-  if (!f) return;
-  let text;
-  if (f.name.endsWith(".gz") && typeof DecompressionStream !== "undefined") {
-    const ds = new DecompressionStream("gzip");
-    text = await new Response(f.stream().pipeThrough(ds)).text();
-  } else {
-    text = await f.text();
+  } catch (e) {
+    setStatus("bps error: " + e.message, "err");
+  } finally {
+    document.getElementById("cancelBtn").disabled = true;
+    currentAbort = null;
   }
-  render(text);
-});
-</script>
+}
 
+// =========================================================================
+// Wiring
+// =========================================================================
+document.getElementById("bpsFile").addEventListener("change", (e) => {
+  const f = e.target.files && e.target.files[0];
+  if (!f) return;
+  bpsFile = f;
+  const el = document.getElementById("bpsFileName");
+  el.textContent = f.name + ` (${fmtBytes(f.size)})`;
+  el.classList.remove("empty");
+});
+document.getElementById("alnFile").addEventListener("change", (e) => {
+  const f = e.target.files && e.target.files[0];
+  if (!f) return;
+  alnFile = f;
+  const el = document.getElementById("alnFileName");
+  el.textContent = f.name + ` (${fmtBytes(f.size)})`;
+  el.classList.remove("empty");
+});
+document.getElementById("searchBtn").addEventListener("click", runQuery);
+document.getElementById("query").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") runQuery();
+});
+document.getElementById("cancelBtn").addEventListener("click", () => {
+  if (currentAbort) { currentAbort.abort(); setStatus("Cancelled.", "err"); }
+});
+document.getElementById("perfectOnly").addEventListener("change", applyAlnFilter);
+
+document.getElementById("pasteBtn").addEventListener("click", async () => {
+  let t = "";
+  try {
+    if (navigator.clipboard && navigator.clipboard.readText) t = await navigator.clipboard.readText();
+  } catch (_) {}
+  if (!t) t = window.prompt("Paste an alignment block:");
+  if (t) renderAlnLines(t.split(/\r?\n/));
+});
+
+// Drag-and-drop: route .gz/.txt to the correct slot based on name
+window.addEventListener("dragover", (e) => e.preventDefault());
+window.addEventListener("drop", (e) => {
+  e.preventDefault();
+  const files = e.dataTransfer && e.dataTransfer.files;
+  if (!files) return;
+  for (const f of files) {
+    if (/bps/.test(f.name))         { bpsFile = f; document.getElementById("bpsFileName").textContent = f.name + ` (${fmtBytes(f.size)})`; document.getElementById("bpsFileName").classList.remove("empty"); }
+    else if (/align/.test(f.name))  { alnFile = f; document.getElementById("alnFileName").textContent = f.name + ` (${fmtBytes(f.size)})`; document.getElementById("alnFileName").classList.remove("empty"); }
+    else {
+      // Unknown: if it looks like raw text, render it as a block
+      f.text().then(t => renderAlnLines(t.split(/\r?\n/)));
+    }
+  }
+});
+
+// Draggable divider between bps and alignments panes
+(function wireDivider() {
+  const div = document.getElementById("divider");
+  const top = document.getElementById("bpsPane");
+  let dragging = false;
+  div.addEventListener("mousedown", (e) => { dragging = true; document.body.style.cursor = "row-resize"; e.preventDefault(); });
+  window.addEventListener("mousemove", (e) => {
+    if (!dragging) return;
+    const main = document.querySelector("main.split");
+    const r = main.getBoundingClientRect();
+    const y = Math.max(80, Math.min(r.height - 80, e.clientY - r.top));
+    top.style.flex = `0 0 ${y}px`;
+  });
+  window.addEventListener("mouseup", () => { dragging = false; document.body.style.cursor = ""; });
+})();
+
+function fmtBytes(n) {
+  if (n < 1024) return n + " B";
+  if (n < 1024*1024) return (n/1024).toFixed(1) + " KB";
+  if (n < 1024*1024*1024) return (n/1024/1024).toFixed(1) + " MB";
+  return (n/1024/1024/1024).toFixed(2) + " GB";
+}
+</script>
 </body>
 </html>

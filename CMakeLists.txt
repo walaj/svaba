@@ -6,6 +6,12 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING
+        "Default build type" FORCE)
+endif()
+add_compile_options(-fno-omit-frame-pointer)
+
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/SeqLib)
 
 # Include directories for headers
@@ -55,7 +61,7 @@ set(SOURCES
 src/svaba/run_svaba.cpp
 src/svaba/svabaOutputWriter.cpp
 src/svaba/BreakPoint.cpp
-#src/svaba/BreakPointSort.cpp
+src/svaba/ContigAlignmentScore.cpp
 src/svaba/AlignedContig.cpp
 src/svaba/AlignmentFragment.cpp
 src/svaba/DiscordantCluster.cpp
