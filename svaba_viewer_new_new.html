@@ -1,0 +1,1052 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SvABA New vs New Comparison</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0f1117; --surface: #1a1d27; --surface2: #252833;
+    --border: #2e3140; --text: #e1e4ed; --text2: #8b8fa3;
+    --accent: #6c8cff; --green: #4ade80; --red: #f87171; --amber: #fbbf24;
+    --blue: #60a5fa; --purple: #a855f7;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; background: var(--bg); color: var(--text); min-height: 100vh; }
+  h1 { font-size: 1.3rem; font-weight: 600; padding: 1.2rem 1.5rem; border-bottom: 1px solid var(--border); }
+  h1 span { color: var(--accent); }
+  .container { max-width: 1500px; margin: 0 auto; padding: 1.5rem; }
+
+  /* Upload */
+  .upload-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
+  .upload-box {
+    background: var(--surface); border: 2px dashed var(--border); border-radius: 8px;
+    padding: 1.2rem; text-align: center; cursor: pointer; transition: border-color 0.2s;
+  }
+  .upload-box:hover, .upload-box.dragover { border-color: var(--accent); }
+  .upload-box.loaded { border-color: var(--green); border-style: solid; }
+  .upload-box label { display: block; font-size: 0.8rem; color: var(--text2); margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  .upload-box .filename { font-size: 0.85rem; color: var(--green); margin-top: 0.4rem; word-break: break-all; }
+  .upload-box .count { font-size: 0.75rem; color: var(--text2); margin-top: 0.2rem; }
+  .upload-box input[type="file"] { display: none; }
+  .upload-box .icon { font-size: 1.5rem; margin-bottom: 0.3rem; }
+  .hidden { display: none !important; }
+
+  /* Controls */
+  .controls {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 1rem 1.2rem; margin-bottom: 1.5rem;
+    display: flex; flex-wrap: wrap; gap: 1.5rem; align-items: center;
+  }
+  .control-group label { font-size: 0.75rem; color: var(--text2); text-transform: uppercase; letter-spacing: 0.05em; display: block; margin-bottom: 0.4rem; }
+  .checkboxes { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+  .cb { display: flex; align-items: center; gap: 0.3rem; font-size: 0.82rem; cursor: pointer; }
+  .cb input { accent-color: var(--accent); }
+  .slider-row { display: flex; align-items: center; gap: 0.5rem; }
+  .slider-row input[type="range"] { width: 130px; accent-color: var(--accent); }
+  .slider-val { font-size: 0.82rem; color: var(--accent); min-width: 3.5rem; }
+  button.run {
+    background: var(--accent); color: #fff; border: none; border-radius: 6px;
+    padding: 0.5rem 1.2rem; font-size: 0.85rem; font-weight: 600; cursor: pointer;
+    font-family: inherit; margin-left: auto;
+  }
+  button.run:hover { opacity: 0.9; }
+  button.run:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* Stats */
+  .stats-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
+  .stat-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.2rem; text-align: center;
+  }
+  .stat-card .val { font-size: 2rem; font-weight: 700; }
+  .stat-card .lbl { font-size: 0.75rem; color: var(--text2); text-transform: uppercase; margin-top: 0.3rem; }
+  .stat-card.agree .val { color: var(--green); }
+  .stat-card.a-only .val { color: var(--blue); }
+  .stat-card.b-only .val { color: var(--purple); }
+
+  /* Charts */
+  .charts-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
+  .chart-box {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 1rem; min-height: 300px;
+  }
+  .chart-box h3 { font-size: 0.8rem; color: var(--text2); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.6rem; }
+  .chart-box canvas { width: 100% !important; }
+  .chart-box.wide { grid-column: 1 / -1; }
+
+  /* Table */
+  .detail-section { margin-top: 1.5rem; }
+  .detail-section h3 { font-size: 0.85rem; color: var(--text2); text-transform: uppercase; margin-bottom: 0.6rem; }
+  .tabs { display: flex; gap: 0.5rem; margin-bottom: 0.8rem; flex-wrap: wrap; }
+  .tab {
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 6px;
+    padding: 0.3rem 0.8rem; font-size: 0.78rem; cursor: pointer; font-family: inherit; color: var(--text2);
+  }
+  .tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .table-wrap { max-height: 500px; overflow: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.75rem; white-space: nowrap; }
+  th {
+    background: var(--surface2); color: var(--text2); text-align: left; padding: 0.4rem 0.6rem;
+    position: sticky; top: 0; cursor: pointer; user-select: none; z-index: 1;
+  }
+  th:hover { color: var(--accent); }
+  th .sort-arrow { font-size: 0.6rem; margin-left: 0.2rem; }
+  td { padding: 0.4rem 0.6rem; border-top: 1px solid var(--border); }
+  tr.agree-row td:first-child { border-left: 3px solid var(--green); }
+  tr.a-only-row td:first-child { border-left: 3px solid var(--blue); }
+  tr.b-only-row td:first-child { border-left: 3px solid var(--purple); }
+  tr:hover td { background: var(--surface2); }
+
+  /* Placeholder / Progress */
+  .placeholder { text-align: center; padding: 4rem 2rem; color: var(--text2); }
+  .placeholder .big { font-size: 2rem; margin-bottom: 0.5rem; }
+  .progress-overlay {
+    position: fixed; inset: 0; background: rgba(15,17,23,0.85);
+    display: flex; align-items: center; justify-content: center; z-index: 100;
+  }
+  .progress-box {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 2rem 3rem; text-align: center; min-width: 320px;
+  }
+  .progress-box .msg { font-size: 0.9rem; margin-bottom: 1rem; }
+  .progress-bar-outer { height: 6px; background: var(--surface2); border-radius: 3px; overflow: hidden; }
+  .progress-bar-inner { height: 100%; background: var(--accent); transition: width 0.2s; width: 0%; }
+
+  /* Search */
+  .search-row { display: flex; gap: 0.8rem; align-items: center; margin-bottom: 0.8rem; }
+  .search-row input {
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 6px;
+    padding: 0.4rem 0.8rem; font-family: inherit; font-size: 0.8rem; color: var(--text); width: 250px;
+  }
+  .search-row input::placeholder { color: var(--text2); }
+  .search-row .result-count { font-size: 0.75rem; color: var(--text2); }
+
+  /* Row selection */
+  table tbody tr { cursor: pointer; }
+  tr.selected td { background: #1e3a5f !important; }
+
+  /* ========================================================================
+     Full-row detail panel — shows every bps.txt column for the selected row.
+     Mirrors the alignments_viewer.html "bps-table" / "format-key" styling
+     with sample-column highlighting + FORMAT tooltip.
+     ====================================================================== */
+  .detail-panel {
+    margin-top: 1rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .detail-panel-header {
+    background: var(--surface2);
+    padding: 0.6rem 1rem;
+    font-size: 0.8rem;
+    color: var(--text2);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--border);
+  }
+  .detail-panel-header strong { color: var(--text); font-weight: 600; text-transform: none; letter-spacing: 0; }
+  .detail-panel-header .subtitle { color: var(--text2); font-size: 0.75rem; }
+  .detail-panel-body { max-height: 520px; overflow: auto; }
+  .detail-panel .empty {
+    padding: 1.2rem; text-align: center; color: var(--text2); font-size: 0.82rem;
+  }
+
+  /* FORMAT key panel — replicates alignments_viewer.html */
+  .format-key {
+    padding: 6px 10px;
+    background: var(--surface2);
+    border-bottom: 1px solid var(--border);
+    font-size: 11px;
+    color: var(--text2);
+    display: flex; flex-direction: column; gap: 3px;
+    position: sticky; top: 0; z-index: 3;
+  }
+  .format-key .fk-title {
+    color: var(--text); font-weight: 600; font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .format-key .fk-row {
+    display: flex; align-items: center; gap: 8px;
+    font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; color: var(--text);
+  }
+  .format-key .fk-tag {
+    display: inline-block; padding: 0 6px; border-radius: 3px;
+    font-family: ui-sans-serif, sans-serif; font-size: 10px;
+    font-weight: 700; letter-spacing: 0.05em;
+  }
+  .format-key .fk-tag.fk-sv    { background: #1f3a5f; color: #79c0ff; }
+  .format-key .fk-tag.fk-indel { background: #3a1f5f; color: #d2a8ff; }
+  .format-key code { background: transparent; color: inherit; }
+  .format-key .fk-defs {
+    display: flex; flex-wrap: wrap; gap: 4px 12px;
+    margin-top: 2px; font-family: ui-sans-serif, sans-serif;
+  }
+  .format-key .fk-def code {
+    background: transparent; color: var(--accent);
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+  }
+
+  /* vertical "key / value" layout for the raw row */
+  .detail-kv {
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 11.5px;
+    width: 100%;
+    border-collapse: collapse;
+  }
+  .detail-kv td {
+    padding: 3px 10px;
+    border-bottom: 1px solid rgba(48,54,61,0.5);
+    white-space: pre-wrap;
+    word-break: break-all;
+    vertical-align: top;
+  }
+  .detail-kv td.kv-key {
+    width: 180px;
+    color: var(--text2);
+    text-transform: lowercase;
+    background: rgba(0,0,0,0.15);
+    white-space: nowrap;
+    font-weight: 600;
+  }
+  .detail-kv td.kv-val { color: var(--text); }
+  .detail-kv tr.sample-row td.kv-key {
+    color: var(--accent);
+    background: rgba(88, 166, 255, 0.08);
+    border-left: 2px solid rgba(88,166,255,0.35);
+  }
+  .detail-kv tr.sample-row td.kv-val {
+    background: rgba(88, 166, 255, 0.04);
+    color: #c9d1d9;
+  }
+  .detail-kv tr:hover td { background: #1f2937; }
+  .detail-kv tr.sample-row:hover td { background: #1b2b44; }
+  .detail-kv .side-label {
+    display: inline-block;
+    font-size: 9.5px;
+    padding: 0 5px;
+    margin-right: 4px;
+    border-radius: 3px;
+    letter-spacing: 0.05em;
+    font-weight: 700;
+    vertical-align: middle;
+  }
+  .detail-kv .side-a { background: #1e3a5f; color: #60a5fa; }
+  .detail-kv .side-b { background: #3a1f5f; color: #a855f7; }
+  .detail-kv td.kv-val-a { border-right: 1px dashed var(--border); }
+  .detail-kv td.kv-val.diff { color: var(--amber); }
+  .detail-kv td.kv-val-a.diff, .detail-kv td.kv-val-b.diff { background: rgba(251, 191, 36, 0.08); }
+</style>
+</head>
+<body>
+
+<h1><span>SvABA</span> New vs New Comparison</h1>
+
+<div class="container">
+  <!-- File uploads -->
+  <div class="upload-grid">
+    <div class="upload-box" id="oldBox" onclick="document.getElementById('oldFile').click()">
+      <div class="icon">&#128196;</div>
+      <label>New A (.tsv / .txt / .gz)</label>
+      <div>Drop or click to load</div>
+      <div class="filename hidden" id="oldName"></div>
+      <div class="count hidden" id="oldCount"></div>
+      <input type="file" id="oldFile">
+    </div>
+    <div class="upload-box" id="newBox" onclick="document.getElementById('newFile').click()">
+      <div class="icon">&#128196;</div>
+      <label>New B (.tsv / .txt / .gz)</label>
+      <div>Drop or click to load</div>
+      <div class="filename hidden" id="newName"></div>
+      <div class="count hidden" id="newCount"></div>
+      <input type="file" id="newFile">
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div class="controls">
+    <div class="control-group">
+      <label>Type (A)</label>
+      <div class="checkboxes" id="evidenceChecks"></div>
+    </div>
+    <div class="control-group">
+      <label>Confidence (A)</label>
+      <div class="checkboxes" id="confChecksOld"></div>
+    </div>
+    <div class="control-group">
+      <label>Somatic LOD &ge; (A)</label>
+      <div class="slider-row">
+        <input type="range" id="somlodOldSlider" min="-50" max="100" step="1" value="0">
+        <span class="slider-val" id="somlodOldVal">0</span>
+      </div>
+    </div>
+    <div class="control-group">
+      <label>Max LOD &ge; (A)</label>
+      <div class="slider-row">
+        <input type="range" id="maxlodOldSlider" min="-50" max="100" step="1" value="-50">
+        <span class="slider-val" id="maxlodOldVal">-50</span>
+      </div>
+    </div>
+    <div class="control-group">
+      <label>Type (B)</label>
+      <div class="checkboxes" id="typeChecks"></div>
+    </div>
+    <div class="control-group">
+      <label>Confidence (B)</label>
+      <div class="checkboxes" id="confChecksNew"></div>
+    </div>
+    <div class="control-group">
+      <label>Somatic LOD &ge; (B)</label>
+      <div class="slider-row">
+        <input type="range" id="somlodNewSlider" min="-50" max="100" step="1" value="0">
+        <span class="slider-val" id="somlodNewVal">0</span>
+      </div>
+    </div>
+    <div class="control-group">
+      <label>Max LOD &ge; (B)</label>
+      <div class="slider-row">
+        <input type="range" id="maxlodNewSlider" min="-50" max="100" step="1" value="-50">
+        <span class="slider-val" id="maxlodNewVal">-50</span>
+      </div>
+    </div>
+    <div class="control-group">
+      <label>Tolerance (bp)</label>
+      <div class="slider-row">
+        <input type="range" id="toleranceSlider" min="1" max="500" step="1" value="10">
+        <span class="slider-val" id="toleranceVal">10</span>
+      </div>
+    </div>
+    <button class="run" id="runBtn" disabled>Compare</button>
+  </div>
+
+  <!-- Placeholder -->
+  <div id="placeholder" class="placeholder">
+    <div class="big">&#8593;</div>
+    <div>Load two new-format bps files, then click Compare</div>
+  </div>
+
+  <!-- Results -->
+  <div id="results" class="hidden">
+    <div class="stats-row">
+      <div class="stat-card agree"><div class="val" id="agreeCount">0</div><div class="lbl">Agree (both found)</div></div>
+      <div class="stat-card a-only"><div class="val" id="oldOnlyCount">0</div><div class="lbl">A only</div></div>
+      <div class="stat-card b-only"><div class="val" id="newOnlyCount">0</div><div class="lbl">B only</div></div>
+    </div>
+    <div class="charts-grid">
+      <div class="chart-box"><h3>Agreement Breakdown</h3><canvas id="chartPie"></canvas></div>
+      <div class="chart-box"><h3>By Type</h3><canvas id="chartByType"></canvas></div>
+      <div class="chart-box"><h3>By Span Size (log-scale)</h3><canvas id="chartBySize"></canvas></div>
+      <div class="chart-box"><h3>By Confidence</h3><canvas id="chartByConf"></canvas></div>
+    </div>
+    <div class="detail-section">
+      <h3>Event Details</h3>
+      <div class="tabs" id="detailTabs"></div>
+      <div class="search-row">
+        <input type="text" id="searchInput" placeholder="Filter by chr, position, type...">
+        <span class="result-count" id="resultCount"></span>
+      </div>
+      <div class="table-wrap" id="detailTable"></div>
+
+      <!-- Full-row detail panel (click a row above) -->
+      <div class="detail-panel" id="rowDetailPanel">
+        <div class="detail-panel-header">
+          <span><strong>Row detail</strong> <span class="subtitle">— every field from bps.txt.gz</span></span>
+          <span class="subtitle" id="rowDetailSubtitle">click any row above</span>
+        </div>
+        <div class="detail-panel-body" id="rowDetailBody">
+          <div class="empty">Click a row in the table above to see every column from <code>bps.txt.gz</code> for that record.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Progress -->
+<div class="progress-overlay hidden" id="progressOverlay">
+  <div class="progress-box">
+    <div class="msg" id="progressMsg">Loading...</div>
+    <div class="progress-bar-outer"><div class="progress-bar-inner" id="progressBar"></div></div>
+  </div>
+</div>
+
+<script>
+// ── Data ──
+let oldCalls = [];
+let newCalls = [];
+let oldHeader = [];           // bps.txt header columns, side A
+let newHeader = [];           // bps.txt header columns, side B
+let currentTableData = [];
+let currentSortCol = -1;
+let currentSortAsc = true;
+
+// ── File I/O ──
+function setupUpload(boxId, inputId, nameId, countId, parser) {
+  const box = document.getElementById(boxId);
+  const input = document.getElementById(inputId);
+  const handler = (file) => {
+    if (!file) return;
+    document.getElementById(nameId).textContent = file.name;
+    document.getElementById(nameId).classList.remove('hidden');
+    readFile(file).then(text => {
+      const result = parser(text);
+      document.getElementById(countId).textContent = result.count + ' records';
+      document.getElementById(countId).classList.remove('hidden');
+      box.classList.add('loaded');
+      updateRunBtn();
+    });
+  };
+  input.addEventListener('change', e => handler(e.target.files[0]));
+  box.addEventListener('dragover', e => { e.preventDefault(); box.classList.add('dragover'); });
+  box.addEventListener('dragleave', () => box.classList.remove('dragover'));
+  box.addEventListener('drop', e => { e.preventDefault(); box.classList.remove('dragover'); handler(e.dataTransfer.files[0]); });
+}
+
+async function readFile(file) {
+  showProgress('Reading ' + file.name + '...');
+  const buf = await file.arrayBuffer();
+  const u8 = new Uint8Array(buf.slice(0, 2));
+  let text;
+  if (u8[0] === 0x1f && u8[1] === 0x8b) {
+    setProgress(30, 'Decompressing...');
+    text = pako.inflate(new Uint8Array(buf), { to: 'string' });
+  } else {
+    text = new TextDecoder().decode(buf);
+  }
+  setProgress(80, 'Parsing...');
+  hideProgress();
+  return text;
+}
+
+function showProgress(msg) { document.getElementById('progressOverlay').classList.remove('hidden'); document.getElementById('progressMsg').textContent = msg; setProgress(10); }
+function setProgress(pct, msg) { document.getElementById('progressBar').style.width = pct + '%'; if (msg) document.getElementById('progressMsg').textContent = msg; }
+function hideProgress() { document.getElementById('progressOverlay').classList.add('hidden'); }
+
+// ── Parsers ──
+const CANONICAL_CHROMS = new Set([
+  'chr1','chr2','chr3','chr4','chr5','chr6','chr7','chr8','chr9','chr10',
+  'chr11','chr12','chr13','chr14','chr15','chr16','chr17','chr18','chr19','chr20',
+  'chr21','chr22','chrX',
+  '1','2','3','4','5','6','7','8','9','10',
+  '11','12','13','14','15','16','17','18','19','20',
+  '21','22','X'
+]);
+
+function parseOld(text) {
+  // NOTE: in svaba_viewer_new_new.html this parses the NEW bps.txt format,
+  // but stores records in oldCalls so the existing comparison plumbing works.
+  const lines = text.trim().split('\n');
+  oldCalls = [];
+  const hdr = lines[0].replace(/^#/, '').split('\t');
+  oldHeader = hdr;
+  const ci = (name) => hdr.indexOf(name);
+  const iType = ci('type');
+  const iConf = ci('conf');
+  const iSomlod = ci('somlod');
+  const iQual = ci('qual');
+  const iSpan = ci('span');
+  const iContig = (ci('contig') >= 0 ? ci('contig') : (ci('cname') >= 0 ? ci('cname') : ci('contig_id')));
+  const iMaxLod = (ci('maxlod') >= 0 ? ci('maxlod') : (ci('max_lod') >= 0 ? ci('max_lod') : ci('lod_max')));
+
+  for (let i = 1; i < lines.length; i++) {
+    const cols = lines[i].split('\t');
+    if (cols.length < 10) continue;
+    if (!CANONICAL_CHROMS.has(cols[0]) || !CANONICAL_CHROMS.has(cols[3])) continue;
+    oldCalls.push({
+      chr1: cols[0], pos1: parseInt(cols[1]), strand1: cols[2],
+      chr2: cols[3], pos2: parseInt(cols[4]), strand2: cols[5],
+      // Populate new-format names AND the "evidence"/"confidence" aliases used by
+      // existing compare/chart plumbing, so filters work uniformly.
+      type: iType >= 0 ? cols[iType] : '',
+      conf: iConf >= 0 ? cols[iConf] : '',
+      evidence: iType >= 0 ? cols[iType] : '',
+      confidence: iConf >= 0 ? cols[iConf] : '',
+      somlod: iSomlod >= 0 ? parseFloat(cols[iSomlod]) : 0,
+      maxlod: iMaxLod >= 0 ? parseFloat(cols[iMaxLod]) : 0,
+      contig: iContig >= 0 ? cols[iContig] : '',
+      qual: iQual >= 0 ? parseInt(cols[iQual]) : 0,
+      span: iSpan >= 0 ? parseInt(cols[iSpan]) : 0,
+      _cols: cols,           // full raw bps.txt row for detail rendering
+      _side: 'A',
+    });
+  }
+  updateDynamicChecks(oldCalls, 'type', 'evidenceChecks', true);
+  updateDynamicChecks(oldCalls, 'conf', 'confChecksOld', false);
+  return { count: oldCalls.length };
+}
+
+function parseNew(text) {
+  const lines = text.trim().split('\n');
+  newCalls = [];
+  const hdr = lines[0].replace(/^#/, '').split('\t');
+  newHeader = hdr;
+  const ci = (name) => hdr.indexOf(name);
+  const iType = ci('type');
+  const iConf = ci('conf');
+  const iSomlod = ci('somlod');
+  const iQual = ci('qual');
+  const iSpan = ci('span');
+  const iContig = (ci('contig') >= 0 ? ci('contig') : (ci('cname') >= 0 ? ci('cname') : ci('contig_id')));
+  const iMaxLod = (ci('maxlod') >= 0 ? ci('maxlod') : (ci('max_lod') >= 0 ? ci('max_lod') : ci('lod_max')));
+
+  for (let i = 1; i < lines.length; i++) {
+    const cols = lines[i].split('\t');
+    if (cols.length < 10) continue;
+    if (!CANONICAL_CHROMS.has(cols[0]) || !CANONICAL_CHROMS.has(cols[3])) continue;
+    newCalls.push({
+      chr1: cols[0], pos1: parseInt(cols[1]), strand1: cols[2],
+      chr2: cols[3], pos2: parseInt(cols[4]), strand2: cols[5],
+      type: iType >= 0 ? cols[iType] : '',
+      conf: iConf >= 0 ? cols[iConf] : '',
+      somlod: iSomlod >= 0 ? parseFloat(cols[iSomlod]) : 0,
+      maxlod: iMaxLod >= 0 ? parseFloat(cols[iMaxLod]) : 0,
+      contig: iContig >= 0 ? cols[iContig] : '',
+      qual: iQual >= 0 ? parseInt(cols[iQual]) : 0,
+      span: iSpan >= 0 ? parseInt(cols[iSpan]) : 0,
+      _cols: cols,           // full raw bps.txt row for detail rendering
+      _side: 'B',
+    });
+  }
+  updateDynamicChecks(newCalls, 'type', 'typeChecks', true);
+  updateDynamicChecks(newCalls, 'conf', 'confChecksNew', false);
+  return { count: newCalls.length };
+}
+
+function updateDynamicChecks(records, field, containerId, allChecked) {
+  const vals = new Set(records.map(r => r[field] || '').filter(Boolean));
+  const el = document.getElementById(containerId);
+  el.innerHTML = '';
+  const passLike = new Set(['PASS']);
+  for (const v of [...vals].sort()) {
+    const checked = allChecked || passLike.has(v) ? 'checked' : '';
+    const lbl = document.createElement('label');
+    lbl.className = 'cb';
+    lbl.innerHTML = `<input type="checkbox" value="${v}" ${checked}> ${v}`;
+    el.appendChild(lbl);
+  }
+}
+
+function updateRunBtn() {
+  document.getElementById('runBtn').disabled = !(oldCalls.length > 0 && newCalls.length > 0);
+}
+
+setupUpload('oldBox', 'oldFile', 'oldName', 'oldCount', parseOld);
+setupUpload('newBox', 'newFile', 'newName', 'newCount', parseNew);
+
+// ── Slider wiring ──
+for (const [sid, vid] of [['somlodOldSlider','somlodOldVal'],['somlodNewSlider','somlodNewVal'],['maxlodOldSlider','maxlodOldVal'],['maxlodNewSlider','maxlodNewVal'],['toleranceSlider','toleranceVal']]) {
+  document.getElementById(sid).addEventListener('input', e => { document.getElementById(vid).textContent = e.target.value; });
+}
+
+// ── Helpers ──
+function getChecked(id) { return new Set([...document.querySelectorAll(`#${id} input:checked`)].map(c => c.value)); }
+
+function dedup(calls, dedup = 10) {
+  if (!calls.length) return calls;
+  const sorted = calls.map(c => ({ c, mn: Math.min(c.pos1, c.pos2), mx: Math.max(c.pos1, c.pos2) }));
+  sorted.sort((a, b) => {
+    if (a.c.chr1 !== b.c.chr1) return a.c.chr1 < b.c.chr1 ? -1 : 1;
+    if (a.mn !== b.mn) return a.mn - b.mn;
+    return a.mx - b.mx;
+  });
+  const kept = [sorted[0]];
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = kept[kept.length - 1], cur = sorted[i];
+    if (cur.c.chr1 === prev.c.chr1 && cur.c.chr2 === prev.c.chr2 &&
+        Math.abs(cur.mn - prev.mn) <= dedup && Math.abs(cur.mx - prev.mx) <= dedup) {
+      if ((cur.c.qual || 0) > (prev.c.qual || 0)) kept[kept.length - 1] = cur;
+    } else {
+      kept.push(cur);
+    }
+  }
+  return kept.map(k => k.c);
+}
+
+function filterOld() {
+  // New-format filter for side A
+  const ty = getChecked('evidenceChecks');
+  const conf = getChecked('confChecksOld');
+  const minLod = parseFloat(document.getElementById('somlodOldSlider').value);
+  const minMaxLod = parseFloat(document.getElementById('maxlodOldSlider').value);
+  return dedup(oldCalls.filter(c => ty.has(c.type) && conf.has(c.conf) && c.somlod >= minLod && (c.maxlod || 0) >= minMaxLod));
+}
+
+function filterNew() {
+  const ty = getChecked('typeChecks');
+  const conf = getChecked('confChecksNew');
+  const minLod = parseFloat(document.getElementById('somlodNewSlider').value);
+  const minMaxLod = parseFloat(document.getElementById('maxlodNewSlider').value);
+  return dedup(newCalls.filter(c => ty.has(c.type) && conf.has(c.conf) && c.somlod >= minLod && (c.maxlod || 0) >= minMaxLod));
+}
+
+// ── Matching: best-first, both breakends within tolerance ──
+function compareCalls(oldFiltered, newFiltered, tolerance) {
+  // Build spatial index on new calls by chr1
+  const newByChrom = {};
+  for (let i = 0; i < newFiltered.length; i++) {
+    const c = newFiltered[i];
+    if (!newByChrom[c.chr1]) newByChrom[c.chr1] = [];
+    newByChrom[c.chr1].push({ idx: i, mn: Math.min(c.pos1, c.pos2), mx: Math.max(c.pos1, c.pos2) });
+  }
+  for (const k in newByChrom) newByChrom[k].sort((a, b) => a.mn - b.mn);
+
+  // Collect all candidate pairs
+  const candidates = [];
+  for (let oi = 0; oi < oldFiltered.length; oi++) {
+    const o = oldFiltered[oi];
+    const oMn = Math.min(o.pos1, o.pos2), oMx = Math.max(o.pos1, o.pos2);
+    const bucket = newByChrom[o.chr1];
+    if (!bucket) continue;
+
+    // Binary search
+    let lo = 0, hi = bucket.length - 1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (bucket[mid].mn < oMn - tolerance) lo = mid + 1; else hi = mid - 1;
+    }
+    for (let j = Math.max(0, lo - 2); j < bucket.length; j++) {
+      const n = bucket[j];
+      if (n.mn > oMx + tolerance) break;
+      // Also require chr2 match
+      if (oldFiltered[oi].chr2 !== newFiltered[n.idx].chr2) continue;
+      const d1 = Math.abs(oMn - n.mn);
+      const d2 = Math.abs(oMx - n.mx);
+      const dist = Math.max(d1, d2);
+      if (dist <= tolerance) {
+        candidates.push({ oi, ni: n.idx, dist });
+      }
+    }
+  }
+
+  // Best-first greedy assignment
+  candidates.sort((a, b) => a.dist - b.dist);
+  const usedOld = new Set(), usedNew = new Set();
+  const agree = [], oldOnly = [], newOnly = [];
+
+  for (const c of candidates) {
+    if (usedOld.has(c.oi) || usedNew.has(c.ni)) continue;
+    usedOld.add(c.oi);
+    usedNew.add(c.ni);
+    agree.push({ old: oldFiltered[c.oi], new: newFiltered[c.ni], dist: c.dist });
+  }
+  for (let i = 0; i < oldFiltered.length; i++) {
+    if (!usedOld.has(i)) oldOnly.push(oldFiltered[i]);
+  }
+  for (let i = 0; i < newFiltered.length; i++) {
+    if (!usedNew.has(i)) newOnly.push(newFiltered[i]);
+  }
+  return { agree, oldOnly, newOnly };
+}
+
+// ── Charts ──
+const charts = {};
+function makeChart(id, config) { if (charts[id]) charts[id].destroy(); charts[id] = new Chart(document.getElementById(id), config); }
+Chart.defaults.color = '#8b8fa3';
+Chart.defaults.borderColor = '#2e3140';
+const C = { agree: 'rgba(74,222,128,0.8)', old: 'rgba(96,165,250,0.8)', new: 'rgba(168,85,247,0.8)' };
+
+function renderCharts(result) {
+  // Pie
+  makeChart('chartPie', {
+    type: 'doughnut',
+    data: {
+      labels: ['Agree', 'A only', 'B only'],
+      datasets: [{ data: [result.agree.length, result.oldOnly.length, result.newOnly.length], backgroundColor: [C.agree, C.old, C.new] }]
+    },
+    options: { responsive: true, plugins: { legend: { position: 'right' } } }
+  });
+
+  // By type (both sides are new format, so use type field for both)
+  const tyCounts = {};
+  for (const a of result.agree) {
+    const t = a.old.type || '?';
+    tyCounts[t] = (tyCounts[t] || { agree: 0, aOnly: 0, bOnly: 0 });
+    tyCounts[t].agree++;
+  }
+  for (const c of result.oldOnly) {
+    const t = c.type || '?';
+    tyCounts[t] = (tyCounts[t] || { agree: 0, aOnly: 0, bOnly: 0 });
+    tyCounts[t].aOnly++;
+  }
+  for (const c of result.newOnly) {
+    const t = c.type || '?';
+    tyCounts[t] = (tyCounts[t] || { agree: 0, aOnly: 0, bOnly: 0 });
+    tyCounts[t].bOnly++;
+  }
+
+  const typeLabels = Object.keys(tyCounts).sort();
+  const agreeByType = typeLabels.map(t => tyCounts[t].agree);
+  const aByType = typeLabels.map(t => tyCounts[t].aOnly);
+  const bByType = typeLabels.map(t => tyCounts[t].bOnly);
+
+  makeChart('chartByType', {
+    type: 'bar',
+    data: {
+      labels: typeLabels,
+      datasets: [
+        { label: 'Agree', data: agreeByType, backgroundColor: C.agree },
+        { label: 'A only', data: aByType, backgroundColor: C.old },
+        { label: 'B only', data: bByType, backgroundColor: C.new },
+      ]
+    },
+    options: { responsive: true, plugins: { legend: { position: 'top' } }, scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } } }
+  });
+
+  // By size bin
+  const sizeBins = ['1-10', '10-100', '100-1k', '1k-10k', '10k+'];
+  const binFn = (c) => {
+    const s = Math.abs(c.span || (Math.max(c.pos1,c.pos2) - Math.min(c.pos1,c.pos2)));
+    if (s <= 10) return 0; if (s <= 100) return 1; if (s <= 1000) return 2; if (s <= 10000) return 3; return 4;
+  };
+  const sAgree = [0,0,0,0,0], sOld = [0,0,0,0,0], sNew = [0,0,0,0,0];
+  for (const a of result.agree) sAgree[binFn(a.old)]++;
+  for (const c of result.oldOnly) sOld[binFn(c)]++;
+  for (const c of result.newOnly) sNew[binFn(c)]++;
+
+  makeChart('chartBySize', {
+    type: 'bar',
+    data: {
+      labels: sizeBins,
+      datasets: [
+        { label: 'Agree', data: sAgree, backgroundColor: C.agree },
+        { label: 'A only', data: sOld, backgroundColor: C.old },
+        { label: 'B only', data: sNew, backgroundColor: C.new },
+      ]
+    },
+    options: { responsive: true, plugins: { legend: { position: 'top' } }, scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } } }
+  });
+
+  // By confidence (both new format, so conf field for both)
+  const confLabels = new Set();
+  const confAgree = {}, confA = {}, confB = {};
+  for (const a of result.agree) {
+    const co = a.old.conf || '?';
+    confLabels.add(co);
+    confAgree[co] = (confAgree[co] || 0) + 1;
+  }
+  for (const c of result.oldOnly) { const co = c.conf || '?'; confLabels.add(co); confA[co] = (confA[co] || 0) + 1; }
+  for (const c of result.newOnly) { const co = c.conf || '?'; confLabels.add(co); confB[co] = (confB[co] || 0) + 1; }
+  const cLabels = [...confLabels].sort();
+
+  makeChart('chartByConf', {
+    type: 'bar',
+    data: {
+      labels: cLabels,
+      datasets: [
+        { label: 'Agree', data: cLabels.map(l => confAgree[l] || 0), backgroundColor: C.agree },
+        { label: 'A only', data: cLabels.map(l => confA[l] || 0), backgroundColor: C.old },
+        { label: 'B only', data: cLabels.map(l => confB[l] || 0), backgroundColor: C.new },
+      ]
+    },
+    options: { responsive: true, plugins: { legend: { position: 'top' } }, scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } } }
+  });
+}
+
+// ── Table rendering ──
+const TABLE_COLS_AGREE = ['chr1','pos1','strand1','chr2','pos2','strand2','span_A','type_A','conf_A','somlod_A','maxlod_A','qual_A','type_B','conf_B','somlod_B','maxlod_B','qual_B','contig','dist'];
+const TABLE_COLS_OLD = ['chr1','pos1','strand1','chr2','pos2','strand2','span','type','conf','somlod','maxlod','qual','contig'];
+const TABLE_COLS_NEW = ['chr1','pos1','strand1','chr2','pos2','strand2','span','type','conf','somlod','maxlod','qual','contig'];
+
+const _fmtLod = v => (v === undefined || v === null || isNaN(v)) ? '' : (+v).toFixed(2);
+
+function buildRow(item, category) {
+  if (category === 'agree') {
+    const a = item.old, b = item.new;
+    return {
+      chr1: a.chr1, pos1: a.pos1, strand1: a.strand1, chr2: a.chr2, pos2: a.pos2, strand2: a.strand2,
+      span_A: a.span,
+      type_A: a.type, conf_A: a.conf, somlod_A: _fmtLod(a.somlod), maxlod_A: _fmtLod(a.maxlod), qual_A: a.qual,
+      type_B: b.type, conf_B: b.conf, somlod_B: _fmtLod(b.somlod), maxlod_B: _fmtLod(b.maxlod), qual_B: b.qual,
+      contig: a.contig || b.contig || '',
+      dist: item.dist,
+      _search: `${a.chr1} ${a.pos1} ${a.pos2} ${a.type} ${a.conf} ${b.type} ${b.conf} ${a.contig || ''} ${b.contig || ''}`.toLowerCase(),
+      _cat: 'agree',
+      _recA: a,       // full record (includes _cols + _side)
+      _recB: b
+    };
+  } else {
+    const c = item;
+    return {
+      chr1: c.chr1, pos1: c.pos1, strand1: c.strand1, chr2: c.chr2, pos2: c.pos2, strand2: c.strand2,
+      span: c.span, type: c.type, conf: c.conf, somlod: _fmtLod(c.somlod), maxlod: _fmtLod(c.maxlod),
+      qual: c.qual, contig: c.contig || '',
+      _search: `${c.chr1} ${c.pos1} ${c.pos2} ${c.type} ${c.conf} ${c.contig || ''}`.toLowerCase(),
+      _cat: category,
+      _recA: c._side === 'A' ? c : null,
+      _recB: c._side === 'B' ? c : null
+    };
+  }
+}
+
+// =========================================================================
+// Full-row detail panel — renders every bps.txt column for the clicked row.
+// Mirrors the alignments_viewer.html detail style:
+//   - FORMAT key panel (SV/INDEL FORMAT strings + per-field definitions)
+//   - vertical key→value table with sample columns highlighted
+//   - FORMAT-aware tooltip on each sample cell
+// For "Agree" rows we render A and B side by side and diff-highlight any
+// field whose values differ.
+// =========================================================================
+const SV_FORMAT    = "GT:AD:DP:SR:DR:GQ:PL:LO:LO_n";
+const INDEL_FORMAT = "GT:AD:DP:SR:CR:GQ:PL:LO:LO_n";
+const FORMAT_KEY = {
+  GT:    "Genotype",
+  AD:    "Allele depth (alt-supporting reads)",
+  DP:    "Total read depth",
+  SR:    "Split-read alt support",
+  DR:    "Discordant read pair alt support (SVs)",
+  CR:    "Cigar-derived alt support (indels)",
+  GQ:    "Genotype quality (phred)",
+  PL:    "Phred-scaled likelihoods (0/0,0/1,1/1)",
+  LO:    "Per-sample LOD (variant vs error)",
+  LO_n:  "Per-sample normalized LOD",
+};
+function _formatForType(type) {
+  return (type === "INDEL") ? INDEL_FORMAT : SV_FORMAT;
+}
+function _isSampleHeader(h) {
+  if (!h) return false;
+  if (/^[a-z]\d{3}[_.-]/.test(h)) return true;
+  if (/\.bam$/i.test(h)) return true;
+  if (/[\\/]/.test(h)) return true;
+  return false;
+}
+function _escape(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  }[c]));
+}
+function _sampleTooltip(raw, typeVal) {
+  const fmtForRow = _formatForType(typeVal);
+  const fmtParts  = fmtForRow.split(':');
+  const parts = String(raw ?? '').split(':');
+  const tip = parts.map((p, k) => {
+    const key = fmtParts[k] || `f${k+1}`;
+    const desc = FORMAT_KEY[key] || '';
+    return `${key}=${p}${desc?'  ('+desc+')':''}`;
+  }).join('\n');
+  return `FORMAT (${typeVal||'?'}): ${fmtForRow}\n\n${tip}`;
+}
+
+function _formatKeyPanelHtml() {
+  return `<div class="format-key">
+    <div class="fk-title">Per-sample column FORMAT</div>
+    <div class="fk-row"><span class="fk-tag fk-sv">SV</span> <code>${SV_FORMAT}</code></div>
+    <div class="fk-row"><span class="fk-tag fk-indel">INDEL</span> <code>${INDEL_FORMAT}</code></div>
+    <div class="fk-defs">${
+      Object.entries(FORMAT_KEY).map(([k,v]) =>
+        `<span class="fk-def"><code>${k}</code>=${_escape(v)}</span>`).join('')
+    }</div>
+  </div>`;
+}
+
+function renderRowDetail(row) {
+  const body = document.getElementById('rowDetailBody');
+  const subtitle = document.getElementById('rowDetailSubtitle');
+  if (!row) {
+    body.innerHTML = `<div class="empty">Click a row in the table above to see every column from <code>bps.txt.gz</code> for that record.</div>`;
+    subtitle.textContent = 'click any row above';
+    return;
+  }
+
+  const recA = row._recA;
+  const recB = row._recB;
+  const hasA = recA && recA._cols;
+  const hasB = recB && recB._cols;
+
+  // Unify the columns to walk. For agree rows, walk the union of both headers
+  // aligned by index (they should match, but we fall back if not).
+  const headers = hasA ? oldHeader : (hasB ? newHeader : []);
+  const altHeaders = (hasA && hasB) ? newHeader : [];
+
+  if (!headers.length) {
+    body.innerHTML = `<div class="empty">This row has no raw bps.txt data attached.</div>`;
+    return;
+  }
+
+  const typeA = hasA ? (recA.type || '') : '';
+  const typeB = hasB ? (recB.type || '') : '';
+
+  // Subtitle: location + category
+  const loc = `${row.chr1}:${row.pos1} ${row.strand1 || ''} ↔ ${row.chr2}:${row.pos2} ${row.strand2 || ''}`;
+  const catLabel = row._cat === 'agree' ? 'Agree (A & B)'
+                 : row._cat === 'oldOnly' ? 'A only'
+                 : 'B only';
+  subtitle.textContent = `${catLabel} · ${loc}`;
+
+  let html = _formatKeyPanelHtml();
+  html += '<table class="detail-kv"><tbody>';
+
+  const bothSides = hasA && hasB;
+  const maxCols = Math.max(
+    hasA ? Math.max(headers.length, recA._cols.length) : 0,
+    hasB ? Math.max((altHeaders.length || headers.length), recB._cols.length) : 0
+  );
+
+  for (let i = 0; i < maxCols; i++) {
+    const hA = hasA ? (headers[i] || `col${i+1}`) : '';
+    const hB = hasB ? ((altHeaders[i] || headers[i]) || `col${i+1}`) : '';
+    const keyLabel = hA || hB || `col${i+1}`;
+    const isSample = _isSampleHeader(keyLabel);
+
+    const vA = hasA ? (recA._cols[i] ?? '') : '';
+    const vB = hasB ? (recB._cols[i] ?? '') : '';
+
+    const trClass = isSample ? 'sample-row' : '';
+    html += `<tr class="${trClass}">`;
+    html += `<td class="kv-key">${_escape(keyLabel)}</td>`;
+
+    if (bothSides) {
+      const diff = (vA !== vB) ? ' diff' : '';
+      const tipA = isSample ? ` title="${_escape(_sampleTooltip(vA, typeA))}"` : '';
+      const tipB = isSample ? ` title="${_escape(_sampleTooltip(vB, typeB))}"` : '';
+      html += `<td class="kv-val kv-val-a${diff}"${tipA}>` +
+              `<span class="side-label side-a">A</span>${_escape(vA)}</td>`;
+      html += `<td class="kv-val kv-val-b${diff}"${tipB}>` +
+              `<span class="side-label side-b">B</span>${_escape(vB)}</td>`;
+    } else if (hasA) {
+      const tipA = isSample ? ` title="${_escape(_sampleTooltip(vA, typeA))}"` : '';
+      html += `<td class="kv-val" colspan="2"${tipA}>${_escape(vA)}</td>`;
+    } else {
+      const tipB = isSample ? ` title="${_escape(_sampleTooltip(vB, typeB))}"` : '';
+      html += `<td class="kv-val" colspan="2"${tipB}>${_escape(vB)}</td>`;
+    }
+    html += '</tr>';
+  }
+
+  html += '</tbody></table>';
+  body.innerHTML = html;
+}
+
+function renderTable(rows, cols, rowClass) {
+  const query = document.getElementById('searchInput').value.toLowerCase().trim();
+  let filtered = query ? rows.filter(r => r._search.includes(query)) : rows;
+  document.getElementById('resultCount').textContent = `${filtered.length} of ${rows.length} events`;
+
+  // Sort
+  if (currentSortCol >= 0 && currentSortCol < cols.length) {
+    const key = cols[currentSortCol];
+    filtered = [...filtered].sort((a, b) => {
+      let va = a[key], vb = b[key];
+      const na = parseFloat(va), nb = parseFloat(vb);
+      if (!isNaN(na) && !isNaN(nb)) { va = na; vb = nb; }
+      if (va < vb) return currentSortAsc ? -1 : 1;
+      if (va > vb) return currentSortAsc ? 1 : -1;
+      return 0;
+    });
+  }
+
+  const max = 1000;
+  const show = filtered.slice(0, max);
+  let html = '<table><thead><tr>';
+  for (let i = 0; i < cols.length; i++) {
+    const arrow = currentSortCol === i ? (currentSortAsc ? ' &#9650;' : ' &#9660;') : '';
+    html += `<th data-col="${i}">${cols[i]}<span class="sort-arrow">${arrow}</span></th>`;
+  }
+  html += '</tr></thead><tbody>';
+  for (let ri = 0; ri < show.length; ri++) {
+    html += `<tr class="${rowClass}" data-row-idx="${ri}">`;
+    for (const c of cols) html += `<td>${show[ri][c] ?? ''}</td>`;
+    html += '</tr>';
+  }
+  if (filtered.length > max) html += `<tr><td colspan="${cols.length}" style="text-align:center;color:var(--text2)">... ${filtered.length - max} more</td></tr>`;
+  html += '</tbody></table>';
+  document.getElementById('detailTable').innerHTML = html;
+
+  // Wire sort clicks
+  document.querySelectorAll('#detailTable th').forEach(th => {
+    th.addEventListener('click', () => {
+      const col = parseInt(th.dataset.col);
+      if (currentSortCol === col) currentSortAsc = !currentSortAsc;
+      else { currentSortCol = col; currentSortAsc = true; }
+      renderTable(rows, cols, rowClass);
+    });
+  });
+
+  // Wire row clicks → populate the row-detail panel with every bps.txt field.
+  // Ignore clicks that land on a live text-selection so users can still
+  // select/copy cell values without accidentally triggering a detail render.
+  document.querySelectorAll('#detailTable tbody tr[data-row-idx]').forEach(tr => {
+    tr.addEventListener('click', () => {
+      const sel = window.getSelection();
+      if (sel && sel.toString().length > 0 && tr.contains(sel.anchorNode)) return;
+      const ri = parseInt(tr.dataset.rowIdx);
+      document.querySelectorAll('#detailTable tbody tr.selected').forEach(x => x.classList.remove('selected'));
+      tr.classList.add('selected');
+      renderRowDetail(show[ri]);
+    });
+  });
+}
+
+let activeTabData = null;
+function renderDetailTabs(result) {
+  const tabsEl = document.getElementById('detailTabs');
+  tabsEl.innerHTML = '';
+  const entries = [
+    { label: `Agree (${result.agree.length})`, items: result.agree, cat: 'agree', cols: TABLE_COLS_AGREE, cls: 'agree-row' },
+    { label: `A only (${result.oldOnly.length})`, items: result.oldOnly, cat: 'oldOnly', cols: TABLE_COLS_OLD, cls: 'a-only-row' },
+    { label: `B only (${result.newOnly.length})`, items: result.newOnly, cat: 'newOnly', cols: TABLE_COLS_NEW, cls: 'b-only-row' },
+  ];
+
+  entries.forEach((entry, i) => {
+    const btn = document.createElement('button');
+    btn.className = 'tab' + (i === 0 ? ' active' : '');
+    btn.textContent = entry.label;
+    btn.onclick = () => {
+      tabsEl.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      btn.classList.add('active');
+      currentSortCol = -1; currentSortAsc = true;
+      const rows = entry.items.map(item => buildRow(item, entry.cat));
+      activeTabData = { rows, cols: entry.cols, cls: entry.cls };
+      renderTable(rows, entry.cols, entry.cls);
+      renderRowDetail(null);
+    };
+    tabsEl.appendChild(btn);
+  });
+
+  // Show first tab
+  if (entries.length > 0) {
+    const rows = entries[0].items.map(item => buildRow(item, entries[0].cat));
+    activeTabData = { rows, cols: entries[0].cols, cls: entries[0].cls };
+    renderTable(rows, entries[0].cols, entries[0].cls);
+  }
+}
+
+// Re-filter table on search input
+document.getElementById('searchInput').addEventListener('input', () => {
+  if (activeTabData) renderTable(activeTabData.rows, activeTabData.cols, activeTabData.cls);
+});
+
+// ── Main ──
+document.getElementById('runBtn').addEventListener('click', () => {
+  showProgress('Filtering & deduplicating...');
+  setTimeout(() => {
+    const tolerance = parseInt(document.getElementById('toleranceSlider').value);
+    setProgress(20, 'Filtering old calls...');
+    const of = filterOld();
+    setProgress(40, 'Filtering new calls...');
+    const nf = filterNew();
+    setProgress(60, 'Comparing...');
+    const result = compareCalls(of, nf, tolerance);
+
+    document.getElementById('placeholder').classList.add('hidden');
+    document.getElementById('results').classList.remove('hidden');
+    document.getElementById('agreeCount').textContent = result.agree.length;
+    document.getElementById('oldOnlyCount').textContent = result.oldOnly.length;
+    document.getElementById('newOnlyCount').textContent = result.newOnly.length;
+
+    setProgress(80, 'Rendering charts...');
+    renderCharts(result);
+    renderDetailTabs(result);
+    renderRowDetail(null);
+    hideProgress();
+  }, 50);
+});
+</script>
+</body>
+</html>
