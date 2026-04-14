@@ -89,16 +89,80 @@ void SvabaOutputWriter::init(const string& analysis_id,
 void SvabaOutputWriter::writeUnit(svabaThreadUnit& unit,
 				  SvabaSharedConfig& sc) {
 
+  // SvABA2.0: stamp a comma-joined aux tag on any record whose
+  // UniqueName (svabaRead) or Qname (bwa-aligned corrected record)
+  // appears in one of the thread-unit maps. The svabaRead pointer
+  // path already tagged weird/discordant records during the r2c and
+  // BP-finalization passes, but the corrected records are newly-
+  // aligned by bwa and need tagging here. We apply uniformly so the
+  // tag is present in every tagged BAM.
+  //
+  //   bi:Z — alt-variant supporting contigs (subset)
+  //   bz:Z — all contigs this read aligned to (superset)
+  //
+  // A read can appear in both maps with different cname lists (e.g.
+  // aligned to two contigs but only supporting a variant on one).
+  auto stamp_tag = [&](auto& rec, const char* tag,
+                       const std::unordered_map<std::string,std::string>& m,
+                       const std::string& key) {
+    auto it = m.find(key);
+    if (it == m.end() || it->second.empty()) return;
+    std::string cur;
+    rec.GetZTag(tag, cur);
+    const std::string& to_add = it->second;
+    if (cur.empty()) {
+      rec.AddZTag(tag, to_add);
+      return;
+    }
+    // boundary-aware merge/dedupe
+    std::string merged = cur;
+    size_t s = 0;
+    while (s <= to_add.size()) {
+      size_t e = to_add.find(',', s);
+      if (e == std::string::npos) e = to_add.size();
+      std::string tok = to_add.substr(s, e - s);
+      if (!tok.empty()) {
+        bool present = false;
+        size_t pos = 0;
+        while ((pos = merged.find(tok, pos)) != std::string::npos) {
+          const bool left_ok  = (pos == 0) || merged[pos-1] == ',';
+          const bool right_ok = (pos + tok.size() == merged.size()) ||
+                                 merged[pos + tok.size()] == ',';
+          if (left_ok && right_ok) { present = true; break; }
+          pos += tok.size();
+        }
+        if (!present) merged += "," + tok;
+      }
+      if (e == to_add.size()) break;
+      s = e + 1;
+    }
+    if (merged != cur) {
+      rec.RemoveTag(tag);
+      rec.AddZTag(tag, merged);
+    }
+  };
+  auto stamp_bi = [&](auto& rec, const std::string& key) {
+    stamp_tag(rec, "bi", unit.alt_cnames_by_name, key);
+  };
+  auto stamp_bz = [&](auto& rec, const std::string& key) {
+    stamp_tag(rec, "bz", unit.all_cnames_by_name, key);
+  };
+
   // write the weird reads
   if (sc.opts.dump_weird_reads) {
-    
+
     auto it = unit.writers.find("w");
     if (it == unit.writers.end()) {
       std::cerr << " BAM writer for weird reads not found" << std::endl;
       exit(EXIT_FAILURE);
     }
-    
+
     for (const auto& r : unit.all_weird_reads) {
+
+      // stamp bi:Z / bz:Z BEFORE SetQname, while UniqueName is still
+      // the map key we indexed under
+      stamp_bi(*r, r->UniqueName());
+      stamp_bz(*r, r->UniqueName());
 
       // switch out the qname so it indicates also which BAM it was from
       r->SetQname(r->UniqueName());
@@ -117,9 +181,13 @@ void SvabaOutputWriter::writeUnit(svabaThreadUnit& unit,
     if (it == unit.writers.end()) {
       std::cerr << " BAM writer for discordant reads not found" << std::endl;
     }
-    
+
     for (const auto& r : unit.all_weird_reads) {
       if (r->dd > 0) {
+
+	// stamp bi:Z / bz:Z before qname mangling
+	stamp_bi(*r, r->UniqueName());
+	stamp_bz(*r, r->UniqueName());
 
 	// switch out the qname so it indicates also which BAM it was from
 	r->SetQname(r->UniqueName());
@@ -134,7 +202,7 @@ void SvabaOutputWriter::writeUnit(svabaThreadUnit& unit,
     }
 
   }
-  
+
   // write the corrected reads
   if (sc.opts.dump_corrected_reads) {
     auto it = unit.writers.find("c");
@@ -143,15 +211,21 @@ void SvabaOutputWriter::writeUnit(svabaThreadUnit& unit,
 	" that is not in the weird read writers\n";
       exit(EXIT_FAILURE);
     }
-    
+
     for (const auto& r : unit.all_corrected_reads) {
+      // corrected records are bwa-aligned BamRecords whose Qname was
+      // set to the original svabaRead UniqueName at alignSequence()
+      // time. That's the key both maps are indexed by.
+      stamp_bi(*r, r->Qname());
+      stamp_bz(*r, r->Qname());
+
       r->RemoveTag("RG");
       r->RemoveTag("PG");
       bool ok = it->second->WriteRecord(*r);
       if (!ok)
 	std::cerr << "...unable to write corrected read record" << std::endl;
     }
-  }    
+  }
   lock_guard<mutex> guard(writeMutex_); // lock the writers
   
   sc.total_regions_done += unit.processed_since_memory_dump;

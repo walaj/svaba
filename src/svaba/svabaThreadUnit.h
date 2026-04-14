@@ -3,6 +3,7 @@
 #include <sstream>
 #include <map>
 #include <memory>
+#include <unordered_map>
 #include <vector>
 #include <mutex>
 
@@ -55,6 +56,32 @@ public:
   //size_t                                     m_disc_reads     = 0;
   //SeqLib::GRC                                badd; // bad regions
   int                                        threadId;
+
+  // SvABA2.0: map from read UniqueName -> comma-separated list of
+  // contig cnames this read supports as ALT. Populated at BP
+  // finalization so `SvabaOutputWriter::writeUnit` can stamp the
+  // `bi:Z:<cname>` BAM aux tag on records in `all_corrected_reads`
+  // (which are *newly aligned* BamRecords produced by bwa, so they
+  // don't share identity with the original svabaRead pointers and
+  // couldn't have been tagged via pointer). The same map is used to
+  // (re)tag weird and discordant records at write time for
+  // consistency. cname is a deterministic identifier coming from the
+  // assembly window and is stable across runs (unlike a per-thread
+  // minted counter), so `samtools view | grep bi:Z:<cname>` pulls all
+  // ALT support for a given contig's variants.
+  std::unordered_map<std::string, std::string> alt_cnames_by_name;
+
+  // SvABA2.0: map from read UniqueName -> comma-separated list of
+  // contig cnames this read aligned to (r2c), regardless of whether
+  // the alignment ended up supporting a variant. Populated inside the
+  // r2c alignment loop in SvabaRegionProcessor right alongside
+  // `svabaRead::AddR2C(...)`, and consumed at write time by
+  // `SvabaOutputWriter::writeUnit` to stamp the `bz:Z:<cname>` aux
+  // tag. This is strictly a superset of `alt_cnames_by_name` — any
+  // read with `bi:Z` will also have `bz:Z` (not necessarily the same
+  // cname list, since a read can align to a contig yet not support a
+  // variant on it).
+  std::unordered_map<std::string, std::string> all_cnames_by_name;
 
   // very verbose outpout
   svabaReadPtrVector                            all_weird_reads;

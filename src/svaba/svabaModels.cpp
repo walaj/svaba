@@ -134,61 +134,100 @@ static inline double SomaticLOD_withSplitErrors(double aN, double dN, double aT,
     // =========================
     const double f_het = std::clamp(0.5, epsilon, 1.0 - epsilon);
     const double f_hom = std::clamp(1.0, epsilon, 1.0 - epsilon);
+    // Upper edge of "looks like a low-level artifact" VAF band. Anything
+    // above this is either heterozygous (~0.5), homozygous (~1.0), or
+    // an LOH-shifted germline event -- not a low-VAF shared artifact.
+    const double germ_plausible_floor = 0.15;
     
 // =========================================================================
     // GERM_shared: pooled-MLE allele fraction across N+T.
     //
-    // We do NOT gate this branch on raw counts (e.g. `aN >= 2`). In a high-
-    // artifact region, 2-3 normal alt reads can be perfectly genuine artifact,
-    // and shutting GERM_shared off in that regime is the bug that inflates
-    // somlod for things like  aN=2/dN=68  vs  aT=16/dT=151  in repeat tracts.
+    // Design goals:
+    //   - aN = 0 (clean normal)  -> GERM_shared must be held back so that a
+    //                               low-VAF tumor signal can win as somatic.
+    //   - aN = 1-2 in a clean normal  -> GERM_shared should compete strongly,
+    //                                    because a shared low-VAF artifact is
+    //                                    exactly what that data looks like.
+    //   - aN >= ~3  -> GERM_shared dominates normally; shared artifact or
+    //                  real (possibly LOH) germline event explains the data.
     //
-    // Instead, suppress GERM_shared only when *both* of the following hold:
-    //   (a) the pooled MLE f_shared sits below the "germline-plausible" band,
-    //       AND
-    //   (b) the normal contributes essentially no evidence for any nonzero f,
-    //       i.e. fitting the normal's own MLE barely improves on f=0
-    //       (normal_evidence < ~1 log10  ==  less than ~10x likelihood gain).
+    // We use TWO shaping knobs on top of the raw pooled-MLE log-likelihood:
     //
-    // If either (a) is false (shared looks germline-y -> could be LOH), or (b)
-    // is false (normal does have real alt-supporting evidence -> shared could
-    // be artifact-in-both), then GERM_shared is allowed to compete and rescue
-    // the call from a spurious somlod.
+    //   (1) "Cleanliness" penalty:  a decaying function of aN relative to
+    //       expected errors in the normal (dN * eN_fwd). Near-maximum penalty
+    //       when the normal looks clean (aN at or below the error floor),
+    //       drops off steeply as excess normal alt reads accumulate.
     //
-    // We also let f_shared_hat float to its true MLE (no 0.15 floor). The old
-    // `clamp(..., 0.15, ...)` turned the "free-MLE" branch into a "germline-
-    // only-MLE" branch, which is exactly what we don't want when explaining
-    // low-VAF shared signal.
+    //   (2) VAF similarity bonus:  when the normal does have real alt
+    //       evidence, *matching* VAFs between normal and tumor are a strong
+    //       "shared" fingerprint. Gated by (1 - cleanliness) so this bonus
+    //       only fires once the normal actually has signal -- this prevents
+    //       accidentally penalizing low-VAF-tumor somatic calls where the
+    //       VAF-ratio would be noisy and meaningless.
+    //
+    // f_shared_hat floats to the true pooled MLE (no 0.15 floor). The old
+    // clamp turned the "free-MLE" branch into a "germline-only-MLE" branch,
+    // which is exactly what we don't want when explaining low-VAF shared
+    // signal.
     // =========================================================================
 
     // Pooled MLE across both samples, free to land anywhere in (0,1).
     const double f_shared_hat_raw = (aN + aT) / (dN_safe + dT_safe);
     const double f_shared_hat     = std::clamp(f_shared_hat_raw, epsilon, 1.0 - epsilon);
 
-    // Threshold below which an AF is not plausibly germline (het ~0.5,
-    // hom ~1.0, with some slack for LOH-driven shifts in tumor). This is a
-    // statement about *what germline AFs look like*, not about counts.
-    const double germ_plausible_floor = 0.15;
-    const bool   shared_in_germline_band = (f_shared_hat >= germ_plausible_floor);
+    // Start with the raw pooled-MLE log-likelihood -- never -inf, always let
+    // GERM_shared compete; shaping below decides how strongly.
+    double ll_germ_shared = LL_N(dN_safe, aN, f_shared_hat)
+                          + LL_T(dT_safe, aT, f_shared_hat);
 
-    // Normal-side MLE and "evidence for any nonzero f" in log10. This is the
-    // error-rate-aware replacement for the old `aN >= 2` count gate -- in a
-    // high-artifact region (large eN_fwd), normal_evidence stays small even
-    // for aN=2 or 3, because those reads are well explained as errors.
-    const double f_n_mle = std::clamp(aN / dN_safe, epsilon, 1.0 - epsilon);
-    const double normal_evidence =
-        LL_N(dN_safe, aN, f_n_mle) - LL_N(dN_safe, aN, 0.0);
-    const double normal_evidence_threshold = 1.0;  // log10  (~10x likelihood)
-    const bool   normal_has_real_signal = (normal_evidence >= normal_evidence_threshold);
+    // ----- (1) cleanliness penalty on GERM_shared -----------------------------
+    // Expected normal alt count under pure forward error at the (capped)
+    // normal error rate. Anything at or below this is indistinguishable from
+    // a clean normal.
+    const double expected_errors_N = dN_safe * eN_fwd;
+    const double excess_alt_N      = std::max(0.0, aN - expected_errors_N);
+    // Steep exponential decay: coefficient=3 means a single excess alt read
+    // already drops cleanliness by ~20x. At dN=79, eN_fwd=0.005:
+    //   aN=0 -> cleanliness=1.00  (full hold-back, clean somatic wins)
+    //   aN=1 -> cleanliness~0.16  (penalty already mostly gone)
+    //   aN=2 -> cleanliness~0.008 (essentially no hold-back)
+    // This is the "even 1-2 normal alt reads should steeply consider shared"
+    // behavior from the design discussion.
+    const double kCleanDecay   = 3.0;
+    const double cleanliness   = std::exp(-kCleanDecay * excess_alt_N);
 
-    double ll_germ_shared = -std::numeric_limits<double>::infinity();
-    if (shared_in_germline_band || normal_has_real_signal) {
-        ll_germ_shared = LL_N(dN_safe, aN, f_shared_hat)
-                       + LL_T(dT_safe, aT, f_shared_hat);
+    // Max hold-back magnitude at aN=0.
+    const double kCleanPenalty = 2.0;
+    ll_germ_shared -= kCleanPenalty * cleanliness;
+
+    // ----- (2) VAF similarity bonus --------------------------------------------
+    // Matching tumor/normal VAFs are the fingerprint of a shared artifact or
+    // a shared (possibly LOH-shifted) germline event. Gated by (1-cleanliness)
+    // so this bonus only really fires once the normal has alt evidence --
+    // otherwise the ratio is dominated by numerical epsilons.
+    const double f_n_hat = std::clamp(aN / dN_safe, epsilon, 1.0 - epsilon);
+    const double f_t_hat = fT_hat;
+    const double ratio   = (std::max(f_n_hat, f_t_hat) > 0.0)
+                         ? std::min(f_n_hat, f_t_hat) / std::max(f_n_hat, f_t_hat)
+                         : 0.0;
+    const double sim_weight = 1.0 - cleanliness;     // ~0 at aN=0, ~1 at aN>=2
+    const double kSimBonus  = 3.0;                   // log10
+    ll_germ_shared += sim_weight * ratio * kSimBonus;
+
+    // ----- (3) "both samples low VAF" shared-artifact bonus --------------------
+    // If both normal and tumor carry nonzero alt evidence AND both VAFs sit
+    // below the germline-plausible band, that is the canonical signature of a
+    // low-level shared artifact (repeat tract, low-complexity region, etc).
+    // We add a bonus proportional to how similar the two VAFs are. This is
+    // independent of (2) -- (2) rewards *matching*, (3) rewards *both-low*.
+    const double low_vaf_cutoff = germ_plausible_floor; // 0.15
+    const bool both_nonzero_alt = (aN > 0.0) && (aT > 0.0);
+    const bool both_low_vaf     = (f_n_hat < low_vaf_cutoff) &&
+                                  (f_t_hat < low_vaf_cutoff);
+    if (both_nonzero_alt && both_low_vaf) {
+        const double kSharedLowVafBonus = 2.0; // log10
+        ll_germ_shared += kSharedLowVafBonus * ratio;
     }
-    // Else: pure low-AF somatic with no real normal signal -> GERM_shared
-    // stays at -inf and the somatic branch wins on its own merits, just as
-    // intended for clean somatic calls.
     
     // other model options (germline het, germline homozygous, germline artifact)
     double ll_germ_het    = LL_N(dN_safe, aN, f_het)        + LL_T(dT_safe, aT, f_het);
@@ -223,6 +262,14 @@ static inline double SomaticLOD_withSplitErrors(double aN, double dN, double aT,
             << " fT_hat_raw=" << fT_hat_raw << " fT_hat=" << fT_hat
             << " f_art=" << f_art
             << " f_shared_raw=" << f_shared_hat_raw << " f_shared=" << f_shared_hat
+            << " expN_err=" << expected_errors_N << " excessN=" << excess_alt_N
+            << " cleanliness=" << cleanliness
+            << " clean_penalty=" << (kCleanPenalty * cleanliness)
+            << " f_n_hat=" << f_n_hat << " f_t_hat=" << f_t_hat
+            << " ratio=" << ratio << " sim_weight=" << sim_weight
+            << " sim_bonus=" << (sim_weight * ratio * kSimBonus)
+            << " both_low=" << (both_nonzero_alt && both_low_vaf ? 1 : 0)
+            << " low_vaf_bonus=" << ((both_nonzero_alt && both_low_vaf) ? (2.0 * ratio) : 0.0)
             << " || SOM_TRUE(N,T,sum)=(" << llN_som_true << "," << llT_som_true << "," << ll_som_true << ")"
             << " SOM_ART(N,T,sum)=("     << llN_som_art  << "," << llT_som_art  << "," << ll_som_art  << ")"
             << " SOM=" << ll_som << " [" << som_branch << "]"

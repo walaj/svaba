@@ -150,7 +150,7 @@ public:
   }
   
   SomaticState somatic = SomaticState::NOTSET;
-  
+
   std::string seq, cname, rs,
     insertion, homology, repeat_seq,
     confidence, ref, alt;
@@ -175,6 +175,30 @@ public:
   int secondary = -1; // is this a secondary
   int pass = -1;      //false;
   int num_align = 0;  // number of alignments for contigs that generated this
+
+  // SvABA2.0: for indels only, track whether the underlying AlignmentFragment
+  // had its contig sequence flipped (i.e. the primary contig alignment is on
+  // the reverse strand of the genome). b1.cpos / b2.cpos are computed from
+  // the un-flipped BAM CIGAR (so they are BAM/genome-forward coordinates),
+  // but m_seq in the AlignedContig and the read-to-contig positions from the
+  // r2c BWA index are both in assembly-native orientation. When flipped is
+  // true, these two coordinate systems are mirror images and we must convert
+  // cpos to m_seq coordinates before comparing with r2c positions or
+  // rendering onto m_seq. Use cpos_on_m_seq() below to get the converted
+  // (b1, b2) pair.
+  int  contig_len        = 0;
+  bool flipped_on_contig = false;
+
+  // Return (b1.cpos, b2.cpos) converted to m_seq / r2c (assembly-native)
+  // orientation. When flipped_on_contig is false this is the identity.
+  // When flipped, the coordinate system reverses and the "before" / "after"
+  // sense of an indel swaps, so we mirror AND swap.
+  std::pair<int,int> cpos_on_m_seq() const {
+    if (!flipped_on_contig || contig_len <= 0)
+      return {b1.cpos, b2.cpos};
+    const int L = contig_len;
+    return {L - 1 - b2.cpos, L - 1 - b1.cpos};
+  }
   
   double LO_s = 0; // log odds of variant being somatic (see svabaModels.cpp - SomaticLOD)
   double max_lod = 0; // the highest LOD across all samples

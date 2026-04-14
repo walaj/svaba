@@ -314,15 +314,21 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
     }
     
     // retrieve the corrected sequences
-    string s, name_dum;
-    size_t num_reads_corrected = 0;
+    size_t num_reads_corrected = 0;    
     for (auto& [_, walker] : unit.walkers) {
+      std::unordered_map<std::string, std::string> corrected_by_name;
+      std::string s, nm; //nm is name
+      while (walker->bfc.GetSequence(s, nm))   // or whatever your BFC's drain API is
+	corrected_by_name.emplace(std::move(nm), std::move(s));
+      
       for (auto& r : walker->reads) {
-	walker->bfc.GetSequence(s, name_dum);
-	r->SetCorrectedSeq(s);
-	++num_reads_corrected;
+	if (!r->to_assemble) continue;
+	auto it = corrected_by_name.find(r->UniqueName());
+	if (it != corrected_by_name.end())
+	  r->SetCorrectedSeq(it->second);
       }
-      walker->bfc.clear(); // erase all reads and training dat      
+      walker->bfc.clear();
+      num_reads_corrected += corrected_by_name.size();
     }
     
     sc.logger.log(sc.opts.verbose > 0, sc.opts.verbose_log,
@@ -337,6 +343,7 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
     // get the corrected sequences
     for (const auto& [_, walker] : unit.walkers) {
       for (const auto& r : walker->reads) {
+	if (!r->to_assemble) continue; // never did correction so not in BFC - skip
 	unit.bwa_aligner->alignSequence(r->CorrectedSeq(),
 					r->UniqueName(),
 					unit.all_corrected_reads,
@@ -626,23 +633,57 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
 					[&](const BamRecordPtr& r) { return !keep(r); }),
 			 read2contigs.end());
 
+      // SvABA2.0: boundary-aware comma-append helper (matches the
+      // dedupe semantics used for the bi:Z tag at BP finalization).
+      auto append_unique = [](std::string& cur, const std::string& id) {
+	if (id.empty()) return false;
+	if (cur.empty()) { cur = id; return true; }
+	size_t pos = 0;
+	while ((pos = cur.find(id, pos)) != std::string::npos) {
+	  const bool left_ok  = (pos == 0) || cur[pos-1] == ',';
+	  const bool right_ok = (pos + id.size() == cur.size()) ||
+	                         cur[pos + id.size()] == ',';
+	  if (left_ok && right_ok) return false;
+	  pos += id.size();
+	}
+	cur += "," + id;
+	return true;
+      };
+
       // annotate the original read
       for (auto& r : read2contigs) {
-	all_read2contigs.push_back(r); // add to total	
+	all_read2contigs.push_back(r); // add to total
 	r2c this_r2c; // alignment of this read to this contig
 	if (r->ReverseFlag())
 	  this_r2c.rc = true;
-	
+
 	this_r2c.AddAlignment(r); // doesn't copy any memory
 	std::string contig_name = all_unaligned_contigs_this_region[r->ChrID()].Name; //chromomomse here = contig
 	i->AddR2C(contig_name, this_r2c); // i = AlignedContig
+
+	// SvABA2.0: stamp the bz:Z aux tag on the svabaRead pointer
+	// (covers the weird/discordant BAMs, pointer-identity path) and
+	// register for later stamping onto the corrected BAM via the
+	// qname-keyed map. bz:Z is the "aligned to this contig"
+	// superset; bi:Z (set later at BP finalization) is the
+	// "supports a variant on this contig" subset.
+	{
+	  std::string cur;
+	  i->GetZTag("bz", cur);
+	  if (append_unique(cur, contig_name)) {
+	    i->RemoveTag("bz");
+	    i->AddZTag("bz", cur);
+	  }
+	  std::string& entry = unit.all_cnames_by_name[i->UniqueName()];
+	  append_unique(entry, contig_name);
+	}
 
 	// if (region.pos1 == 4287501) {
 	//   std::cout << "R2C " << r->Qname() << " - " <<
 	//     r->Sequence() << " contig " << r->ChrName(sc.header) <<
 	//     std::endl;
 	// }
-	
+
 	// add the read to the right contig
 	auto it = all_AlignedContigs_this_region.find(contig_name);
 	if (it != all_AlignedContigs_this_region.end()) {
@@ -888,10 +929,70 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
 
   //for (const auto& a : alc)
   //  unit.m_bamreads_count += a.NumBamReads();
-  for (auto& i : bp_glob) 
-    if ( i->hasMinimal() )
+  for (auto& i : bp_glob)
+    if ( i->hasMinimal() ) {
+
+      // SvABA2.0: tag every alt-supporting read with the breakpoint's
+      // contig id (cname). cname is deterministic (derived from the
+      // assembly window coordinates + contig index) and stable across
+      // runs, so a `samtools view | grep bi:Z:<cname>` pulls every
+      // ALT-supporting read for any variant on that contig. In the
+      // rare edge case of multiple variants on one contig we can't
+      // disambiguate, which is acceptable for debugging.
+      //
+      // Two parallel paths:
+      //   (a) stamp the `bi:Z` aux tag on the original svabaRead
+      //       shared_ptr. This covers weird/discordant BAM outputs,
+      //       which share pointer identity with those records.
+      //   (b) record UniqueName -> cnames in
+      //       `unit.alt_cnames_by_name` so `writeUnit` can stamp the
+      //       tag on all_corrected_reads (newly-aligned BamRecords
+      //       from bwa that don't share pointer identity).
+      // A read can support multiple contigs (split reads crossing
+      // nearby calls) so the tag value is a comma-joined list, dedup'd
+      // on exact-match boundaries.
+      auto append_unique = [](std::string& cur, const std::string& id) {
+        if (id.empty()) return false;
+        if (cur.empty()) { cur = id; return true; }
+        size_t pos = 0;
+        while ((pos = cur.find(id, pos)) != std::string::npos) {
+          const bool left_ok  = (pos == 0) || cur[pos-1] == ',';
+          const bool right_ok = (pos + id.size() == cur.size()) ||
+                                 cur[pos + id.size()] == ',';
+          if (left_ok && right_ok) return false;
+          pos += id.size();
+        }
+        cur += "," + id;
+        return true;
+      };
+
+      const std::string& this_cname = i->cname;
+
+      auto tag_with_cname = [&](auto& r) {
+        if (!r || this_cname.empty()) return;
+        // (a) stamp the shared_ptr
+        std::string cur;
+        r->GetZTag("bi", cur);
+        if (append_unique(cur, this_cname)) {
+          r->RemoveTag("bi");
+          r->AddZTag("bi", cur);
+        }
+        // (b) register in name->cnames map so the corrected BAM can
+        // be tagged at write time
+        std::string& entry = unit.alt_cnames_by_name[r->UniqueName()];
+        append_unique(entry, this_cname);
+      };
+
+      for (auto& r : i->reads)
+        tag_with_cname(r);
+      for (auto& [_, r] : i->dc.reads)
+        tag_with_cname(r);
+      for (auto& [_, r] : i->dc.mates)
+        tag_with_cname(r);
+
       unit.m_bps.push_back(i);
-  
+    }
+
   unit.st.bps_count = bp_glob.size();
 
   // if (region.pos1 == 4287501) {

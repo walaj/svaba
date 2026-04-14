@@ -181,8 +181,6 @@ SeqLib::GRC svabaBamWalker::readBam(svabaThreadUnit& unit) {
 	sc.blacklist.CountOverlaps(s->AsGenomicRegionMate()) || 
 	sc.blacklist.CountOverlaps(s->AsGenomicRegion()))
       {
-	s->to_assemble = false;
-	read_buffer.push_back(s);
 	continue;
       }
 

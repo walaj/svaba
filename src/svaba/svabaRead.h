@@ -11,23 +11,31 @@ using SeqLib::BamRecordPtrVector;
 
 /** Store information about a read to contig alignment */
 struct r2c {
-  
-  int32_t start_on_contig = 0;  // start pos on contig (from r.Position()) 
-  int32_t end_on_contig   = 0;  // end pos on contig (from r.PositionEnd()) 
+
+  int32_t start_on_contig = 0;  // start pos on contig (from r.Position())
+  int32_t end_on_contig   = 0;  // end pos on contig (from r.PositionEnd())
   int32_t start_on_read    = 0; // start pos on read (from r.AlignmentPosition())
   int32_t end_on_read     = 0;  // end pos on read (from r.AlignmentPosition())
-  bool rc = false;    // reverse complement wrt contig? 
+  bool rc = false;    // reverse complement wrt contig?
   SeqLib::Cigar cig; // cigar of read to contig
   bool supports_var = false; // does this support a variant?
   bool is_split = false; // is this a split read?
   int left_or_right = 0; //-1 read aligns on left of contig, 1 on right
   bool supports_discordant = false; // true if this is part of a discordant pair that supports the break
-  
+
+  // SvABA2.0: NM tag on the r2c alignment (edit distance to contig).
+  // -1 sentinel means "not set" (legacy paths that filled r2c without
+  // going through AddAlignment). Surfaced in alignments.txt.gz so the
+  // human-readable dump shows per-read edit distance to the contig.
+  int32_t nm = -1;
+
   void AddAlignment (const BamRecordPtr& b) {
     start_on_contig = b->Position();
     end_on_contig = b->PositionEnd();
     start_on_read = b->AlignmentPosition();
     cig = b->GetCigar();
+    int _nm = 0;
+    if (b->GetIntTag("NM", _nm)) nm = _nm;
   }
   
   friend std::ostream& operator<<(std::ostream& out, const r2c& a);

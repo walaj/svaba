@@ -264,7 +264,11 @@ std::string AlignedContig::printToAlignmentsFile(const SeqLib::BamHeader& h) con
     padlen = std::max(5, padlen);
     
     std::stringstream rstream;
-    rstream << sr << "--" << (i->ChrID()+1) << ":" << i->Position() << " r2c CIGAR: " << this_r2c.cig;
+    rstream << sr << "--" << (i->ChrID()+1) << ":" << i->Position()
+	    << " r2c POS: " << this_r2c.start_on_contig
+	    << " FLAG: " << (this_r2c.rc ? 16 : 0)
+	    << " NM: " << this_r2c.nm
+	    << " CIGAR: " << this_r2c.cig;
     
     plot_vec.push_back({pos, seq, rstream.str()});
   }

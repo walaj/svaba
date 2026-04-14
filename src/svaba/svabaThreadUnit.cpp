@@ -114,6 +114,11 @@ void svabaThreadUnit::clear() {
 
   all_weird_reads.clear();
   all_corrected_reads.clear();
+
+  // SvABA2.0: drop the bi:Z / bz:Z lookup tables so the next window
+  // doesn't stamp tags derived from the previous window onto reads.
+  alt_cnames_by_name.clear();
+  all_cnames_by_name.clear();
   
   ss.str("");       // Clear the string content
   ss.clear();

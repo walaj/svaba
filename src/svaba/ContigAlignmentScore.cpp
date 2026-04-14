@@ -6,11 +6,13 @@
 //   Rule A: n_indel_ops >= 3 is almost certainly mis-alignment in a repeat.
 //           Each additional indel beyond 1 adds a 0.20 penalty.
 //   Rule B: 2+ indels with no single big event (<=20 bp) and noisy flanks
-//           (mm_rate > 0.05) is scattered-small-indel pattern. Flat 0.25
+//           (mm_rate > 0.02) is scattered-small-indel pattern. Flat 0.25
 //           penalty. A single large indel exempts the contig from this
 //           rule, so real big SVs/indels pass.
-//   Rule C: mm_rate > 0.05 contributes smoothly; 10% mm adds 0.25, 20% adds
-//           0.75. No cliff.
+//   Rule C: non-indel mismatch rate. Threshold 1% (well above per-base
+//           sequencing error ~0.1-0.5%), slope 10 so 3% mm = 0.20,
+//           5% = 0.40, 10% = 0.90. Extra quadratic kicker above 5% so
+//           very noisy alignments crash to zero.
 //   Rule D: as_per_bp < 0.70 means BWA paid a lot of penalties for this
 //           placement. Smooth penalty scaled 2x.
 //
@@ -103,16 +105,30 @@ ContigAlignScore scoreContigAlignment(const SeqLib::BamRecord& r) {
       s.reason = "multi_indel(" + std::to_string(s.n_indel_ops) + ")";
   }
 
-  // Rule B: scattered small indels with noisy flanks
-  if (s.n_indel_ops >= 2 && s.max_indel_bp <= 20 && s.mm_rate > 0.05) {
+  // Rule B: scattered small indels with noisy flanks. Threshold lowered to
+  // 0.02 to match the new mm-rate sensitivity in Rule C.
+  if (s.n_indel_ops >= 2 && s.max_indel_bp <= 20 && s.mm_rate > 0.02) {
     pen += 0.25;
     if (s.reason.empty()) s.reason = "small_indel_cluster_noisy";
   }
 
-  // Rule C: high mismatch rate. 0.05 → 0.0, 0.10 → 0.25, 0.20 → 0.75.
-  if (s.mm_rate > 0.05) {
-    pen += 5.0 * (s.mm_rate - 0.05);
-    if (s.reason.empty() && s.mm_rate > 0.10) s.reason = "high_mm_rate";
+  // Rule C: non-indel mismatch rate. A clean sequencing + assembly pipeline
+  // should have ~0.1-0.5% per-base error; 1% is already suspicious, 3% is
+  // almost always mis-assembly or mis-alignment into a repeat/paralog.
+  //
+  //   linear slope 10 above 0.01:  1% -> 0, 2% -> 0.10, 3% -> 0.20,
+  //                                5% -> 0.40, 10% -> 0.90
+  //   plus quadratic above 0.05:   5% -> +0, 10% -> +0.075, 15% -> +0.30,
+  //                                20% -> +0.675
+  //
+  // Real indels and soft clips are excluded from mm (NM minus indel bp), so
+  // this rule only fires on genuine base mismatches.
+  if (s.mm_rate > 0.01) {
+    pen += 10.0 * (s.mm_rate - 0.01);
+    if (s.mm_rate > 0.05) {
+      pen += 30.0 * (s.mm_rate - 0.05) * (s.mm_rate - 0.05);
+    }
+    if (s.reason.empty() && s.mm_rate > 0.02) s.reason = "high_mm_rate";
   }
 
   // Rule D: low AS-density (only if AS was actually present)

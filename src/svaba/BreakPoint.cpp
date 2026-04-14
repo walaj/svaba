@@ -74,14 +74,22 @@ bool BreakPoint::isIndel() const {
 std::string BreakPoint::printDeletionMarksForAlignmentsFile() const {
   if (!isIndel() || !insertion.empty())
     return std::string();
-  
+
+  // SvABA2.0: render deletion marks against m_seq, which is in
+  // assembly-native orientation. b1.cpos/b2.cpos are stored in BAM /
+  // genome-forward orientation, so for reverse-aligned contigs we must
+  // convert. cpos_on_m_seq() handles both the mirror and the b1<->b2 swap.
+  const auto [cpos1, cpos2] = cpos_on_m_seq();
+  if (cpos1 < 0 || cpos2 <= cpos1)
+    return std::string();
+
   std::stringstream out;
-  out << std::string(b1.cpos, ' ') <<
-    "|" << std::string(b2.cpos - b1.cpos-1, ' ') <<
+  out << std::string(cpos1, ' ') <<
+    "|" << std::string(cpos2 - cpos1 - 1, ' ') <<
     "|   " << cname;
 
   return out.str();
-  
+
 }
 
 
@@ -249,7 +257,7 @@ std::string BreakPoint::toFileString(const BamHeader& header) const {
      << (rs.length() ? rs : "x") << sep
      << b1.contig_conf << sep
      << b2.contig_conf;;
-  
+
   for (const auto& [_,al] : allele)
     ss << sep << al.toFileString(svtype);
   
@@ -328,66 +336,77 @@ void BreakPoint::splitCoverage(svabaReadPtrVector& bav) {
   // keep track of which SR tags are valid splits
   std::unordered_set<std::string> valid_reads;
   
-  // get the homology length. useful bc if read alignment ends in homologous region, it is not split
+  // SvABA2.0: b1.cpos/b2.cpos are in BAM/genome-forward coordinates, but
+  // the r2c CIGARs and this_r2c.start_on_contig/end_on_contig that we
+  // compare against below are in assembly-native / m_seq coordinates.
+  // For reverse-aligned contigs these are mirror images and the old code
+  // counted reads at the mirror position as "supporting". Use the m_seq
+  // cpos pair everywhere we compare against r2c in this function.
+  const auto [m_b1_cpos, m_b2_cpos] = cpos_on_m_seq();
+
+  // get the homology length. useful bc if read alignment ends in homologous
+  // region, it is not split. Note: cpos_on_m_seq() mirrors and swaps, so
+  // (new_b1 - new_b2) = (b1.cpos - b2.cpos), i.e. homlen is orientation-
+  // invariant. Keep the original expression for clarity.
   int homlen = b1.cpos - b2.cpos;
   if (homlen < 0)
     homlen = 0;
-  
+
   // loop all of the read to contig alignments for this contig
   for (const auto& j : bav) {
-    
+
     r2c this_r2c = j->GetR2C(cname);
-    
+
     bool read_should_be_skipped = false;
     if (num_align == 1) {
-      
+
       std::vector<int> del_breaks;
       std::vector<int> ins_breaks;
       int pos = 0;
-      
+
       // if this is a nasty repeat, don't trust non-perfect alignmentx on r2c alignment
-      // if (checkHomopolymer(j->Sequence())) 
+      // if (checkHomopolymer(j->Sequence()))
       // 	read_should_be_skipped = true;
-      
+
       // loop through r2c cigar and see positions
       for(auto& i : this_r2c.cig) {
-	
-	if (i.Type() == 'D') 
+
+	if (i.Type() == 'D')
 	  del_breaks.push_back(pos);
 	else if (i.Type() == 'I')
 	  ins_breaks.push_back(pos);
-	
+
 	// update position on contig
 	if (i.ConsumesReference())
 	  pos += i.Length(); // update position on contig
-	
+
       }
-      
+
       size_t buff = std::max((size_t)3, repeat_seq.length() + 3);
       for (auto& i : del_breaks)
-	if (i > b1.cpos - buff || i < b1.cpos + buff) // if start of insertion is at start of a del of r2c
+	if (i > m_b1_cpos - (int)buff || i < m_b1_cpos + (int)buff) // if start of insertion is at start of a del of r2c
 	  read_should_be_skipped = true;
       for (auto& i : ins_breaks)
-	if (i > b1.cpos - buff || i < b1.cpos + buff) // if start of insertion is at start of a del of r2c
+	if (i > m_b1_cpos - (int)buff || i < m_b1_cpos + (int)buff) // if start of insertion is at start of a del of r2c
 	  read_should_be_skipped = true;
-    } 
-    
+    }
+
     if (read_should_be_skipped)  // default is r2c does not support var, so don't amend this_r2c
       continue;
-    
+
     // get read ID
     std::string sample_id = j->Prefix(); //substr(0,4); // maybe just make this prefix
-    std::string sr = j->UniqueName(); 
-    
+    std::string sr = j->UniqueName();
+
     // need read to cover past variant by some buffer. If there is a repeat,
     // then this needs to be even longer to avoid ambiguity
     int this_tbuff = T_SPLIT_BUFF + repeat_seq.length();
-    int this_nbuff = N_SPLIT_BUFF + repeat_seq.length();      
-    
-    int rightbreak1 = b1.cpos + (j->Tumor() ? this_tbuff : this_nbuff); // read must extend this far right of break1
-    int leftbreak1  = b1.cpos - (j->Tumor() ? this_tbuff : this_nbuff); // read must extend this far left of break1
-    int rightbreak2 = b2.cpos + (j->Tumor() ? this_tbuff : this_nbuff);
-    int leftbreak2  = b2.cpos - (j->Tumor() ? this_tbuff : this_nbuff);
+    int this_nbuff = N_SPLIT_BUFF + repeat_seq.length();
+
+    int rightbreak1 = m_b1_cpos + (j->Tumor() ? this_tbuff : this_nbuff); // read must extend this far right of break1
+    int leftbreak1  = m_b1_cpos - (j->Tumor() ? this_tbuff : this_nbuff); // read must extend this far left of break1
+    int rightbreak2 = m_b2_cpos + (j->Tumor() ? this_tbuff : this_nbuff);
+    int leftbreak2  = m_b2_cpos - (j->Tumor() ? this_tbuff : this_nbuff);
     
     std::string contig_qname; // for sanity checking
     // get the alignment position on contig
@@ -604,9 +623,20 @@ BreakPoint::BreakPoint(const AlignmentFragment* f,
   // re-zero the positions, not set yet
   b1.gr.pos1 = b1.gr.pos2 = -1;
   b2.gr.pos1 = b2.gr.pos2 = -1;
-  
+
   // this alignment fragemnt underlying alignment
   const BamRecordPtr &r = f->m_align;
+
+  // SvABA2.0: record the flip-convention of this fragment so that
+  // b1.cpos/b2.cpos (which are computed from the un-flipped BAM CIGAR below,
+  // i.e. in BAM / genome-forward orientation) can be converted to m_seq /
+  // r2c (assembly-native) orientation via BreakPoint::cpos_on_m_seq() at
+  // the sites that need it (split-coverage counting and alignments.txt
+  // rendering). This does NOT change the arithmetic done against
+  // r->Sequence() in this constructor (insertion, homology, repeat_seq),
+  // which legitimately lives in BAM/genome-forward coordinates.
+  flipped_on_contig = f->flipped;
+  contig_len        = static_cast<int>(r->Sequence().length());
 
   // assign the contig-wide properties
   cname = r->Qname();
@@ -1163,7 +1193,7 @@ void BreakPoint::score_assembly_dscrd() {
     else 
     confidence = "PASS";
     }*/
-  else if (confidence == "PASS" && min_cc < svaba::kContigConfPassThreshold) 
+  else if (min_cc < svaba::kContigConfPassThreshold) 
     confidence = "WEAKCONTIG";
   else 
     confidence = "PASS";
@@ -1245,7 +1275,7 @@ void BreakPoint::score_indel() {
     confidence = "LOWLOD";
   else if (!is_refilter && std::min(left_match, right_match) < 20) 
     confidence = "SHORTALIGNMENT"; // no conf in indel if match on either side is too small
-  else if (confidence == "PASS" && min_cc < svaba::kContigConfPassThreshold) 
+  else if (min_cc < svaba::kContigConfPassThreshold) 
     confidence = "WEAKCONTIG";
   else 
     confidence="PASS";
