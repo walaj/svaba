@@ -437,6 +437,40 @@ const CANONICAL_CHROMS = new Set([
   '21','22','X'
 ]);
 
+// Breakpoint-pair ordering is a matter of convention: the same junction can
+// be written (chrA,posA,chrB,posB) or (chrB,posB,chrA,posA). Normalize each
+// call at ingest so downstream dedup/matching is orientation-invariant.
+// Canonical rule: lower chrom first (natural numeric order where possible),
+// ties broken by lower pos. `chrCmp` matches chromosomes in a human-sensible
+// way: chr1 < chr2 < ... < chr10 < ... < chr22 < chrX (rather than string
+// order where chr10 < chr2).
+function chrNum(c) {
+  const s = String(c).replace(/^chr/, '');
+  if (s === 'X')  return 23;
+  if (s === 'Y')  return 24;
+  if (s === 'M' || s === 'MT') return 25;
+  const n = parseInt(s, 10);
+  return Number.isNaN(n) ? 1000 : n;
+}
+function chrCmp(a, b) {
+  const na = chrNum(a), nb = chrNum(b);
+  if (na !== nb) return na - nb;
+  return a < b ? -1 : (a > b ? 1 : 0);
+}
+function canonicalize(c) {
+  // Attach _cchr1/_cpos1/_cchr2/_cpos2 in canonical (lower-first) order.
+  // Display fields (chr1, pos1, strand1, ...) and _cols are left untouched.
+  const cmp = chrCmp(c.chr1, c.chr2);
+  const flip = (cmp > 0) || (cmp === 0 && c.pos1 > c.pos2);
+  if (flip) {
+    c._cchr1 = c.chr2; c._cpos1 = c.pos2;
+    c._cchr2 = c.chr1; c._cpos2 = c.pos1;
+  } else {
+    c._cchr1 = c.chr1; c._cpos1 = c.pos1;
+    c._cchr2 = c.chr2; c._cpos2 = c.pos2;
+  }
+}
+
 function parseOld(text) {
   // NOTE: in svaba_viewer_new_new.html this parses the NEW bps.txt format,
   // but stores records in oldCalls so the existing comparison plumbing works.
@@ -474,6 +508,7 @@ function parseOld(text) {
       _cols: cols,           // full raw bps.txt row for detail rendering
       _side: 'A',
     });
+    canonicalize(oldCalls[oldCalls.length - 1]);
   }
   updateDynamicChecks(oldCalls, 'type', 'evidenceChecks', true);
   updateDynamicChecks(oldCalls, 'conf', 'confChecksOld', false);
@@ -511,6 +546,7 @@ function parseNew(text) {
       _cols: cols,           // full raw bps.txt row for detail rendering
       _side: 'B',
     });
+    canonicalize(newCalls[newCalls.length - 1]);
   }
   updateDynamicChecks(newCalls, 'type', 'typeChecks', true);
   updateDynamicChecks(newCalls, 'conf', 'confChecksNew', false);
@@ -548,20 +584,26 @@ function getChecked(id) { return new Set([...document.querySelectorAll(`#${id} i
 
 function dedup(calls, dedup = 10) {
   if (!calls.length) return calls;
-  const sorted = calls.map(c => ({ c, mn: Math.min(c.pos1, c.pos2), mx: Math.max(c.pos1, c.pos2) }));
+  // Use canonical (_cchr1/_cpos1/_cchr2/_cpos2) so that flipped-pair duplicates
+  // — e.g. (chr1:216833626 + , chr11:117581568 -) vs
+  //         (chr11:117581568 -, chr1:216833626 +) — collapse into one row.
+  const sorted = calls.map(c => ({ c }));
   sorted.sort((a, b) => {
-    if (a.c.chr1 !== b.c.chr1) return a.c.chr1 < b.c.chr1 ? -1 : 1;
-    if (a.mn !== b.mn) return a.mn - b.mn;
-    return a.mx - b.mx;
+    const ca = a.c, cb = b.c;
+    if (ca._cchr1 !== cb._cchr1) return chrCmp(ca._cchr1, cb._cchr1);
+    if (ca._cchr2 !== cb._cchr2) return chrCmp(ca._cchr2, cb._cchr2);
+    if (ca._cpos1 !== cb._cpos1) return ca._cpos1 - cb._cpos1;
+    return ca._cpos2 - cb._cpos2;
   });
   const kept = [sorted[0]];
   for (let i = 1; i < sorted.length; i++) {
-    const prev = kept[kept.length - 1], cur = sorted[i];
-    if (cur.c.chr1 === prev.c.chr1 && cur.c.chr2 === prev.c.chr2 &&
-        Math.abs(cur.mn - prev.mn) <= dedup && Math.abs(cur.mx - prev.mx) <= dedup) {
-      if ((cur.c.qual || 0) > (prev.c.qual || 0)) kept[kept.length - 1] = cur;
+    const prev = kept[kept.length - 1].c, cur = sorted[i].c;
+    if (cur._cchr1 === prev._cchr1 && cur._cchr2 === prev._cchr2 &&
+        Math.abs(cur._cpos1 - prev._cpos1) <= dedup &&
+        Math.abs(cur._cpos2 - prev._cpos2) <= dedup) {
+      if ((cur.qual || 0) > (prev.qual || 0)) kept[kept.length - 1] = sorted[i];
     } else {
-      kept.push(cur);
+      kept.push(sorted[i]);
     }
   }
   return kept.map(k => k.c);
@@ -586,36 +628,39 @@ function filterNew() {
 
 // ── Matching: best-first, both breakends within tolerance ──
 function compareCalls(oldFiltered, newFiltered, tolerance) {
-  // Build spatial index on new calls by chr1
+  // Build spatial index on new calls keyed by the canonical first chromosome
+  // (_cchr1). Canonicalization in the parser guarantees _cchr1 <= _cchr2 in
+  // chrCmp order, so a flipped-pair write of the same junction lands in the
+  // same bucket on both sides. Positions are stored in canonical order too
+  // (pos on _cchr1 side first), so no min/max gymnastics needed here.
   const newByChrom = {};
   for (let i = 0; i < newFiltered.length; i++) {
     const c = newFiltered[i];
-    if (!newByChrom[c.chr1]) newByChrom[c.chr1] = [];
-    newByChrom[c.chr1].push({ idx: i, mn: Math.min(c.pos1, c.pos2), mx: Math.max(c.pos1, c.pos2) });
+    if (!newByChrom[c._cchr1]) newByChrom[c._cchr1] = [];
+    newByChrom[c._cchr1].push({ idx: i, p1: c._cpos1, p2: c._cpos2, chr2: c._cchr2 });
   }
-  for (const k in newByChrom) newByChrom[k].sort((a, b) => a.mn - b.mn);
+  for (const k in newByChrom) newByChrom[k].sort((a, b) => a.p1 - b.p1);
 
   // Collect all candidate pairs
   const candidates = [];
   for (let oi = 0; oi < oldFiltered.length; oi++) {
     const o = oldFiltered[oi];
-    const oMn = Math.min(o.pos1, o.pos2), oMx = Math.max(o.pos1, o.pos2);
-    const bucket = newByChrom[o.chr1];
+    const bucket = newByChrom[o._cchr1];
     if (!bucket) continue;
 
-    // Binary search
+    // Binary search on canonical p1
     let lo = 0, hi = bucket.length - 1;
     while (lo <= hi) {
       const mid = (lo + hi) >> 1;
-      if (bucket[mid].mn < oMn - tolerance) lo = mid + 1; else hi = mid - 1;
+      if (bucket[mid].p1 < o._cpos1 - tolerance) lo = mid + 1; else hi = mid - 1;
     }
     for (let j = Math.max(0, lo - 2); j < bucket.length; j++) {
       const n = bucket[j];
-      if (n.mn > oMx + tolerance) break;
-      // Also require chr2 match
-      if (oldFiltered[oi].chr2 !== newFiltered[n.idx].chr2) continue;
-      const d1 = Math.abs(oMn - n.mn);
-      const d2 = Math.abs(oMx - n.mx);
+      if (n.p1 > o._cpos1 + tolerance) break;
+      // Require canonical chr2 match (flipped case already normalized away)
+      if (o._cchr2 !== n.chr2) continue;
+      const d1 = Math.abs(o._cpos1 - n.p1);
+      const d2 = Math.abs(o._cpos2 - n.p2);
       const dist = Math.max(d1, d2);
       if (dist <= tolerance) {
         candidates.push({ oi, ni: n.idx, dist });
