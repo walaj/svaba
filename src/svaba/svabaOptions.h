@@ -22,6 +22,13 @@ inline constexpr double MIN_ERROR                   = 0.0005;
 inline constexpr int    T_SPLIT_BUFF                = 5;
 inline constexpr int    N_SPLIT_BUFF                = 5;
 inline constexpr int    INSERT_SIZE_TOO_BIG_SPAN_READS = 16;
+// (Removed in SvABA2.0) R2C_MAX_NONEDGE_SOFTCLIP_{TUMOR,NORMAL} —
+// replaced by the principled per-read score comparison gate in
+// BreakPoint::splitCoverage(). See svaba::readAlignmentScore() in
+// ContigAlignmentScore.h: a read is now credited as a variant supporter
+// only when its r2c alignment scores strictly higher than its native
+// read-to-reference alignment, which subsumes both the interior-clip
+// rejection and the duplicated-reference equally-clean case.
 inline constexpr int    HOMOLOGY_FACTOR             = 4;
 inline constexpr int    MIN_SOMATIC_RATIO           = 15;
 inline constexpr int    COVERAGE_AVG_BUFF           = 10;

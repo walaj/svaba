@@ -337,23 +337,61 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
     unit.st.stop("k");
   }
   
-  // re-align the corrected reads and dump
-  if (sc.opts.dump_corrected_reads) {
-
-    // get the corrected sequences
+  // SvABA2.0: always realign the corrected read sequence to the reference,
+  // not just when the user asked for the corrected.bam dump. We need this
+  // alignment unconditionally because BreakPoint::splitCoverage's "r2c
+  // better than native" gate compares the read's corrected->contig (r2c)
+  // alignment against its native->reference alignment, and those have to
+  // be apples-to-apples: same input sequence (corrected), same aligner
+  // (this svaba-internal BWA-MEM with its own parameters), same scoring.
+  // Using the input BAM's pre-correction CIGAR/NM was an asymmetric gate
+  // that let reads with mirror r2c indels through as variant supporters
+  // (the BFC-fixed sequencing errors inflated the native NM, making the
+  // r2c look "better" in the comparison even when it had a junk indel).
+  //
+  // We stash the primary-alignment NM and CIGAR back on the svabaRead so
+  // splitCoverage can read them by simple field access. Reads that didn't
+  // go through correction (to_assemble == false) keep their default
+  // sentinel (corrected_native_nm == -1) and the gate falls back to the
+  // original BAM record for those.
+  {
     for (const auto& [_, walker] : unit.walkers) {
       for (const auto& r : walker->reads) {
-	if (!r->to_assemble) continue; // never did correction so not in BFC - skip
-	unit.bwa_aligner->alignSequence(r->CorrectedSeq(),
-					r->UniqueName(),
-					unit.all_corrected_reads,
-					false,
-					0.6,
-					0); // no secondary alignments
+        if (!r->to_assemble) continue;
+
+        // Per-read scratch vector so we can identify the primary record
+        // for THIS read regardless of any secondaries the aligner might
+        // produce. (We pass maxSecondary=0 below, but be defensive.)
+        BamRecordPtrVector aln;
+        unit.bwa_aligner->alignSequence(r->CorrectedSeq(),
+                                        r->UniqueName(),
+                                        aln,
+                                        false,
+                                        0.6,
+                                        0); // no secondary alignments
+
+        // Pick the primary (non-supplementary, non-secondary, mapped)
+        // record. If no usable record came back, leave the sentinel.
+        for (const auto& a : aln) {
+          if (!a->MappedFlag())       continue;
+          if ( a->SecondaryFlag())    continue;
+          if ( a->SupplementaryFlag()) continue;
+          int32_t nm = -1;
+          a->GetIntTag("NM", nm);
+          r->corrected_native_cig = a->GetCigar();
+          r->corrected_native_nm  = nm;
+          break;
+        }
+
+        // Also feed the dump pool when the user asked for it, so the
+        // existing corrected.bam output is unchanged.
+        if (sc.opts.dump_corrected_reads) {
+          for (auto& a : aln) unit.all_corrected_reads.push_back(a);
+        }
       }
     }
     sc.logger.log(sc.opts.verbose > 0, sc.opts.verbose_log,
-		  "...realigned corrected reads to genome");
+                  "...realigned corrected reads to genome");
   }
   
   sc.logger.log(sc.opts.verbose > 0, sc.opts.verbose_log,
@@ -436,9 +474,34 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
 	  ++i;
 	}
       }
+
+      
       fml_opt_t opt;
       fml_opt_init(&opt);
 
+      // SvABA2.0: loosen fermi-lite defaults for variant-supporting contigs.
+      // Rationale (see fermi-lite/misc.c):
+      //   - We already hand fermi CorrectedSeq(); a second EC pass with
+      //     min_cnt=4 is prone to "correcting" low-VAF alt k-mers back to
+      //     reference. Disable EC entirely (ec_k = -1 skips fml_correct).
+      //   - fml_assemble clamps min_ensr/min_insr to [min_cnt, max_cnt].
+      //     Lowering min_cnt lets tips/branches with 2 supporting reads
+      //     survive graph cleaning.
+      //   - MAG_F_POPOPEN enables aggressive trimming of "open" tips
+      //     (dead-end branches). A heterozygous indel whose alt bubble
+      //     is shorter than ~2.5x read length reads exactly like an
+      //     open tip and gets trimmed. Clear the flag.
+      //   - fml_opt_adjust sets min_elen = 2.5 * avg_read_len (~375bp for
+      //     150bp reads). We can't override that through fml_assemble
+      //     because it re-runs adjust internally, but disabling POPOPEN
+      //     and lowering min_cnt already do most of the work.
+      opt.ec_k            = -1;                  // skip fermi's EC (svaba pre-corrects)
+      opt.min_cnt         = 2;                   // tolerate rare k-mers
+      opt.max_cnt         = 8;                   // keep headroom for high-cov regions
+      opt.mag_opt.flag   &= ~MAG_F_POPOPEN;      // don't aggressively trim variant tips
+      // optional, very aggressive: opt.mag_opt.flag |= MAG_F_AGGRESSIVE is the
+      // OPPOSITE of what we want (it POPS variant bubbles). Leave it cleared.
+      
       sc.logger.log(sc.opts.verbose > 1, false, 
 		  "...assembling reads with Fermi-lite");
     

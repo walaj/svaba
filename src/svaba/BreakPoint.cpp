@@ -84,9 +84,13 @@ std::string BreakPoint::printDeletionMarksForAlignmentsFile() const {
     return std::string();
 
   std::stringstream out;
+  // SvABA2.0: append the deletion size (e.g. " 5D") to the right of the
+  // second '|' marker so the dump shows at-a-glance how many bases are
+  // deleted at this junction. getSpan() for an INDEL deletion returns
+  // b2.gr.pos1 - b1.gr.pos1 (genomic spacing), which is what we want.
   out << std::string(cpos1, ' ') <<
     "|" << std::string(cpos2 - cpos1 - 1, ' ') <<
-    "|   " << cname;
+    "| " << getSpan() << "D   " << cname;
 
   return out.str();
 
@@ -173,6 +177,15 @@ BreakPoint::BreakPoint(const SvabaSharedConfig* _sc,
   seq = alc->m_seq;
   num_align = alc->m_frag_v.size();
   cname = alc->getContigName();
+
+  // SvABA2.0: record the contig length so splitCoverage can reject r2c
+  // reads that soft-clip in the middle of the contig (as opposed to at
+  // the contig edge, which is a legitimate geometry). m_seq is already
+  // in assembly-native orientation. We don't set flipped_on_contig here
+  // because SV breakpoints are composed of two AlignmentFragments with
+  // independent flip conventions; splitCoverage's m_seq cpos handling
+  // for SVs uses the per-fragment cpos set by transferContigAlignmentData.
+  contig_len = static_cast<int>(seq.length());
 
   // set the local alignment
   // int la = 0;
@@ -358,11 +371,97 @@ void BreakPoint::splitCoverage(svabaReadPtrVector& bav) {
     r2c this_r2c = j->GetR2C(cname);
 
     bool read_should_be_skipped = false;
+
+    // SvABA2.0: principled "r2c better than native" gate.
+    //
+    // The fundamental requirement for a read to support a variant is that
+    // the read-to-contig (r2c) alignment must be a *better* explanation
+    // of the read than the read-to-reference alignment that BWA-MEM gave
+    // it in the input BAM. If both alignments are equally clean (the
+    // classic "duplicated reference" trap, where a repeat lets BWA align
+    // the read to a paralogous copy with no clips and no NM, while the
+    // r2c is also clean because the contig was assembled from the same
+    // sequence), then the contig provides no extra explanatory power and
+    // the read should *not* count as a variant supporter.
+    //
+    // svaba::readAlignmentScore() (defined in ContigAlignmentScore.h) is
+    // an SV-focused score that heavily penalizes soft-clips and counts
+    // edit distance, so e.g.
+    //
+    //   80M70S NM=0 -> aligned_bp 80, clip_bp 70 -> score   10
+    //   150M   NM=0 -> aligned_bp 150           -> score  150
+    //   90M60S NM=0 ->                          -> score   30
+    //   75M5I70M NM=5 -> aligned_bp 150, NM 5   -> score  140
+    //
+    // and the gate is a strict r2c > native comparison.
+    //
+    // This replaces an earlier hard cap on non-edge soft-clip length:
+    // the score-based comparison is more principled (it lets big edge
+    // clips be fine when the native alignment is also bad, and rejects
+    // small interior indels in r2c when the native alignment is actually
+    // clean) and works for both interior and edge clip cases without
+    // needing separate tumor/normal thresholds.
+    //
+    // Guard only on the r2c CIGAR being populated; if it isn't, there's
+    // nothing to score and we let the downstream checks decide.
+    if (this_r2c.cig.size() > 0) {
+      // r2c side: use the cached NM on this_r2c (filled in r2c::AddAlignment).
+      // The r2c is computed against the *corrected* read sequence.
+      const double r2c_score =
+        svaba::readAlignmentScore(this_r2c.cig, this_r2c.nm);
+
+      // Native side: STRONGLY prefer the corrected-read realignment that
+      // SvabaRegionProcessor stashed on the svabaRead. That comparison is
+      // apples-to-apples: same corrected sequence and same svaba-internal
+      // BWA-MEM parameters as the r2c step. Falling back to the original
+      // input-BAM CIGAR/NM is a last resort (e.g. for reads with
+      // to_assemble == false that never went through correction) and is
+      // expected to be biased: pre-correction NM includes sequencing
+      // errors that BFC would have fixed, which inflates native edit
+      // distance and lets r2c look artificially "better".
+      SeqLib::Cigar native_cig;
+      int32_t       native_nm = -1;
+      if (j->corrected_native_cig.size() > 0) {
+        native_cig = j->corrected_native_cig;
+        native_nm  = j->corrected_native_nm;
+      } else {
+        native_cig = j->GetCigar();
+        j->GetIntTag("NM", native_nm);
+      }
+
+      // If neither path produced a usable native CIGAR, fall back to the
+      // read length as a conservative perfect-native upper bound. This
+      // prevents a read with no recoverable native alignment from
+      // auto-passing the gate just because native_score defaulted to 0.
+      double native_score = svaba::readAlignmentScore(native_cig, native_nm);
+      if (native_cig.size() == 0) {
+        native_score = static_cast<double>(j->Length());
+      }
+
+      // Strict "<=" so that ties (e.g. both perfect 150M, or r2c slightly
+      // worse like 38M3I109M NM=3 vs corrected-native 150M NM=1) do NOT
+      // credit the read — there's no positive evidence the contig wins.
+      if (r2c_score <= native_score) {
+        read_should_be_skipped = true;
+      }
+    }
+
     if (num_align == 1) {
 
       std::vector<int> del_breaks;
       std::vector<int> ins_breaks;
-      int pos = 0;
+
+      // SvABA2.0: pos must be in *absolute contig* (m_seq / r2c) coordinates
+      // because we compare it below against m_b1_cpos / m_b2_cpos, which are
+      // also absolute contig coordinates (cpos_on_m_seq() handles the flip).
+      // The previous code initialized pos = 0, which made it relative to the
+      // start of this read's CIGAR, so for any read that didn't start at
+      // contig position 0 the indel-at-variant-location check could never
+      // fire. That allowed the "mirror indel" failure mode through:
+      // a REF-supporting read whose r2c CIGAR has an inserted/deleted base
+      // exactly at the variant locus (because the contig itself carries the
+      // mirror indel) was being credited as variant-supporting.
+      int pos = this_r2c.start_on_contig;
 
       // if this is a nasty repeat, don't trust non-perfect alignmentx on r2c alignment
       // if (checkHomopolymer(j->Sequence()))
@@ -383,12 +482,28 @@ void BreakPoint::splitCoverage(svabaReadPtrVector& bav) {
       }
 
       size_t buff = std::max((size_t)3, repeat_seq.length() + 3);
-      for (auto& i : del_breaks)
-	if (i > m_b1_cpos - (int)buff || i < m_b1_cpos + (int)buff) // if start of insertion is at start of a del of r2c
-	  read_should_be_skipped = true;
-      for (auto& i : ins_breaks)
-	if (i > m_b1_cpos - (int)buff || i < m_b1_cpos + (int)buff) // if start of insertion is at start of a del of r2c
-	  read_should_be_skipped = true;
+      // SvABA2.0: the old test was `i > X-buff || i < X+buff`, which is a
+      // tautology (for any i, one side is always true), so it would
+      // reject every read with any D or I in its r2c CIGAR. The intent
+      // is: reject the read if one of its r2c indels lands *at* the
+      // breakpoint position +/- buff (indicating its r2c alignment is
+      // fishy right at the junction we care about). Use AND. We also
+      // check both b1 and b2 so deletions/insertions landing on either
+      // side of the (potentially homologous) junction window are caught.
+      //
+      // NB: copy the structured-binding values (m_b1_cpos, m_b2_cpos) into
+      // plain ints before the lambda. Capturing structured bindings is a
+      // C++20 extension; svaba builds at C++17 so we'd otherwise warn on
+      // -Wc++20-extensions.
+      const int b1c    = m_b1_cpos;
+      const int b2c    = m_b2_cpos;
+      const int ibuff  = static_cast<int>(buff);
+      auto near_break = [b1c, b2c, ibuff](int p) {
+        return (p >= b1c - ibuff && p <= b1c + ibuff) ||
+               (p >= b2c - ibuff && p <= b2c + ibuff);
+      };
+      for (auto& i : del_breaks) if (near_break(i)) read_should_be_skipped = true;
+      for (auto& i : ins_breaks) if (near_break(i)) read_should_be_skipped = true;
     }
 
     if (read_should_be_skipped)  // default is r2c does not support var, so don't amend this_r2c

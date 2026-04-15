@@ -129,7 +129,21 @@
   pre.alignments {
     margin: 0;
     padding: 6px 12px;
-    font-family: ui-monospace, Menlo, Consolas, monospace;
+    /* SvABA2.0: pin a strict fixed-width font and disable every variable-
+       width feature so that lowercase-clip bases line up perfectly with
+       the uppercase matched bases above/below them. ui-monospace can map
+       to fonts with kerning/ligatures/contextual alternates enabled
+       (Cascadia, JetBrains Mono, Menlo with custom prefs) which subtly
+       offset lowercase columns. The font-feature-settings + variant
+       ligatures disables prevent that. Courier New is the last-resort
+       fallback because it's the most reliably monospaced font on every
+       platform. */
+    font-family: "SF Mono", "Menlo", "Consolas", "DejaVu Sans Mono",
+                 "Liberation Mono", "Courier New", monospace;
+    font-variant-ligatures: none;
+    font-feature-settings: "liga" 0, "calt" 0, "dlig" 0, "clig" 0, "hlig" 0, "kern" 0;
+    font-kerning: none;
+    letter-spacing: 0;
     font-size: 12px;
     line-height: 1.25;
     white-space: pre;
@@ -309,6 +323,12 @@
       <span class="spacer"></span>
       <span class="hint">
         <label title="Hide reads whose r2c CIGAR contains an I or D (i.e. show only perfect-match reads)"><input id="perfectOnly" type="checkbox"> perfect matches only (no I/D)</label>
+        <span style="display:inline-block; width:1px; height:14px; background:var(--border); margin:0 8px; vertical-align:middle"></span>
+        <span style="color:var(--muted); margin-right:4px">support:</span>
+        <label title="Show reads tagged 'support: split' on the r2c line"><input id="filtSplit" type="checkbox" checked> split</label>
+        <label title="Show reads tagged 'support: disc' on the r2c line"><input id="filtDisc" type="checkbox" checked> disc</label>
+        <label title="Show reads tagged 'support: both' on the r2c line"><input id="filtBoth" type="checkbox" checked> both</label>
+        <label title="Show reads tagged 'support: none' on the r2c line"><input id="filtNone" type="checkbox" checked> none</label>
       </span>
     </div>
     <div id="legend" class="legend" style="display:none"></div>
@@ -854,8 +874,22 @@ function readIsImperfect(line) {
   return /[ID]/.test(m[1]);
 }
 
+// Parse the 'support: <kind>' token emitted by AlignedContig::printToAlignmentsFile
+// for each read line. Returns one of "split" | "disc" | "both" | "none" | null.
+// Older alignments.txt files predate the tag; for those we return null and
+// the support filter falls open (kept visible regardless of toggle state).
+const RE_SUPPORT = /\bsupport:\s*(split|disc|both|none)\b/;
+function readSupportKind(line) {
+  const m = line.match(RE_SUPPORT);
+  return m ? m[1] : null;
+}
+
 function applyAlnFilter() {
   const perfectOnly = document.getElementById("perfectOnly").checked;
+  const showSplit = document.getElementById("filtSplit").checked;
+  const showDisc  = document.getElementById("filtDisc").checked;
+  const showBoth  = document.getElementById("filtBoth").checked;
+  const showNone  = document.getElementById("filtNone").checked;
   const off = new Set();
   legendEl.querySelectorAll(".swatch").forEach(sw => {
     if (sw.dataset.on === "0") off.add(sw.dataset.prefix);
@@ -865,6 +899,15 @@ function applyAlnFilter() {
     let visible = true;
     if (r.prefix && off.has(r.prefix)) visible = false;
     if (visible && perfectOnly && r.kind === "read" && readIsImperfect(r.text)) visible = false;
+    if (visible && r.kind === "read") {
+      // memoize support kind on the row so we don't re-regex on every toggle
+      if (r.support === undefined) r.support = readSupportKind(r.text);
+      if (r.support === "split" && !showSplit) visible = false;
+      else if (r.support === "disc" && !showDisc)  visible = false;
+      else if (r.support === "both" && !showBoth)  visible = false;
+      else if (r.support === "none" && !showNone)  visible = false;
+      // r.support === null (older file with no tag) is left visible
+    }
     r.el.classList.toggle("hidden", !visible);
     if (visible) shown++;
   }
@@ -1003,6 +1046,9 @@ document.getElementById("cancelBtn").addEventListener("click", () => {
   if (currentAbort) { currentAbort.abort(); setStatus("Cancelled.", "err"); }
 });
 document.getElementById("perfectOnly").addEventListener("change", applyAlnFilter);
+for (const id of ["filtSplit", "filtDisc", "filtBoth", "filtNone"]) {
+  document.getElementById(id).addEventListener("change", applyAlnFilter);
+}
 
 document.getElementById("pasteBtn").addEventListener("click", async () => {
   let t = "";

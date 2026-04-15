@@ -97,7 +97,23 @@ class svabaRead : public SeqLib::BamRecord {
   // < 0 is bad discordant read (see DiscordantRealigner.h)
   // == 0 not discordant
   // 1 = good
-  int dd = 0; 
+  int dd = 0;
+
+  // SvABA2.0: post-BFC re-alignment of the *corrected* read sequence to the
+  // reference, populated by SvabaRegionProcessor before assembly. The point
+  // is to give BreakPoint::splitCoverage's "r2c better than native" gate
+  // an apples-to-apples comparison: both sides use the corrected read
+  // sequence and the same BWA-MEM parameters that svaba uses internally,
+  // rather than mixing svaba-corrected r2c against the input BAM's
+  // pre-correction CIGAR/NM (which was the source of an asymmetric gate
+  // letting reads with mirror r2c indels through as variant supporters).
+  //
+  // Sentinel: corrected_native_nm == -1 means "not populated" (e.g. read
+  // with to_assemble == false, or empty corrected sequence). In that case
+  // splitCoverage falls back to GetCigar()/GetIntTag("NM",...) on the
+  // original BAM record.
+  SeqLib::Cigar corrected_native_cig;
+  int32_t       corrected_native_nm = -1;
 
   friend class svabaBamWalker;
 

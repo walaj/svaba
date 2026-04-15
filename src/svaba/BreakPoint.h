@@ -5,6 +5,7 @@
 #include <map>
 #include <tuple>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "DiscordantCluster.h"
 #include "SeqLib/BamRecord.h"
@@ -218,7 +219,20 @@ public:
   GenomicRegion BreakEndAsGenomicRegionRight() const;
 
   std::string printDeletionMarksForAlignmentsFile() const;
-  
+
+  // SvABA2.0: union of UniqueNames of split-supporting reads across all
+  // samples. Used by AlignedContig::printToAlignmentsFile to tag each
+  // read line with its variant-support kind. SampleInfo is a private
+  // nested type, so we expose this method instead of forcing callers
+  // to iterate `allele` and reach into SampleInfo directly.
+  std::unordered_set<std::string> getAllSupportingReads() const {
+    std::unordered_set<std::string> out;
+    for (const auto& kv : allele)
+      for (const auto& un : kv.second.supporting_reads)
+        out.insert(un);
+    return out;
+  }
+
   bool isIndel() const;
   
   HashVector getBreakEndHashes();

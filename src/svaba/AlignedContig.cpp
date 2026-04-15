@@ -1,6 +1,27 @@
 #include "AlignedContig.h"
 #include "PlottedRead.h"
 #include "SvabaUtils.h"
+#include "ContigAlignmentScore.h"
+
+#include <cctype>
+#include <iomanip>
+#include <sstream>
+#include <unordered_set>
+
+// SvABA2.0: rendering toggle for alignments.txt.gz read display.
+//
+//   true  -> one read per output line (easier to grep, easier to inspect a
+//            specific read; what we want when debugging variant-support
+//            decisions). Each read still gets the same per-read info token
+//            with r2c/native scores etc, so the file stays diff-able.
+//   false -> the original space-packed mode where multiple non-overlapping
+//            reads share a line (compact view, fewer lines for big contigs).
+//
+// Flip and rebuild to switch between modes. The packing code path (when
+// false) is preserved verbatim so we can switch back without code changes.
+namespace {
+constexpr bool kAlignmentsOneReadPerLine = true;
+}  // namespace
 
 // bav is all of the alignments of the contig to the reference
 AlignedContig::AlignedContig(BamRecordPtrVector& bav,
@@ -225,80 +246,218 @@ std::string AlignedContig::printToAlignmentsFile(const SeqLib::BamHeader& h) con
     }
   }
   
-  out << m_seq << "    " << cname << std::endl; 
+  out << m_seq << "    " << cname << std::endl;
   PlottedReadVector plot_vec;
-  
+
+  // SvABA2.0: build the set of split-supporting and discordant-supporting
+  // read UniqueNames so we can tag each rendered read line with its
+  // support kind (split / disc / both / none). Split-supporting reads are
+  // those that landed in any BreakPoint::SampleInfo::supporting_reads on
+  // any BP for this contig (populated by BreakPoint::splitCoverage).
+  // Discordant-supporting reads are those keyed in any associated
+  // DiscordantCluster::reads or ::mates (keyed by UniqueName, see
+  // DiscordantCluster.cpp:134).
+  std::unordered_set<std::string> split_supporters;
+  for (const auto& bp : getAllBreakPoints()) {
+    if (!bp) continue;
+    for (const auto& un : bp->getAllSupportingReads())
+      split_supporters.insert(un);
+  }
+  std::unordered_set<std::string> disc_supporters;
+  for (const auto& dc : m_dc) {
+    for (const auto& kv : dc.reads)  disc_supporters.insert(kv.first);
+    for (const auto& kv : dc.mates)  disc_supporters.insert(kv.first);
+  }
+
   // print out the individual reads
   for (const auto& i : m_bamreads) {
-    
-    std::string seq = i->Sequence(); 
+
+    std::string seq = i->Sequence();
     std::string sr = i->UniqueName();
-    
+
     // get the read to contig alignment information
     r2c this_r2c = i->GetR2C(getContigName());
-    
+
     int pos = this_r2c.start_on_contig;
-    
+
     if (this_r2c.rc)
       SeqLib::rcomplement(seq);
-    
+
+    // SvABA2.0: build the rendered string with three regions:
+    //   leading-S bases  -> lowercase, rendered immediately to the LEFT of
+    //                       the matched portion (so they appear at columns
+    //                       [start_on_contig - leading_S, start_on_contig)).
+    //   M / D bases      -> uppercase / '-' as before.
+    //   trailing-S bases -> lowercase, rendered to the RIGHT of the match.
+    // I (insertion wrt contig) is dropped since it has no contig column.
+    // If the leading clip would render before column 0 we truncate it so
+    // PlottedReadLine's `pos >= last_loc` invariant is preserved.
+    size_t lead_clip_len  = 0;
+    size_t trail_clip_len = 0;
+    if (this_r2c.cig.size() > 0) {
+      const auto& fop = this_r2c.cig.front();
+      const auto& lop = this_r2c.cig.back();
+      if (fop.Type() == 'S') lead_clip_len  = fop.Length();
+      // protect against a CIGAR that is a single S op (front == back)
+      if (lop.Type() == 'S' && this_r2c.cig.size() > 1) trail_clip_len = lop.Length();
+    }
+
+    std::string lead_clip;
+    std::string trail_clip;
+    if (lead_clip_len > 0 && lead_clip_len <= seq.length()) {
+      lead_clip = seq.substr(0, lead_clip_len);
+      for (auto& ch : lead_clip) ch = static_cast<char>(std::tolower(ch));
+    }
+    if (trail_clip_len > 0 && trail_clip_len <= seq.length()) {
+      trail_clip = seq.substr(seq.length() - trail_clip_len);
+      for (auto& ch : trail_clip) ch = static_cast<char>(std::tolower(ch));
+    }
+
     // edit the string to reflect gapped and clipped alignments
     // that is, only show the match portion, and put "-" on reads for deletions wrt contig
     size_t p = 0; // move along on sequence, starting at first non-clipped base
     std::string gapped_seq;
     for (SeqLib::Cigar::const_iterator c = this_r2c.cig.begin(); c != this_r2c.cig.end(); ++c) {
-      if (c->Type() == 'M') { // 
+      if (c->Type() == 'M') { //
 	assert(p + c->Length() <= seq.length());
 	gapped_seq += seq.substr(p, c->Length());
       } else if (c->Type() == 'D') {
 	gapped_seq += std::string(c->Length(), '-');
       }
-      
+
       if (c->ConsumesQuery()) //c->Type() == 'I' || c->Type() == 'M' || c->Type() == 'S') // consumes query
 	p += c->Length();
     }
-    seq = gapped_seq;
-    
+    seq = lead_clip + gapped_seq + trail_clip;
+
     pos = abs(pos);
+
+    // shift the render anchor left by the leading-clip length so the
+    // lowercase clip bases appear in the correct contig columns.
+    pos -= static_cast<int>(lead_clip_len);
+    if (pos < 0) {
+      // leading clip would extend past the contig left edge; chop the
+      // overhanging lowercase bases so we don't violate the renderer's
+      // monotonic-position invariant.
+      const size_t to_drop = static_cast<size_t>(-pos);
+      if (to_drop >= seq.size()) seq.clear();
+      else seq = seq.substr(to_drop);
+      pos = 0;
+    }
+
     int padlen = m_seq.size() - pos - seq.size() + 5;
     padlen = std::max(5, padlen);
-    
+
+    // SvABA2.0: variant-support kind for this read on this contig.
+    // The viewer parses this token with /\bsupport: (split|disc|both)\b/
+    // and uses it to drive the split-only / disc-only / both toggles.
+    const bool is_split = split_supporters.count(sr) > 0;
+    const bool is_disc  = disc_supporters.count(sr)  > 0;
+    const char* support_kind = is_split && is_disc ? "both"
+                             : is_split            ? "split"
+                             : is_disc             ? "disc"
+                             :                       "none";
+
+    // SvABA2.0: per-read SV-focused alignment scores. These are the exact
+    // scores BreakPoint::splitCoverage uses for its "r2c better than
+    // native" gate (see svaba::readAlignmentScore in
+    // ContigAlignmentScore.h). Surfacing them here makes it possible to
+    // diagnose, by inspection of alignments.txt.gz alone, why a particular
+    // read was or wasn't credited as a variant supporter.
+    //
+    //   r2cScore    = score(r2c CIGAR, r2c NM)               always present
+    //                                                        when r2c.cig
+    //                                                        is non-empty
+    //   nativeScore = score(BAM CIGAR, BAM NM tag)           "NA" if either
+    //                                                        is missing
+    //
+    // The gate is: variant-supporter iff r2cScore > nativeScore.
+    auto fmt_score = [](double s) {
+      std::ostringstream os;
+      os << std::fixed << std::setprecision(1) << s;
+      return os.str();
+    };
+
+    std::string r2c_score_str = "NA";
+    if (this_r2c.cig.size() > 0) {
+      r2c_score_str = fmt_score(
+          svaba::readAlignmentScore(this_r2c.cig, this_r2c.nm));
+    }
+
+    // Match BreakPoint::splitCoverage's source-of-truth precedence: prefer
+    // the corrected-read realignment (apples-to-apples with r2c), fall
+    // back to the original BAM record only when corrected_native is empty.
+    // Without this preference the dump would mislead — the gate decides
+    // on one number and the .txt would print a different one.
+    std::string native_score_str = "NA";
+    {
+      SeqLib::Cigar native_cig;
+      int32_t       native_nm = -1;
+      if (i->corrected_native_cig.size() > 0) {
+        native_cig = i->corrected_native_cig;
+        native_nm  = i->corrected_native_nm;
+      } else {
+        native_cig = i->GetCigar();
+        i->GetIntTag("NM", native_nm);
+      }
+      if (native_cig.size() > 0) {
+        native_score_str = fmt_score(
+            svaba::readAlignmentScore(native_cig, native_nm));
+      }
+    }
+
     std::stringstream rstream;
     rstream << sr << "--" << (i->ChrID()+1) << ":" << i->Position()
 	    << " r2c POS: " << this_r2c.start_on_contig
 	    << " FLAG: " << (this_r2c.rc ? 16 : 0)
 	    << " NM: " << this_r2c.nm
+	    << " support: " << support_kind
+	    << " r2cScore: "    << r2c_score_str
+	    << " nativeScore: " << native_score_str
 	    << " CIGAR: " << this_r2c.cig;
-    
+
     plot_vec.push_back({pos, seq, rstream.str()});
   }
   
   std::sort(plot_vec.begin(), plot_vec.end());
-  
+
   PlottedReadLineVector line_vec;
-  
-  // plot the reads from the ReadPlot vector
-  for (auto& i : plot_vec) {
-    bool found = false;
-    for (auto& j : line_vec) {
-      if (j.readFits(i)) { // it fits here
-	j.addRead(&i);
-	found = true;
-	break;
-      }
-    }
-    if (!found) { // didn't fit anywhere, so make a new line
+
+  // SvABA2.0: when kAlignmentsOneReadPerLine is true, skip the "fits in an
+  // existing line?" test and always start a new line per read. The packed
+  // mode (else branch) is the original behavior, kept verbatim so flipping
+  // the toggle restores it byte-for-byte.
+  if (kAlignmentsOneReadPerLine) {
+    for (auto& i : plot_vec) {
       PlottedReadLine prl;
       prl.contig_len = m_seq.length();
       prl.addRead(&i);
       line_vec.push_back(prl);
     }
+  } else {
+    // plot the reads from the ReadPlot vector
+    for (auto& i : plot_vec) {
+      bool found = false;
+      for (auto& j : line_vec) {
+        if (j.readFits(i)) { // it fits here
+          j.addRead(&i);
+          found = true;
+          break;
+        }
+      }
+      if (!found) { // didn't fit anywhere, so make a new line
+        PlottedReadLine prl;
+        prl.contig_len = m_seq.length();
+        prl.addRead(&i);
+        line_vec.push_back(prl);
+      }
+    }
   }
-  
+
   // plot the lines. Add contig identifier to each
-  for (auto& i : line_vec) 
+  for (auto& i : line_vec)
     out << i << " " << cname << std::endl;
-  
+
   return out.str();
 }
 
