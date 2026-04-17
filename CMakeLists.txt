@@ -79,7 +79,8 @@ src/svaba/KmerFilter.cpp
 src/svaba/SvabaThreadUnit.cpp
 src/svaba/SvabaRegionProcessor.cpp
 src/svaba/SvabaBamWalker.cpp
-#src/svaba/refilter.cpp
+src/svaba/refilter.cpp
+src/svaba/SvabaPostprocess.cpp
 src/svaba/LearnBamParams.cpp
 src/svaba/STCoverage.cpp
 src/svaba/SvabaModels.cpp

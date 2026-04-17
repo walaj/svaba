@@ -1,134 +1,107 @@
 #!/bin/bash
+#
+# sort_output.sh — post-process svaba's per-suffix output BAMs.
+#
+# The heavy lifting (coord-sort + streaming dedup of exact (qname, flag)
+# duplicates from overlapping assembly windows) now lives in the C++
+# `svaba postprocess` subcommand, which avoids the old
+# `samtools view | awk | samtools view` round-trip through SAM text and
+# keeps the dedup hash locus-local rather than global.
+#
+# This script is the outer glue that:
+#   1. Merges per-thread BAMs (${ID}.thread*.${suffix}.bam) into a single
+#      ${ID}.${suffix}.bam per suffix, if needed.
+#   2. Delegates sort + dedup to `svaba postprocess`.
+#   3. Indexes the final BAMs.
+#   4. Optionally splits by read-name source prefix (SPLIT_BY_SOURCE=1).
+#
+# Usage:
+#     ./sort_output.sh <ID> [THREADS]
+#     SPLIT_BY_SOURCE=1 ./sort_output.sh <ID> [THREADS]
+
+set -e
 
 SAM=samtools
+SVABA=${SVABA:-~/git/svaba/build/svaba}       # override if not on PATH
 ID=$1
-MEM=16G
 THREADS=${2:-4}
+MEM=${MEM:-2G}              # per-samtools-sort-thread memory
 
-# Suffixes that need deduplication (window overlap can produce exact duplicate reads)
-DEDUP_SUFFIXES="weird corrected discordant"
+if [[ -z "$ID" ]]; then
+  echo "Usage: $0 <ID> [THREADS]" >&2
+  exit 2
+fi
 
-# If set to "1", run an extra module that splits the discordant/weird/corrected
-# BAMs into per-source BAMs, using the first 4 chars of each read name as the
-# source tag (e.g. a read named "t001_H1234..." gets routed into
-# ${ID}.${suffix}.t001.bam). Override at invocation with:
-#     SPLIT_BY_SOURCE=1 ./sort_output.sh ID
-SPLIT_BY_SOURCE="${SPLIT_BY_SOURCE:-1}"
-
-# Preprocessing: merge thread BAMs if necessary
+# ---------------------------------------------------------------------------
+# Step 1: Merge thread BAMs.
+#
+# If svaba was run with multiple threads, each suffix may be spread across
+# ${ID}.thread0.${suffix}.bam, ${ID}.thread1.${suffix}.bam, etc. Coalesce
+# them into a single ${ID}.${suffix}.bam.
+# ---------------------------------------------------------------------------
 for suffix in discordant weird corrected; do
-  pattern="${ID}.thread*.${suffix}.bam"
   target="${ID}.${suffix}.bam"
   shopt -s nullglob
-  bam_files=($pattern)
+  bam_files=("${ID}".thread*."${suffix}".bam)
   shopt -u nullglob
+
   if [[ ${#bam_files[@]} -gt 1 ]]; then
-    echo "Merging ${#bam_files[@]} BAM files for suffix '$suffix' into $target"
-    ${SAM} merge -f -@ ${THREADS} "$target" "${bam_files[@]}" && rm "${bam_files[@]}"
+    echo "Merging ${#bam_files[@]} thread BAMs for '$suffix' -> $target"
+    ${SAM} merge -f -@ "${THREADS}" "$target" "${bam_files[@]}"
+    rm -f "${bam_files[@]}"
   elif [[ ${#bam_files[@]} -eq 1 ]]; then
-    echo "Renaming single-thread BAM ${bam_files[0]} to $target"
+    echo "Renaming single-thread BAM ${bam_files[0]} -> $target"
     mv "${bam_files[0]}" "$target"
   fi
 done
 
-# Now process all expected BAMs for sorting, dedup, and indexing.
-# Each suffix is fully independent, so we run them in parallel and share
-# the ${THREADS} budget across concurrent jobs. The three dedup suffixes
-# (weird/corrected/discordant) run concurrently with each other, and the
-# contigs suffix runs alongside them. This keeps total concurrent samtools
-# thread count at ~${THREADS}.
+# ---------------------------------------------------------------------------
+# Step 2: Sort + streaming dedup via `svaba postprocess`.
+#
+# `svaba postprocess` is a thin C++ orchestrator: for each suffix it shells
+# out to `samtools sort` (unchanged — that's where the memory-limited,
+# multithreaded external sort still lives) and then runs a native
+# SeqLib-based streaming dedup over the sorted BAM. The dedup is the part
+# that's actually new in C++: it replaces the old
+# `samtools view | awk | samtools view` text round-trip with a single pass
+# over BAM records keyed on (qname, flag) with a locus-local hash set.
+#
+# Handles {weird, corrected, discordant, contigs} in parallel, splits the
+# thread budget across concurrent per-suffix jobs (passed through to
+# `samtools sort -@` within each job), dedups (qname, flag) duplicates for
+# the three dedup-eligible suffixes, leaves `contigs` alone except for
+# sorting. Progress prints per 1M reads per suffix during dedup.
+# ---------------------------------------------------------------------------
+echo "Running '${SVABA} postprocess' (samtools sort + native dedup) with $THREADS threads..."
+${SVABA} postprocess -i "$ID" -t "$THREADS" -m "$MEM"
 
-AWK_BIN=$(command -v mawk || command -v gawk || command -v awk)
-
-# Per-suffix pipeline: sort -> (optional) dedup -> index.
-# Usage: process_one_suffix <suffix> <threads-per-job>
-process_one_suffix() {
-  local suffix="$1"
-  local jthreads="$2"
-  local bam="${ID}.${suffix}.bam"
-  local sorted="${ID}.${suffix}.sorted.bam"
-
-  if [[ ! -f "$bam" ]]; then
-    echo "Skipping: $bam not found."
-    return 0
-  fi
-
-  echo "[$suffix] Sorting $bam with $jthreads threads..."
-  ${SAM} sort -@ ${jthreads} -m ${MEM} -o "$sorted" "$bam"
-  mv "$sorted" "$bam"
-
-  # Deduplicate by read name + flags for suffixes with window overlap.
-  # Input is already coord-sorted above, so exact duplicates (same qname+flag
-  # generated by overlapping assembly windows) are guaranteed to share the
-  # same (RNAME, POS). That lets us reset the dedup hash at every position
-  # change — memory goes from O(N) to O(reads per locus), and awk runs at
-  # near-streaming speed instead of thrashing a multi-million-entry hash.
-  # We also prefer mawk when available (usually 2-5x faster than gawk/nawk).
-  if [[ " ${DEDUP_SUFFIXES} " == *" ${suffix} "* ]]; then
-    echo "[$suffix] Deduplicating $bam (removing exact read name + flag duplicates)..."
-    local deduped="${ID}.${suffix}.deduped.bam"
-    ${SAM} view -@ ${jthreads} -h "$bam" \
-      | ${AWK_BIN} 'BEGIN{OFS="\t"}
-          /^@/{print; next}
-          $3!=rn || $4!=po { delete seen; rn=$3; po=$4 }
-          { k=$1"\t"$2; if(!seen[k]++) print }' \
-      | ${SAM} view -@ ${jthreads} -bS -o "$deduped" -
-    mv "$deduped" "$bam"
-  fi
-
-  ${SAM} index -@ ${jthreads} "$bam"
-  echo "[$suffix] Done: $bam"
-}
-
-# Determine which suffixes actually have input BAMs to process, so we divide
-# threads only among real jobs (no point reserving thread budget for a missing
-# file).
-declare -a active_suffixes=()
-for suffix in weird corrected contigs discordant; do
-  [[ -f "${ID}.${suffix}.bam" ]] && active_suffixes+=("$suffix")
+# ---------------------------------------------------------------------------
+# Step 3: Index the final BAMs.
+#
+# Kept here rather than in the C++ module because indexing is cheap, single-
+# pass, and not a bottleneck; samtools does it fine.
+# ---------------------------------------------------------------------------
+for suffix in weird corrected discordant contigs; do
+  bam="${ID}.${suffix}.bam"
+  [[ -f "$bam" ]] || continue
+  echo "Indexing $bam"
+  ${SAM} index -@ "${THREADS}" "$bam"
 done
-n_active=${#active_suffixes[@]}
 
-if [[ $n_active -eq 0 ]]; then
-  echo "No BAMs to process."
-else
-  # Give each concurrent job floor(THREADS / n_active) samtools threads,
-  # min 1. If THREADS < n_active, cap concurrency to THREADS so we don't
-  # spawn more jobs than cores.
-  if [[ $THREADS -lt $n_active ]]; then
-    max_parallel=$THREADS
-    per_job_threads=1
-  else
-    max_parallel=$n_active
-    per_job_threads=$(( THREADS / n_active ))
-  fi
-  echo "Processing ${n_active} suffix(es) in parallel: ${active_suffixes[*]}"
-  echo "  max_parallel=${max_parallel}, threads/job=${per_job_threads}"
+# ---------------------------------------------------------------------------
+# Step 4 (optional): Split BAMs by read-name source prefix.
+#
+# Enabled by SPLIT_BY_SOURCE=1. Routes each record into
+# ${ID}.${suffix}.${prefix}.bam based on the first 4 chars of QNAME
+# (the "source tag" like t001 / n001), then sorts+indexes each output.
+#
+# This step is still shell because it's a one-shot demux that happens to be
+# tolerable via awk+samtools. If it becomes a bottleneck, moving it into
+# `svaba postprocess --split-by-source` is a mechanical port: open N
+# BamWriters keyed by the first 4 chars, route each record on the fly.
+# ---------------------------------------------------------------------------
+SPLIT_BY_SOURCE="${SPLIT_BY_SOURCE:-0}"
 
-  pids=()
-  for suffix in "${active_suffixes[@]}"; do
-    # Throttle: if we have max_parallel jobs running, wait for one to finish.
-    while [[ ${#pids[@]} -ge $max_parallel ]]; do
-      new_pids=()
-      for pid in "${pids[@]}"; do
-        if kill -0 "$pid" 2>/dev/null; then
-          new_pids+=("$pid")
-        fi
-      done
-      pids=("${new_pids[@]}")
-      [[ ${#pids[@]} -ge $max_parallel ]] && sleep 0.1
-    done
-
-    process_one_suffix "$suffix" "$per_job_threads" &
-    pids+=("$!")
-  done
-  wait
-fi
-
-# Optional: split BAMs by read-name source prefix (first 4 chars of QNAME).
-# Enabled by setting SPLIT_BY_SOURCE=1 at the top of this script or on the
-# command line. Produces files like ${ID}.${suffix}.${prefix}.bam (e.g.
-# ${ID}.weird.t001.bam) for each distinct 4-char prefix found.
 if [[ "$SPLIT_BY_SOURCE" == "1" ]]; then
   echo "SPLIT_BY_SOURCE=1: splitting BAMs by read-name source prefix"
   for suffix in discordant weird corrected; do
@@ -150,29 +123,22 @@ if [[ "$SPLIT_BY_SOURCE" == "1" ]]; then
       print >> out
     }'
 
-    # Reassemble each per-prefix SAM into a sorted+indexed BAM.
-    # Each prefix is fully independent, so run them in parallel. Each job
-    # gets (THREADS / num_prefixes) samtools threads, minimum 1, so we
-    # don't oversubscribe when a discordant BAM has many source tags.
+    # Reassemble each per-prefix SAM into a sorted+indexed BAM, in parallel.
     shopt -s nullglob
     bodies=("${tmpdir}"/body.*.sam)
     n_bodies=${#bodies[@]}
     if [[ $n_bodies -gt 0 ]]; then
       per_job_threads=$(( THREADS / n_bodies ))
       [[ $per_job_threads -lt 1 ]] && per_job_threads=1
-      # Cap concurrent jobs to THREADS so we don't spawn more than we can run.
       max_parallel=$(( THREADS < n_bodies ? THREADS : n_bodies ))
       echo "    Reassembling $n_bodies per-prefix BAMs ($max_parallel parallel, $per_job_threads samtools threads each)"
 
       pids=()
       for body in "${bodies[@]}"; do
-        # Throttle: if we have max_parallel jobs running, wait for one.
         while [[ ${#pids[@]} -ge $max_parallel ]]; do
           new_pids=()
           for pid in "${pids[@]}"; do
-            if kill -0 "$pid" 2>/dev/null; then
-              new_pids+=("$pid")
-            fi
+            kill -0 "$pid" 2>/dev/null && new_pids+=("$pid")
           done
           pids=("${new_pids[@]}")
           [[ ${#pids[@]} -ge $max_parallel ]] && sleep 0.1
@@ -197,3 +163,5 @@ if [[ "$SPLIT_BY_SOURCE" == "1" ]]; then
     rm -rf "$tmpdir"
   done
 fi
+
+echo "sort_output.sh: done."

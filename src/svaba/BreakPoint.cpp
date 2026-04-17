@@ -269,7 +269,25 @@ std::string BreakPoint::toFileString(const BamHeader& header) const {
     // << (repeat_seq.length() ? repeat_seq : "x") << sep 
      << (rs.length() ? rs : "x") << sep
      << b1.contig_conf << sep
-     << b2.contig_conf;;
+     << b2.contig_conf << sep
+    // --- SvABA2.0 additions for refilter round-trip ------------------------
+    // Contig-relative breakend positions. -1 sentinel means "not set" (e.g.
+    // DSCRD-only breakpoints with no backing contig alignment).
+     << b1.cpos << sep
+     << b2.cpos << sep
+    // Flanking match lengths at each end (drives SHORTALIGNMENT/LOWMATCHLEN).
+     << left_match << sep
+     << right_match << sep
+    // Extent of split-read coverage on the contig (drives DUPREADS/LOWSUPPORT).
+     << split_cov_bounds.first << sep
+     << split_cov_bounds.second << sep
+    // Per-end LocalAlignment enum, serialized as int to keep the parser
+    // identity-simple. See BreakPoint.h for enum values (0..3).
+     << static_cast<int>(b1.local) << sep
+     << static_cast<int>(b2.local) << sep
+    // Contig orientation metadata for cpos_on_m_seq() reconstruction.
+     << contig_len << sep
+     << (flipped_on_contig ? 1 : 0);
 
   for (const auto& [_,al] : allele)
     ss << sep << al.toFileString(svtype);
@@ -2363,10 +2381,25 @@ BreakPoint::BreakPoint(const std::string& line, const SvabaSharedConfig* _sc)
   }
   
   const auto tok = split_tabs(line);
-  if (tok.size() < 39) {
-    throw std::runtime_error("BreakPoint parse error: expected at least 39 columns, got " + std::to_string(tok.size()));
+  // Minimum supported = 41 (legacy pre-SvABA2.0 dumps: core columns through
+  // contig_conf2, no refilter-roundtrip additions). When we see >= 51 we
+  // know the file carries the SvABA2.0 cpos/match/cov/local/flip columns
+  // and we parse them in. This keeps the parser backward-compatible with
+  // bps.txt.gz files produced by older svaba builds.
+  if (tok.size() < 41) {
+    throw std::runtime_error("BreakPoint parse error: expected at least 41 columns, got " + std::to_string(tok.size()));
   }
   int i = 0;
+  // Lambda to safely parse an int from a token, tolerating empty / "x" / non-
+  // numeric values that older dumps sometimes emit for unset sentinels.
+  auto to_int_safe = [](const std::string& s, int def) -> int {
+    if (s.empty() || s == "x" || s == "NA" || s == "nan") return def;
+    try { return std::stoi(s); } catch (...) { return def; }
+  };
+  auto to_double_safe = [](const std::string& s, double def) -> double {
+    if (s.empty() || s == "x" || s == "NA" || s == "nan") return def;
+    try { return std::stod(s); } catch (...) { return def; }
+  };
   
   // ---- fixed columns (1..39) ----
   const std::string chr1 = tok[i++];
@@ -2419,13 +2452,82 @@ BreakPoint::BreakPoint(const std::string& line, const SvabaSharedConfig* _sc)
 
     rs = tok[i++]; if (rs == "x") rs.clear(); // 39
 
+    // ---- contig-confidence columns (40..41) -- previously skipped by this
+    // ---- parser, which caused the first two trailing tokens to be misread
+    // ---- as sample blocks. Now round-tripped correctly.
+    b1.contig_conf = to_double_safe(tok[i++], 1.0);  // 40
+    b2.contig_conf = to_double_safe(tok[i++], 1.0);  // 41
+
+    // ---- SvABA2.0 refilter-roundtrip columns (42..51). Optional: only
+    // ---- parse if present, so we remain backward-compatible with older
+    // ---- bps.txt.gz files (which stop at 41 + per-sample blocks).
+    // ----
+    // ---- Detection heuristic: per-sample blocks are colon-delimited
+    // ---- (GT:AD:DP:SR:...). Core columns 42..51 are plain scalars with
+    // ---- no colons. So we use: "if tok[41] contains no ':' AND there are
+    // ---- at least 10 more tokens, it's the new format". This is robust
+    // ---- against unusual sample counts and doesn't need to know n_bams
+    // ---- at parse time.
+    const bool has_new_core_cols =
+      (tok.size() >= static_cast<size_t>(i) + 10) &&
+      (tok[static_cast<size_t>(i)].find(':') == std::string::npos);
+
+    if (has_new_core_cols) {
+      b1.cpos                = to_int_safe(tok[i++], -1);  // 42
+      b2.cpos                = to_int_safe(tok[i++], -1);  // 43
+      left_match             = to_int_safe(tok[i++], -1);  // 44
+      right_match            = to_int_safe(tok[i++], -1);  // 45
+      split_cov_bounds.first  = to_int_safe(tok[i++], 0);  // 46
+      split_cov_bounds.second = to_int_safe(tok[i++], 0);  // 47
+      const int l1           = to_int_safe(tok[i++], 0);   // 48
+      const int l2           = to_int_safe(tok[i++], 0);   // 49
+      auto to_local = [](int v) -> LocalAlignment {
+        switch (v) {
+          case 1:  return LocalAlignment::NONVAR_LOCAL_REALIGNMENT;
+          case 2:  return LocalAlignment::FROM_LOCAL_REGION;
+          case 3:  return LocalAlignment::FROM_DISTANT_REGION;
+          default: return LocalAlignment::NOTSET;
+        }
+      };
+      b1.local               = to_local(l1);
+      b2.local               = to_local(l2);
+      contig_len             = to_int_safe(tok[i++], 0);   // 50
+      flipped_on_contig      = (to_int_safe(tok[i++], 0) != 0); // 51
+    } else {
+      // Legacy dump: leave the new fields at their defaults. The PASS /
+      // assembly-only filters that depend on these will degrade gracefully
+      // (e.g. local=NOTSET, cpos=-1, split_cov_bounds={0,0}), and the
+      // refilter flow should prefer the dumped `confidence` string in that
+      // case rather than recomputing.
+      b1.cpos = -1; b2.cpos = -1;
+      left_match = -1; right_match = -1;
+      split_cov_bounds = {0, 0};
+      b1.local = LocalAlignment::NOTSET;
+      b2.local = LocalAlignment::NOTSET;
+      contig_len = 0;
+      flipped_on_contig = false;
+    }
+
     // Genomic regions (file is 1-based; internal is 0-based)
     b1.gr.chr    = sc->header.Name2ID(chr1); b1.gr.pos1 = static_cast<int>(pos1_1idx - 1);
     b1.gr.pos2   = b1.gr.pos1; b1.gr.strand = s1;
     b2.gr.chr    = sc->header.Name2ID(chr2); b2.gr.pos1 = static_cast<int>(pos2_1idx - 1);
     b2.gr.pos2   = b2.gr.pos1; b2.gr.strand = s2;
 
-    local     = LocalAlignment::NOTSET;
+    // Top-level `local` is a summary derived from (b1.local, b2.local). The
+    // original scorer sets it as: FROM_LOCAL_REGION if either end is local,
+    // else FROM_DISTANT_REGION (see ~line 2045 in scoreBreakpoint path).
+    // We only set it here if we read a valid per-end local from the dump;
+    // otherwise leave NOTSET so the caller can rescore.
+    if (b1.local != LocalAlignment::NOTSET || b2.local != LocalAlignment::NOTSET) {
+      if (b1.local == LocalAlignment::FROM_LOCAL_REGION ||
+          b2.local == LocalAlignment::FROM_LOCAL_REGION)
+        local = LocalAlignment::FROM_LOCAL_REGION;
+      else
+        local = LocalAlignment::FROM_DISTANT_REGION;
+    } else {
+      local = LocalAlignment::NOTSET;
+    }
     imprecise = 0;
     pass      = 0;
 

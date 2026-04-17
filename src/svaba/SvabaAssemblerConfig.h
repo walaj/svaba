@@ -20,7 +20,7 @@
 // ---------------------------------------------------------------------------
 
 #ifndef SVABA_ASSEMBLER_FERMI
-#define SVABA_ASSEMBLER_FERMI 0
+#define SVABA_ASSEMBLER_FERMI 1
 #endif
 
 // Back-compat alias: existing code uses `#ifndef FERMI` / `#ifdef FERMI`.

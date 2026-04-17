@@ -1,0 +1,867 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SvABA BPS Explorer</title>
+<style>
+:root {
+  --bg: #f3ece1;
+  --bg-deep: #d7e2df;
+  --panel: rgba(255,251,246,.85);
+  --panel-strong: rgba(255,253,250,.94);
+  --text: #162430;
+  --muted: #5d6a72;
+  --line: rgba(22,36,48,.12);
+  --shadow: 0 24px 60px rgba(41,54,61,.14);
+  --accent: #c65a31;
+  --accent-ink: #7c2d12;
+  --accent-soft: rgba(198,90,49,.12);
+  --teal: #235b60;
+  --teal-soft: rgba(35,91,96,.12);
+  --green-soft: rgba(74,122,76,.14);
+  --danger-soft: rgba(164,65,65,.12);
+  --mono: "SFMono-Regular","Menlo","Monaco","Liberation Mono",monospace;
+  --sans: "Avenir Next","Segoe UI","Helvetica Neue",sans-serif;
+  --serif: "Iowan Old Style","Palatino Linotype","Book Antiqua",Georgia,serif;
+}
+*{box-sizing:border-box}
+html{font-size:15px}
+body{margin:0;min-height:100vh;color:var(--text);font-family:var(--sans);
+  background:radial-gradient(circle at top left,rgba(217,153,96,.25),transparent 32%),
+  linear-gradient(160deg,var(--bg) 0%,#f8f4ee 45%,var(--bg-deep) 100%)}
+code,pre,th,td,.stat-value,.chip,.status,.field input,.field select,
+.detail-grid dd{font-family:var(--mono)}
+.page{position:relative;z-index:1;width:min(1600px,calc(100vw - 2rem));margin:0 auto;padding:1rem 0 2rem}
+.panel{background:var(--panel);border:1px solid rgba(255,255,255,.45);
+  box-shadow:var(--shadow);border-radius:1.5rem;backdrop-filter:blur(14px);padding:1.4rem;margin-top:1rem}
+.eyebrow{margin:0 0 .45rem;text-transform:uppercase;letter-spacing:.18em;font-size:.72rem;font-weight:700;color:var(--teal)}
+h1,h2,h3{font-family:var(--serif);font-weight:700;margin:0}
+h1{font-size:clamp(1.8rem,3.5vw,3rem);line-height:1.04}
+h2{font-size:1.4rem}
+.hero{display:grid;gap:1.2rem;grid-template-columns:minmax(0,1.5fr) minmax(260px,.8fr);align-items:start}
+.hero-text{margin:1rem 0 0;max-width:60ch;color:var(--muted);line-height:1.6}
+.hero-actions{display:flex;align-items:center;gap:.75rem;margin-top:1.2rem;flex-wrap:wrap}
+.hero-stats{display:grid;gap:.6rem}
+.stat-card{padding:.9rem 1rem;border-radius:1.15rem;
+  background:linear-gradient(160deg,var(--panel-strong),rgba(255,248,240,.8));border:1px solid rgba(255,255,255,.55)}
+.stat-label{display:block;font-size:.78rem;color:var(--muted)}
+.stat-value{display:block;margin-top:.35rem;font-size:clamp(1.2rem,2.5vw,1.8rem)}
+.status{margin:1rem 0 0;color:var(--muted);line-height:1.5;font-family:var(--mono);font-size:.88rem}
+.button{appearance:none;border:0;border-radius:999px;padding:.75rem 1rem;font:inherit;cursor:pointer;
+  transition:transform 140ms ease,box-shadow 140ms ease,background 140ms ease}
+.button:hover:not(:disabled){transform:translateY(-1px)}
+.button:disabled{cursor:not-allowed;opacity:.45}
+.button-primary{background:linear-gradient(135deg,#12222f,#264053);color:#fdf7f1;box-shadow:0 16px 32px rgba(18,34,47,.22)}
+.button-secondary{background:rgba(255,255,255,.8);color:var(--text);border:1px solid var(--line)}
+.button-ghost{background:transparent;color:var(--text);border:1px solid var(--line)}
+.button-small{padding:.5rem .8rem;font-size:.88rem}
+.file-picker input{display:none}
+.panel-heading{display:flex;align-items:end;justify-content:space-between;gap:.75rem}
+
+/* --- drop zone --- */
+.drop-zone{border:2px dashed var(--line);border-radius:1rem;padding:2rem;text-align:center;color:var(--muted);
+  transition:border-color 200ms,background 200ms;margin-top:1rem}
+.drop-zone.over{border-color:var(--accent);background:var(--accent-soft)}
+
+/* --- filters --- */
+.filter-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:.7rem;margin-top:.8rem}
+.field{display:flex;flex-direction:column;gap:.35rem;min-width:0}
+.field.wide{grid-column:span 2}
+.field-label{font-size:.75rem;font-weight:700;color:var(--muted)}
+.field input,.field select{width:100%;border:1px solid rgba(22,36,48,.14);background:rgba(255,255,255,.8);
+  border-radius:.95rem;padding:.7rem .85rem;color:var(--text);font-family:var(--mono);font-size:.88rem}
+.field input:focus-visible,.field select:focus-visible{outline:2px solid rgba(198,90,49,.24);outline-offset:1px}
+.chip-section{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:.8rem;margin-top:1rem}
+.chip-block{padding:.8rem;border-radius:1rem;background:rgba(255,255,255,.58);border:1px solid rgba(255,255,255,.45)}
+.chip-heading{display:flex;align-items:center;justify-content:space-between;margin-bottom:.6rem}
+.chip-heading .eyebrow{margin:0}
+.chip-list{display:flex;flex-wrap:wrap;gap:.4rem}
+.chip{padding:.45rem .65rem;border-radius:999px;border:1px solid var(--line);background:rgba(255,255,255,.78);
+  color:var(--text);font-size:.78rem;cursor:pointer;transition:background 120ms,border-color 120ms,transform 120ms}
+.chip:hover{transform:translateY(-1px)}
+.chip.active{background:linear-gradient(135deg,rgba(198,90,49,.18),rgba(35,91,96,.12));border-color:rgba(198,90,49,.4);color:var(--accent-ink)}
+.preset-row{display:flex;flex-wrap:wrap;gap:1rem;margin-top:.8rem}
+.preset-group{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap}
+.preset-label{font-size:.75rem;color:var(--muted);font-weight:700}
+
+/* --- charts --- */
+.charts-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:.8rem;margin-top:1rem}
+.chart-card{padding:.8rem;border-radius:1rem;background:rgba(255,255,255,.62);border:1px solid var(--line)}
+.chart-card canvas{width:100%;height:180px;display:block}
+.chart-title{font-size:.78rem;font-weight:700;color:var(--muted);margin-bottom:.4rem}
+
+/* --- table --- */
+.workspace{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(300px,.75fr);gap:1rem;margin-top:1rem}
+.table-shell{margin-top:.8rem;overflow:auto;max-height:72vh;border-radius:1rem;border:1px solid var(--line);background:rgba(255,255,255,.55)}
+table{width:100%;border-collapse:collapse}
+thead th{position:sticky;top:0;background:rgba(246,241,234,.96);z-index:1;white-space:nowrap}
+th,td{padding:.7rem .8rem;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;font-size:.84rem}
+tbody tr{cursor:pointer;transition:background 120ms}
+tbody tr:hover{background:rgba(198,90,49,.06)}
+tbody tr.selected{background:linear-gradient(90deg,rgba(198,90,49,.12),rgba(35,91,96,.08))}
+.sort-btn{border:0;background:transparent;padding:0;font:inherit;font-weight:700;cursor:pointer;color:inherit;white-space:nowrap}
+.sort-btn .arrow{font-size:.7em;opacity:.5}
+.empty-table{padding:1.2rem;color:var(--muted)}
+.pagination{display:flex;align-items:center;justify-content:flex-end;gap:.75rem;margin-top:.8rem}
+
+/* --- detail --- */
+.detail-content{margin-top:.8rem}
+.detail-empty{color:var(--muted)}
+.detail-header h3{font-size:1.3rem}
+.detail-subtitle{margin:.4rem 0 0;color:var(--muted);font-size:.88rem}
+.detail-tags{display:flex;flex-wrap:wrap;gap:.4rem;margin-top:.7rem}
+.tag{padding:.3rem .55rem;border-radius:999px;background:rgba(255,255,255,.78);border:1px solid var(--line);font-size:.75rem;font-family:var(--mono)}
+.tag.pass{background:var(--green-soft)} .tag.warn{background:var(--accent-soft)} .tag.low{background:var(--danger-soft)}
+.detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.7rem .8rem;margin-top:1rem}
+.detail-grid div,.sample-card{padding:.7rem;border-radius:.9rem;background:rgba(255,255,255,.62);border:1px solid var(--line)}
+.detail-grid dt,.sample-card dt{color:var(--muted);font-size:.78rem;margin-bottom:.2rem}
+.detail-grid dd,.sample-card dd{margin:0;word-break:break-word;font-size:.84rem}
+.section-title{margin:1rem 0 .5rem;font-size:.78rem;text-transform:uppercase;letter-spacing:.14em;color:var(--teal)}
+.sample-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:.6rem}
+.sample-card dl{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.35rem .6rem;margin:.4rem 0 0}
+.raw-block{margin-top:.8rem;padding:.8rem;border-radius:1rem;background:#162430;color:#eff4f3;overflow:auto;line-height:1.5;font-size:.78rem;max-height:300px}
+.locus-cell strong{display:block} .locus-cell span,.mini-note{color:var(--muted)}
+.badge{display:inline-flex;padding:.15rem .4rem;border-radius:999px;font-size:.72rem;background:rgba(35,91,96,.1);color:var(--teal)}
+.reveal{animation:rise-in 360ms ease both}
+@keyframes rise-in{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+@media(max-width:1100px){.hero,.workspace,.chip-section{grid-template-columns:1fr}.filter-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:700px){.page{width:min(100vw - 1rem,1600px);padding-top:.5rem}.filter-grid,.detail-grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<main class="page">
+
+<!-- ========== HERO ========== -->
+<header class="hero panel reveal">
+  <div>
+    <p class="eyebrow">SvABA BPS Explorer</p>
+    <h1>View, filter and explore <code>bps.txt.gz</code></h1>
+    <p class="hero-text">
+      Drop a breakpoint table, filter by score / region / event class,
+      view summary charts, and drill into per-sample support.
+      Supports both legacy (41-col) and SvABA2.0 (51-col) formats.
+    </p>
+    <div class="hero-actions">
+      <label class="button button-primary file-picker">
+        <input id="file-input" type="file" accept=".txt,.gz,.bps,.tsv,text/plain,application/gzip">
+        Open BPS file
+      </label>
+      <button id="export-btn" class="button button-ghost" type="button" disabled>Export filtered TSV</button>
+    </div>
+    <div class="drop-zone" id="drop-zone">Drop a <code>.bps.txt</code> or <code>.bps.txt.gz</code> file here</div>
+    <p id="status-text" class="status">No file loaded.</p>
+  </div>
+  <div class="hero-stats" id="hero-stats">
+    <article class="stat-card"><span class="stat-label">Total rows</span><strong class="stat-value" id="stat-total">0</strong></article>
+    <article class="stat-card"><span class="stat-label">Shown</span><strong class="stat-value" id="stat-shown">0</strong></article>
+    <article class="stat-card"><span class="stat-label">PASS</span><strong class="stat-value" id="stat-pass">0</strong></article>
+    <article class="stat-card"><span class="stat-label">Somatic</span><strong class="stat-value" id="stat-somatic">0</strong></article>
+  </div>
+</header>
+
+<!-- ========== FILTERS ========== -->
+<section class="panel reveal" id="filters-panel" style="display:none">
+  <div class="panel-heading">
+    <div><p class="eyebrow">Filters</p><h2>Slice by score, region, and evidence</h2></div>
+    <button id="reset-filters" class="button button-ghost button-small" type="button">Reset</button>
+  </div>
+
+  <div class="filter-grid">
+    <label class="field wide"><span class="field-label">Free text</span>
+      <input id="f-search" type="search" placeholder="chr1, contig name, dbsnp id..."></label>
+    <label class="field wide"><span class="field-label">Genomic region</span>
+      <input id="f-region" type="text" placeholder="chr7:55000000-56000000 or just chr7"></label>
+    <label class="field"><span class="field-label">Min somlod</span>
+      <input id="f-somlod-min" type="number" step="0.1" placeholder="any"></label>
+    <label class="field"><span class="field-label">Max somlod</span>
+      <input id="f-somlod-max" type="number" step="0.1" placeholder="any"></label>
+    <label class="field"><span class="field-label">Min maxlod</span>
+      <input id="f-maxlod-min" type="number" step="0.1" placeholder="any"></label>
+    <label class="field"><span class="field-label">Max maxlod</span>
+      <input id="f-maxlod-max" type="number" step="0.1" placeholder="any"></label>
+    <label class="field"><span class="field-label">Min qual</span>
+      <input id="f-qual-min" type="number" step="1" placeholder="any"></label>
+    <label class="field"><span class="field-label">Min split</span>
+      <input id="f-split-min" type="number" step="1" min="0" placeholder="any"></label>
+    <label class="field"><span class="field-label">Min ALT</span>
+      <input id="f-alt-min" type="number" step="1" min="0" placeholder="any"></label>
+    <label class="field"><span class="field-label">Min span</span>
+      <input id="f-span-min" type="number" step="1" min="0" placeholder="any"></label>
+    <label class="field"><span class="field-label">Rows / page</span>
+      <select id="f-page-size"><option value="50">50</option><option value="100" selected>100</option>
+      <option value="250">250</option><option value="500">500</option><option value="1000">1000</option></select></label>
+  </div>
+
+  <div class="preset-row">
+    <div class="preset-group"><span class="preset-label">somlod</span>
+      <button class="chip" data-target="f-somlod-min" data-val="0">&ge;0</button>
+      <button class="chip" data-target="f-somlod-min" data-val="3">&ge;3</button>
+      <button class="chip" data-target="f-somlod-min" data-val="6">&ge;6</button>
+      <button class="chip" data-target="f-somlod-min" data-val="10">&ge;10</button></div>
+    <div class="preset-group"><span class="preset-label">maxlod</span>
+      <button class="chip" data-target="f-maxlod-min" data-val="0">&ge;0</button>
+      <button class="chip" data-target="f-maxlod-min" data-val="3">&ge;3</button>
+      <button class="chip" data-target="f-maxlod-min" data-val="6">&ge;6</button>
+      <button class="chip" data-target="f-maxlod-min" data-val="10">&ge;10</button></div>
+    <div class="preset-group"><span class="preset-label">confidence</span>
+      <button class="chip" id="preset-pass">PASS only</button></div>
+  </div>
+
+  <div class="chip-section" id="chip-section"></div>
+</section>
+
+<!-- ========== CHARTS ========== -->
+<section class="panel reveal" id="charts-panel" style="display:none">
+  <div class="panel-heading"><div><p class="eyebrow">Summary</p><h2>Distribution overview (filtered set)</h2></div></div>
+  <div class="charts-grid" id="charts-grid">
+    <div class="chart-card"><div class="chart-title">Somlod distribution</div><canvas id="chart-somlod"></canvas></div>
+    <div class="chart-card"><div class="chart-title">Maxlod distribution</div><canvas id="chart-maxlod"></canvas></div>
+    <div class="chart-card"><div class="chart-title">Variant type</div><canvas id="chart-type"></canvas></div>
+    <div class="chart-card"><div class="chart-title">Confidence</div><canvas id="chart-conf"></canvas></div>
+    <div class="chart-card"><div class="chart-title">Chromosome (breakend 1)</div><canvas id="chart-chr"></canvas></div>
+    <div class="chart-card"><div class="chart-title">Span distribution (log10)</div><canvas id="chart-span"></canvas></div>
+  </div>
+</section>
+
+<!-- ========== TABLE + DETAIL ========== -->
+<section class="workspace" id="workspace" style="display:none">
+  <div class="panel" style="padding:1.2rem">
+    <div class="panel-heading">
+      <div><p class="eyebrow">Calls</p><h2 id="results-title">-</h2></div>
+      <span id="results-summary" style="color:var(--muted);font-size:.84rem">-</span>
+    </div>
+    <div class="table-shell"><table><thead><tr id="thead-row"></tr></thead><tbody id="tbody"></tbody></table></div>
+    <div class="pagination">
+      <button id="prev-page" class="button button-ghost button-small" disabled>Prev</button>
+      <span id="page-summary" style="font-size:.84rem">Page 0/0</span>
+      <button id="next-page" class="button button-ghost button-small" disabled>Next</button>
+    </div>
+  </div>
+  <aside class="panel" style="padding:1.2rem">
+    <div class="panel-heading"><div><p class="eyebrow">Detail</p><h2>Selected call</h2></div></div>
+    <div id="detail" class="detail-content detail-empty">Click a table row to inspect it.</div>
+  </aside>
+</section>
+
+</main>
+
+<script>
+(function(){
+"use strict";
+
+/* ================================================================
+   COLUMN DEFINITIONS
+   ================================================================ */
+// Historical 41-column core (indices 0-40). The header line uses
+// slightly different names; we map to our canonical names below.
+const LEGACY_COLS = [
+  "chr1","pos1","strand1","chr2","pos2","strand2","ref","alt_allele",
+  "span","split","alt_count","cov","cigar","cigar_near",
+  "dmq1","dmq2","dcn","dct",
+  "mapq1","mapq2","nm1","nm2","as1","as2","sub1","sub2",
+  "homol","insert","repeat",
+  "contig_and_region","naln","conf","evidence","qual","secondary",
+  "somatic","somlod","maxlod","dbsnp",
+  "contig_conf1","contig_conf2"
+];
+
+// SvABA2.0 additions (indices 41-50)
+const V2_COLS = [
+  "cpos1","cpos2","lmatch","rmatch","scov1","scov2",
+  "local1","local2","ctglen","flipped"
+];
+
+const NUMERIC = new Set([
+  "pos1","pos2","span","split","alt_count","cov","cigar","cigar_near",
+  "dmq1","dmq2","dcn","dct","mapq1","mapq2","nm1","nm2","as1","as2",
+  "sub1","sub2","naln","qual","secondary","somlod","maxlod",
+  "cpos1","cpos2","lmatch","rmatch","scov1","scov2","ctglen"
+]);
+
+// Table columns shown in the main view
+const TABLE_COLS = [
+  {key:"locus",     label:"Locus",     sort:"locus"},
+  {key:"eventType", label:"Type",      sort:"eventType"},
+  {key:"evidence",  label:"Evidence",  sort:"evidence"},
+  {key:"conf",      label:"Conf",      sort:"conf"},
+  {key:"qual",      label:"Qual",      sort:"qual"},
+  {key:"somlod",    label:"Somlod",    sort:"somlod"},
+  {key:"maxlod",    label:"Maxlod",    sort:"maxlod"},
+  {key:"split",     label:"Split",     sort:"split"},
+  {key:"alt_count", label:"Alt",       sort:"alt_count"},
+  {key:"spanLabel", label:"Span",      sort:"spanAbs"},
+  {key:"somatic",   label:"Somatic",   sort:"somatic"},
+  {key:"contig_and_region", label:"Contig", sort:"contig_and_region"}
+];
+
+/* ================================================================
+   STATE
+   ================================================================ */
+const S = {
+  fileName:"", origHeader:[], sampleHeaders:[], coreColCount:0,
+  rows:[], filtered:[], selectedId:null,
+  page:1, pageSize:100,
+  sort:{key:"maxlod",dir:"desc"},
+  f:{search:"",region:null,somlodMin:null,somlodMax:null,
+     maxlodMin:null,maxlodMax:null,qualMin:null,splitMin:null,
+     altMin:null,spanMin:null,
+     eventTypes:new Set(),evidence:new Set(),confidence:new Set(),somatic:new Set()}
+};
+
+/* ================================================================
+   DOM refs
+   ================================================================ */
+const $ = id => document.getElementById(id);
+const els = {
+  fileInput:$("file-input"), exportBtn:$("export-btn"), resetBtn:$("reset-filters"),
+  dropZone:$("drop-zone"), statusText:$("status-text"),
+  fSearch:$("f-search"), fRegion:$("f-region"),
+  fSomlodMin:$("f-somlod-min"), fSomlodMax:$("f-somlod-max"),
+  fMaxlodMin:$("f-maxlod-min"), fMaxlodMax:$("f-maxlod-max"),
+  fQualMin:$("f-qual-min"), fSplitMin:$("f-split-min"),
+  fAltMin:$("f-alt-min"), fSpanMin:$("f-span-min"),
+  fPageSize:$("f-page-size"),
+  statTotal:$("stat-total"), statShown:$("stat-shown"),
+  statPass:$("stat-pass"), statSomatic:$("stat-somatic"),
+  theadRow:$("thead-row"), tbody:$("tbody"),
+  prevPage:$("prev-page"), nextPage:$("next-page"),
+  pageSummary:$("page-summary"),
+  resultsTitle:$("results-title"), resultsSummary:$("results-summary"),
+  detail:$("detail"), chipSection:$("chip-section"),
+  filtersPanel:$("filters-panel"), chartsPanel:$("charts-panel"), workspace:$("workspace")
+};
+
+/* ================================================================
+   INIT — build table header, bind events
+   ================================================================ */
+TABLE_COLS.forEach(c => {
+  const th = document.createElement("th");
+  const btn = document.createElement("button");
+  btn.className = "sort-btn"; btn.dataset.sort = c.sort;
+  btn.innerHTML = esc(c.label) + ' <span class="arrow"></span>';
+  btn.onclick = () => { toggleSort(c.sort); render(); };
+  th.appendChild(btn); els.theadRow.appendChild(th);
+});
+
+els.fileInput.addEventListener("change", e => {
+  const f = e.target.files&&e.target.files[0]; if(f) loadBlob(f,f.name);
+});
+// drag & drop
+["dragenter","dragover"].forEach(ev => els.dropZone.addEventListener(ev, e => {
+  e.preventDefault(); els.dropZone.classList.add("over");
+}));
+["dragleave","drop"].forEach(ev => els.dropZone.addEventListener(ev, e => {
+  e.preventDefault(); els.dropZone.classList.remove("over");
+}));
+els.dropZone.addEventListener("drop", e => {
+  const f = e.dataTransfer.files[0]; if(f) loadBlob(f,f.name);
+});
+
+els.exportBtn.onclick = exportFiltered;
+els.resetBtn.onclick = () => { resetFilters(); render(); };
+$("preset-pass").onclick = () => {
+  S.f.confidence = new Set(["PASS"]); S.page=1; render();
+};
+document.querySelectorAll("[data-target]").forEach(b => {
+  b.onclick = () => { const t=$(b.dataset.target); t.value=b.dataset.val; syncFilters(); render(); };
+});
+["fSearch","fRegion","fSomlodMin","fSomlodMax","fMaxlodMin","fMaxlodMax",
+ "fQualMin","fSplitMin","fAltMin","fSpanMin","fPageSize"].forEach(k => {
+  els[k].addEventListener("input", () => { syncFilters(); render(); });
+});
+els.prevPage.onclick = () => { if(S.page>1){S.page--;renderTable();} };
+els.nextPage.onclick = () => { const tp=totalPages(); if(S.page<tp){S.page++;renderTable();} };
+
+/* ================================================================
+   FILE LOADING
+   ================================================================ */
+async function loadBlob(blob, name) {
+  setStatus("Reading " + name + " ...");
+  try {
+    let text;
+    if (name.endsWith(".gz")) {
+      if (typeof DecompressionStream==="undefined")
+        throw new Error("Browser does not support gzip DecompressionStream.");
+      const stream = blob.stream().pipeThrough(new DecompressionStream("gzip"));
+      text = await new Response(stream).text();
+    } else {
+      text = await blob.text();
+    }
+    ingest(text, name);
+  } catch(e) {
+    setStatus("Error: " + e.message); console.error(e);
+  }
+  els.fileInput.value = "";
+}
+
+function ingest(text, name) {
+  const t0 = performance.now();
+  const lines = text.replace(/\r\n?/g,"\n").split("\n").filter(l=>l.length>0);
+  if (lines.length<2) throw new Error("Need header + data rows.");
+
+  const hdr = lines[0].split("\t");
+
+  // Auto-detect core column count: scan from col 34+ for first t/n-prefixed
+  // sample header. Fall back to checking known sizes.
+  let coreCount = hdr.length; // if no sample columns detected
+  for (let i=34; i<hdr.length; i++) {
+    if (/^[tn]\d+_/.test(hdr[i])) { coreCount = i; break; }
+  }
+  // Clamp to known layouts
+  const isV2 = coreCount >= LEGACY_COLS.length + V2_COLS.length;
+  if (coreCount > LEGACY_COLS.length + V2_COLS.length) coreCount = LEGACY_COLS.length + V2_COLS.length;
+  else if (coreCount > LEGACY_COLS.length && coreCount < LEGACY_COLS.length + V2_COLS.length)
+    coreCount = LEGACY_COLS.length; // ambiguous — treat as legacy
+
+  const allCoreCols = isV2 ? LEGACY_COLS.concat(V2_COLS) : LEGACY_COLS;
+  const sampleHdrs = hdr.slice(coreCount);
+
+  // Parse rows in chunks to avoid blocking the main thread feel
+  const rows = new Array(lines.length - 1);
+  let count = 0;
+  for (let i=1; i<lines.length; i++) {
+    const cells = lines[i].split("\t");
+    if (cells.length !== hdr.length) continue;
+    rows[count++] = makeRow(count, cells, allCoreCols, sampleHdrs, coreCount);
+  }
+  rows.length = count;
+
+  S.fileName = name; S.origHeader = hdr; S.sampleHeaders = sampleHdrs;
+  S.coreColCount = coreCount; S.rows = rows;
+  resetFilters(); S.selectedId = rows.length ? rows[0].id : null;
+  S.sort = {key:"maxlod",dir:"desc"};
+
+  els.filtersPanel.style.display = "";
+  els.chartsPanel.style.display = "";
+  els.workspace.style.display = "";
+
+  const ms = (performance.now()-t0).toFixed(0);
+  setStatus("Loaded " + count.toLocaleString() + " calls from " + name + " in " + ms + " ms" +
+    (isV2 ? " (SvABA2.0 format, " + coreCount + " core cols)" : " (legacy format, " + coreCount + " core cols)") +
+    ", " + sampleHdrs.length + " sample column" + (sampleHdrs.length===1?"":"s") + ".");
+  render();
+}
+
+function makeRow(id, cells, coreCols, sampleHdrs, coreCount) {
+  const r = {id, _cells:cells};
+  coreCols.forEach((f,i) => {
+    const v = cells[i];
+    r[f] = NUMERIC.has(f) ? maybeNum(v) : v;
+  });
+  r.chr1 = stripHash(r.chr1);
+  r.chr2 = stripHash(r.chr2);
+  r.locus = r.chr1+":"+fmtPos(r.pos1)+" \u2192 "+r.chr2+":"+fmtPos(r.pos2);
+  r.eventType = deriveType(r);
+  r.spanAbs = (r.span===null||r.span===-1) ? Infinity : Math.abs(r.span);
+  r.spanLabel = r.span===-1 ? "interchrom" : fmtN(r.span);
+  r.hasDbsnp = Boolean(r.dbsnp && r.dbsnp!=="x");
+  r.sampleInfo = sampleHdrs.map((h,j) => parseSample(h, cells[coreCount+j], r.evidence));
+  // build search text
+  r._st = [r.locus,r.eventType,r.evidence,r.conf,r.ref,r.alt_allele,
+    r.contig_and_region,r.insert,r.repeat,r.homol,r.dbsnp,r.somatic]
+    .concat(r.sampleInfo.map(s=>s.label+" "+s.raw)).join(" ").toLowerCase();
+  return r;
+}
+
+function deriveType(r) {
+  if (r.evidence==="INDEL") {
+    const rl=(r.ref||"").length, al=(r.alt_allele||"").length;
+    return al>rl?"Insertion":al<rl?"Deletion":"Substitution";
+  }
+  if (r.chr1!==r.chr2) return "Translocation";
+  if (r.strand1===r.strand2) return "Inversion";
+  if (r.strand1==="-"&&r.strand2==="+") return "Duplication-like";
+  if (r.strand1==="+"&&r.strand2==="-") return "Deletion-like";
+  return "Rearrangement";
+}
+
+function parseSample(header, raw, evidence) {
+  const label = header.split("_")[0];
+  const p = (raw||"").split(":");
+  const isIndel = evidence==="INDEL";
+  return {label,header,raw,
+    gt:p[0]||"", ad:maybeNum(p[1]), dp:maybeNum(p[2]), sr:maybeNum(p[3]),
+    dr:maybeNum(p[4]), supportLabel:isIndel?"cigar":"disc",
+    gq:maybeNum(p[5]), pl:p[6]||"", lo:maybeNum(p[7]), lo_n:maybeNum(p[8])};
+}
+
+/* ================================================================
+   FILTERS
+   ================================================================ */
+function resetFilters() {
+  S.f = {search:"",region:null,somlodMin:null,somlodMax:null,
+    maxlodMin:null,maxlodMax:null,qualMin:null,splitMin:null,altMin:null,spanMin:null,
+    eventTypes:new Set(),evidence:new Set(),confidence:new Set(),somatic:new Set()};
+  S.page=1; S.pageSize=100;
+  els.fSearch.value=""; els.fRegion.value="";
+  els.fSomlodMin.value=""; els.fSomlodMax.value="";
+  els.fMaxlodMin.value=""; els.fMaxlodMax.value="";
+  els.fQualMin.value=""; els.fSplitMin.value="";
+  els.fAltMin.value=""; els.fSpanMin.value="";
+  els.fPageSize.value="100";
+}
+
+function syncFilters() {
+  S.f.search = els.fSearch.value.trim().toLowerCase();
+  S.f.region = parseRegion(els.fRegion.value.trim());
+  S.f.somlodMin = nullNum(els.fSomlodMin.value);
+  S.f.somlodMax = nullNum(els.fSomlodMax.value);
+  S.f.maxlodMin = nullNum(els.fMaxlodMin.value);
+  S.f.maxlodMax = nullNum(els.fMaxlodMax.value);
+  S.f.qualMin = nullNum(els.fQualMin.value);
+  S.f.splitMin = nullNum(els.fSplitMin.value);
+  S.f.altMin = nullNum(els.fAltMin.value);
+  S.f.spanMin = nullNum(els.fSpanMin.value);
+  S.pageSize = Number(els.fPageSize.value)||100;
+  S.page = 1;
+}
+
+function parseRegion(s) {
+  if (!s) return null;
+  // formats: "chr7", "chr7:55000000", "chr7:55000000-56000000", "7:55000000-56000000"
+  const m = s.replace(/,/g,"").match(/^(chr)?(\w+?)(?::(\d+)(?:-(\d+))?)?$/i);
+  if (!m) return null;
+  const chr = m[2]; // without "chr" prefix — we'll match both
+  const start = m[3] ? Number(m[3]) : null;
+  const end = m[4] ? Number(m[4]) : null;
+  return {chr, start, end};
+}
+
+function regionMatch(row, reg) {
+  if (!reg) return true;
+  // Check if either breakend falls in the region
+  const c1 = normChr(row.chr1), c2 = normChr(row.chr2), rc = normChr(reg.chr);
+  const inRegion = (c, pos) => {
+    if (c !== rc) return false;
+    if (reg.start !== null && pos < reg.start) return false;
+    if (reg.end !== null && pos > reg.end) return false;
+    return true;
+  };
+  return inRegion(c1, row.pos1) || inRegion(c2, row.pos2);
+}
+
+function normChr(s) {
+  if (typeof s !== "string") return "";
+  return s.replace(/^chr/i,"").toLowerCase();
+}
+
+function applyFilters() {
+  const f = S.f;
+  S.filtered = S.rows.filter(r => {
+    if (f.search && !r._st.includes(f.search)) return false;
+    if (f.region && !regionMatch(r, f.region)) return false;
+    if (!numRange(r.somlod, f.somlodMin, f.somlodMax)) return false;
+    if (!numRange(r.maxlod, f.maxlodMin, f.maxlodMax)) return false;
+    if (!numMin(r.qual, f.qualMin)) return false;
+    if (!numMin(r.split, f.splitMin)) return false;
+    if (!numMin(r.alt_count, f.altMin)) return false;
+    if (f.spanMin!==null && (r.spanAbs===Infinity || r.spanAbs<f.spanMin)) return false;
+    if (f.eventTypes.size && !f.eventTypes.has(r.eventType)) return false;
+    if (f.evidence.size && !f.evidence.has(r.evidence)) return false;
+    if (f.confidence.size && !f.confidence.has(r.conf)) return false;
+    if (f.somatic.size && !f.somatic.has(r.somatic)) return false;
+    return true;
+  });
+}
+
+/* ================================================================
+   SORTING
+   ================================================================ */
+function toggleSort(key) {
+  if (S.sort.key===key) S.sort.dir = S.sort.dir==="asc"?"desc":"asc";
+  else { S.sort.key=key; S.sort.dir = ["locus","eventType","evidence","conf","somatic","contig_and_region"].includes(key)?"asc":"desc"; }
+}
+
+function sortRows() {
+  const d = S.sort.dir==="asc"?1:-1, k=S.sort.key;
+  S.filtered.sort((a,b) => {
+    let av=a[k], bv=b[k];
+    if (typeof av==="number"||typeof bv==="number") {
+      av=normSortNum(av); bv=normSortNum(bv);
+      if (av!==bv) return (av-bv)*d;
+    } else {
+      const c = String(av||"").localeCompare(String(bv||""));
+      if (c) return c*d;
+    }
+    return a.id-b.id;
+  });
+}
+
+/* ================================================================
+   RENDER ORCHESTRATOR
+   ================================================================ */
+function render() {
+  applyFilters(); sortRows();
+  // reconcile selection
+  if (!S.filtered.some(r=>r.id===S.selectedId))
+    S.selectedId = S.filtered.length ? S.filtered[0].id : null;
+  updateStats(); renderChips(); renderTable(); renderDetail(); renderCharts();
+  // update sort arrows
+  document.querySelectorAll(".sort-btn").forEach(b => {
+    const arrow = b.querySelector(".arrow");
+    if (b.dataset.sort===S.sort.key) arrow.textContent = S.sort.dir==="asc"?" \u25B2":" \u25BC";
+    else arrow.textContent = "";
+  });
+}
+
+function totalPages() { return Math.max(1,Math.ceil(S.filtered.length/S.pageSize)); }
+
+function updateStats() {
+  els.statTotal.textContent = S.rows.length.toLocaleString();
+  els.statShown.textContent = S.filtered.length.toLocaleString();
+  els.statPass.textContent = S.filtered.filter(r=>r.conf==="PASS").length.toLocaleString();
+  els.statSomatic.textContent = S.filtered.filter(r=>r.somatic==="SOMATIC").length.toLocaleString();
+  els.resultsTitle.textContent = S.fileName + " (" + S.rows.length.toLocaleString() + " calls)";
+  els.resultsSummary.textContent = S.filtered.length.toLocaleString() + " rows after filters, sorted by " + S.sort.key + " " + S.sort.dir;
+  els.exportBtn.disabled = !S.filtered.length;
+}
+
+/* ================================================================
+   CHIP FILTERS (type, evidence, conf, somatic)
+   ================================================================ */
+function renderChips() {
+  const groups = [
+    {key:"eventTypes", field:"eventType", label:"Variant type"},
+    {key:"evidence",   field:"evidence",  label:"Evidence"},
+    {key:"confidence", field:"conf",      label:"Confidence"},
+    {key:"somatic",    field:"somatic",   label:"Somatic state"}
+  ];
+  els.chipSection.innerHTML = "";
+  groups.forEach(g => {
+    const counts = countBy(S.rows, g.field);
+    if (!counts.size) return;
+    const block = document.createElement("div"); block.className="chip-block";
+    const heading = document.createElement("div"); heading.className="chip-heading";
+    heading.innerHTML = '<span class="eyebrow">'+esc(g.label)+'</span>';
+    block.appendChild(heading);
+    const list = document.createElement("div"); list.className="chip-list";
+    Array.from(counts.entries()).sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0])).forEach(([val,cnt]) => {
+      const btn = document.createElement("button"); btn.type="button"; btn.className="chip";
+      if (S.f[g.key].has(val)) btn.classList.add("active");
+      btn.textContent = val + " (" + cnt.toLocaleString() + ")";
+      btn.onclick = () => { toggleSet(S.f[g.key],val); S.page=1; render(); };
+      list.appendChild(btn);
+    });
+    block.appendChild(list); els.chipSection.appendChild(block);
+  });
+}
+
+/* ================================================================
+   TABLE
+   ================================================================ */
+function renderTable() {
+  const tp = totalPages();
+  if (S.page>tp) S.page=tp;
+  const start=(S.page-1)*S.pageSize, end=start+S.pageSize;
+  const page = S.filtered.slice(start, end);
+
+  if (!page.length) {
+    els.tbody.innerHTML = '<tr><td colspan="'+TABLE_COLS.length+'" class="empty-table">No rows match filters.</td></tr>';
+  } else {
+    // Build HTML in one shot for speed
+    const parts = [];
+    for (const r of page) {
+      const sel = r.id===S.selectedId?" selected":"";
+      parts.push('<tr class="'+sel.trim()+'" data-id="'+r.id+'">');
+      for (const c of TABLE_COLS) {
+        let v = r[c.key];
+        if (c.key==="evidence") parts.push('<td><span class="badge">'+esc(v)+'</span></td>');
+        else if (c.key==="locus") parts.push('<td><div class="locus-cell"><strong>'+esc(v)+'</strong><span>'+esc(r.ref+" \u2192 "+r.alt_allele)+'</span></div></td>');
+        else parts.push('<td>'+esc(typeof v==="number"?fmtN(v):v)+'</td>');
+      }
+      parts.push('</tr>');
+    }
+    els.tbody.innerHTML = parts.join("");
+    els.tbody.querySelectorAll("tr[data-id]").forEach(tr => {
+      tr.onclick = () => { S.selectedId=Number(tr.dataset.id); renderTable(); renderDetail(); };
+    });
+  }
+  els.prevPage.disabled = S.page<=1;
+  els.nextPage.disabled = S.page>=tp;
+  els.pageSummary.textContent = "Page "+S.page+" / "+tp;
+}
+
+/* ================================================================
+   DETAIL PANEL
+   ================================================================ */
+function renderDetail() {
+  const r = S.filtered.find(x=>x.id===S.selectedId) || S.rows.find(x=>x.id===S.selectedId);
+  if (!r) { els.detail.className="detail-content detail-empty"; els.detail.textContent="Click a row."; return; }
+
+  const confClass = r.conf==="PASS"?"pass":r.conf==="LOWLOD"||r.conf==="LOWMAPQ"?"warn":"low";
+  const sampleCards = r.sampleInfo.map(s =>
+    '<article class="sample-card"><strong>'+esc(s.label)+'</strong><div class="mini-note">'+esc(s.header)+'</div><dl>'+
+    dp("GT",s.gt)+dp("AD",fmtN(s.ad))+dp("DP",fmtN(s.dp))+dp("SR",fmtN(s.sr))+
+    dp(s.supportLabel,fmtN(s.dr))+dp("GQ",fmtN(s.gq))+dp("LO",fmtN(s.lo))+dp("LO_n",fmtN(s.lo_n))+
+    '</dl></article>').join("");
+
+  els.detail.className="detail-content";
+  els.detail.innerHTML =
+    '<div class="detail-header"><h3>'+esc(r.locus)+'</h3>'+
+    '<p class="detail-subtitle">'+esc(r.eventType+" / "+r.evidence+" / "+r.conf)+'</p>'+
+    '<div class="detail-tags">'+
+    '<span class="tag '+confClass+'">'+esc("conf "+r.conf)+'</span>'+
+    '<span class="tag">'+esc("somatic "+r.somatic)+'</span>'+
+    '<span class="tag">'+esc("somlod "+fmtN(r.somlod))+'</span>'+
+    '<span class="tag">'+esc("maxlod "+fmtN(r.maxlod))+'</span></div></div>'+
+    '<div class="detail-grid">'+
+    dc("Breakends",r.chr1+":"+r.pos1+" "+r.strand1+" \u2192 "+r.chr2+":"+r.pos2+" "+r.strand2)+
+    dc("Ref / Alt",r.ref+" \u2192 "+r.alt_allele)+
+    dc("Support","split "+fmtN(r.split)+", alt "+fmtN(r.alt_count)+", cigar "+fmtN(r.cigar)+", dcn "+fmtN(r.dcn)+", dct "+fmtN(r.dct))+
+    dc("Mapping","mapq "+fmtN(r.mapq1)+"/"+fmtN(r.mapq2)+", AS "+fmtN(r.as1)+"/"+fmtN(r.as2)+", NM "+fmtN(r.nm1)+"/"+fmtN(r.nm2))+
+    dc("Context","homol "+(r.homol||"x")+", insert "+(r.insert||"x")+", repeat "+(r.repeat||"x"))+
+    dc("Contig",r.contig_and_region)+
+    dc("Flags","qual "+fmtN(r.qual)+", 2ndary "+fmtN(r.secondary)+", span "+r.spanLabel+", dbsnp "+(r.dbsnp||"x"))+
+    (r.ctglen!=null ? dc("SvABA2.0","cpos "+fmtN(r.cpos1)+"/"+fmtN(r.cpos2)+", match "+fmtN(r.lmatch)+"/"+fmtN(r.rmatch)+
+      ", scov "+fmtN(r.scov1)+"/"+fmtN(r.scov2)+", ctglen "+fmtN(r.ctglen)+", flipped "+(r.flipped||"x")) : "")+
+    '</div>'+
+    '<h4 class="section-title">Per-sample</h4><div class="sample-grid">'+sampleCards+'</div>'+
+    '<h4 class="section-title">Raw</h4><pre class="raw-block">'+esc(S.origHeader.join("\t"))+"\n"+esc(r._cells.join("\t"))+'</pre>';
+}
+
+function dc(label,val){return '<div><dt>'+esc(label)+'</dt><dd>'+esc(val)+'</dd></div>';}
+function dp(label,val){return '<dt>'+esc(label)+'</dt><dd>'+esc(val)+'</dd>';}
+
+/* ================================================================
+   CHARTS — vanilla Canvas 2D
+   ================================================================ */
+function renderCharts() {
+  drawHistogram("chart-somlod", S.filtered.map(r=>r.somlod).filter(v=>v!=null&&isFinite(v)), "#c65a31", "somlod");
+  drawHistogram("chart-maxlod", S.filtered.map(r=>r.maxlod).filter(v=>v!=null&&isFinite(v)), "#235b60", "maxlod");
+  drawBarChart("chart-type", countBy(S.filtered,"eventType"), "#c65a31");
+  drawBarChart("chart-conf", countBy(S.filtered,"conf"), "#235b60");
+  drawBarChart("chart-chr", countByChr(S.filtered), "#4a7a4c");
+  drawHistogram("chart-span", S.filtered.map(r=>r.spanAbs).filter(v=>v!=null&&isFinite(v)&&v>0).map(v=>Math.log10(v)), "#7c2d12", "log10(span)");
+}
+
+function drawHistogram(canvasId, values, color, xlabel) {
+  const canvas = $(canvasId);
+  const ctx = canvas.getContext("2d");
+  const dpr = window.devicePixelRatio||1;
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  canvas.width = w*dpr; canvas.height = h*dpr;
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.clearRect(0,0,w,h);
+
+  if (!values.length) { ctx.fillStyle="#999"; ctx.font="12px sans-serif"; ctx.fillText("No data",w/2-20,h/2); return; }
+
+  const nbins = Math.min(50, Math.max(10, Math.ceil(Math.sqrt(values.length))));
+  const min = Math.min(...values), max = Math.max(...values);
+  const range = max-min || 1;
+  const binW = range/nbins;
+  const bins = new Array(nbins).fill(0);
+  for (const v of values) {
+    let idx = Math.floor((v-min)/binW);
+    if (idx>=nbins) idx=nbins-1;
+    bins[idx]++;
+  }
+  const maxBin = Math.max(...bins);
+  const pad = {l:45,r:10,t:10,b:30};
+  const pw = w-pad.l-pad.r, ph = h-pad.t-pad.b;
+
+  ctx.fillStyle = color;
+  ctx.globalAlpha = 0.7;
+  const barW = pw/nbins;
+  for (let i=0;i<nbins;i++) {
+    const bh = maxBin>0 ? (bins[i]/maxBin)*ph : 0;
+    ctx.fillRect(pad.l+i*barW, pad.t+ph-bh, Math.max(barW-1,1), bh);
+  }
+  ctx.globalAlpha = 1;
+
+  // axes
+  ctx.strokeStyle = "#999"; ctx.lineWidth=0.5;
+  ctx.beginPath(); ctx.moveTo(pad.l,pad.t); ctx.lineTo(pad.l,pad.t+ph); ctx.lineTo(pad.l+pw,pad.t+ph); ctx.stroke();
+  ctx.fillStyle = "#666"; ctx.font = "10px sans-serif"; ctx.textAlign="center";
+  for (let i=0;i<=4;i++) {
+    const v = min + range*(i/4);
+    ctx.fillText(v.toFixed(1), pad.l+pw*(i/4), h-5);
+  }
+  ctx.textAlign="right";
+  for (let i=0;i<=3;i++) {
+    const v = Math.round(maxBin*(i/3));
+    ctx.fillText(v.toLocaleString(), pad.l-4, pad.t+ph-ph*(i/3)+3);
+  }
+  ctx.fillStyle="#999"; ctx.textAlign="center"; ctx.font="10px sans-serif";
+  ctx.fillText(xlabel||"", pad.l+pw/2, h-0);
+}
+
+function drawBarChart(canvasId, counts, color) {
+  const canvas = $(canvasId);
+  const ctx = canvas.getContext("2d");
+  const dpr = window.devicePixelRatio||1;
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  canvas.width = w*dpr; canvas.height = h*dpr;
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.clearRect(0,0,w,h);
+
+  const entries = Array.from(counts.entries()).sort((a,b)=>b[1]-a[1]);
+  if (!entries.length) { ctx.fillStyle="#999"; ctx.font="12px sans-serif"; ctx.fillText("No data",w/2-20,h/2); return; }
+
+  const maxVal = entries[0][1];
+  const pad = {l:10,r:10,t:5,b:5};
+  const pw = w-pad.l-pad.r, ph = h-pad.t-pad.b;
+  const barH = Math.min(22, (ph-entries.length*2)/entries.length);
+  const totalH = entries.length*(barH+3);
+  const startY = pad.t + Math.max(0,(ph-totalH)/2);
+
+  entries.forEach(([label,cnt],i) => {
+    const y = startY + i*(barH+3);
+    const bw = maxVal>0 ? (cnt/maxVal)*(pw-100) : 0;
+    ctx.fillStyle = color; ctx.globalAlpha=0.7;
+    ctx.fillRect(pad.l+90, y, bw, barH);
+    ctx.globalAlpha=1;
+    ctx.fillStyle = "#333"; ctx.font="10px sans-serif"; ctx.textAlign="right";
+    ctx.fillText(label.length>12?label.slice(0,11)+"\u2026":label, pad.l+85, y+barH-4);
+    ctx.textAlign="left"; ctx.fillStyle="#666";
+    ctx.fillText(cnt.toLocaleString(), pad.l+90+bw+4, y+barH-4);
+  });
+}
+
+function countByChr(rows) {
+  const m = new Map();
+  const order = ["1","2","3","4","5","6","7","8","9","10","11","12","13","14","15","16","17","18","19","20","21","22","X","Y","M"];
+  rows.forEach(r => {
+    const c = normChr(r.chr1);
+    m.set(c, (m.get(c)||0)+1);
+  });
+  // Sort by canonical chromosome order
+  const sorted = new Map();
+  order.forEach(c => { if(m.has(c)) sorted.set("chr"+c, m.get(c)); });
+  m.forEach((v,k) => { if(!order.includes(k)) sorted.set(k,v); });
+  return sorted;
+}
+
+/* ================================================================
+   EXPORT
+   ================================================================ */
+function exportFiltered() {
+  if (!S.filtered.length) return;
+  const lines = [S.origHeader.join("\t")].concat(S.filtered.map(r=>r._cells.join("\t")));
+  const blob = new Blob([lines.join("\n")], {type:"text/tab-separated-values"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href=url; a.download=S.fileName.replace(/\.gz$/i,"").replace(/\.txt$/i,"")+".filtered.tsv";
+  a.click(); URL.revokeObjectURL(url);
+}
+
+/* ================================================================
+   UTILITIES
+   ================================================================ */
+function maybeNum(s){if(!s||s==="NA"||s==="x"||s==="NOTSET")return null;const v=Number(s);return isFinite(v)?v:null;}
+function nullNum(s){if(s===""||s==null)return null;const v=Number(s);return isFinite(v)?v:null;}
+function numRange(v,min,max){if(min===null&&max===null)return true;if(v===null||!isFinite(v))return false;if(min!==null&&v<min)return false;if(max!==null&&v>max)return false;return true;}
+function numMin(v,min){if(min===null)return true;if(v===null||!isFinite(v))return false;return v>=min;}
+function normSortNum(v){if(v===Infinity)return Number.MAX_SAFE_INTEGER;if(v==null||Number.isNaN(v))return -Number.MAX_SAFE_INTEGER;return Number(v);}
+function fmtN(v){if(v==null||v===Infinity)return"-";if(!isFinite(v))return String(v);return Math.abs(v)>=100||Number.isInteger(v)?v.toLocaleString():v.toFixed(3).replace(/\.?0+$/,"");}
+function fmtPos(v){return v==null?"-":v.toLocaleString();}
+function stripHash(s){return typeof s==="string"?s.replace(/^#/,""):s;}
+function countBy(rows,key){const m=new Map();rows.forEach(r=>{const v=r[key];m.set(v,(m.get(v)||0)+1);});return m;}
+function toggleSet(set,val){set.has(val)?set.delete(val):set.add(val);}
+function setStatus(msg){els.statusText.textContent=msg;}
+function esc(v){return String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
+
+})();
+</script>
+</body>
+</html>

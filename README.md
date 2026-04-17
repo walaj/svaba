@@ -13,6 +13,7 @@ Table of contents
   * [Description](#description)
   * [Output file description](#output-file-description)
   * [Filtering and refiltering](#filtering-and-refiltering)
+  * [Post-processing output BAMs](#post-processing-output-bams)
   * [Recipes and examples](#recipes-and-examples)
     * [Whole genome somatic SV and indel detection](#whole-genome-somatic-sv-and-indel-detection)
     * [Whole genome germline SV and indel detection](#whole-genome-germline-sv-and-indel-detection)
@@ -119,6 +120,46 @@ and then to determine if the variant is somatic or germline. These log-likelihoo
 SvABA can refilter the bps.txt.gz file to produce new VCFs with different stringency cutoffs. To run, the following are required:
 * ``-b`` - a BAM from the original run, which is used just for its header
 * ``-i`` - input bps.txt.gz file
+
+Post-processing output BAMs
+---------------------------
+
+When run with multiple threads, ``svaba run`` emits per-thread, unsorted BAMs
+for each read class (``discordant``, ``weird``, ``corrected``, ``contigs``),
+and overlapping assembly windows produce some duplicated records. Before
+these BAMs are usable in IGV or downstream tools they need to be merged,
+coord-sorted, deduped, and indexed. ``sort_output.sh`` is the one-shot
+wrapper that does this.
+
+```
+./sort_output.sh <ID> [THREADS]          # default THREADS=4
+MEM=4G ./sort_output.sh <ID> 8           # per-sort-thread memory (default 2G)
+SPLIT_BY_SOURCE=1 ./sort_output.sh <ID>  # also split by QNAME prefix (e.g. t001/n001)
+SVABA=/path/to/svaba ./sort_output.sh <ID>  # override binary on PATH
+```
+
+What it does, per suffix:
+
+1. **Merge** per-thread BAMs (``${ID}.threadN.${suffix}.bam``) into
+   ``${ID}.${suffix}.bam`` via ``samtools merge``.
+2. **Sort + dedup** via ``svaba postprocess``, which shells out to
+   ``samtools sort`` (unchanged external sort) and then runs a native
+   SeqLib streaming dedup+merge. For duplicate ``(qname, flag)`` records at
+   the same ``(chr, pos)`` — typically emitted by overlapping assembly
+   windows that each mapped the read to a different contig — it keeps the
+   first record and **unions** the second record's ``bi:Z`` / ``bz:Z``
+   contig-support tags into it, so no alt support is lost. Uses the same
+   boundary-aware comma-token merge ``svaba run`` uses internally. Replaces
+   the old ``samtools view | awk | samtools view`` text round-trip;
+   suffixes run in parallel. ``contigs`` is sorted but not deduped.
+3. **Index** each final BAM with ``samtools index``.
+4. *(Optional, ``SPLIT_BY_SOURCE=1``)* Demux each BAM by the first 4 chars
+   of QNAME (the source tag), writing
+   ``${ID}.${suffix}.${prefix}.bam``.
+
+``MEM`` is per ``samtools sort`` thread; peak sort memory is roughly
+``n_suffixes * (THREADS / n_suffixes) * MEM``. Units follow samtools
+(``K``/``M``/``G``).
 
 Examples and recipes
 --------------------

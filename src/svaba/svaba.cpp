@@ -16,7 +16,8 @@
 
 //void runToVCF(int argc, char** argv);
 void runsvaba(int argc, char** argv);
-//void runRefilterBreakpoints(int argc, char** argv);
+void runRefilterBreakpoints(int argc, char** argv);
+void runPostprocess(int argc, char** argv);
 
 static void printUsage() {
     constexpr std::string_view header =
@@ -29,9 +30,10 @@ static void printUsage() {
               << "Contact: Jeremiah Wala <jeremiah.wala@gmail.com>\n\n"
               << "Usage: svaba <command> [options]\n\n"
               << "Commands:\n"
-              << "  run       Run SV and indel detection on BAM(s)\n"
-      //              << "  refilter  Refilter breakpoints into filtered VCF\n"
-      //        << "  tovcf     Convert bps.txt.gz into a VCF\n\n"
+              << "  run          Run SV and indel detection on BAM(s)\n"
+              << "  refilter     Re-run LOD/PASS filtering on an existing bps.txt.gz\n"
+              << "  postprocess  Sort + streaming-dedup per-suffix output BAMs\n"
+      //        << "  tovcf        Convert bps.txt.gz into a VCF\n\n"
               << "Report bugs to jeremiah.wala@gmail.com\n";
 }
 
@@ -51,9 +53,12 @@ int main(int argc, char* argv[]) {
         // strip off the run before passing to parser
         return (runsvaba(argc - 1, argv + 1), EXIT_SUCCESS);
     }
-    //    else if (cmd == "refilter") {
-    //        return (runRefilterBreakpoints(argc - 1, argv + 1), EXIT_SUCCESS);
-    //    }
+    else if (cmd == "refilter") {
+        return (runRefilterBreakpoints(argc - 1, argv + 1), EXIT_SUCCESS);
+    }
+    else if (cmd == "postprocess") {
+        return (runPostprocess(argc - 1, argv + 1), EXIT_SUCCESS);
+    }
     // else if (cmd == "tovcf") {
     //     return (runToVCF(argc - 1, argv + 1), EXIT_SUCCESS);
     // }

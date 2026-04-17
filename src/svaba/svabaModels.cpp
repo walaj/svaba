@@ -180,6 +180,7 @@ static inline double SomaticLOD_withSplitErrors(double aN, double dN, double aT,
     double ll_germ_shared = LL_N(dN_safe, aN, f_shared_hat)
                           + LL_T(dT_safe, aT, f_shared_hat);
 
+
     // ----- (1) cleanliness penalty on GERM_shared -----------------------------
     // Expected normal alt count under pure forward error at the (capped)
     // normal error rate. Anything at or below this is indistinguishable from
@@ -228,13 +229,55 @@ static inline double SomaticLOD_withSplitErrors(double aN, double dN, double aT,
         const double kSharedLowVafBonus = 2.0; // log10
         ll_germ_shared += kSharedLowVafBonus * ratio;
     }
-    
+
     // other model options (germline het, germline homozygous, germline artifact)
     double ll_germ_het    = LL_N(dN_safe, aN, f_het)        + LL_T(dT_safe, aT, f_het);
     double ll_germ_hom    = LL_N(dN_safe, aN, f_hom)        + LL_T(dT_safe, aT, f_hom);
     double ll_germ_art    = LL_art(dN_safe, aN, f_art)      + LL_art(dT_safe, aT, f_art);
 
-    double ll_germ = std::max({ ll_germ_shared, ll_germ_het, ll_germ_hom, ll_germ_art });
+    // =========================================================================
+    // GERM_free: f_N and f_T MLEd independently (NOT tied like GERM_shared).
+    //
+    // Fills the gap where normal has low-but-real variant evidence while the
+    // tumor is near-clonal: LOH, clonal hematopoiesis, tumor-in-normal
+    // contamination, mosaic germline, etc. GERM_shared forces f_N = f_T, so
+    // e.g. (aN=6/dN=33, aT=84/dT=90) -- normal VAF ~0.18, tumor VAF ~0.93 --
+    // fits NEITHER sample under GERM_shared (pooled f≈0.73 is wrong for
+    // both), GERM_het is also wrong for both, and SOM_true wins despite
+    // clear alt evidence in the normal.
+    //
+    // Parameter count:
+    //   SOM_true has 1 free parameter (f_T).
+    //   GERM_free has 2 free parameters (f_N, f_T).
+    // Charge a BIC penalty of 0.5·log10(dN+dT) for the 1 net extra parameter.
+    //
+    // Activation gate:  aN > expected_errors_N + 1
+    // Rationale: when aN is at or near the expected number of error-driven
+    // alt reads in the normal (dN·eN_fwd), there is no real variant signal
+    // and the MLE f_N pegs at the error floor. Unconditionally enabling
+    // GERM_free in that regime makes it degenerate to "SOM_true minus BIC"
+    // on every clean-normal event, artificially capping somlod at ~1 bit
+    // regardless of how strong the tumor signal is. The +1 buffer above the
+    // error floor is Poisson-tail slack so a single stray error read in a
+    // clean normal doesn't trip the gate.
+    // =========================================================================
+    double ll_germ_free = -std::numeric_limits<double>::infinity();
+    double ll_germ_free_LL_N = 0.0, ll_germ_free_LL_T = 0.0; // for debug dump
+    double kGermFreeBIC = 0.0;
+    double f_n_free_dbg = 0.0, f_t_free_dbg = 0.0;
+    bool   germ_free_active = false;
+    if (aN > expected_errors_N + 1.0) {
+        germ_free_active = true;
+        f_n_free_dbg = std::clamp(aN / dN_safe, epsilon, 1.0 - epsilon);
+        f_t_free_dbg = std::clamp(aT / dT_safe, epsilon, 1.0 - epsilon);
+        kGermFreeBIC = 0.5 * std::log10(dN_safe + dT_safe);
+        ll_germ_free_LL_N = LL_N(dN_safe, aN, f_n_free_dbg);
+        ll_germ_free_LL_T = LL_T(dT_safe, aT, f_t_free_dbg);
+        ll_germ_free      = ll_germ_free_LL_N + ll_germ_free_LL_T - kGermFreeBIC;
+    }
+
+    double ll_germ = std::max({ ll_germ_shared, ll_germ_het, ll_germ_hom,
+                                ll_germ_art,    ll_germ_free });
 
     double lod_somatic_vs_germ = ll_som - ll_germ;
 
@@ -249,6 +292,7 @@ static inline double SomaticLOD_withSplitErrors(double aN, double dN, double aT,
         if (ll_germ_hom    > ll_germ_best) { ll_germ_best = ll_germ_hom;    germ_branch = "GERM:hom"; }
         if (ll_germ_art    > ll_germ_best) { ll_germ_best = ll_germ_art;    germ_branch = "GERM:art"; }
         if (ll_germ_shared > ll_germ_best) { ll_germ_best = ll_germ_shared; germ_branch = "GERM:shared"; }
+        if (ll_germ_free   > ll_germ_best) { ll_germ_best = ll_germ_free;   germ_branch = "GERM:free"; }
 
         std::cerr
             << "SomaticLOD"
@@ -277,6 +321,10 @@ static inline double SomaticLOD_withSplitErrors(double aN, double dN, double aT,
             << " GERM_HOM(N,T,sum)=("       << (LL_N(dN_safe,aN,f_hom))    << "," << (LL_T(dT_safe,aT,f_hom))    << "," << ll_germ_hom    << ")"
             << " GERM_ART(N,T,sum)=("       << (LL_art(dN_safe,aN,f_art))  << "," << (LL_art(dT_safe,aT,f_art))  << "," << ll_germ_art    << ")"
             << " GERM_SHARED(N,T,sum)=("    << (LL_N(dN_safe,aN,f_shared_hat)) << "," << (LL_T(dT_safe,aT,f_shared_hat)) << "," << ll_germ_shared << ")"
+            << " GERM_FREE(active=" << (germ_free_active ? 1 : 0)
+            << ",fN=" << f_n_free_dbg << ",fT=" << f_t_free_dbg
+            << ",N=" << ll_germ_free_LL_N << ",T=" << ll_germ_free_LL_T
+            << ",BIC=" << kGermFreeBIC << ",sum=" << ll_germ_free << ")"
             << " GERM=" << ll_germ << " [" << germ_branch << "]"
             << " || LOD10=" << lod_somatic_vs_germ
             << std::endl;

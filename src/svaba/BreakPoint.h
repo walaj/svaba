@@ -139,6 +139,12 @@ public:
   BreakPoint& operator=(BreakPoint&&) = delete;
   
   static std::string header() {
+    // Columns 1-41 are historical core fields; 42-51 are SvABA2.0 additions
+    // for refilter round-tripping (contig coords, match lengths, split-cov
+    // bounds, per-end LocalAlignment, contig orientation). Per-sample
+    // blocks follow. All downstream consumers that index by NAME (viewer,
+    // HTML modules) are header-robust; sort scripts that hardcode -k37,-k38
+    // still work because somlod/maxlod positions are unchanged.
     return std::string(
 		       "#chr1\tpos1\tstrand1\tchr2\tpos2\tstrand2\tref\talt\t"
 		       "span\tsplit\talt\tcov\tcigar\tcigar_near\t"
@@ -146,7 +152,9 @@ public:
 		       "mapq1\tmapq2\tnm1\tnm2\tas1\tas2\tsub1\tsub2\t"
 		       "homol\tinsert\trepeat\t"
 		       "contig_and_region\tnaln\tconf\ttype\tqual\t2ndary\t"
-		       "somatic\tsomlod\tmaxlod\tdbsnp\tcontig_conf1\tcontig_conf2"
+		       "somatic\tsomlod\tmaxlod\tdbsnp\tcontig_conf1\tcontig_conf2\t"
+		       "cpos1\tcpos2\tlmatch\trmatch\tscov1\tscov2\t"
+		       "local1\tlocal2\tctglen\tflipped"
 		       );
   }
   
