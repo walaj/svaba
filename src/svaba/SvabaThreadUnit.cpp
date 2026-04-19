@@ -83,11 +83,11 @@ svabaThreadUnit::svabaThreadUnit(SvabaSharedConfig& sc_,
 
   // setup the discordant read writers
   if (sc.opts.dump_discordant_reads) {
-    
+
     // instantiate a new BAM writer
     std::string bamname =sc.opts.analysisId +
       ".thread" + std::to_string(threadId) + ".discordant.bam";
-    
+
     auto [it, inserted] = writers.try_emplace("d", std::make_shared<SeqLib::BamWriter>(SeqLib::BAM));
     it->second->SetHeader(hdr_unsorted);
     if (!it->second->Open(bamname)) {
@@ -98,7 +98,31 @@ svabaThreadUnit::svabaThreadUnit(SvabaSharedConfig& sc_,
     it->second->WriteHeader();
   }
 
-  
+  // SvABA2.0: setup the per-thread r2c.txt.gz stream. Same pattern as the
+  // per-thread BAM writers — each thread writes its own file with no
+  // coordination, postprocess merges them via cat. Exactly one thread
+  // owns the column-header row so the merged file has one header at
+  // the top. r2c_out_ is unique_ptr<ogzstream> (see header for why);
+  // heap-allocate only when the flag is on, keep null otherwise.
+  //
+  // We key the header-writing thread to threadId == 1 (NOT 0) because
+  // the worker pool in `threadpool.h` constructs units with `i + 1`
+  // where `i` is the 0-based worker index — so the first worker's
+  // threadId is 1, and there is no thread 0. This also matches the
+  // lexicographic / numeric sort order postprocess step-1 imposes via
+  // `awk | sort -k1,1n`, which places `${ID}.thread1.r2c.txt.gz`
+  // first in the cat merge. If the worker numbering convention ever
+  // changes, this line must change with it (there is no reader unit
+  // test that catches a missing header — empirically, ad-hoc runs do).
+  if (sc.opts.dump_alignments) {
+    std::string r2cname = sc.opts.analysisId +
+      ".thread" + std::to_string(threadId) + ".r2c.txt.gz";
+    r2c_out_ = std::make_unique<ogzstream>();
+    svabaUtils::fopen(r2cname, *r2c_out_);
+    if (threadId == 1) {
+      *r2c_out_ << AlignedContig::r2cTsvHeader() << "\n";
+    }
+  }
 }
 
 void svabaThreadUnit::clear() {
@@ -117,7 +141,9 @@ void svabaThreadUnit::clear() {
 
   // SvABA2.0: drop the bi:Z / bz:Z lookup tables so the next window
   // doesn't stamp tags derived from the previous window onto reads.
-  alt_cnames_by_name.clear();
+  // (bi now stores bp_ids, bz still stores cnames — see
+  // SvabaThreadUnit.h for the rationale.)
+  alt_bp_ids_by_name.clear();
   all_cnames_by_name.clear();
   
   ss.str("");       // Clear the string content
@@ -186,6 +212,14 @@ svabaThreadUnit::~svabaThreadUnit() {
   if (sc.opts.dump_corrected_reads) {
     auto it = writers.find("c");
     it->second->Close();
+  }
+
+  // SvABA2.0: close the per-thread r2c stream if it was opened. The
+  // unique_ptr is null when dump_alignments was off, so guard on it
+  // rather than only on the flag (belt-and-braces in case the flag's
+  // value ever gets out of sync with what the ctor actually did).
+  if (r2c_out_) {
+    r2c_out_->close();
   }
 
 }

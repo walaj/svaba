@@ -395,7 +395,11 @@ function setupUpload(boxId, inputId, nameId, countId, parser) {
     document.getElementById(nameId).classList.remove('hidden');
     readFile(file).then(text => {
       const result = parser(text);
-      document.getElementById(countId).textContent = result.count + ' records';
+      // Surface the detected header format (old/new, ±v2) so the user can
+      // see what was inferred for each side independently. Lets mixed-
+      // format compares (e.g. old vs new) still be verified at a glance.
+      const fmt = result.format ? '  ·  ' + result.format + ' format' : '';
+      document.getElementById(countId).textContent = result.count + ' records' + fmt;
       document.getElementById(countId).classList.remove('hidden');
       box.classList.add('loaded');
       updateRunBtn();
@@ -471,86 +475,115 @@ function canonicalize(c) {
   }
 }
 
-function parseOld(text) {
-  // NOTE: in svaba_viewer_new_new.html this parses the NEW bps.txt format,
-  // but stores records in oldCalls so the existing comparison plumbing works.
+// ── Unified bps.txt parser ─────────────────────────────────────────────────
+//
+// svaba's bps.txt.gz header has evolved over time and now comes in two
+// main shapes that this viewer needs to support BOTH sides of a
+// comparison with, independently:
+//
+//   - OLD (pre-refactor / LEGACY): col 33 named "evidence", col 35 named
+//     "secondary". The "contig" column is named "contig_and_region".
+//     May or may not include the 10 post-SvABA2.0 columns (cpos1..flipped).
+//
+//   - NEW (current / post-refactor): col 33 renamed to "type", col 35 to
+//     "2ndary". "contig_and_region" unchanged. The 51-col v2 body (with
+//     cpos1..flipped) is always present.
+//
+// Everything downstream of parsing is name-driven (chart axes, filters,
+// dedup, detail rendering), so we can normalize both shapes into the
+// same in-memory record layout by looking up semantic fields via a list
+// of alias names and populating the record's canonical keys. Both sides
+// of a compare can be loaded from either format independently — two OLDs,
+// two NEWs, or one of each — and the downstream diff works on the
+// canonical (chr1,pos1,chr2,pos2) keys plus the normalized type/conf/
+// maxlod/etc fields.
+function parseBpsRows(text, sideLetter) {
   const lines = text.trim().split('\n');
-  oldCalls = [];
   const hdr = lines[0].replace(/^#/, '').split('\t');
-  oldHeader = hdr;
-  const ci = (name) => hdr.indexOf(name);
-  const iType = ci('type');
-  const iConf = ci('conf');
-  const iSomlod = ci('somlod');
-  const iQual = ci('qual');
-  const iSpan = ci('span');
-  const iContig = (ci('contig') >= 0 ? ci('contig') : (ci('cname') >= 0 ? ci('cname') : ci('contig_id')));
-  const iMaxLod = (ci('maxlod') >= 0 ? ci('maxlod') : (ci('max_lod') >= 0 ? ci('max_lod') : ci('lod_max')));
 
+  // Column-index with alias fallbacks. Returns the first header index that
+  // matches any of the provided names, else -1.
+  const cia = (...names) => {
+    for (const n of names) {
+      const i = hdr.indexOf(n);
+      if (i >= 0) return i;
+    }
+    return -1;
+  };
+
+  // Detect format from signature columns. "type" vs "evidence" is the
+  // most reliable tell (they're the field that was renamed). cpos1 tells
+  // us whether we're in the 51-col v2 body or the older 41-col shape.
+  const hasType     = hdr.indexOf('type')     >= 0;
+  const hasEvidence = hdr.indexOf('evidence') >= 0;
+  const hasV2       = hdr.indexOf('cpos1')    >= 0;
+  let format;
+  if      (hasType     && hasV2) format = 'new+v2';
+  else if (hasType)               format = 'new';
+  else if (hasEvidence && hasV2) format = 'old+v2';
+  else if (hasEvidence)           format = 'old';
+  else                            format = 'unknown';
+
+  const iType   = cia('type', 'evidence');
+  const iConf   = cia('conf', 'confidence');
+  const iSomlod = cia('somlod', 'som_lod', 'somatic_lod');
+  const iMaxLod = cia('maxlod', 'max_lod', 'lod_max');
+  const iQual   = cia('qual', 'quality');
+  const iSpan   = cia('span');
+  // LEGACY uses "contig_and_region"; some older/experimental dumps used
+  // "contig" / "cname" / "contig_id". Try all.
+  const iContig = cia('contig_and_region', 'contig', 'cname', 'contig_id');
+
+  const records = [];
   for (let i = 1; i < lines.length; i++) {
     const cols = lines[i].split('\t');
     if (cols.length < 10) continue;
     if (!CANONICAL_CHROMS.has(cols[0]) || !CANONICAL_CHROMS.has(cols[3])) continue;
-    oldCalls.push({
+    // Positional for the 6 identifier columns — these are stable across
+    // OLD and NEW schemas; both start with chr1/pos1/strand1/chr2/pos2/
+    // strand2 in that fixed order.
+    const rec = {
       chr1: cols[0], pos1: parseInt(cols[1]), strand1: cols[2],
       chr2: cols[3], pos2: parseInt(cols[4]), strand2: cols[5],
-      // Populate new-format names AND the "evidence"/"confidence" aliases used by
-      // existing compare/chart plumbing, so filters work uniformly.
-      type: iType >= 0 ? cols[iType] : '',
-      conf: iConf >= 0 ? cols[iConf] : '',
-      evidence: iType >= 0 ? cols[iType] : '',
-      confidence: iConf >= 0 ? cols[iConf] : '',
-      somlod: iSomlod >= 0 ? parseFloat(cols[iSomlod]) : 0,
-      maxlod: iMaxLod >= 0 ? parseFloat(cols[iMaxLod]) : 0,
-      contig: iContig >= 0 ? cols[iContig] : '',
-      qual: iQual >= 0 ? parseInt(cols[iQual]) : 0,
-      span: iSpan >= 0 ? parseInt(cols[iSpan]) : 0,
-      _cols: cols,           // full raw bps.txt row for detail rendering
-      _side: 'A',
-    });
-    canonicalize(oldCalls[oldCalls.length - 1]);
+      // Canonical normalized fields. Populate BOTH the new-style name
+      // ("type", "conf") and the old aliases ("evidence", "confidence")
+      // from the same source column so any downstream code that read
+      // the old-style alias still works after this change.
+      type:       iType   >= 0 ? cols[iType]              : '',
+      evidence:   iType   >= 0 ? cols[iType]              : '',
+      conf:       iConf   >= 0 ? cols[iConf]              : '',
+      confidence: iConf   >= 0 ? cols[iConf]              : '',
+      somlod:     iSomlod >= 0 ? parseFloat(cols[iSomlod]) : 0,
+      maxlod:     iMaxLod >= 0 ? parseFloat(cols[iMaxLod]) : 0,
+      contig:     iContig >= 0 ? cols[iContig]            : '',
+      qual:       iQual   >= 0 ? parseInt(cols[iQual])    : 0,
+      span:       iSpan   >= 0 ? parseInt(cols[iSpan])    : 0,
+      _cols: cols,          // full raw bps.txt row for detail rendering
+      _side: sideLetter,
+    };
+    records.push(rec);
+    canonicalize(rec);
   }
+
+  return { records, header: hdr, format };
+}
+
+function parseOld(text) {
+  const r = parseBpsRows(text, 'A');
+  oldCalls  = r.records;
+  oldHeader = r.header;
   updateDynamicChecks(oldCalls, 'type', 'evidenceChecks', true);
-  updateDynamicChecks(oldCalls, 'conf', 'confChecksOld', false);
-  return { count: oldCalls.length };
+  updateDynamicChecks(oldCalls, 'conf', 'confChecksOld',  false);
+  return { count: oldCalls.length, format: r.format };
 }
 
 function parseNew(text) {
-  const lines = text.trim().split('\n');
-  newCalls = [];
-  const hdr = lines[0].replace(/^#/, '').split('\t');
-  newHeader = hdr;
-  const ci = (name) => hdr.indexOf(name);
-  const iType = ci('type');
-  const iConf = ci('conf');
-  const iSomlod = ci('somlod');
-  const iQual = ci('qual');
-  const iSpan = ci('span');
-  const iContig = (ci('contig') >= 0 ? ci('contig') : (ci('cname') >= 0 ? ci('cname') : ci('contig_id')));
-  const iMaxLod = (ci('maxlod') >= 0 ? ci('maxlod') : (ci('max_lod') >= 0 ? ci('max_lod') : ci('lod_max')));
-
-  for (let i = 1; i < lines.length; i++) {
-    const cols = lines[i].split('\t');
-    if (cols.length < 10) continue;
-    if (!CANONICAL_CHROMS.has(cols[0]) || !CANONICAL_CHROMS.has(cols[3])) continue;
-    newCalls.push({
-      chr1: cols[0], pos1: parseInt(cols[1]), strand1: cols[2],
-      chr2: cols[3], pos2: parseInt(cols[4]), strand2: cols[5],
-      type: iType >= 0 ? cols[iType] : '',
-      conf: iConf >= 0 ? cols[iConf] : '',
-      somlod: iSomlod >= 0 ? parseFloat(cols[iSomlod]) : 0,
-      maxlod: iMaxLod >= 0 ? parseFloat(cols[iMaxLod]) : 0,
-      contig: iContig >= 0 ? cols[iContig] : '',
-      qual: iQual >= 0 ? parseInt(cols[iQual]) : 0,
-      span: iSpan >= 0 ? parseInt(cols[iSpan]) : 0,
-      _cols: cols,           // full raw bps.txt row for detail rendering
-      _side: 'B',
-    });
-    canonicalize(newCalls[newCalls.length - 1]);
-  }
-  updateDynamicChecks(newCalls, 'type', 'typeChecks', true);
+  const r = parseBpsRows(text, 'B');
+  newCalls  = r.records;
+  newHeader = r.header;
+  updateDynamicChecks(newCalls, 'type', 'typeChecks',    true);
   updateDynamicChecks(newCalls, 'conf', 'confChecksNew', false);
-  return { count: newCalls.length };
+  return { count: newCalls.length, format: r.format };
 }
 
 function updateDynamicChecks(records, field, containerId, allChecked) {

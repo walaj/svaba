@@ -2,8 +2,9 @@
 # r2c_for_contig.sh
 #
 # Given a svaba contig name, reconstruct the per-contig read-to-contig
-# (r2c) alignment BAM for IGV. Uses the `bi:Z` aux tag that svaba writes
-# on alt-supporting reads to pick the right reads out of corrected.bam.
+# (r2c) alignment BAM for IGV. Uses the `bz:Z` aux tag that svaba writes
+# on every r2c-aligned read (cname-keyed) to pick the right reads out
+# of corrected.bam.
 #
 # Usage:
 #   r2c_for_contig.sh CNAME CONTIGS_BAM CORRECTED_BAM [OUT_DIR]
@@ -15,9 +16,18 @@
 #
 # Output (in OUT_DIR):
 #   contig.fa     single-contig reference FASTA (+ BWA & faidx indices)
-#   reads.fq      corrected reads tagged bi:Z:<CNAME>
+#   reads.fq      corrected reads tagged bz:Z:<CNAME>
 #   r2c.bam(.bai) sorted+indexed read-to-contig BAM — load this in IGV
 #                 alongside contig.fa
+#
+# Tag semantics (v3):
+#   bz:Z = cname list — every contig this read r2c-aligned to. This is
+#          the right key for a per-contig read pull.
+#   bi:Z = bp_id list — the specific variant rows this read supports
+#          as ALT (matches r2c.txt.gz split_bps/disc_bps and bps.txt.gz
+#          col 52). Pre-v3 this carried cnames; it no longer does.
+#          If you want the ALT-supporter subset, set TAG=bi and pass
+#          a bp_id as the first argument instead of a cname.
 
 set -euo pipefail
 
@@ -82,8 +92,9 @@ bwa index contig.fa 2> bwa_index.log
 samtools faidx contig.fa
 
 # ---- 3. Pull corrected reads tagged for this contig (boundary-aware) ------
-# By default use bz:Z (all reads aligned to this contig). Set TAG=bi for the
-# alt-supporting subset only.
+# Default TAG=bz selects by cname (all r2c'd reads). TAG=bi selects by bp_id
+# (ALT-supporter subset only) — in that mode, the CNAME positional arg is
+# treated as a bp_id instead. See the v3 tag-semantics note in the header.
 TAG=${TAG:-bz}
 samtools view -h "../$CORRECTED_BAM" \
   | awk -v c="$CNAME" -v tag="$TAG" 'BEGIN{OFS="\t"; pfx="^"tag":Z:"}

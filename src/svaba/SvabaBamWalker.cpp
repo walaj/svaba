@@ -197,6 +197,7 @@ SeqLib::GRC svabaBamWalker::readBam(svabaThreadUnit& unit) {
       int32_t nm_tag = 0;
       s->GetIntTag("NM", nm_tag);
       if (static_cast<float>(nm_tag) / static_cast<float>(s->Length()) > 0.02) {
+	//	  s->MapQuality() == 0*) {
 	s->to_assemble = false;
 	read_buffer.push_back(s);
       }

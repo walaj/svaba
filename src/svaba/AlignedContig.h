@@ -69,16 +69,18 @@ class AlignedContig {
   //! return the contig sequence as it came off the assembler
   //std::string getSequence() const; 
 
-  //! print this contig
-  std::string printToAlignmentsFile(const SeqLib::BamHeader& h) const;
-
-  // SvABA2.0: emit the same information as printToAlignmentsFile but in a
-  // structured TSV that can be re-plotted later, rather than pre-plotted into
-  // ASCII. Emits a header line once (via r2cTsvHeader()) and then a "contig"
-  // row followed by one "read" row per r2c-aligned read. See SvabaOutputWriter
-  // for how it's wired, and viewer/bps_explorer.html for the re-plot path.
-  // Rows share a `contig_name` key so reads can be grouped back to their
-  // parent contig without a sorted file.
+  // SvABA2.0: emit this contig's info as a structured TSV that can be
+  // re-plotted later, rather than pre-rendered into ASCII. One "contig"
+  // row followed by one "read" row per r2c-aligned read. The companion
+  // viewer is bps_explorer.html's r2c re-plot sub-panel. Rows share a
+  // `contig_name` key so reads can be grouped back to their parent contig
+  // without a sorted file.
+  //
+  // Replaced the old printToAlignmentsFile() / alignments.txt.gz output
+  // entirely — same information content, just not pre-formatted. The
+  // header line is emitted once per file by r2cTsvHeader(); for per-thread
+  // streams, only the first worker (threadId == 1; workers are numbered
+  // 1..N by threadpool.h) writes it — see svabaThreadUnit ctor.
   std::string printToR2CTsv(const SeqLib::BamHeader& h) const;
 
   // Column header for the r2c TSV; call once per file, before any rows.

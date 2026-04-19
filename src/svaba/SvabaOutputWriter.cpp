@@ -52,12 +52,11 @@ void SvabaOutputWriter::init(const string& analysis_id,
   bam_header_ = b_header;
 
   // open our gzipped text outputs
-  svabaUtils::fopen(analysis_id + ".alignments.txt.gz", all_align_);
-  // SvABA2.0: structured r2c TSV. Same info as alignments.txt.gz, but not
-  // pre-rendered — downstream tools (bps_explorer.html) parse this and re-plot
-  // only the contig the user clicks on. Header row written once, here.
-  svabaUtils::fopen(analysis_id + ".r2c.txt.gz",        os_r2c_);
-  os_r2c_ << AlignedContig::r2cTsvHeader() << "\n";
+  //
+  // Per-thread r2c.txt.gz streams are opened by svabaThreadUnit itself
+  // (see its ctor) — nothing to open here for that output. What's left
+  // on this shared-writer path is only the small coordination outputs
+  // where mutex contention is a non-issue.
   svabaUtils::fopen(analysis_id + ".bps.txt.gz",        os_allbps_);
   svabaUtils::fopen(analysis_id + ".discordant.txt.gz",  os_discordant_);
   svabaUtils::fopen(analysis_id + ".runtime.txt",  os_runtime_);
@@ -102,11 +101,21 @@ void SvabaOutputWriter::writeUnit(svabaThreadUnit& unit,
   // aligned by bwa and need tagging here. We apply uniformly so the
   // tag is present in every tagged BAM.
   //
-  //   bi:Z — alt-variant supporting contigs (subset)
-  //   bz:Z — all contigs this read aligned to (superset)
+  //   bi:Z — bp_ids of variants this read supports as ALT (subset,
+  //          v3 — pre-v3 this was cnames; switched to bp_ids so the
+  //          tag matches the per-BP resolution of r2c.txt.gz's
+  //          split_bps / disc_bps columns and bps.txt.gz's col 52
+  //          bp_id. `samtools view | grep bi:Z:<bp_id>` pulls the
+  //          ALT-supporters for exactly that variant row.)
+  //   bz:Z — cnames of contigs this read r2c'd to (superset; the
+  //          contig-level grouping key. A read may r2c to a contig
+  //          yet not support any of its BPs.)
   //
-  // A read can appear in both maps with different cname lists (e.g.
-  // aligned to two contigs but only supporting a variant on one).
+  // A read can appear in both maps at the same time (every
+  // ALT-supporter has an r2c alignment to its contig). The two
+  // tags use different identifier namespaces now: bp_id for bi:Z,
+  // cname for bz:Z. Join back to bps.txt.gz via col 30 (cname) or
+  // col 52 (bp_id) as appropriate.
   auto stamp_tag = [&](auto& rec, const char* tag,
                        const std::unordered_map<std::string,std::string>& m,
                        const std::string& key) {
@@ -147,7 +156,7 @@ void SvabaOutputWriter::writeUnit(svabaThreadUnit& unit,
     }
   };
   auto stamp_bi = [&](auto& rec, const std::string& key) {
-    stamp_tag(rec, "bi", unit.alt_cnames_by_name, key);
+    stamp_tag(rec, "bi", unit.alt_bp_ids_by_name, key);
   };
   auto stamp_bz = [&](auto& rec, const std::string& key) {
     stamp_tag(rec, "bz", unit.all_cnames_by_name, key);
@@ -231,21 +240,35 @@ void SvabaOutputWriter::writeUnit(svabaThreadUnit& unit,
 	std::cerr << "...unable to write corrected read record" << std::endl;
     }
   }
-  lock_guard<mutex> guard(writeMutex_); // lock the writers
-  
-  sc.total_regions_done += unit.processed_since_memory_dump;
-  unit.processed_since_memory_dump = 0;
 
-  // alignment plot lines (pre-rendered ASCII) + structured r2c TSV
-  for (const auto& alc : unit.master_alc) {
-    if (alc.hasVariant()) {
-      all_align_ << alc.printToAlignmentsFile(bam_header_) << "\n";
-      // SvABA2.0: structured counterpart. printToR2CTsv emits a contig row
-      // followed by one row per r2c-aligned read (already newline-terminated
-      // internally), so no trailing newline here.
-      os_r2c_    << alc.printToR2CTsv(bam_header_);
+  // SvABA2.0: per-thread r2c.txt.gz write path.
+  //
+  // Happens BEFORE writeMutex_ is acquired because unit.r2c_out_ is a
+  // thread-local gzip stream (not shared across threads) — no coordination
+  // needed, and keeping the gzip deflate out from under the shared mutex
+  // lets all 16 threads compress in parallel, which is the whole point of
+  // the per-thread split (see CLAUDE.md for the full rationale). Mirrors
+  // the per-thread BAM writes above, which also run outside the lock.
+  //
+  // Gated on opts.dump_alignments (--dump-reads) — without it no stream
+  // was opened and we skip both the serialization and the write.
+  if (opts.dump_alignments) {
+    for (const auto& alc : unit.master_alc) {
+      if (alc.hasVariant()) {
+        // printToR2CTsv emits a contig row followed by one row per
+        // r2c-aligned read (already newline-terminated internally),
+        // so no trailing newline here.
+        // r2c_out_ is unique_ptr<ogzstream>, so dereference. It's non-null
+        // here because opts.dump_alignments implies ctor already allocated.
+        *unit.r2c_out_ << alc.printToR2CTsv(bam_header_);
+      }
     }
   }
+
+  lock_guard<mutex> guard(writeMutex_); // lock the shared writers
+
+  sc.total_regions_done += unit.processed_since_memory_dump;
+  unit.processed_since_memory_dump = 0;
 
   // discordant clusters
   // hardcoding "false" for readtracking for simplicity
@@ -302,8 +325,9 @@ void SvabaOutputWriter::writeUnit(svabaThreadUnit& unit,
 
 void SvabaOutputWriter::close() {
 
-  all_align_.close();
-  os_r2c_.close();
+  // SvABA2.0: alignments.txt.gz is gone entirely; r2c.txt.gz is per-thread
+  // (closed in svabaThreadUnit's destructor). Nothing to close here for
+  // those outputs.
   os_allbps_.close();
   os_discordant_.close();
   

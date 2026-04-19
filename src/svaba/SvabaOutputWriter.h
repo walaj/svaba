@@ -35,11 +35,15 @@ private:
   SvabaLogger&        logger;
   SvabaOptions&       opts;
   
-  ogzstream           all_align_;
-  // SvABA2.0: structured (TSV) counterpart of all_align_. Same info, but
-  // serialized as one row per contig / one row per r2c-aligned read so
-  // downstream tools can re-plot on demand. See AlignedContig::printToR2CTsv.
-  ogzstream           os_r2c_;
+  // SvABA2.0: alignments.txt.gz (pre-rendered ASCII) and the shared
+  // r2c.txt.gz stream used to live here. Both are gone:
+  //   - alignments.txt.gz is removed entirely; its re-plot-able successor
+  //     is r2c.txt.gz (AlignedContig::printToR2CTsv + r2cTsvHeader).
+  //   - r2c.txt.gz is now emitted per-thread by svabaThreadUnit::r2c_out_
+  //     and merged at postprocess time (gzip is concatenation-safe).
+  // The remaining shared streams below are small enough that mutex
+  // contention isn't measurable (bps + cluster-level discordant +
+  // runtime are KB-MB per run).
   ogzstream           os_allbps_;
   ogzstream           os_discordant_;
   ofstream            os_runtime_;

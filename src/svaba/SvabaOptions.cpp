@@ -65,9 +65,17 @@ Output & DBs:
       --germline-sv <FILE>
                          BED of known germline SVs
       --dbsnp <VCF>       DBSNP VCF of known variants
-      --dump-reads        Also emit corrected + discordant-reads BAMs
+      --dump-reads        Emit per-read debug/visualization outputs
                           (off by default; large output on deep samples).
-                          Weird-reads BAM is compile-time only; see
+                          Four files are produced by this flag together:
+                            ${ID}.corrected.bam
+                            ${ID}.discordant.bam
+                            ${ID}.alignments.txt.gz
+                            ${ID}.r2c.txt.gz
+                          Without this flag, svaba writes the bps.txt.gz
+                          / VCF / contigs.bam / runtime.txt summaries but
+                          none of the per-read detail. Weird-reads BAM is
+                          compile-time only; see
                           SvabaOptions.h::dump_weird_reads.
 )" << "\n";
 }
@@ -163,11 +171,15 @@ SvabaOptions SvabaOptions::parse(int argc, char** argv) {
       case 1701: o.germlineSvFile = optarg; break;
       case 1702: o.dbsnpVcf       = optarg; break;
 
-      // --dump-reads flips both in a single step. Any callers reading
-      // these fields after parse() will see them consistently set.
+      // --dump-reads is the single runtime knob for all per-read detail
+      // outputs. Flip all three flags together here; any call-site
+      // reading these fields after parse() sees a consistent state.
+      // See SvabaOptions.h for the comment on why these are separate
+      // fields instead of a single bool.
       case 1800:
         o.dump_discordant_reads = true;
         o.dump_corrected_reads  = true;
+        o.dump_alignments       = true;
         break;
 
       case '?':

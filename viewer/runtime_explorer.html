@@ -48,6 +48,13 @@ body{font-family:'SF Mono','Fira Code','Consolas',monospace;background:var(--bg)
 
 /* Charts */
 .charts-row{display:grid;grid-template-columns:repeat(3,1fr);gap:.5rem;padding:.5rem 1rem;background:var(--bg)}
+/* "hero" = single tall chart spanning the full width (used for the runtime
+   distribution, which is the primary thing a user of this viewer cares
+   about). "compact" = 2-column narrower row for the auxiliary charts. */
+.charts-row.hero{grid-template-columns:1fr;padding-bottom:.15rem}
+.charts-row.hero .chart-card{min-height:240px}
+.charts-row.hero canvas{height:210px}
+.charts-row.compact{grid-template-columns:repeat(2,1fr);padding-top:.15rem}
 .chart-card{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:.4rem .5rem;min-height:140px}
 .chart-card .ct{font-size:.65rem;color:var(--text2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:.3rem;display:flex;align-items:center;justify-content:space-between;gap:.3rem}
 .chart-card canvas{width:100%;height:120px;display:block}
@@ -146,8 +153,27 @@ a.igv-link.err{color:var(--red)}
   <span>Hottest: <span class="sv" id="s-hot">-</span></span>
 </div>
 
-<div class="charts-row" id="charts-row" style="display:none">
-  <div class="chart-card"><div class="ct"><span>Runtime (sec)</span><button class="log-tog" data-chart="rt" title="Toggle log10 x-axis">log10</button></div><canvas id="c-rt"></canvas></div>
+<!--
+  Charts layout:
+    * hero row     = runtime distribution, tall + full-width.
+                     This is the primary thing a user of this viewer cares
+                     about; everything else is auxiliary context.
+    * compact row  = contigs-per-region + discordant-reads histograms.
+                     Half-height, 2 columns — there to give you a sanity
+                     check on what else scales with the slow regions.
+  Both rows show only after a file is loaded; `ingest()` flips their
+  display back on together.
+-->
+<div class="charts-row hero" id="charts-row-hero" style="display:none">
+  <div class="chart-card">
+    <div class="ct">
+      <span>Runtime distribution (seconds per region)</span>
+      <button class="log-tog" data-chart="rt" title="Toggle log10 x-axis">log10</button>
+    </div>
+    <canvas id="c-rt"></canvas>
+  </div>
+</div>
+<div class="charts-row compact" id="charts-row" style="display:none">
   <div class="chart-card"><div class="ct"><span>Contigs per region</span><button class="log-tog" data-chart="contigs" title="Toggle log10 x-axis">log10</button></div><canvas id="c-contigs"></canvas></div>
   <div class="chart-card"><div class="ct"><span>Discordant reads</span><button class="log-tog" data-chart="dc" title="Toggle log10 x-axis">log10</button></div><canvas id="c-dc"></canvas></div>
 </div>
@@ -224,7 +250,12 @@ const TCOLS=[
 /* === State === */
 const S={fn:"",hdr:[],rows:[],filt:[],selId:null,
   pg:1,pgSz:100,sort:{k:"runtime_seconds",d:"desc"},
-  logScale:{rt:false,contigs:false,dc:false},
+  // rt defaults to log10 because runtime distributions are always
+  // long-tailed (a few HLA / centromere / high-coverage regions dominate
+  // the high end by orders of magnitude). On linear scale virtually every
+  // region ends up crammed into the first bin. contigs/dc usually have
+  // less extreme tails, so linear is fine as the default there.
+  logScale:{rt:true,contigs:false,dc:false},
   f:{search:"",region:null,rtMin:null,rtMax:null,contigsMin:null,dcMin:null,weirdMin:null,stdChrOnly:false}};
 
 const $=id=>document.getElementById(id);
@@ -258,8 +289,12 @@ $("f-std-chr").onclick=()=>{
   S.pg=1;render();
 };
 document.querySelectorAll(".log-tog").forEach(b=>{
+  const c=b.dataset.chart;
+  // reflect the initial default in the button's visual state — otherwise
+  // a log-by-default chart (like runtime) would render in log scale but
+  // the button would look "off", which is confusing.
+  b.classList.toggle("on",!!S.logScale[c]);
   b.onclick=()=>{
-    const c=b.dataset.chart;
     S.logScale[c]=!S.logScale[c];
     b.classList.toggle("on",S.logScale[c]);
     rCharts();
@@ -305,7 +340,7 @@ function ingest(text,name){
   S.fn=name;S.hdr=hdr;S.rows=rows;
   resetF();S.selId=rows.length?rows[0].id:null;S.sort={k:"runtime_seconds",d:"desc"};
 
-  ["controls","stats-bar","charts-row","table-wrap","pagination","detail-panel"].forEach(id=>{$(id).style.display=""});
+  ["controls","stats-bar","charts-row-hero","charts-row","table-wrap","pagination","detail-panel"].forEach(id=>{$(id).style.display=""});
   $("drop-zone").classList.add("loaded");
   $("file-name").style.display="";$("file-name").textContent=name;
   const ms=(performance.now()-t0).toFixed(0);

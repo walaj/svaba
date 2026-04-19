@@ -21,8 +21,10 @@
 #                                              (chr1,pos1,strand1,chr2,pos2,strand2)
 #        ${ID}.bps.sorted.dedup.pass.txt.gz — dedup restricted to PASS rows
 #
-#   4. Filters ${ID}.r2c.txt.gz down to the contigs of PASS breakpoints,
-#      writing ${ID}.r2c.pass.txt.gz for interactive use in bps_explorer.html
+#   4. Filters ${ID}.r2c.txt.gz down to PASS breakpoints — writes both
+#      ${ID}.r2c.pass.txt.gz (all PASS calls) and
+#      ${ID}.r2c.pass.somatic.txt.gz (PASS calls with somlod >= 1,
+#      i.e. the somatic subset) for interactive use in bps_explorer.html
 #      (the full r2c.txt.gz is typically too heavy to load).
 #
 #   5. Optionally (--split-by-source) demultiplexes the deduped BAMs by the
@@ -46,6 +48,13 @@
 #       --svaba PATH      path to svaba binary (default: ~/git/svaba/build/svaba)
 #       --keep-tmp        keep scratch dirs for debugging
 #       --skip-bam        skip BAM merge/sort/dedup/index (steps 1 & 2)
+#       --skip-dedup      keep step 2 but tell svaba postprocess to skip the
+#                         dedup substep (passes --sort-only through). Useful
+#                         for quick reruns of sort + @PG stamp + index
+#                         without redoing the expensive dedup pass. Sort is
+#                         also auto-skipped when the BAM's header already
+#                         declares @HD SO:coordinate, so a repeat rerun is
+#                         effectively a no-op except for index rebuild.
 #       --skip-bps        skip bps sort/dedup/PASS (step 3)
 #       --skip-r2c        skip r2c PASS filter (step 4)
 #       --skip-split      force-disable split-by-source
@@ -78,6 +87,7 @@ INPUT_DIR=${INPUT_DIR:-.}
 OUTPUT_DIR=${OUTPUT_DIR:-}
 KEEP_TMP=${KEEP_TMP:-0}
 SKIP_BAM=0
+SKIP_DEDUP=0
 SKIP_BPS=0
 SKIP_R2C=0
 
@@ -98,6 +108,7 @@ while [[ $# -gt 0 ]]; do
     --svaba)           SVABA="$2"; shift 2 ;;
     --keep-tmp)        KEEP_TMP=1; shift ;;
     --skip-bam)        SKIP_BAM=1; shift ;;
+    --skip-dedup)      SKIP_DEDUP=1; shift ;;
     --skip-bps)        SKIP_BPS=1; shift ;;
     --skip-r2c)        SKIP_R2C=1; shift ;;
     -h|--help)         print_usage; exit 0 ;;
@@ -128,7 +139,7 @@ mkdir -p "$OUTPUT_DIR"
 # Human-readable echo of the plan so logs tell you what was about to run.
 echo "svaba_postprocess.sh: id=$ID threads=$THREADS mem=$MEM sort_buffer=$SORT_BUFFER"
 echo "                    : input_dir=$INPUT_DIR output_dir=$OUTPUT_DIR"
-echo "                    : split_by_source=$SPLIT_BY_SOURCE skip_bam=$SKIP_BAM skip_bps=$SKIP_BPS skip_r2c=$SKIP_R2C"
+echo "                    : split_by_source=$SPLIT_BY_SOURCE skip_bam=$SKIP_BAM skip_dedup=$SKIP_DEDUP skip_bps=$SKIP_BPS skip_r2c=$SKIP_R2C"
 
 # Useful for absolute-path filenames in the steps below. Use trailing-slash-
 # free form so we always concatenate `${DIR}/${name}`.
@@ -136,12 +147,28 @@ INPUT_DIR=${INPUT_DIR%/}
 OUTPUT_DIR=${OUTPUT_DIR%/}
 
 # ========================================================================
-# STEP 1: Merge per-thread BAMs.
+# STEP 1: Merge per-thread BAMs and per-thread r2c.txt.gz.
 #
-# svaba run with multiple threads may produce ${ID}.thread0.${suffix}.bam,
-# ${ID}.thread1.${suffix}.bam, ... Coalesce them into a single
-# ${ID}.${suffix}.bam (to match what step 2 expects). Single-file inputs
-# are renamed; no-file inputs are silently skipped.
+# svaba run with multiple threads produces ${ID}.thread*.${suffix}.bam for
+# suffix in {discordant,weird,corrected}, and (with --dump-reads)
+# ${ID}.thread*.r2c.txt.gz. This step coalesces each family into a single
+# ${ID}.${suffix}.bam / ${ID}.r2c.txt.gz.
+#
+# Per-thread BAMs are merged with `samtools merge` — standard BAM merge
+# with header reconciliation.
+#
+# Per-thread r2c.txt.gz files are merged with plain `cat`: gzip is a
+# concatenation-safe format (RFC 1952), so concatenating multiple .gz
+# streams produces a valid .gz whose decompressed output is the
+# concatenation of each member's decompressed output. svaba guarantees
+# only the first worker (threadId == 1; the worker pool numbers
+# threads 1..N) emits the TSV column-header line, and the awk|sort
+# below places that file first in the merge, so the merged file has
+# exactly one header at the top regardless of thread count.
+#
+# Single-file inputs (only one thread) are renamed. No-file inputs are
+# silently skipped — this happens when the svaba run was single-threaded,
+# or when --dump-reads wasn't set (no r2c files to merge).
 # ========================================================================
 if [[ $SKIP_BAM -eq 0 ]]; then
   echo "[1/5] merging per-thread BAMs"
@@ -159,8 +186,43 @@ if [[ $SKIP_BAM -eq 0 ]]; then
       mv "${bam_files[0]}" "$target"
     fi
   done
+
+  # Merge per-thread r2c.txt.gz → ${ID}.r2c.txt.gz. gzip is concat-safe,
+  # so `cat a.gz b.gz > c.gz` is valid. Thread 1's file is first in the
+  # numeric sort order (worker pool numbers threads 1..N; see
+  # threadpool.h), and thread 1 is the one that emits the TSV header,
+  # so its header line ends up at the top of the merged file.
+  target="${INPUT_DIR}/${ID}.r2c.txt.gz"
+  shopt -s nullglob
+  r2c_files=("${INPUT_DIR}/${ID}".thread*.r2c.txt.gz)
+  shopt -u nullglob
+  if [[ ${#r2c_files[@]} -gt 1 ]]; then
+    echo "   merge ${#r2c_files[@]} thread r2c files -> $target"
+    # Sort by thread index so thread 1 (with the header) is first.
+    # Filenames are ${ID}.threadN.r2c.txt.gz — awk pulls the numeric
+    # thread index out, sort -k1,1n orders it numerically, cut drops
+    # the index so we get just the filenames back in sorted order.
+    #
+    # NB: avoid `mapfile` / `readarray` — they're bash 4+, and macOS
+    # ships bash 3.2 as /bin/bash, which `#!/usr/bin/env bash` often
+    # resolves to. The `while read` loop below is fully portable.
+    r2c_sorted=()
+    while IFS= read -r f; do
+      r2c_sorted+=("$f")
+    done < <(
+      printf '%s\n' "${r2c_files[@]}" \
+      | awk -F'.thread|.r2c.txt.gz' '{print $(NF-1)"\t"$0}' \
+      | sort -k1,1n \
+      | cut -f2-
+    )
+    cat "${r2c_sorted[@]}" > "$target"
+    rm -f "${r2c_sorted[@]}"
+  elif [[ ${#r2c_files[@]} -eq 1 ]]; then
+    echo "   mv  ${r2c_files[0]}  ->  $target"
+    mv "${r2c_files[0]}" "$target"
+  fi
 else
-  echo "[1/5] skipping BAM merge (--skip-bam)"
+  echo "[1/5] skipping BAM + r2c merge (--skip-bam)"
 fi
 
 # ========================================================================
@@ -169,10 +231,24 @@ fi
 # Heavy lifting lives in the C++ subcommand. We just pass it the thread /
 # memory budget; svaba postprocess splits THREADS across suffixes and passes
 # -m to samtools sort per-thread.
+#
+# --skip-dedup at this layer maps to `--sort-only` on the C++ CLI, which
+# still runs the sort + @PG-stamp + index phases but skips the
+# stream-dedup pass. Combined with the C++'s auto-skip-sort-when-already-
+# sorted check (via @HD SO:coordinate), a rerun with --skip-dedup on
+# already-postprocessed files is effectively a no-op other than
+# re-stamping PG + rebuilding the .bai.
 # ========================================================================
 if [[ $SKIP_BAM -eq 0 ]]; then
-  echo "[2/5] svaba postprocess: sort + dedup + @PG + BAI index (threads=$THREADS, mem=$MEM)"
-  (cd "$INPUT_DIR" && "$SVABA" postprocess -i "$ID" -t "$THREADS" -m "$MEM")
+  pp_args=(-i "$ID" -t "$THREADS" -m "$MEM")
+  if [[ $SKIP_DEDUP -eq 1 ]]; then
+    pp_args+=(--sort-only)
+    dedup_banner="(dedup skipped via --skip-dedup)"
+  else
+    dedup_banner=""
+  fi
+  echo "[2/5] svaba postprocess: sort + dedup + @PG + BAI index (threads=$THREADS, mem=$MEM) $dedup_banner"
+  (cd "$INPUT_DIR" && "$SVABA" postprocess "${pp_args[@]}")
 else
   echo "[2/5] skipping svaba postprocess (--skip-bam)"
 fi
@@ -287,50 +363,103 @@ else
 fi
 
 # ========================================================================
-# STEP 4: Filter r2c.txt.gz to PASS contigs only.
+# STEP 4: Filter r2c.txt.gz to PASS contigs (+ PASS-somatic subset).
 #
 # The structured r2c TSV emitted by `svaba run` contains one row per
 # assembled contig + one row per r2c-aligned read, for every variant-
 # bearing contig. At full genome scale this can be tens of millions of
-# rows — too heavy for the interactive viewer. Here we resolve a PASS
-# contig set from bps.txt.gz (col 32 == "PASS", col 30 == cname) and
-# keep only r2c rows whose contig_name (col 2) is in that set. Both the
-# contig row and its read rows survive together because they share col 2.
+# rows — too heavy for the interactive viewer. Here we produce TWO
+# filtered outputs from a single pass over r2c.txt.gz:
+#
+#   ${ID}.r2c.pass.txt.gz          - rows for all PASS variants
+#                                    (col 32 == "PASS")
+#   ${ID}.r2c.pass.somatic.txt.gz  - rows for PASS variants that are also
+#                                    somatic (col 32 == "PASS"
+#                                    AND col 37 (somlod) >= 1)
+#
+# Both are keyed on cname (col 30 in bps.txt.gz, col 2 in r2c.txt.gz);
+# contig and read rows survive together since they share col 2.
+#
+# The somatic subset is a strict subset of the pass set, and both are
+# written by the same awk invocation over r2c.txt.gz via awk's pipe-to-
+# command output — one decompress+iterate pass, two gzip compressors
+# running in parallel as child processes. Avoids reading the multi-GB
+# r2c file twice.
 # ========================================================================
 R2C_GZ="${INPUT_DIR}/${ID}.r2c.txt.gz"
 R2C_OUT="${OUTPUT_DIR}/${ID}.r2c.pass.txt.gz"
+R2C_OUT_SOM="${OUTPUT_DIR}/${ID}.r2c.pass.somatic.txt.gz"
 
 if [[ $SKIP_R2C -eq 0 ]]; then
   if [[ ! -f "$BPS_GZ" ]]; then
     echo "[4/5] skipping r2c PASS filter: $BPS_GZ not found"
   elif [[ ! -f "$R2C_GZ" ]]; then
-    echo "[4/5] skipping r2c PASS filter: $R2C_GZ not found (old svaba run?)"
+    echo "[4/5] skipping r2c PASS filter: $R2C_GZ not found"
+    echo "       (svaba run must be invoked with --dump-reads to produce it;"
+    echo "        or this is an older svaba run from before r2c.txt.gz existed.)"
   else
-    echo "[4/5] filter r2c to PASS contigs"
+    echo "[4/5] filter r2c to PASS contigs (+ PASS-somatic subset)"
     pass_list="$(mktemp -t "svaba.${ID}.pass_cnames.XXXXXX")"
-    # Column positions as documented above: 30=cname, 32=confidence.
-    # NB: use `gzip -dc` (not `zcat`) so this works on macOS — BSD zcat
-    # hunts for a .Z suffix rather than .gz, which explodes here.
+    som_list="$(mktemp  -t "svaba.${ID}.som_cnames.XXXXXX")"
+    # Column positions in bps.txt.gz (from BreakPoint::toFileString):
+    #   30 = cname (contig_and_region)
+    #   32 = confidence ("PASS" / "LOWLOD" / ...)
+    #   37 = somlod    (numeric or "NA"; $37+0 coerces non-numeric to 0)
+    # One awk pass builds both cname sets so we only decompress bps.txt.gz
+    # once. NB: use `gzip -dc` (not `zcat`) so this works on macOS — BSD
+    # zcat hunts for a .Z suffix rather than .gz.
     gzip -dc "$BPS_GZ" \
-      | awk -F'\t' 'NR>1 && $32=="PASS" {print $30}' \
-      | LC_ALL=C sort -u > "$pass_list"
+      | awk -F'\t' -v pass_f="$pass_list" -v som_f="$som_list" '
+          NR>1 && $32=="PASS" {
+            print $30 >> pass_f
+            if ($37+0 >= 1) print $30 >> som_f
+          }
+        '
+    LC_ALL=C sort -u "$pass_list" -o "$pass_list"
+    LC_ALL=C sort -u "$som_list"  -o "$som_list"
     n_pass=$(wc -l < "$pass_list" | awk '{print $1}')
+    n_som=$(wc  -l < "$som_list"  | awk '{print $1}')
 
     if [[ "$n_pass" -eq 0 ]]; then
-      echo "      no PASS breakpoints — skipping r2c.pass generation."
-      rm -f "$pass_list"
+      echo "      no PASS breakpoints — skipping both r2c.pass and r2c.pass.somatic."
+      rm -f "$pass_list" "$som_list"
     else
+      # Single-pass r2c filter writing both outputs via awk's pipe-to-
+      # command feature. The two `gzip -c > file` child processes run in
+      # parallel, so compression of the two outputs happens concurrently
+      # on separate cores. Each output gets the same header row and then
+      # whichever filtered rows match its cname set.
       gzip -dc "$R2C_GZ" \
-        | awk -F'\t' -v listf="$pass_list" '
-            BEGIN { while ((getline line < listf) > 0) keep[line]=1; close(listf) }
-            NR==1                              { print; next }            # header
-            $1 == "contig" && ($2 in keep)     { print; next }
-            $1 == "read"   && ($2 in keep)     { print; next }
-          ' \
-        | gzip -c > "$R2C_OUT"
-      n_rows=$(gzip -dc "$R2C_OUT" | wc -l | awk '{print $1}')
-      echo "      wrote $R2C_OUT  ($n_pass PASS contigs, $n_rows rows incl. header)"
-      rm -f "$pass_list"
+        | awk -F'\t' -v pass_f="$pass_list"   -v som_f="$som_list" \
+                     -v pass_out="$R2C_OUT"   -v som_out="$R2C_OUT_SOM" '
+            BEGIN {
+              while ((getline line < pass_f) > 0) keep_pass[line] = 1
+              close(pass_f)
+              while ((getline line < som_f)  > 0) keep_som[line]  = 1
+              close(som_f)
+              pass_cmd = "gzip -c > " pass_out
+              som_cmd  = "gzip -c > " som_out
+            }
+            NR == 1 {
+              print | pass_cmd
+              print | som_cmd
+              next
+            }
+            ($1 == "contig" || $1 == "read") {
+              if ($2 in keep_pass) print | pass_cmd
+              if ($2 in keep_som)  print | som_cmd
+            }
+            END {
+              close(pass_cmd)
+              close(som_cmd)
+            }
+          '
+
+      n_pass_rows=$(gzip -dc "$R2C_OUT"     | wc -l | awk '{print $1}')
+      n_som_rows=$(gzip  -dc "$R2C_OUT_SOM" | wc -l | awk '{print $1}')
+      echo "      wrote $R2C_OUT        ($n_pass PASS contigs, $n_pass_rows rows incl. header)"
+      echo "      wrote $R2C_OUT_SOM  ($n_som PASS+somatic [somlod>=1] contigs, $n_som_rows rows incl. header)"
+      rm -f "$pass_list" "$som_list"
     fi
   fi
 else

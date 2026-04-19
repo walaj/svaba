@@ -29,6 +29,22 @@ inline constexpr int    INSERT_SIZE_TOO_BIG_SPAN_READS = 16;
 // only when its r2c alignment scores strictly higher than its native
 // read-to-reference alignment, which subsumes both the interior-clip
 // rejection and the duplicated-reference equally-clean case.
+
+// SvABA2.0 (v3): per-sample-prefix margin on the r2c-better-than-native
+// gate. A read is credited as a split-supporter iff
+//     r2c_score >  native_score * (1.0 + margin)
+// where margin is T_R2C_MIN_MARGIN for tumor-prefix reads (t***) and
+// N_R2C_MIN_MARGIN for normal-prefix reads (n***). Tumor is held to
+// a stricter standard (10% better) because a somatic call depends on
+// clean separation between the samples; normal only needs strictly
+// greater so we retain sensitivity for germline/LOH reads that help
+// rule out a somatic event. This replaces the older both_split /
+// one_split / homlen branching gate — when junction homology is on
+// the order of the read length, neither r2c nor native wins
+// decisively and such reads fall out here naturally, which is the
+// correct conservative behavior.
+inline constexpr double T_R2C_MIN_MARGIN          = 0.10;
+inline constexpr double N_R2C_MIN_MARGIN          = 0.0;
 inline constexpr int    HOMOLOGY_FACTOR             = 4;
 inline constexpr int    MIN_SOMATIC_RATIO           = 15;
 inline constexpr int    COVERAGE_AVG_BUFF           = 10;
@@ -93,13 +109,24 @@ class SvabaOptions {
   // debugging the read-collection phase, not for routine runs.
   static constexpr bool dump_weird_reads = false;
 
-  // corrected + discordant reads: opt-in at runtime via --dump-reads.
-  // Default off so routine runs don't pay the (substantial) I/O and
-  // disk cost of emitting these BAMs on deep samples. Both flip
-  // together — there's no production need to toggle them separately,
-  // and wiring a single flag keeps the CLI surface small.
+  // All three below are opt-in at runtime via a single --dump-reads flag.
+  // Default off so routine runs don't pay the (substantial) I/O and disk
+  // cost of emitting this per-read detail on deep samples:
+  //
+  //   dump_discordant_reads  -> ${ID}.discordant.bam
+  //   dump_corrected_reads   -> ${ID}.corrected.bam
+  //   dump_alignments        -> ${ID}.alignments.txt.gz
+  //                          -> ${ID}.r2c.txt.gz
+  //
+  // All three flip together under --dump-reads. The fields are kept
+  // separate so an individual callsite can still key off its own narrow
+  // concern (e.g. SvabaOutputWriter gates the alignments file streams on
+  // dump_alignments only), but there is intentionally no way to toggle
+  // them individually at runtime — that would bloat the CLI surface
+  // without serving a real workflow.
   bool dump_discordant_reads = false;
   bool dump_corrected_reads  = false;
+  bool dump_alignments       = false;
   
     // inputs
   std::vector<std::string> caseBams;

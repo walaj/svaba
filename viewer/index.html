@@ -24,6 +24,8 @@ a.card:hover{border-color:var(--accent);transform:translateY(-2px)}
 .card .title .tag{font-size:.6rem;padding:.15rem .4rem;border-radius:3px;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
 .tag-bps{background:rgba(108,140,255,.15);color:var(--accent)}
 .tag-align{background:rgba(74,222,128,.15);color:var(--green)}
+.tag-r2c{background:rgba(34,211,238,.15);color:#22d3ee}
+.tag-runtime{background:rgba(248,113,113,.15);color:#f87171}
 .tag-compare{background:rgba(168,85,247,.15);color:var(--purple)}
 .tag-legacy{background:rgba(251,191,36,.12);color:var(--amber)}
 .card .desc{font-size:.75rem;color:var(--text2);line-height:1.5}
@@ -49,13 +51,42 @@ a.card:hover{border-color:var(--accent);transform:translateY(-2px)}
       </div>
     </a>
 
-    <a class="card" href="alignments_viewer.html">
-      <div class="title">Alignments Viewer <span class="tag tag-align">alignments.txt.gz</span></div>
+    <a class="card" href="r2c_explorer.html">
+      <div class="title">R2C Explorer <span class="tag tag-r2c">r2c.txt.gz</span></div>
       <div class="desc">
-        Inspect <code>*.alignments.txt.gz</code> contig alignment plots.
-        ASCII read-to-contig pileups with color-coded variant support,
-        contig-to-genome alignment diagrams, and linked breakpoint context.
-        Search by contig name or region.
+        Browser-side re-plotter for the structured r2c TSV emitted by
+        <code>svaba run --dump-reads</code> (or the PASS / PASS-somatic
+        subsets from <code>svaba_postprocess.sh</code>). Load the file,
+        type/search for a contig name (autocomplete from the file's own
+        list of cnames), and get the alignments-style plot generated
+        fresh from the TSV: ruler, contig sequence, per-fragment
+        summaries, breakpoint rows, and per-read gap-expanded CIGAR
+        renderings with support-kind color-coding. Prev/Next/Random
+        navigation plus imperfect-only and support-kind filters.
+        Successor to the old <code>alignments.txt.gz</code> ASCII dump.
+      </div>
+    </a>
+
+    <a class="card" href="alignments_viewer.html">
+      <div class="title">Alignments Viewer (legacy) <span class="tag tag-legacy">alignments.txt.gz</span></div>
+      <div class="desc">
+        Original ASCII-plot viewer for <code>*.alignments.txt.gz</code>
+        from svaba runs <em>before</em> the r2c migration. New runs no
+        longer produce <code>alignments.txt.gz</code> — prefer the R2C
+        Explorer above. Kept for rendering historical outputs.
+      </div>
+    </a>
+
+    <a class="card" href="runtime_explorer.html">
+      <div class="title">Runtime Explorer <span class="tag tag-runtime">runtime.txt</span></div>
+      <div class="desc">
+        Explore per-region timing from <code>${ID}.runtime.txt</code>.
+        Sort regions by runtime, contigs, or breakpoint count; filter by
+        chromosome, region, runtime threshold, or contig / discordant-read
+        minimums. Prominent runtime-distribution histogram plus auxiliary
+        contig / discordant histograms with independent log10 toggles. Click
+        a region's locus to jump IGV to it (requires IGV on port 60151).
+        Standard-chr filter drops decoy / alt / random / HLA contigs.
       </div>
     </a>
 

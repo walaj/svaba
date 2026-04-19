@@ -995,25 +995,45 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
   for (auto& i : bp_glob)
     if ( i->hasMinimal() ) {
 
-      // SvABA2.0: tag every alt-supporting read with the breakpoint's
-      // contig id (cname). cname is deterministic (derived from the
-      // assembly window coordinates + contig index) and stable across
-      // runs, so a `samtools view | grep bi:Z:<cname>` pulls every
-      // ALT-supporting read for any variant on that contig. In the
-      // rare edge case of multiple variants on one contig we can't
-      // disambiguate, which is acceptable for debugging.
+      // SvABA2.0 (v3): assign this BP a unique, thread-stable ID
+      // exactly once in its lifetime. Must happen BEFORE the bi:Z
+      // stamping below, since the tag payload is now the bp_id (not
+      // the cname). The `id.empty()` guard lets this loop be safely
+      // reentered (e.g. across regions) without re-numbering BPs
+      // that were finalized in a prior region. Because i is a
+      // shared_ptr also referenced by the parent AlignedContig's
+      // m_global_bp / m_local_breaks / fragment indel_breaks,
+      // setting id here is immediately visible to printToR2CTsv
+      // when it walks getAllBreakPoints() during writeUnit.
+      if (i->id.empty())
+        i->id = unit.next_bp_id();
+
+      // SvABA2.0 (v3): tag every alt-supporting read with this
+      // breakpoint's bp_id on the `bi:Z` aux tag. bp_id is a
+      // thread-stable per-BP identifier (see SvabaThreadUnit::
+      // next_bp_id) and is the same string emitted as col 52 of
+      // bps.txt.gz and in the r2c.txt.gz `split_bps` / `disc_bps`
+      // columns — so `samtools view | grep bi:Z:<bp_id>` returns
+      // exactly the ALT-supporters for that specific variant row.
+      // Pre-v3 the tag carried cnames (contig-level); a single
+      // contig with multiple BPs (global + multi + indel) couldn't
+      // be disambiguated. bz:Z still carries cnames (contig-level
+      // "which contigs did this read r2c to") — see the r2c loop
+      // above where that map is populated.
       //
-      // Two parallel paths:
+      // Two parallel paths for bi:Z:
       //   (a) stamp the `bi:Z` aux tag on the original svabaRead
       //       shared_ptr. This covers weird/discordant BAM outputs,
       //       which share pointer identity with those records.
-      //   (b) record UniqueName -> cnames in
-      //       `unit.alt_cnames_by_name` so `writeUnit` can stamp the
-      //       tag on all_corrected_reads (newly-aligned BamRecords
-      //       from bwa that don't share pointer identity).
-      // A read can support multiple contigs (split reads crossing
-      // nearby calls) so the tag value is a comma-joined list, dedup'd
-      // on exact-match boundaries.
+      //   (b) record UniqueName -> bp_ids in
+      //       `unit.alt_bp_ids_by_name` so `writeUnit` can stamp
+      //       the tag on all_corrected_reads (newly-aligned
+      //       BamRecords from bwa that don't share pointer
+      //       identity).
+      // A read can support multiple BPs (split reads crossing
+      // nearby calls; indel + flanking SV on one contig) so the tag
+      // value is a comma-joined list, dedup'd on exact-match
+      // boundaries.
       auto append_unique = [](std::string& cur, const std::string& id) {
         if (id.empty()) return false;
         if (cur.empty()) { cur = id; return true; }
@@ -1029,29 +1049,29 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
         return true;
       };
 
-      const std::string& this_cname = i->cname;
+      const std::string& this_bp_id = i->id;
 
-      auto tag_with_cname = [&](auto& r) {
-        if (!r || this_cname.empty()) return;
+      auto tag_with_bp_id = [&](auto& r) {
+        if (!r || this_bp_id.empty()) return;
         // (a) stamp the shared_ptr
         std::string cur;
         r->GetZTag("bi", cur);
-        if (append_unique(cur, this_cname)) {
+        if (append_unique(cur, this_bp_id)) {
           r->RemoveTag("bi");
           r->AddZTag("bi", cur);
         }
-        // (b) register in name->cnames map so the corrected BAM can
+        // (b) register in name->bp_ids map so the corrected BAM can
         // be tagged at write time
-        std::string& entry = unit.alt_cnames_by_name[r->UniqueName()];
-        append_unique(entry, this_cname);
+        std::string& entry = unit.alt_bp_ids_by_name[r->UniqueName()];
+        append_unique(entry, this_bp_id);
       };
 
       for (auto& r : i->reads)
-        tag_with_cname(r);
+        tag_with_bp_id(r);
       for (auto& [_, r] : i->dc.reads)
-        tag_with_cname(r);
+        tag_with_bp_id(r);
       for (auto& [_, r] : i->dc.mates)
-        tag_with_cname(r);
+        tag_with_bp_id(r);
 
       unit.m_bps.push_back(i);
     }

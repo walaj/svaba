@@ -141,10 +141,12 @@ public:
   static std::string header() {
     // Columns 1-41 are historical core fields; 42-51 are SvABA2.0 additions
     // for refilter round-tripping (contig coords, match lengths, split-cov
-    // bounds, per-end LocalAlignment, contig orientation). Per-sample
-    // blocks follow. All downstream consumers that index by NAME (viewer,
-    // HTML modules) are header-robust; sort scripts that hardcode -k37,-k38
-    // still work because somlod/maxlod positions are unchanged.
+    // bounds, per-end LocalAlignment, contig orientation); 52 is bp_id
+    // (unique thread-stable BreakPoint identifier — see BreakPoint::id).
+    // Per-sample blocks follow. All downstream consumers that index by
+    // NAME (viewer, HTML modules) are header-robust; sort scripts that
+    // hardcode -k37,-k38 still work because somlod/maxlod positions
+    // are unchanged.
     return std::string(
 		       "#chr1\tpos1\tstrand1\tchr2\tpos2\tstrand2\tref\talt\t"
 		       "span\tsplit\talt\tcov\tcigar\tcigar_near\t"
@@ -154,7 +156,8 @@ public:
 		       "contig_and_region\tnaln\tconf\ttype\tqual\t2ndary\t"
 		       "somatic\tsomlod\tmaxlod\tdbsnp\tcontig_conf1\tcontig_conf2\t"
 		       "cpos1\tcpos2\tlmatch\trmatch\tscov1\tscov2\t"
-		       "local1\tlocal2\tctglen\tflipped"
+		       "local1\tlocal2\tctglen\tflipped\t"
+		       "bp_id"
 		       );
   }
   
@@ -163,6 +166,19 @@ public:
   std::string seq, cname, rs,
     insertion, homology, repeat_seq,
     confidence, ref, alt;
+
+  // SvABA2.0: unique stable identifier for this BreakPoint, assigned
+  // exactly once per BP in SvabaRegionProcessor::process() via
+  // svabaThreadUnit::next_bp_id() right before the pointer is pushed
+  // into unit.m_bps. Format: "bpTTTNNNNNNNN" where TTT is the 3-digit
+  // zero-padded thread ID and NNNNNNNN is an 8-digit zero-padded
+  // per-thread running counter. Because AlignedContig holds its BPs
+  // via shared_ptr, setting id through any reference is visible
+  // everywhere — r2c emission later reads it back through
+  // getAllBreakPoints(). Emitted as the final core column of
+  // bps.txt so downstream tools can cross-reference which BP a read
+  // supports (see r2c's split_bps/disc_bps columns).
+  std::string id;
   
   // the evidence per break-end
   BreakEnd b1, b2;
@@ -226,13 +242,11 @@ public:
   
   GenomicRegion BreakEndAsGenomicRegionRight() const;
 
-  std::string printDeletionMarksForAlignmentsFile() const;
-
   // SvABA2.0: union of UniqueNames of split-supporting reads across all
-  // samples. Used by AlignedContig::printToAlignmentsFile to tag each
-  // read line with its variant-support kind. SampleInfo is a private
-  // nested type, so we expose this method instead of forcing callers
-  // to iterate `allele` and reach into SampleInfo directly.
+  // samples. Used by AlignedContig::printToR2CTsv to tag each read row
+  // with its variant-support kind. SampleInfo is a private nested type,
+  // so we expose this method instead of forcing callers to iterate
+  // `allele` and reach into SampleInfo directly.
   std::unordered_set<std::string> getAllSupportingReads() const {
     std::unordered_set<std::string> out;
     for (const auto& kv : allele)

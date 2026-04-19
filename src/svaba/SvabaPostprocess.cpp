@@ -318,6 +318,43 @@ SeqLib::BamHeader readHeaderOnly(const std::string& bam) {
   return r.Header();
 }
 
+// Return true iff the BAM's header declares it coordinate-sorted via an
+// @HD line with SO:coordinate. Samtools, SeqLib, and bwa all emit that
+// form when producing a sorted BAM, so a simple substring check on the
+// first @HD line is sufficient.
+//
+// Used by processSuffix() to short-circuit the sort step when it would be
+// a no-op — lets the user rerun postprocess on already-sorted inputs
+// without paying the sort cost again (e.g. after a --skip-dedup rerun).
+//
+// Errors (can't open, no @HD at all, @HD without SO:) conservatively
+// return false so we fall through to running sort, which will produce a
+// correct result regardless.
+bool isCoordinateSorted(const std::string& bam) {
+  try {
+    const SeqLib::BamHeader h = readHeaderOnly(bam);
+    const std::string text = h.AsString();
+    std::istringstream iss(text);
+    std::string line;
+    while (std::getline(iss, line)) {
+      if (line.rfind("@HD\t", 0) == 0) {
+        // @HD line found; check for the SO:coordinate tag. Tags are
+        // tab-separated, any order — a plain substring search on the
+        // line is accurate enough because "SO:coordinate" can't appear
+        // as a substring of any other valid @HD tag value.
+        return line.find("SO:coordinate") != std::string::npos;
+      }
+      // @HD, if present, is required to be the first header line. If
+      // the first non-empty line isn't @HD we can stop looking.
+      if (!line.empty() && line[0] == '@') break;
+    }
+  } catch (...) {
+    // header unreadable — let the sort step run and produce its own
+    // error with better context.
+  }
+  return false;
+}
+
 // Use `samtools reheader` to swap in a new header on an existing BAM. Fast
 // because samtools reheader streams the BGZF body as opaque blocks. We use
 // this for the suffixes whose pipeline doesn't already rewrite the file
@@ -715,7 +752,16 @@ void processSuffix(const std::string& id,
 
   try {
     // --- Sort -----------------------------------------------------------
-    if (do_sort) {
+    // Skip the sort step if the BAM already declares itself coordinate-
+    // sorted. Cheap O(header) check; turns a repeat postprocess run on
+    // an already-postprocessed BAM into an effectively instant no-op
+    // for this suffix. Lets users pass --skip-dedup at the shell layer
+    // (or --sort-only from the C++ CLI) and rerun without paying 30+s
+    // per suffix for a redundant sort.
+    if (do_sort && isCoordinateSorted(bam)) {
+      logLine("[", suffix, "] already coordinate-sorted (per @HD SO:coordinate); "
+              "skipping sort");
+    } else if (do_sort) {
       const int rc = runSort(bam, sort_tmp, per_job_threads, mem, suffix, verbose);
       if (rc != 0)
         throw std::runtime_error("samtools sort exited " + std::to_string(rc));
@@ -823,6 +869,22 @@ void runPostprocess(int argc, char** argv) {
               << " dedup=" << (o.sort_only  ? "off" : "on")
               << "\n  active: " << act.str() << std::endl;
   }
+
+  // One-shot note so users don't chase the htslib "[E::idx_find_and_load]"
+  // lines that will appear below. Those come from SeqLib::BamReader::Open
+  // (called by streamDedup and by readHeaderOnly inside reheaderBamWithPg)
+  // eagerly trying to load a .bai that doesn't exist yet — we sort first,
+  // then rewrite (dedup or reheader), then build the .bai at the very end.
+  // Every read path here is sequential, so the missing index is irrelevant
+  // to correctness. We print this once, before spawning workers, and leave
+  // htslib's own logging alone so genuine warnings (corrupt records,
+  // permission errors, out-of-space, etc.) still surface visibly.
+  std::cerr << "svaba postprocess: NOTE — the following "
+               "\"[E::idx_find_and_load] Could not retrieve index file ...\" "
+               "lines from htslib are expected and can be ignored. "
+               ".bai files are built as the final step of each suffix's "
+               "pipeline, not before the read passes that produce them."
+            << std::endl;
 
   // Launch one thread per active suffix. max_parallel is only used to cap the
   // samtools sort thread count — since we only launch n_active workers total,

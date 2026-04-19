@@ -71,31 +71,11 @@ bool BreakPoint::isIndel() const {
   return svtype == SVType::INDEL;
 }
 
-std::string BreakPoint::printDeletionMarksForAlignmentsFile() const {
-  if (!isIndel() || !insertion.empty())
-    return std::string();
-
-  // SvABA2.0: render deletion marks against m_seq, which is in
-  // assembly-native orientation. b1.cpos/b2.cpos are stored in BAM /
-  // genome-forward orientation, so for reverse-aligned contigs we must
-  // convert. cpos_on_m_seq() handles both the mirror and the b1<->b2 swap.
-  const auto [cpos1, cpos2] = cpos_on_m_seq();
-  if (cpos1 < 0 || cpos2 <= cpos1)
-    return std::string();
-
-  std::stringstream out;
-  // SvABA2.0: append the deletion size (e.g. " 5D") to the right of the
-  // second '|' marker so the dump shows at-a-glance how many bases are
-  // deleted at this junction. getSpan() for an INDEL deletion returns
-  // b2.gr.pos1 - b1.gr.pos1 (genomic spacing), which is what we want.
-  out << std::string(cpos1, ' ') <<
-    "|" << std::string(cpos2 - cpos1 - 1, ' ') <<
-    "| " << getSpan() << "D   " << cname;
-
-  return out.str();
-
-}
-
+// SvABA2.0: printDeletionMarksForAlignmentsFile() was removed along with
+// AlignedContig::printToAlignmentsFile / alignments.txt.gz. The deletion-
+// mark info is available in the r2c TSV via the bps field (per-breakpoint
+// span + kind), so downstream viewers can reconstruct the marker
+// positions from structured fields rather than parsing ASCII.
 
 HashVector BreakPoint::getBreakEndHashes() {
   HashVector vec;
@@ -287,7 +267,11 @@ std::string BreakPoint::toFileString(const BamHeader& header) const {
      << static_cast<int>(b2.local) << sep
     // Contig orientation metadata for cpos_on_m_seq() reconstruction.
      << contig_len << sep
-     << (flipped_on_contig ? 1 : 0);
+     << (flipped_on_contig ? 1 : 0) << sep
+    // SvABA2.0: unique BP identifier. Unset (shouldn't happen if
+    // SvabaRegionProcessor hooked next_bp_id() properly) emits "."
+    // so the column count stays fixed and awk scripts don't skew.
+     << (id.empty() ? "." : id);
 
   for (const auto& [_,al] : allele)
     ss << sep << al.toFileString(svtype);
@@ -375,13 +359,16 @@ void BreakPoint::splitCoverage(svabaReadPtrVector& bav) {
   // cpos pair everywhere we compare against r2c in this function.
   const auto [m_b1_cpos, m_b2_cpos] = cpos_on_m_seq();
 
-  // get the homology length. useful bc if read alignment ends in homologous
-  // region, it is not split. Note: cpos_on_m_seq() mirrors and swaps, so
-  // (new_b1 - new_b2) = (b1.cpos - b2.cpos), i.e. homlen is orientation-
-  // invariant. Keep the original expression for clarity.
-  int homlen = b1.cpos - b2.cpos;
-  if (homlen < 0)
-    homlen = 0;
+  // SvABA2.0 (v3): homlen is no longer used as a gate input. The old
+  // logic required both_split when homlen > 0 and one_split only when
+  // homlen == 0. That wiped out legitimate spanning reads when the
+  // junction sat inside a long homology region (a common failure mode
+  // for repeat-junction LOH events — tumor looked clean because all
+  // its split reads fell inside the homology and got rejected).
+  // The comparative r2c-vs-native score gate (with per-sample margin)
+  // replaces it: in a long-homology junction, neither alignment wins
+  // decisively, so such reads fail the gate on their own without
+  // special-casing — no "both_split" complication needed.
 
   // loop all of the read to contig alignments for this contig
   for (const auto& j : bav) {
@@ -456,10 +443,23 @@ void BreakPoint::splitCoverage(svabaReadPtrVector& bav) {
         native_score = static_cast<double>(j->Length());
       }
 
-      // Strict "<=" so that ties (e.g. both perfect 150M, or r2c slightly
-      // worse like 38M3I109M NM=3 vs corrected-native 150M NM=1) do NOT
-      // credit the read — there's no positive evidence the contig wins.
-      if (r2c_score <= native_score) {
+      // SvABA2.0 (v3): per-sample-prefix margin. Tumor reads need the
+      // r2c to beat native by at least T_R2C_MIN_MARGIN (default 10%);
+      // normal reads just need r2c strictly greater (N_R2C_MIN_MARGIN
+      // == 0 by default). Rationale: somatic calls need clean tumor-
+      // side evidence, so we raise the bar for tumor; germline/LOH
+      // classification needs sensitivity in normal, so we keep that
+      // gate loose.
+      //
+      // Ties and "r2c barely better than native" rejections on the
+      // tumor side are the intended failure mode for reads falling
+      // inside a long junction homology: without homology, r2c wins
+      // by tens of points; inside homology, scores are nearly equal
+      // and the margin filters them out in tumor while normal still
+      // sees them — also the intended behavior for ruling out somatic.
+      const double margin = j->Tumor() ? T_R2C_MIN_MARGIN : N_R2C_MIN_MARGIN;
+      const double threshold = native_score * (1.0 + margin);
+      if (r2c_score <= threshold) {
         read_should_be_skipped = true;
       }
     }
@@ -531,42 +531,49 @@ void BreakPoint::splitCoverage(svabaReadPtrVector& bav) {
     std::string sample_id = j->Prefix(); //substr(0,4); // maybe just make this prefix
     std::string sr = j->UniqueName();
 
-    // need read to cover past variant by some buffer. If there is a repeat,
-    // then this needs to be even longer to avoid ambiguity
-    int this_tbuff = T_SPLIT_BUFF + repeat_seq.length();
-    int this_nbuff = N_SPLIT_BUFF + repeat_seq.length();
+    // SvABA2.0 (v3): small fixed buffer past each breakend on the
+    // contig. The repeat_seq.length() padding on the older code was
+    // part of the homology-era logic and is dropped — the comparative
+    // r2c-vs-native score gate (with per-sample margin) now handles
+    // tandem-repeat ambiguity on its own: when a short indel at the
+    // junction can equally well live anywhere in a tandem repeat,
+    // r2c and native both fit equivalently and neither wins.
+    int this_tbuff = T_SPLIT_BUFF;
+    int this_nbuff = N_SPLIT_BUFF;
 
     int rightbreak1 = m_b1_cpos + (j->Tumor() ? this_tbuff : this_nbuff); // read must extend this far right of break1
     int leftbreak1  = m_b1_cpos - (j->Tumor() ? this_tbuff : this_nbuff); // read must extend this far left of break1
     int rightbreak2 = m_b2_cpos + (j->Tumor() ? this_tbuff : this_nbuff);
     int leftbreak2  = m_b2_cpos - (j->Tumor() ? this_tbuff : this_nbuff);
-    
+
     std::string contig_qname; // for sanity checking
     // get the alignment position on contig
     int pos = this_r2c.start_on_contig;
     int te  = this_r2c.end_on_contig;
-    
-    int rightend = te; 
+
+    int rightend = te;
     int leftend  = pos;
     bool issplit1 = (leftend <= leftbreak1) && (rightend >= rightbreak1);
     bool issplit2 = (leftend <= leftbreak2) && (rightend >= rightbreak2);
-    
-    bool both_split = issplit1 && issplit2;
-    bool one_split = issplit1 || issplit2;
-    
-    
-    // be more permissive for NORMAL, so keep out FPs
-    bool valid  = (both_split && (j->Tumor() || homlen > 0)) ||
-      (one_split && !j->Tumor() && homlen == 0) || (one_split && insertion.length() >= INSERT_SIZE_TOO_BIG_SPAN_READS);
-    
-    // requiring both break ends to be split for homlen > 0 is for situation beow
-    // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>A..........................
-    // ............................B>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-    // if we set break2 at pos B, then reads that end at A will count as splits on B,
-    // when they should count as non-splits on A. For any read, if it is non-split on one 
-    // segment, it should be non-split on all, for overlapping alignments like above. Not true of 
-    // insertions at junctions, where one can split at one and not the other because of the intervening sequence buffer
-    
+
+    bool one_split  = issplit1 || issplit2;
+    // SvABA2.0 (v3): previously we required both_split when homlen > 0
+    // (tumor *or* normal) and one_split only when homlen == 0. That
+    // gate threw out legitimate split-supporters inside long junction
+    // homology regions (a common LOH false-somatic pattern). The
+    // principled replacement is the per-sample-prefix r2c > native
+    // score gate (applied above, before this read ever reaches the
+    // valid check). If a read makes it here, its r2c alignment is
+    // strictly better than its native alignment (by the tumor margin
+    // for t*** reads, strictly greater for n*** reads). So we only
+    // need to confirm the read actually spans at least one breakend
+    // on the contig — i.e. it's a "split" in the physical sense of
+    // crossing a junction — and then credit it.
+    //
+    // Note: the giant insertion case is subsumed by this rule too — a
+    // large insertion usually means one_split on at least one side.
+    bool valid = one_split;
+
     // check that deletion (in read to contig coords) doesn't cover break point
     size_t p = pos; // move along on contig, starting at first non-clipped base
     for (SeqLib::Cigar::const_iterator c = this_r2c.cig.begin(); c != this_r2c.cig.end(); ++c) {

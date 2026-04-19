@@ -79,7 +79,11 @@ td.w-tiny,th.w-tiny{max-width:8ch;overflow:hidden;text-overflow:ellipsis}
 td.w-num,th.w-num{max-width:7ch}
 td.w-seq,th.w-seq{max-width:10ch;white-space:normal;word-break:break-all;font-family:'SF Mono','Consolas',monospace;line-height:1.1}
 td.w-wrap,th.w-wrap{max-width:22ch;white-space:normal;word-break:break-all;line-height:1.1}
-td.w-gt,th.w-gt{max-width:11ch;white-space:normal;line-height:1.2}
+/* Samples column — shows the full per-sample FORMAT value
+   (GT:AD:DP:SR:DR:GQ:PL:LO:LO_n), one sample per line, monospace so the
+   colon-separated fields stack column-wise visually. white-space:pre
+   preserves the embedded \n that mkRow puts between samples. */
+td.w-gt,th.w-gt{max-width:46ch;white-space:pre;line-height:1.25;font-size:.7rem}
 td.strand-plus{color:var(--green)}
 td.strand-minus{color:var(--red)}
 ::selection{background:#3b5bdb;color:#fff}
@@ -122,37 +126,9 @@ th.w-gt{cursor:help}
 .format-key{padding:4px 8px;background:var(--surface2);border-bottom:1px solid var(--border);font-size:.68rem;color:var(--text2)}
 .format-key code{color:var(--accent)}
 
-/* --- r2c re-plot sub-panel -------------------------------------------------
-   Shown below the per-row detail panel when the user has (a) loaded an r2c
-   TSV via the secondary drop-zone and (b) clicked "Plot alignments" while a
-   row is selected whose `contig_and_region` matches a contig in the r2c.
-   Everything inside .r2c-pre is monospace and uses CSS spans for per-read
-   colorization — same visual language as viewer/alignments_viewer.html.
-*/
-.upload-row .upload-box.secondary{max-width:300px;font-size:.72rem;opacity:.9}
-.r2c-panel{margin:.5rem 1rem;background:var(--surface);border:1px solid var(--border);border-radius:6px;overflow:hidden}
-.r2c-header{background:var(--surface2);padding:.4rem .8rem;font-size:.72rem;color:var(--text2);text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:.6rem}
-.r2c-header strong{color:var(--text);text-transform:none;letter-spacing:0}
-.r2c-header .spacer{flex:1}
-.r2c-body{max-height:540px;overflow:auto;padding:.4rem .6rem;background:#0b0d13}
-.r2c-body .empty{padding:.6rem;color:var(--text2);font-size:.78rem;text-align:center}
-.r2c-pre{font-family:'SF Mono','Fira Code','Consolas',monospace;font-size:11px;line-height:1.15;white-space:pre;color:var(--text)}
-.r2c-pre .row{display:block;padding:0 2px;border-left:3px solid transparent}
-.r2c-pre .row.contig{background:#16321a;color:#b6e8c0;font-weight:600}
-.r2c-pre .row.frag{background:#1f2a3a;color:#d0dbf2}
-.r2c-pre .row.bp{background:#2d1b1b;color:#f1c2c2}
-.r2c-pre .row.indelmark{color:#f0883e}
-.r2c-pre .row.ruler{color:var(--text2);opacity:.5}
-.r2c-pre .row.read.support-split{border-left-color:#4ade80}
-.r2c-pre .row.read.support-disc{border-left-color:#60a5fa}
-.r2c-pre .row.read.support-both{border-left-color:#a855f7}
-.r2c-pre .row.read.support-none{border-left-color:#555}
-.r2c-pre .row.read .meta{color:var(--text2);margin-left:1ch}
-.r2c-legend{display:flex;flex-wrap:wrap;gap:.4rem;padding:.35rem .8rem;font-size:.68rem;color:var(--text2);background:var(--surface2);border-bottom:1px solid var(--border)}
-.r2c-legend .sw{padding:1px 6px;border-radius:3px;cursor:pointer}
-.r2c-legend .sw[data-on="0"]{opacity:.3}
-.r2c-empty-badge{padding:.12rem .4rem;border-radius:3px;background:rgba(248,113,113,.15);color:var(--red);border:1px solid var(--red);font-size:.65rem}
-.r2c-ok-badge{padding:.12rem .4rem;border-radius:3px;background:rgba(74,222,128,.15);color:var(--green);border:1px solid var(--green);font-size:.65rem}
+/* r2c re-plot sub-panel removed — use the standalone viewer/r2c_explorer.html
+   instead. It loads an r2c TSV on its own and lets you search for any
+   contig by name, with the same rendering logic that used to live here. */
 
 @media(max-width:1100px){.charts-row{grid-template-columns:repeat(3,1fr)}}
 @media(max-width:700px){.charts-row{grid-template-columns:1fr}.controls{flex-direction:column;align-items:stretch}}
@@ -170,11 +146,6 @@ th.w-gt{cursor:help}
     Drop or click &mdash; <code>.bps.txt</code> / <code>.bps.txt.gz</code>
     <div class="fn" id="file-name" style="display:none"></div>
     <input type="file" id="file-input" accept=".txt,.gz,.tsv,text/plain,application/gzip">
-  </div>
-  <div class="upload-box secondary" id="drop-zone-r2c" onclick="document.getElementById('file-input-r2c').click()" title="Optional: upload the structured r2c TSV (preferably the PASS-filtered one from sort_output.sh) to enable per-row alignment re-plotting">
-    Optional &mdash; <code>.r2c.txt.gz</code> / <code>.r2c.pass.txt.gz</code>
-    <div class="fn" id="file-name-r2c" style="display:none"></div>
-    <input type="file" id="file-input-r2c" accept=".txt,.tsv,.gz,text/plain,application/gzip">
   </div>
   <button class="btn-ghost btn" id="export-btn" disabled>Export TSV</button>
 </div>
@@ -256,28 +227,9 @@ th.w-gt{cursor:help}
   <div class="dp-header">
     <span>Selected row detail</span>
     <strong id="dp-locus">-</strong>
-    <span style="flex:1"></span>
-    <button class="btn-ghost btn" id="r2c-plot-btn" disabled title="Load an r2c.txt.gz to enable">Plot alignments</button>
   </div>
-  <div class="format-key">FORMAT (per-sample): <code>GT:AD:DP:SR:DR:GQ:PL:LO:LO_n</code> &mdash; SV uses DR=disc, INDEL uses DR=cigar</div>
+  <div class="format-key">FORMAT (per-sample): <code>GT:AD:DP:SR:DR:GQ:PL:LO:LO_n</code> &mdash; SV uses DR=disc, INDEL uses DR=cigar. For per-read alignment re-plots, use the standalone <code>r2c_explorer.html</code>.</div>
   <div class="dp-body" id="dp-body"><div class="dp-empty">Click a table row</div></div>
-</div>
-
-<div class="r2c-panel" id="r2c-panel" style="display:none">
-  <div class="r2c-header">
-    <span>Alignments re-plot</span>
-    <strong id="r2c-title">-</strong>
-    <span class="spacer"></span>
-    <label title="Show only reads whose r2c CIGAR contains I or D ops"><input type="checkbox" id="r2c-imperfect-only"> imperfect only</label>
-    <span style="color:var(--text2);margin-left:.4rem">support:</span>
-    <label><input type="checkbox" id="r2c-show-split" checked> split</label>
-    <label><input type="checkbox" id="r2c-show-disc" checked> disc</label>
-    <label><input type="checkbox" id="r2c-show-both" checked> both</label>
-    <label><input type="checkbox" id="r2c-show-none" checked> none</label>
-    <button class="btn-ghost btn" id="r2c-close-btn">&times;</button>
-  </div>
-  <div class="r2c-legend" id="r2c-legend"></div>
-  <div class="r2c-body" id="r2c-body"><div class="empty">No contig selected.</div></div>
 </div>
 
 <div id="gt-legend" role="dialog" aria-label="Genotype and FORMAT field legend">
@@ -313,20 +265,34 @@ const LEGACY=[
   "homol","insert","repeat","contig_and_region","naln","conf","evidence","qual","secondary",
   "somatic","somlod","maxlod","dbsnp","contig_conf1","contig_conf2"];
 const V2=["cpos1","cpos2","lmatch","rmatch","scov1","scov2","local1","local2","ctglen","flipped"];
+// SvABA2.0 v3: +1 trailing core column. bp_id is a thread-unique BP
+// identifier of the form "bpTTTNNNNNNNN" (see BreakPoint::id in
+// src/svaba/BreakPoint.h). Used to cross-reference to the r2c file's
+// split_bps / disc_bps columns.
+const V3=["bp_id"];
 const NUM=new Set(["pos1","pos2","span","split","alt_count","cov","cigar","cigar_near","dmq1","dmq2","dcn","dct","mapq1","mapq2","nm1","nm2","as1","as2","sub1","sub2","naln","qual","secondary","somlod","maxlod","cpos1","cpos2","lmatch","rmatch","scov1","scov2","ctglen"]);
 
 const TCOLS=[
+  // bp_id pinned to the leftmost column — it's the primary join key back
+  // to r2c.txt.gz / the bi:Z BAM tag, so keeping it in a fixed, easy-to-
+  // find position matters more than adjacency to other variant metadata.
+  {k:"bp_id",l:"bp_id",w:"tiny"},
   {k:"igvPos1",l:"IGV1",w:"loc"},{k:"strand1",l:"S1",w:"strand"},
   {k:"igvPos2",l:"IGV2",w:"loc"},{k:"strand2",l:"S2",w:"strand"},
+  // span sits next to the pos2/strand2 pair since it's a property of
+  // the chr1:pos1 → chr2:pos2 interval; easier to scan the "where"
+  // columns all at once before moving on to quality/support metrics.
+  {k:"span",l:"Span",n:1,w:"num"},
   {k:"eventType",l:"Type",w:"tiny"},{k:"evidence",l:"Evid",w:"tiny"},{k:"conf",l:"Conf",w:"tiny"},
   {k:"qual",l:"Qual",n:1,w:"num"},{k:"somlod",l:"Somlod",n:1,w:"num"},{k:"maxlod",l:"Maxlod",n:1,w:"num"},
-  {k:"gtSummary",l:"GT \u24d8",w:"gt",help:true},
+  {k:"gtSummary",l:"Samples \u24d8",w:"gt",help:true},
   {k:"split",l:"Split",n:1,w:"num"},{k:"alt_count",l:"Alt",n:1,w:"num"},{k:"cigar",l:"Cigar",n:1,w:"num"},
   {k:"dcn",l:"DCn",n:1,w:"num"},{k:"dct",l:"DCt",n:1,w:"num"},{k:"cov",l:"Cov",n:1,w:"num"},
-  {k:"span",l:"Span",n:1,w:"num"},{k:"somatic",l:"Somatic",w:"tiny"},
+  {k:"somatic",l:"Somatic",w:"tiny"},
   {k:"ref",l:"Ref",w:"seq"},{k:"alt_allele",l:"Alt",w:"seq"},
   {k:"mapq1",l:"MQ1",n:1,w:"num"},{k:"mapq2",l:"MQ2",n:1,w:"num"},
-  {k:"dbsnp",l:"Dbsnp",w:"tiny"},{k:"contig_and_region",l:"Contig",w:"wrap"}
+  {k:"dbsnp",l:"Dbsnp",w:"tiny"},
+  {k:"contig_and_region",l:"Contig",w:"wrap"}
 ];
 
 /* === State === */
@@ -360,16 +326,6 @@ $("file-input").onchange=e=>{const f=e.target.files[0];if(f)loadBlob(f,f.name)};
 ["dragleave","drop"].forEach(e=>$("drop-zone").addEventListener(e,ev=>{ev.preventDefault();$("drop-zone").classList.remove("over")}));
 $("drop-zone").addEventListener("drop",e=>{const f=e.dataTransfer.files[0];if(f)loadBlob(f,f.name)});
 
-// r2c drop zone (optional second upload)
-$("file-input-r2c").onchange=e=>{const f=e.target.files[0];if(f)loadR2cBlob(f,f.name)};
-["dragenter","dragover"].forEach(e=>$("drop-zone-r2c").addEventListener(e,ev=>{ev.preventDefault();$("drop-zone-r2c").classList.add("over")}));
-["dragleave","drop"].forEach(e=>$("drop-zone-r2c").addEventListener(e,ev=>{ev.preventDefault();$("drop-zone-r2c").classList.remove("over")}));
-$("drop-zone-r2c").addEventListener("drop",e=>{const f=e.dataTransfer.files[0];if(f)loadR2cBlob(f,f.name)});
-$("r2c-plot-btn").onclick=()=>showR2cForSelected();
-$("r2c-close-btn").onclick=()=>{$("r2c-panel").style.display="none"};
-["r2c-imperfect-only","r2c-show-split","r2c-show-disc","r2c-show-both","r2c-show-none"].forEach(id=>{
-  $(id).addEventListener("change",()=>{if(R2C.currentCname)renderR2c(R2C.currentCname)});
-});
 $("export-btn").onclick=exportTSV;
 $("reset-btn").onclick=()=>{resetF();render()};
 $("pg-prev").onclick=()=>{if(S.pg>1){S.pg--;rTable()}};
@@ -397,364 +353,6 @@ document.querySelectorAll(".log-tog").forEach(b=>{
     rCharts();
   };
 });
-
-/* === R2C state and loader ===
- *
- * The r2c TSV (written by svaba run as ${ID}.r2c.txt.gz; or filtered by
- * sort_output.sh to ${ID}.r2c.pass.txt.gz for interactive use) is the
- * structured counterpart of the old alignments.txt.gz. Schema is documented
- * by AlignedContig::r2cTsvHeader() in src/svaba/AlignedContig.cpp — roughly
- *   record_type  contig_name  contig_len  contig_seq  frags  bps  n_reads
- *   read_id  read_chrom  read_pos  read_flag  r2c_cigar  r2c_start  r2c_rc
- *   r2c_nm  support  r2c_score  native_score  read_seq
- *
- * We index by contig_name so that when the user clicks a BPS row whose
- * `contig_and_region` == contig_name, we can re-plot that contig's reads
- * on demand, rather than having pre-rendered every possible variant up
- * front. See renderR2c() for the plot logic.
- */
-const R2C = {
-  loaded:false, fn:"", byName:new Map(), col:null, currentCname:null,
-  // color palette reused from alignments_viewer.html look/feel
-  palette:["#6c8cff","#4ade80","#f87171","#fbbf24","#60a5fa","#a855f7","#f0883e","#22d3ee","#e879f9","#34d399"],
-  prefixColor:new Map(), prefixCounter:0
-};
-
-async function loadR2cBlob(blob,name){
-  $("file-name-r2c").textContent="Loading "+name+"...";
-  $("file-name-r2c").style.display="";
-  try{
-    let text;
-    if(name.endsWith(".gz")){
-      if(typeof DecompressionStream==="undefined") throw new Error("Browser lacks DecompressionStream");
-      text=await new Response(blob.stream().pipeThrough(new DecompressionStream("gzip"))).text();
-    } else text=await blob.text();
-    parseR2c(text,name);
-  }catch(e){
-    $("file-name-r2c").textContent="Error: "+e.message;
-    console.error(e);
-  }
-  $("file-input-r2c").value="";
-}
-
-function parseR2c(text,name){
-  const t0=performance.now();
-  const lines=text.replace(/\r\n?/g,"\n").split("\n");
-  if(lines.length<2) throw new Error("r2c file empty or missing rows");
-  const hdr=lines[0].split("\t");
-  const col={};
-  hdr.forEach((c,i)=>{col[c]=i});
-  // sanity: the essential cols we need
-  for(const need of ["record_type","contig_name","read_id","r2c_cigar","r2c_start","r2c_rc","support","read_seq","contig_seq","frags","bps"]){
-    if(!(need in col)) throw new Error("r2c file missing expected column: "+need);
-  }
-  const byName=new Map();
-  for(let i=1;i<lines.length;i++){
-    const line=lines[i];
-    if(!line) continue;
-    const c=line.split("\t");
-    if(c.length<hdr.length) continue;
-    const cname=c[col.contig_name];
-    let entry=byName.get(cname);
-    if(!entry){entry={contig:null,reads:[]};byName.set(cname,entry)}
-    if(c[col.record_type]==="contig") entry.contig=c;
-    else if(c[col.record_type]==="read") entry.reads.push(c);
-  }
-  R2C.loaded=true;R2C.fn=name;R2C.byName=byName;R2C.col=col;
-  R2C.prefixColor.clear();R2C.prefixCounter=0;
-  const ms=(performance.now()-t0).toFixed(0);
-  $("drop-zone-r2c").classList.add("loaded");
-  $("file-name-r2c").style.display="";
-  $("file-name-r2c").textContent=name+" \u2014 "+byName.size.toLocaleString()+" contigs \u2014 parsed in "+ms+"ms";
-  // If a row is already selected and its cname is now in the r2c, enable the
-  // plot button without requiring a fresh row-click.
-  updateR2cPlotBtn();
-}
-
-function r2cPrefixColor(p){
-  if(!R2C.prefixColor.has(p)){
-    R2C.prefixColor.set(p,R2C.palette[R2C.prefixCounter%R2C.palette.length]);
-    R2C.prefixCounter++;
-  }
-  return R2C.prefixColor.get(p);
-}
-
-function updateR2cPlotBtn(){
-  const btn=$("r2c-plot-btn");
-  const r=S.filt.find(x=>x.id===S.selId)||(S.rows||[]).find(x=>x.id===S.selId);
-  const cname=r?r.contig_and_region:null;
-  const ok=R2C.loaded && cname && R2C.byName.has(cname);
-  btn.disabled=!ok;
-  if(!R2C.loaded) btn.title="Upload an r2c.txt.gz to enable plotting";
-  else if(!cname) btn.title="Selected row has no contig_and_region";
-  else if(!R2C.byName.has(cname)) btn.title="Contig "+cname+" not in loaded r2c (was the r2c filtered to PASS-only?)";
-  else btn.title="Plot the read-to-contig alignment for "+cname;
-}
-
-function showR2cForSelected(){
-  const r=S.filt.find(x=>x.id===S.selId);
-  if(!r) return;
-  const cname=r.contig_and_region;
-  if(!R2C.loaded || !R2C.byName.has(cname)) return;
-  $("r2c-panel").style.display="";
-  renderR2c(cname);
-  $("r2c-panel").scrollIntoView({behavior:"smooth",block:"nearest"});
-}
-
-/* === R2C re-plot renderer ===
- * Produces a <pre>-style block that visually matches alignments_viewer.html
- * but is generated fresh from the TSV rather than read as ASCII. Each read
- * line is gap-expanded from its own r2c_cigar and positioned at
- * (r2c_start - leading_soft_clip_len), clipped if that's negative — exact
- * mirror of AlignedContig::printToAlignmentsFile in src/svaba/.
- */
-function renderR2c(cname){
-  R2C.currentCname=cname;
-  const entry=R2C.byName.get(cname);
-  const col=R2C.col;
-  const body=$("r2c-body");
-  body.innerHTML="";
-  $("r2c-title").textContent=cname;
-
-  if(!entry||!entry.contig){
-    body.innerHTML='<div class="empty">No contig row for this cname (file may be malformed).</div>';
-    return;
-  }
-  const contig=entry.contig;
-  const contig_seq=contig[col.contig_seq]||"";
-  const contig_len=+(contig[col.contig_len]||contig_seq.length);
-
-  // --- Collect visual filter state ---
-  const imperfectOnly=$("r2c-imperfect-only").checked;
-  const showSupport={split:$("r2c-show-split").checked, disc:$("r2c-show-disc").checked,
-                     both:$("r2c-show-both").checked,  none:$("r2c-show-none").checked};
-
-  // --- Build prefix color swatches from all reads (pre-filter) so colors
-  //     stay stable as the user toggles checkboxes. ---
-  const prefixes=new Map();
-  for(const rr of entry.reads){
-    const id=rr[col.read_id]||"";
-    const m=id.match(/^([a-z]\d{3})_/i);
-    const p=m?m[1]:"";
-    if(p) prefixes.set(p,(prefixes.get(p)||0)+1);
-  }
-  const leg=$("r2c-legend");leg.innerHTML="";
-  if(prefixes.size){
-    const lab=document.createElement("span");lab.textContent="source:";lab.style.color="var(--text2)";
-    leg.appendChild(lab);
-    const sorted=Array.from(prefixes.keys()).sort();
-    for(const p of sorted){
-      const sw=document.createElement("span");
-      sw.className="sw";sw.style.background=r2cPrefixColor(p)+"33";
-      sw.style.border="1px solid "+r2cPrefixColor(p);
-      sw.textContent=p+" ("+prefixes.get(p)+")";
-      sw.dataset.on="1";sw.dataset.prefix=p;
-      sw.addEventListener("click",()=>{
-        const on=sw.dataset.on==="1";
-        sw.dataset.on=on?"0":"1";
-        body.querySelectorAll('span.row.read[data-prefix="'+p+'"]').forEach(el=>{
-          el.style.display=on?"none":"";
-        });
-      });
-      leg.appendChild(sw);
-    }
-  }
-
-  const pre=document.createElement("pre");
-  pre.className="r2c-pre";
-
-  // --- Contig row + simple 10bp ruler above it ---
-  {
-    const ruler=document.createElement("span");
-    ruler.className="row ruler";
-    const marks=[];
-    for(let i=0;i<contig_len;i+=10){
-      const label=String(i);
-      marks.push(label.padEnd(10," "));
-    }
-    ruler.textContent=marks.join("").slice(0,contig_len)+"  (contig 0-based)";
-    pre.appendChild(ruler);
-
-    const c=document.createElement("span");
-    c.className="row contig";
-    c.textContent=contig_seq+"    "+cname;
-    pre.appendChild(c);
-  }
-
-  // --- Fragment rows (one per BWA hit of contig vs. ref) ---
-  const fragsRaw=contig[col.frags]||"NA";
-  if(fragsRaw!=="NA"&&fragsRaw!==""){
-    for(const f of fragsRaw.split("|")){
-      const parts=f.split(":");
-      if(parts.length<10) continue;
-      const [chr,pos,strand,cigar,mapq,br1,br2,gbr1,gbr2,flipped]=parts;
-      const rendered=renderFragCigar(cigar,strand,flipped==="1");
-      const el=document.createElement("span");
-      el.className="row frag";
-      el.textContent=rendered+"\tC["+br1+","+br2+"] G["+gbr1+","+gbr2+"] -> "+chr+":"+pos+"("+strand+") CIG:"+cigar+" MAPQ:"+mapq;
-      pre.appendChild(el);
-    }
-  }
-
-  // --- Breakpoint summary rows ---
-  const bpsRaw=contig[col.bps]||"NA";
-  if(bpsRaw!=="NA"&&bpsRaw!==""){
-    for(const b of bpsRaw.split("|")){
-      const parts=b.split(":");
-      if(parts.length<9) continue;
-      const [kind,c1,p1,s1,c2,p2,sp2,span,ins]=parts;
-      let line;
-      if(kind==="indel"){
-        line=(ins==="."? "Del "+span+"bp" : "Ins "+ins.length+"bp ("+ins+")")+
-             " at "+c1+":"+p1+"("+s1+") - "+c2+":"+p2+"("+sp2+")";
-      } else {
-        line=(kind==="global"?"Global":"Multi")+" BP: "+c1+":"+p1+"("+s1+") \u2192 "+c2+":"+p2+"("+sp2+
-             ") SPAN "+span+(ins!=="."? " INS:"+ins : "");
-      }
-      const el=document.createElement("span");
-      el.className="row bp";
-      el.textContent=line;
-      pre.appendChild(el);
-    }
-  }
-
-  // --- Read rows ---
-  // Sort by r2c_start so the plot is visually ordered along the contig.
-  const reads=entry.reads.slice().sort((a,b)=>
-    (+a[col.r2c_start])-(+b[col.r2c_start]));
-
-  let nShown=0;
-  for(const rr of reads){
-    const supp=rr[col.support]||"none";
-    if(!showSupport[supp]) continue;
-    const cig=rr[col.r2c_cigar]||"";
-    if(imperfectOnly && !/[ID]/.test(cig)) continue;
-
-    const id=rr[col.read_id]||"";
-    const m=id.match(/^([a-z]\d{3})_/i);
-    const prefix=m?m[1]:"";
-
-    const line=renderReadLine(rr,col);
-    if(line===null) continue;
-
-    const el=document.createElement("span");
-    el.className="row read support-"+supp;
-    if(prefix) el.dataset.prefix=prefix;
-    const color=prefix?r2cPrefixColor(prefix):"#555";
-    el.style.borderLeftColor=color;
-    el.style.background=color+"11";
-
-    // Pad left with spaces to place the read at its start column.
-    const pad=" ".repeat(Math.max(0,line.startCol));
-    const metaParts=[
-      id,
-      "r2c POS:"+rr[col.r2c_start],
-      "FLAG:"+(rr[col.r2c_rc]==="1"?"16":"0"),
-      "NM:"+rr[col.r2c_nm],
-      "support:"+supp,
-      "r2cScore:"+(rr[col.r2c_score]||"NA"),
-      "nativeScore:"+(rr[col.native_score]||"NA"),
-      "CIGAR:"+(cig||"NA")
-    ];
-    const meta=document.createElement("span");
-    meta.className="meta";
-    meta.textContent="  "+metaParts.join(" ");
-    // text node for aligned row body:
-    el.appendChild(document.createTextNode(pad+line.text));
-    el.appendChild(meta);
-    pre.appendChild(el);
-    nShown++;
-  }
-
-  body.appendChild(pre);
-
-  // Stats footer
-  const stats=document.createElement("div");
-  stats.style.padding=".25rem .4rem";
-  stats.style.fontSize=".7rem";
-  stats.style.color="var(--text2)";
-  stats.textContent=cname+" \u2014 contig "+contig_len+"bp, "+entry.reads.length+" reads in file, "+nShown+" shown after filters.";
-  body.appendChild(stats);
-}
-
-function renderReadLine(rr,col){
-  const rawSeq=rr[col.read_seq]||"";
-  const cigStr=rr[col.r2c_cigar]||"";
-  const rc=rr[col.r2c_rc]==="1";
-  if(!cigStr||cigStr==="NA") return null;
-
-  const seq=rc ? revcomp(rawSeq) : rawSeq;
-  const ops=parseCigar(cigStr);
-  if(!ops.length) return null;
-
-  let lead=0, trail=0;
-  if(ops[0].op==="S") lead=ops[0].len;
-  if(ops.length>1 && ops[ops.length-1].op==="S") trail=ops[ops.length-1].len;
-
-  const leadClip=seq.substr(0,lead).toLowerCase();
-  const trailClip=trail>0 ? seq.substr(seq.length-trail).toLowerCase() : "";
-
-  // Walk through the CIGAR, consuming the query (seq) and emitting to body:
-  //   M -> base; D -> '-'; I/S -> skip (no contig column).
-  let p=0, body="";
-  for(const o of ops){
-    if(o.op==="M"){ body += seq.substr(p,o.len); p += o.len; }
-    else if(o.op==="D"){ body += "-".repeat(o.len); }
-    else if(o.op==="I" || o.op==="S" || o.op==="H"){ p += o.len; }
-  }
-
-  // Anchor the render string: shift left by the leading-clip width so the
-  // lowercase clip bases fall in their true contig columns. If that goes
-  // negative (clip extends off the contig left edge), chop the overhang.
-  let startCol=(+rr[col.r2c_start]) - lead;
-  let text=leadClip+body+trailClip;
-  if(startCol<0){
-    const drop=-startCol;
-    text = drop>=text.length ? "" : text.substr(drop);
-    startCol=0;
-  }
-  return {startCol, text};
-}
-
-function renderFragCigar(cigStr,strand,flipped){
-  const ops=parseCigar(cigStr);
-  const ordered=flipped ? ops.slice().reverse() : ops;
-  const sign=strand==="-"?"<":">";
-  let s="";
-  for(const o of ordered){
-    if(o.op==="M") s += sign.repeat(o.len);
-    else if(o.op==="I") s += "I".repeat(o.len);
-    else if(o.op==="S" || o.op==="H") s += ".".repeat(o.len);
-  }
-  return s;
-}
-
-function parseCigar(s){
-  // Matches standard CIGAR tokens like "24M1D15M7I1M7D103M".
-  const ops=[];
-  const re=/(\d+)([MIDNSHP=X])/g;
-  let m;
-  while((m=re.exec(s))!==null) ops.push({len:+m[1], op:m[2]});
-  return ops;
-}
-
-function revcomp(s){
-  let out="";
-  for(let i=s.length-1;i>=0;i--){
-    const c=s.charCodeAt(i);
-    // Standard IUPAC basic complement, case-preserving.
-    // Non-ACGT (e.g. N, .) -> unchanged.
-    const ch=s.charAt(i);
-    switch(ch){
-      case "A": out+="T"; break; case "a": out+="t"; break;
-      case "T": out+="A"; break; case "t": out+="a"; break;
-      case "C": out+="G"; break; case "c": out+="g"; break;
-      case "G": out+="C"; break; case "g": out+="c"; break;
-      default:  out+=ch;
-    }
-  }
-  return out;
-}
 
 /* === GT legend popover === */
 function showGtLegend(anchorEl){
@@ -803,13 +401,23 @@ function ingest(text,name){
   if(lines.length<2)throw new Error("Need header + rows");
   const hdr=lines[0].split("\t");
 
-  // detect core col count
+  // detect core col count. Three possible shapes:
+  //   LEGACY (41 cols)
+  //   V2     (51 cols = LEGACY + 10 refilter cols)
+  //   V3     (52 cols = V2 + bp_id)
+  // We snap `cc` down to the largest known shape that fits. Anything
+  // between two known sizes is treated as the smaller one (safer —
+  // extra unnamed columns just get ignored in the detail panel).
   let cc=hdr.length;
   for(let i=34;i<hdr.length;i++){if(/^[tn]\d+_/.test(hdr[i])){cc=i;break}}
-  const isV2=cc>=LEGACY.length+V2.length;
-  if(cc>LEGACY.length+V2.length) cc=LEGACY.length+V2.length;
-  else if(cc>LEGACY.length&&cc<LEGACY.length+V2.length) cc=LEGACY.length;
-  const coreCols=isV2?LEGACY.concat(V2):LEGACY;
+  const LEG_N = LEGACY.length;              // 41
+  const V2_N  = LEG_N + V2.length;          // 51
+  const V3_N  = V2_N  + V3.length;          // 52
+  let coreCols;
+  if      (cc >= V3_N) { cc = V3_N; coreCols = LEGACY.concat(V2).concat(V3); }
+  else if (cc >= V2_N) { cc = V2_N; coreCols = LEGACY.concat(V2); }
+  else                 { cc = LEG_N; coreCols = LEGACY; }
+  const isV2 = cc >= V2_N;   // kept for any downstream code that still reads it
   const sampHdr=hdr.slice(cc);
 
   const rows=[];
@@ -823,10 +431,6 @@ function ingest(text,name){
   resetF();S.selId=rows.length?rows[0].id:null;S.sort={k:"maxlod",d:"desc"};
 
   ["controls","chip-bar","stats-bar","charts-row","table-wrap","pagination","detail-panel"].forEach(id=>{$(id).style.display=""});
-  // Close any open r2c plot from a previous file.
-  $("r2c-panel").style.display="none";
-  R2C.currentCname=null;
-  updateR2cPlotBtn();
   $("drop-zone").classList.add("loaded");
   $("file-name").style.display="";$("file-name").textContent=name;
   const ms=(performance.now()-t0).toFixed(0);
@@ -844,10 +448,20 @@ function mkRow(id,cells,coreCols,sampHdr,cc){
   r.igvPos1=igvLoc(r.chr1,r.pos1);
   r.igvPos2=igvLoc(r.chr2,r.pos2);
   r.samp=sampHdr.map((h,j)=>parseSamp(h,cells[cc+j],r.evidence));
-  // Compact per-sample GT summary for the GT column. Uses the first char of
-  // the sample label as a prefix (e.g. "t001_..." -> "t"), so a typical
-  // tumor/normal row looks like "n:0/0 t:0/1".
-  r.gtSummary=r.samp.map(s=>((s.lbl||"?").charAt(0)||"?")+":"+(s.gt||"./.")).join(" ");
+  // Full per-sample FORMAT-value dump for the "Samples" column. One line
+  // per sample, prefixed with the sample-label's first char (e.g. "t" or
+  // "n" for a typical tumor/normal run). The payload is the raw colon-
+  // separated value verbatim from the bps.txt row, i.e.
+  //   GT:AD:DP:SR:DR:GQ:PL:LO:LO_n
+  // — so the cell holds the complete per-BAM state for each sample,
+  // not just the genotype. Newlines are preserved by the cell's CSS
+  // (white-space:pre on .w-gt) so colon-separated fields stack
+  // visually. Click the cell to open the GT + FORMAT legend popover.
+  r.gtSummary=r.samp.map(s=>{
+    const pref=(s.lbl||"?").charAt(0)||"?";
+    const body=(s.raw&&s.raw.length)?s.raw:(s.gt||"./.");
+    return pref+": "+body;
+  }).join("\n");
   r._st=[r.chr1,r.pos1,r.chr2,r.pos2,r.eventType,r.evidence,r.conf,r.ref,r.alt_allele,
     r.contig_and_region,r.insert,r.repeat,r.homol,r.dbsnp,r.somatic]
     .concat(r.samp.map(s=>s.lbl+" "+s.raw)).join(" ").toLowerCase();
@@ -1066,12 +680,15 @@ function rTable(){
 /* === Detail === */
 function rDetail(){
   const r=S.filt.find(x=>x.id===S.selId)||S.rows.find(x=>x.id===S.selId);
-  if(!r){$("dp-body").innerHTML='<div class="dp-empty">Click a row</div>';$("dp-locus").textContent="-";updateR2cPlotBtn();return}
-  // Keep the plot button in sync with the new selection.
-  updateR2cPlotBtn();
+  if(!r){$("dp-body").innerHTML='<div class="dp-empty">Click a row</div>';$("dp-locus").textContent="-";return}
   $("dp-locus").textContent=r.chr1+":"+r.pos1+" "+r.strand1+" \u2192 "+r.chr2+":"+r.pos2+" "+r.strand2+" | "+r.eventType+" | "+r.evidence+" | "+r.conf;
 
-  const allCols=S.coreCnt>=LEGACY.length+V2.length?LEGACY.concat(V2):LEGACY;
+  // Same three-shape snap-down the parser uses; keeps the detail panel
+  // in sync with what the parser actually stored.
+  const _LEG=LEGACY.length, _V2=_LEG+V2.length, _V3=_V2+V3.length;
+  const allCols = S.coreCnt >= _V3 ? LEGACY.concat(V2).concat(V3)
+                : S.coreCnt >= _V2 ? LEGACY.concat(V2)
+                :                    LEGACY;
   let h='<table class="kv">';
   allCols.forEach((col,i)=>{
     h+='<tr><td class="k">'+esc(col)+'</td><td class="v">'+esc(r._c[i])+'</td></tr>';
