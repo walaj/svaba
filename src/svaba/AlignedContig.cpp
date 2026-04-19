@@ -461,6 +461,247 @@ std::string AlignedContig::printToAlignmentsFile(const SeqLib::BamHeader& h) con
   return out.str();
 }
 
+// ---------------------------------------------------------------------------
+// SvABA2.0: structured re-plot format.
+//
+// printToR2CTsv emits the same information as printToAlignmentsFile but in a
+// tab-separated form that downstream tools (e.g. viewer/bps_explorer.html)
+// can parse and re-plot on demand, rather than receiving a pre-rendered
+// ASCII block. The schema is record-type discriminated: one "contig" row
+// per contig, then one "read" row per r2c-aligned read, all sharing a
+// `contig_name` key. Contig-only fields (sequence, fragments, BPs, read
+// count) are populated on the contig row and "NA" on read rows; read-only
+// fields are populated on read rows and "NA" on the contig row.
+//
+// The format is intentionally redundant with printToAlignmentsFile: each
+// emitter can change independently. Anything that was encoded only
+// implicitly in the ASCII art (e.g. fragment orientation via '>' vs '<', or
+// leading/trailing soft-clip bases via lowercase letters) is here available
+// as an explicit field.
+// ---------------------------------------------------------------------------
+
+namespace {
+// TSV-escape: replace tab/CR/LF with spaces so a single column value can't
+// break row parsing. Used everywhere we emit free-form text into a cell.
+std::string r2cEscape(const std::string& s) {
+  std::string out;
+  out.reserve(s.size());
+  for (char c : s) {
+    if (c == '\t' || c == '\n' || c == '\r') out.push_back(' ');
+    else out.push_back(c);
+  }
+  return out;
+}
+
+// Serialize a SeqLib::Cigar to the standard string form (e.g. "30M1D15M")
+// without relying on the overload of operator<< (which is fine but writes
+// through a stream; we want a plain std::string for cell composition).
+std::string r2cCigarString(const SeqLib::Cigar& c) {
+  std::ostringstream oss;
+  for (auto it = c.begin(); it != c.end(); ++it)
+    oss << it->Length() << static_cast<char>(it->Type());
+  return oss.str();
+}
+}  // namespace
+
+// Header line for the r2c TSV. Callers should write this once before any
+// rows. Not a row itself — do not prefix with a comment char.
+std::string AlignedContig::r2cTsvHeader() {
+  static const char* const kCols[] = {
+    "record_type",        // "contig" or "read"
+    "contig_name",        // shared key: group reads back to their contig
+    "contig_len",         // set on both row types for convenience
+    "contig_seq",         // assembled sequence     [contig only; NA on read]
+    "frags",              // BWA hits of contig vs. ref [contig only]
+    "bps",                // breakpoints on this contig  [contig only]
+    "n_reads",            // # read rows that follow this contig [contig only]
+    // read-only:
+    "read_id",            // svabaRead UniqueName (sample-prefixed qname)
+    "read_chrom",         // chromosome the read originally mapped to (BAM)
+    "read_pos",           // BAM alignment position
+    "read_flag",          // 0 if r2c forward, 16 if reverse-complemented
+    "r2c_cigar",          // read-to-contig CIGAR (e.g. "24M1D15M7I1M7D103M")
+    "r2c_start",          // start_on_contig (0-based)
+    "r2c_rc",             // 0/1: was r2c alignment reverse-complemented?
+    "r2c_nm",             // NM (mismatch count) from r2c alignment
+    "support",            // "split" | "disc" | "both" | "none"
+    "r2c_score",          // alignment score under r2c CIGAR
+    "native_score",       // alignment score under BAM CIGAR (or corrected)
+    "read_seq"            // raw read sequence (pre-rc, pre-gap-expand)
+  };
+  std::ostringstream oss;
+  for (size_t i = 0; i < sizeof(kCols) / sizeof(kCols[0]); ++i) {
+    if (i) oss << '\t';
+    oss << kCols[i];
+  }
+  return oss.str();
+}
+
+std::string AlignedContig::printToR2CTsv(const SeqLib::BamHeader& h) const {
+  std::ostringstream out;
+  const std::string cname = this->getContigName();
+  const std::string NA    = "NA";
+
+  // --- per-contig fields ------------------------------------------------
+
+  // frags: "|"-separated; within a frag, ":"-separated:
+  //   chr:pos:strand:cigar:mapq:cpos_break1:cpos_break2:gpos_break1:gpos_break2:flipped
+  std::string frags;
+  for (size_t i = 0; i < m_frag_v.size(); ++i) {
+    const auto& frag = m_frag_v[i];
+    const auto& a = frag.m_align;
+    if (!a) continue;
+    if (!frags.empty()) frags.push_back('|');
+    frags += r2cEscape(a->ChrName(sc->header));
+    frags += ':'; frags += std::to_string(a->Position());
+    frags += ':'; frags += (a->ReverseFlag() ? '-' : '+');
+    frags += ':'; frags += r2cEscape(a->CigarString());
+    frags += ':'; frags += std::to_string(a->MapQuality());
+    frags += ':'; frags += std::to_string(frag.break1);
+    frags += ':'; frags += std::to_string(frag.break2);
+    frags += ':'; frags += std::to_string(frag.gbreak1);
+    frags += ':'; frags += std::to_string(frag.gbreak2);
+    frags += ':'; frags += (frag.flipped ? '1' : '0');
+  }
+  if (frags.empty()) frags = NA;
+
+  // bps: "|"-separated; within a bp, ":"-separated:
+  //   kind:chr1:pos1:strand1:chr2:pos2:strand2:span:insertion
+  // kind ∈ {global, multi, indel}. insertion is "." if none (always a single
+  // char '.', never empty, so the field count stays fixed at 9).
+  auto bpCell = [&](const char* kind, const BreakPoint& bp) -> std::string {
+    std::ostringstream os;
+    os << kind << ':'
+       << r2cEscape(bp.b1.gr.ChrName(h)) << ':' << bp.b1.gr.pos1 << ':'
+       << (bp.b1.gr.strand ? bp.b1.gr.strand : '.') << ':'
+       << r2cEscape(bp.b2.gr.ChrName(h)) << ':' << bp.b2.gr.pos1 << ':'
+       << (bp.b2.gr.strand ? bp.b2.gr.strand : '.') << ':'
+       << bp.getSpan() << ':'
+       << (bp.insertion.empty() ? std::string(".") : r2cEscape(bp.insertion));
+    return os.str();
+  };
+
+  std::string bps;
+  auto appendBp = [&](const std::string& cell) {
+    if (!bps.empty()) bps.push_back('|');
+    bps += cell;
+  };
+  if (m_global_bp) appendBp(bpCell("global", *m_global_bp));
+  for (const auto& b : m_local_breaks) if (b) appendBp(bpCell("multi", *b));
+  for (const auto& frag : m_frag_v)
+    for (const auto& b : frag.m_indel_breaks)
+      if (b) appendBp(bpCell("indel", *b));
+  if (bps.empty()) bps = NA;
+
+  const size_t n_reads = m_bamreads.size();
+
+  // --- contig row -------------------------------------------------------
+  //
+  // Fields in order (19 total, mirroring r2cTsvHeader):
+  //   record_type contig_name contig_len contig_seq frags bps n_reads
+  //   read_id ... read_seq   (read-only fields = NA)
+  out << "contig\t"
+      << r2cEscape(cname)   << '\t'
+      << m_seq.length()     << '\t'
+      << r2cEscape(m_seq)   << '\t'
+      << frags              << '\t'
+      << bps                << '\t'
+      << n_reads            << '\t'
+      // read-only columns, 12 of them:
+      << NA << '\t' << NA << '\t' << NA << '\t' << NA << '\t' << NA << '\t'
+      << NA << '\t' << NA << '\t' << NA << '\t' << NA << '\t' << NA << '\t'
+      << NA << '\t' << NA << '\n';
+
+  // --- support-kind sets (same construction as printToAlignmentsFile) ---
+  std::unordered_set<std::string> split_supporters;
+  for (const auto& bp : getAllBreakPoints()) {
+    if (!bp) continue;
+    for (const auto& un : bp->getAllSupportingReads())
+      split_supporters.insert(un);
+  }
+  std::unordered_set<std::string> disc_supporters;
+  for (const auto& dc : m_dc) {
+    for (const auto& kv : dc.reads)  disc_supporters.insert(kv.first);
+    for (const auto& kv : dc.mates)  disc_supporters.insert(kv.first);
+  }
+
+  auto fmt_score = [](double s) {
+    std::ostringstream os;
+    os << std::fixed << std::setprecision(1) << s;
+    return os.str();
+  };
+
+  // --- read rows --------------------------------------------------------
+  for (const auto& i : m_bamreads) {
+    const std::string sr       = i->UniqueName();
+    const r2c         this_r2c = i->GetR2C(getContigName());
+
+    // r2c CIGAR: empty if no r2c alignment (shouldn't happen for reads
+    // listed here, but guard anyway).
+    std::string r2c_cig_str = r2cCigarString(this_r2c.cig);
+    if (r2c_cig_str.empty()) r2c_cig_str = NA;
+
+    // Scores: match printToAlignmentsFile's source-of-truth precedence
+    // exactly, so the TSV and the ASCII file can never disagree on the
+    // split-supporter gating.
+    std::string r2c_score_str = NA;
+    if (this_r2c.cig.size() > 0) {
+      r2c_score_str = fmt_score(
+          svaba::readAlignmentScore(this_r2c.cig, this_r2c.nm));
+    }
+    std::string native_score_str = NA;
+    {
+      SeqLib::Cigar native_cig;
+      int32_t       native_nm = -1;
+      if (i->corrected_native_cig.size() > 0) {
+        native_cig = i->corrected_native_cig;
+        native_nm  = i->corrected_native_nm;
+      } else {
+        native_cig = i->GetCigar();
+        i->GetIntTag("NM", native_nm);
+      }
+      if (native_cig.size() > 0) {
+        native_score_str = fmt_score(
+            svaba::readAlignmentScore(native_cig, native_nm));
+      }
+    }
+
+    const bool  is_split     = split_supporters.count(sr) > 0;
+    const bool  is_disc      = disc_supporters.count(sr)  > 0;
+    const char* support_kind = is_split && is_disc ? "both"
+                             : is_split            ? "split"
+                             : is_disc             ? "disc"
+                             :                       "none";
+
+    // read_chrom: BAM-native chromosome; may be empty for unmapped mates.
+    std::string read_chrom =
+        (i->ChrID() >= 0) ? i->ChrName(h) : std::string("*");
+
+    out << "read\t"
+        << r2cEscape(cname)     << '\t'
+        << m_seq.length()       << '\t'
+        << NA                   << '\t'   // contig_seq
+        << NA                   << '\t'   // frags
+        << NA                   << '\t'   // bps
+        << NA                   << '\t'   // n_reads
+        // read fields:
+        << r2cEscape(sr)            << '\t'
+        << r2cEscape(read_chrom)    << '\t'
+        << i->Position()            << '\t'
+        << (this_r2c.rc ? 16 : 0)   << '\t'
+        << r2c_cig_str              << '\t'
+        << this_r2c.start_on_contig << '\t'
+        << (this_r2c.rc ? 1 : 0)    << '\t'
+        << this_r2c.nm              << '\t'
+        << support_kind             << '\t'
+        << r2c_score_str            << '\t'
+        << native_score_str         << '\t'
+        << r2cEscape(i->Sequence()) << '\n';
+  }
+
+  return out.str();
+}
+
 void AlignedContig::setMultiMapBreakPairs() {
   
   // if single mapped contig, nothing to do here

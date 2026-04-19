@@ -42,6 +42,7 @@ body{font-family:'SF Mono','Fira Code','Consolas',monospace;background:var(--bg)
 .chip{padding:.2rem .5rem;border-radius:4px;border:1px solid var(--border);font-size:.7rem;cursor:pointer;color:var(--text2);background:var(--surface2);transition:all .15s}
 .chip:hover{border-color:var(--accent);color:var(--text)}
 .chip.on{background:rgba(108,140,255,.15);border-color:var(--accent);color:var(--accent)}
+.chip.empty{opacity:.35}
 .preset{padding:.15rem .4rem;border-radius:3px;border:1px solid var(--border);font-size:.65rem;cursor:pointer;color:var(--text2);background:transparent}
 .preset:hover{border-color:var(--accent);color:var(--accent)}
 
@@ -50,23 +51,57 @@ body{font-family:'SF Mono','Fira Code','Consolas',monospace;background:var(--bg)
 .stats-bar .sv{color:var(--accent);font-weight:600}
 
 /* Charts */
-.charts-row{display:grid;grid-template-columns:repeat(6,1fr);gap:.5rem;padding:.5rem 1rem;background:var(--bg)}
+.charts-row{display:grid;grid-template-columns:repeat(3,1fr);gap:.5rem;padding:.5rem 1rem;background:var(--bg)}
 .chart-card{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:.4rem .5rem;min-height:140px}
-.chart-card .ct{font-size:.65rem;color:var(--text2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:.3rem}
+.chart-card .ct{font-size:.65rem;color:var(--text2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:.3rem;display:flex;align-items:center;justify-content:space-between;gap:.3rem}
 .chart-card canvas{width:100%;height:120px;display:block}
+.log-tog{background:transparent;border:1px solid var(--border);color:var(--text2);font-size:.6rem;padding:1px 5px;border-radius:3px;cursor:pointer;font-family:inherit;text-transform:none;letter-spacing:0;line-height:1.1}
+.log-tog:hover{border-color:var(--accent);color:var(--text)}
+.log-tog.on{background:rgba(108,140,255,.15);border-color:var(--accent);color:var(--accent)}
 
 /* Table */
 .table-wrap{overflow:auto;background:var(--surface);border:1px solid var(--border);border-radius:6px;margin:.5rem 1rem;flex:1}
-table{width:100%;border-collapse:collapse;white-space:nowrap}
-th{background:var(--surface2);color:var(--text2);text-align:left;padding:.35rem .5rem;position:sticky;top:0;cursor:pointer;user-select:none;z-index:1;font-size:.72rem;text-transform:uppercase;letter-spacing:.03em}
+table{width:100%;border-collapse:collapse;white-space:nowrap;table-layout:auto}
+th{background:var(--surface2);color:var(--text2);text-align:left;padding:.25rem .4rem;position:sticky;top:0;cursor:pointer;user-select:none;z-index:1;font-size:.72rem;text-transform:uppercase;letter-spacing:.03em}
 th:hover{color:var(--accent)}
 th .sa{font-size:.6em;margin-left:.15rem;opacity:.5}
-td{padding:.3rem .5rem;border-top:1px solid rgba(46,49,64,.5);font-size:.75rem}
+td{padding:.25rem .4rem;border-top:1px solid rgba(46,49,64,.5);font-size:.75rem;user-select:text;-webkit-user-select:text}
 tr:hover td{background:var(--surface2)}
 tr.sel td{background:#1e3a5f !important}
 tr{cursor:pointer}
 td.num{text-align:right;font-variant-numeric:tabular-nums}
+/* Per-column width/wrap rules. `nowrap` is the table default; we only loosen
+   where it makes sense (ref/alt soft-wrap at ~10ch, contig soft-wrap). */
+td.w-loc,th.w-loc{max-width:14ch}
+td.w-strand,th.w-strand{width:2.6ch;padding-left:.3rem;padding-right:.3rem;text-align:center}
+td.w-strand{font-weight:600}
+td.w-tiny,th.w-tiny{max-width:8ch;overflow:hidden;text-overflow:ellipsis}
+td.w-num,th.w-num{max-width:7ch}
+td.w-seq,th.w-seq{max-width:10ch;white-space:normal;word-break:break-all;font-family:'SF Mono','Consolas',monospace;line-height:1.1}
+td.w-wrap,th.w-wrap{max-width:22ch;white-space:normal;word-break:break-all;line-height:1.1}
+td.w-gt,th.w-gt{max-width:11ch;white-space:normal;line-height:1.2}
+td.strand-plus{color:var(--green)}
+td.strand-minus{color:var(--red)}
+::selection{background:#3b5bdb;color:#fff}
+a.igv-link{color:var(--accent);text-decoration:none;cursor:pointer}
+a.igv-link:hover{text-decoration:underline}
+a.igv-link.ok{color:var(--green)}
+a.igv-link.err{color:var(--red)}
 td.pass{color:var(--green)} td.lowlod{color:var(--amber)} td.nopass{color:var(--red)}
+/* GT column cells are click-to-open-legend */
+td.gt-cell{cursor:help}
+td.gt-cell:hover{background:rgba(108,140,255,.12)}
+th.w-gt{cursor:help}
+/* GT legend popover — shared, floating, dismissed on outside click */
+#gt-legend{position:fixed;z-index:50;display:none;background:var(--surface);border:1px solid var(--accent);border-radius:6px;box-shadow:0 6px 20px rgba(0,0,0,.5);padding:.6rem .8rem;font-size:.72rem;color:var(--text);max-width:460px;line-height:1.45}
+#gt-legend.on{display:block}
+#gt-legend h4{font-size:.72rem;color:var(--accent);margin-bottom:.3rem;text-transform:uppercase;letter-spacing:.04em}
+#gt-legend .row{display:flex;gap:.4rem;margin:.15rem 0}
+#gt-legend .k{color:var(--accent);font-weight:600;min-width:4.5ch;font-family:inherit}
+#gt-legend .v{color:var(--text2)}
+#gt-legend hr{border:none;border-top:1px solid var(--border);margin:.4rem 0}
+#gt-legend .close{float:right;cursor:pointer;color:var(--text2);font-size:.9rem;line-height:1;margin-left:.4rem}
+#gt-legend .close:hover{color:var(--red)}
 .pagination{display:flex;align-items:center;justify-content:space-between;padding:.35rem 1rem;font-size:.75rem;color:var(--text2);background:var(--surface);border-top:1px solid var(--border)}
 .pagination .pg-btns{display:flex;gap:.3rem}
 
@@ -87,6 +122,38 @@ td.pass{color:var(--green)} td.lowlod{color:var(--amber)} td.nopass{color:var(--
 .format-key{padding:4px 8px;background:var(--surface2);border-bottom:1px solid var(--border);font-size:.68rem;color:var(--text2)}
 .format-key code{color:var(--accent)}
 
+/* --- r2c re-plot sub-panel -------------------------------------------------
+   Shown below the per-row detail panel when the user has (a) loaded an r2c
+   TSV via the secondary drop-zone and (b) clicked "Plot alignments" while a
+   row is selected whose `contig_and_region` matches a contig in the r2c.
+   Everything inside .r2c-pre is monospace and uses CSS spans for per-read
+   colorization — same visual language as viewer/alignments_viewer.html.
+*/
+.upload-row .upload-box.secondary{max-width:300px;font-size:.72rem;opacity:.9}
+.r2c-panel{margin:.5rem 1rem;background:var(--surface);border:1px solid var(--border);border-radius:6px;overflow:hidden}
+.r2c-header{background:var(--surface2);padding:.4rem .8rem;font-size:.72rem;color:var(--text2);text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:.6rem}
+.r2c-header strong{color:var(--text);text-transform:none;letter-spacing:0}
+.r2c-header .spacer{flex:1}
+.r2c-body{max-height:540px;overflow:auto;padding:.4rem .6rem;background:#0b0d13}
+.r2c-body .empty{padding:.6rem;color:var(--text2);font-size:.78rem;text-align:center}
+.r2c-pre{font-family:'SF Mono','Fira Code','Consolas',monospace;font-size:11px;line-height:1.15;white-space:pre;color:var(--text)}
+.r2c-pre .row{display:block;padding:0 2px;border-left:3px solid transparent}
+.r2c-pre .row.contig{background:#16321a;color:#b6e8c0;font-weight:600}
+.r2c-pre .row.frag{background:#1f2a3a;color:#d0dbf2}
+.r2c-pre .row.bp{background:#2d1b1b;color:#f1c2c2}
+.r2c-pre .row.indelmark{color:#f0883e}
+.r2c-pre .row.ruler{color:var(--text2);opacity:.5}
+.r2c-pre .row.read.support-split{border-left-color:#4ade80}
+.r2c-pre .row.read.support-disc{border-left-color:#60a5fa}
+.r2c-pre .row.read.support-both{border-left-color:#a855f7}
+.r2c-pre .row.read.support-none{border-left-color:#555}
+.r2c-pre .row.read .meta{color:var(--text2);margin-left:1ch}
+.r2c-legend{display:flex;flex-wrap:wrap;gap:.4rem;padding:.35rem .8rem;font-size:.68rem;color:var(--text2);background:var(--surface2);border-bottom:1px solid var(--border)}
+.r2c-legend .sw{padding:1px 6px;border-radius:3px;cursor:pointer}
+.r2c-legend .sw[data-on="0"]{opacity:.3}
+.r2c-empty-badge{padding:.12rem .4rem;border-radius:3px;background:rgba(248,113,113,.15);color:var(--red);border:1px solid var(--red);font-size:.65rem}
+.r2c-ok-badge{padding:.12rem .4rem;border-radius:3px;background:rgba(74,222,128,.15);color:var(--green);border:1px solid var(--green);font-size:.65rem}
+
 @media(max-width:1100px){.charts-row{grid-template-columns:repeat(3,1fr)}}
 @media(max-width:700px){.charts-row{grid-template-columns:1fr}.controls{flex-direction:column;align-items:stretch}}
 </style>
@@ -103,6 +170,11 @@ td.pass{color:var(--green)} td.lowlod{color:var(--amber)} td.nopass{color:var(--
     Drop or click &mdash; <code>.bps.txt</code> / <code>.bps.txt.gz</code>
     <div class="fn" id="file-name" style="display:none"></div>
     <input type="file" id="file-input" accept=".txt,.gz,.tsv,text/plain,application/gzip">
+  </div>
+  <div class="upload-box secondary" id="drop-zone-r2c" onclick="document.getElementById('file-input-r2c').click()" title="Optional: upload the structured r2c TSV (preferably the PASS-filtered one from sort_output.sh) to enable per-row alignment re-plotting">
+    Optional &mdash; <code>.r2c.txt.gz</code> / <code>.r2c.pass.txt.gz</code>
+    <div class="fn" id="file-name-r2c" style="display:none"></div>
+    <input type="file" id="file-input-r2c" accept=".txt,.tsv,.gz,text/plain,application/gzip">
   </div>
   <button class="btn-ghost btn" id="export-btn" disabled>Export TSV</button>
 </div>
@@ -140,6 +212,9 @@ td.pass{color:var(--green)} td.lowlod{color:var(--amber)} td.nopass{color:var(--
       <input id="f-span-max" type="number" step="1" placeholder="max">
     </div>
   </div>
+  <div class="ctrl"><label>Chr</label>
+    <button class="chip" id="f-std-chr" title="Hide variants on non-standard chromosomes (chrUn, *_random, *_alt, decoy, etc.)">Standard only</button>
+  </div>
   <div class="ctrl"><label>Rows/pg</label>
     <select id="f-page-size"><option value="50">50</option><option value="100" selected>100</option><option value="250">250</option><option value="500">500</option><option value="1000">1k</option></select>
   </div>
@@ -159,12 +234,9 @@ td.pass{color:var(--green)} td.lowlod{color:var(--amber)} td.nopass{color:var(--
 </div>
 
 <div class="charts-row" id="charts-row" style="display:none">
-  <div class="chart-card"><div class="ct">Somlod</div><canvas id="c-somlod"></canvas></div>
-  <div class="chart-card"><div class="ct">Maxlod</div><canvas id="c-maxlod"></canvas></div>
-  <div class="chart-card"><div class="ct">Type</div><canvas id="c-type"></canvas></div>
-  <div class="chart-card"><div class="ct">Confidence</div><canvas id="c-conf"></canvas></div>
-  <div class="chart-card"><div class="ct">Chr (break 1)</div><canvas id="c-chr"></canvas></div>
-  <div class="chart-card"><div class="ct">Span (log10)</div><canvas id="c-span"></canvas></div>
+  <div class="chart-card"><div class="ct"><span>Somlod</span><button class="log-tog" data-chart="somlod" title="Toggle symmetric log10 x-axis">log10</button></div><canvas id="c-somlod"></canvas></div>
+  <div class="chart-card"><div class="ct"><span>Maxlod</span><button class="log-tog" data-chart="maxlod" title="Toggle symmetric log10 x-axis">log10</button></div><canvas id="c-maxlod"></canvas></div>
+  <div class="chart-card"><div class="ct"><span>Span (log10)</span></div><canvas id="c-span"></canvas></div>
 </div>
 
 <div class="table-wrap" id="table-wrap" style="display:none;max-height:calc(100vh - 380px)">
@@ -181,9 +253,52 @@ td.pass{color:var(--green)} td.lowlod{color:var(--amber)} td.nopass{color:var(--
 </div>
 
 <div class="detail-panel" id="detail-panel" style="display:none">
-  <div class="dp-header"><span>Selected row detail</span><strong id="dp-locus">-</strong></div>
+  <div class="dp-header">
+    <span>Selected row detail</span>
+    <strong id="dp-locus">-</strong>
+    <span style="flex:1"></span>
+    <button class="btn-ghost btn" id="r2c-plot-btn" disabled title="Load an r2c.txt.gz to enable">Plot alignments</button>
+  </div>
   <div class="format-key">FORMAT (per-sample): <code>GT:AD:DP:SR:DR:GQ:PL:LO:LO_n</code> &mdash; SV uses DR=disc, INDEL uses DR=cigar</div>
   <div class="dp-body" id="dp-body"><div class="dp-empty">Click a table row</div></div>
+</div>
+
+<div class="r2c-panel" id="r2c-panel" style="display:none">
+  <div class="r2c-header">
+    <span>Alignments re-plot</span>
+    <strong id="r2c-title">-</strong>
+    <span class="spacer"></span>
+    <label title="Show only reads whose r2c CIGAR contains I or D ops"><input type="checkbox" id="r2c-imperfect-only"> imperfect only</label>
+    <span style="color:var(--text2);margin-left:.4rem">support:</span>
+    <label><input type="checkbox" id="r2c-show-split" checked> split</label>
+    <label><input type="checkbox" id="r2c-show-disc" checked> disc</label>
+    <label><input type="checkbox" id="r2c-show-both" checked> both</label>
+    <label><input type="checkbox" id="r2c-show-none" checked> none</label>
+    <button class="btn-ghost btn" id="r2c-close-btn">&times;</button>
+  </div>
+  <div class="r2c-legend" id="r2c-legend"></div>
+  <div class="r2c-body" id="r2c-body"><div class="empty">No contig selected.</div></div>
+</div>
+
+<div id="gt-legend" role="dialog" aria-label="Genotype and FORMAT field legend">
+  <span class="close" id="gt-legend-close" title="Close">&times;</span>
+  <h4>Genotype (GT)</h4>
+  <div class="row"><span class="k">0/0</span><span class="v">homozygous reference (no alt allele)</span></div>
+  <div class="row"><span class="k">0/1</span><span class="v">heterozygous (one alt allele)</span></div>
+  <div class="row"><span class="k">1/1</span><span class="v">homozygous alt (both alleles are alt)</span></div>
+  <div class="row"><span class="k">./.</span><span class="v">no call / insufficient coverage</span></div>
+  <hr>
+  <h4>Per-sample FORMAT fields <code style="color:var(--accent);font-size:.68rem">GT:AD:DP:SR:DR:GQ:PL:LO:LO_n</code></h4>
+  <div class="row"><span class="k">AD</span><span class="v">allelic depth (# reads supporting the alt allele)</span></div>
+  <div class="row"><span class="k">DP</span><span class="v">total read depth at this site</span></div>
+  <div class="row"><span class="k">SR</span><span class="v">split-read support (reads spanning the breakpoint)</span></div>
+  <div class="row"><span class="k">DR</span><span class="v">discordant-pair support for SVs; CIGAR-indel support for INDELs</span></div>
+  <div class="row"><span class="k">GQ</span><span class="v">genotype quality (Phred)</span></div>
+  <div class="row"><span class="k">PL</span><span class="v">Phred-scaled genotype likelihoods (0/0, 0/1, 1/1)</span></div>
+  <div class="row"><span class="k">LO</span><span class="v">log-odds variant vs. error at this sample (see CLAUDE.md)</span></div>
+  <div class="row"><span class="k">LO_n</span><span class="v">log-odds variant vs. error, normal-model only</span></div>
+  <hr>
+  <div class="row"><span class="k" style="color:var(--text2)">Tip</span><span class="v">Click outside this box or press <kbd style="background:var(--surface2);padding:1px 5px;border-radius:3px;border:1px solid var(--border)">Esc</kbd> to dismiss</span></div>
 </div>
 
 <script>
@@ -201,22 +316,25 @@ const V2=["cpos1","cpos2","lmatch","rmatch","scov1","scov2","local1","local2","c
 const NUM=new Set(["pos1","pos2","span","split","alt_count","cov","cigar","cigar_near","dmq1","dmq2","dcn","dct","mapq1","mapq2","nm1","nm2","as1","as2","sub1","sub2","naln","qual","secondary","somlod","maxlod","cpos1","cpos2","lmatch","rmatch","scov1","scov2","ctglen"]);
 
 const TCOLS=[
-  {k:"chr1",l:"Chr1"},{k:"pos1",l:"Pos1",n:1},{k:"chr2",l:"Chr2"},{k:"pos2",l:"Pos2",n:1},
-  {k:"eventType",l:"Type"},{k:"evidence",l:"Evid"},{k:"conf",l:"Conf"},
-  {k:"qual",l:"Qual",n:1},{k:"somlod",l:"Somlod",n:1},{k:"maxlod",l:"Maxlod",n:1},
-  {k:"split",l:"Split",n:1},{k:"alt_count",l:"Alt",n:1},{k:"cigar",l:"Cigar",n:1},
-  {k:"dcn",l:"DCn",n:1},{k:"dct",l:"DCt",n:1},{k:"cov",l:"Cov",n:1},
-  {k:"span",l:"Span",n:1},{k:"somatic",l:"Somatic"},
-  {k:"ref",l:"Ref"},{k:"alt_allele",l:"Alt allele"},
-  {k:"mapq1",l:"MQ1",n:1},{k:"mapq2",l:"MQ2",n:1},
-  {k:"dbsnp",l:"Dbsnp"},{k:"contig_and_region",l:"Contig"}
+  {k:"igvPos1",l:"IGV1",w:"loc"},{k:"strand1",l:"S1",w:"strand"},
+  {k:"igvPos2",l:"IGV2",w:"loc"},{k:"strand2",l:"S2",w:"strand"},
+  {k:"eventType",l:"Type",w:"tiny"},{k:"evidence",l:"Evid",w:"tiny"},{k:"conf",l:"Conf",w:"tiny"},
+  {k:"qual",l:"Qual",n:1,w:"num"},{k:"somlod",l:"Somlod",n:1,w:"num"},{k:"maxlod",l:"Maxlod",n:1,w:"num"},
+  {k:"gtSummary",l:"GT \u24d8",w:"gt",help:true},
+  {k:"split",l:"Split",n:1,w:"num"},{k:"alt_count",l:"Alt",n:1,w:"num"},{k:"cigar",l:"Cigar",n:1,w:"num"},
+  {k:"dcn",l:"DCn",n:1,w:"num"},{k:"dct",l:"DCt",n:1,w:"num"},{k:"cov",l:"Cov",n:1,w:"num"},
+  {k:"span",l:"Span",n:1,w:"num"},{k:"somatic",l:"Somatic",w:"tiny"},
+  {k:"ref",l:"Ref",w:"seq"},{k:"alt_allele",l:"Alt",w:"seq"},
+  {k:"mapq1",l:"MQ1",n:1,w:"num"},{k:"mapq2",l:"MQ2",n:1,w:"num"},
+  {k:"dbsnp",l:"Dbsnp",w:"tiny"},{k:"contig_and_region",l:"Contig",w:"wrap"}
 ];
 
 /* === State === */
 const S={fn:"",hdr:[],sampHdr:[],coreCnt:0,rows:[],filt:[],selId:null,
   pg:1,pgSz:100,sort:{k:"maxlod",d:"desc"},
+  logScale:{somlod:false,maxlod:false},
   f:{search:"",region:null,somlodMin:null,somlodMax:null,maxlodMin:null,maxlodMax:null,
-     qualMin:null,splitMin:null,altMin:null,spanMin:null,spanMax:null,
+     qualMin:null,splitMin:null,altMin:null,spanMin:null,spanMax:null,stdChrOnly:false,
      eventTypes:new Set(),evidence:new Set(),confidence:new Set(),somatic:new Set()}};
 
 /* === DOM === */
@@ -225,8 +343,14 @@ const $=id=>document.getElementById(id);
 /* === Init table header === */
 TCOLS.forEach(c=>{
   const th=document.createElement("th"); th.dataset.k=c.k;
+  if(c.w) th.classList.add("w-"+c.w);
+  if(c.help) th.classList.add("gt-head");
   th.innerHTML=esc(c.l)+'<span class="sa"></span>';
-  th.onclick=()=>{toggleSort(c.k);render()};
+  th.onclick=e=>{
+    // GT header: clicking opens the legend instead of sorting.
+    if(c.help){e.stopPropagation();showGtLegend(th);return}
+    toggleSort(c.k);render();
+  };
   $("thead").appendChild(th);
 });
 
@@ -235,6 +359,17 @@ $("file-input").onchange=e=>{const f=e.target.files[0];if(f)loadBlob(f,f.name)};
 ["dragenter","dragover"].forEach(e=>$("drop-zone").addEventListener(e,ev=>{ev.preventDefault();$("drop-zone").classList.add("over")}));
 ["dragleave","drop"].forEach(e=>$("drop-zone").addEventListener(e,ev=>{ev.preventDefault();$("drop-zone").classList.remove("over")}));
 $("drop-zone").addEventListener("drop",e=>{const f=e.dataTransfer.files[0];if(f)loadBlob(f,f.name)});
+
+// r2c drop zone (optional second upload)
+$("file-input-r2c").onchange=e=>{const f=e.target.files[0];if(f)loadR2cBlob(f,f.name)};
+["dragenter","dragover"].forEach(e=>$("drop-zone-r2c").addEventListener(e,ev=>{ev.preventDefault();$("drop-zone-r2c").classList.add("over")}));
+["dragleave","drop"].forEach(e=>$("drop-zone-r2c").addEventListener(e,ev=>{ev.preventDefault();$("drop-zone-r2c").classList.remove("over")}));
+$("drop-zone-r2c").addEventListener("drop",e=>{const f=e.dataTransfer.files[0];if(f)loadR2cBlob(f,f.name)});
+$("r2c-plot-btn").onclick=()=>showR2cForSelected();
+$("r2c-close-btn").onclick=()=>{$("r2c-panel").style.display="none"};
+["r2c-imperfect-only","r2c-show-split","r2c-show-disc","r2c-show-both","r2c-show-none"].forEach(id=>{
+  $(id).addEventListener("change",()=>{if(R2C.currentCname)renderR2c(R2C.currentCname)});
+});
 $("export-btn").onclick=exportTSV;
 $("reset-btn").onclick=()=>{resetF();render()};
 $("pg-prev").onclick=()=>{if(S.pg>1){S.pg--;rTable()}};
@@ -249,6 +384,404 @@ document.querySelectorAll(".preset").forEach(b=>{
 ].forEach(id=>{
   $(id).addEventListener("input",()=>{syncF();render()});
 });
+$("f-std-chr").onclick=()=>{
+  S.f.stdChrOnly=!S.f.stdChrOnly;
+  $("f-std-chr").classList.toggle("on",S.f.stdChrOnly);
+  S.pg=1;render();
+};
+document.querySelectorAll(".log-tog").forEach(b=>{
+  b.onclick=()=>{
+    const c=b.dataset.chart;
+    S.logScale[c]=!S.logScale[c];
+    b.classList.toggle("on",S.logScale[c]);
+    rCharts();
+  };
+});
+
+/* === R2C state and loader ===
+ *
+ * The r2c TSV (written by svaba run as ${ID}.r2c.txt.gz; or filtered by
+ * sort_output.sh to ${ID}.r2c.pass.txt.gz for interactive use) is the
+ * structured counterpart of the old alignments.txt.gz. Schema is documented
+ * by AlignedContig::r2cTsvHeader() in src/svaba/AlignedContig.cpp — roughly
+ *   record_type  contig_name  contig_len  contig_seq  frags  bps  n_reads
+ *   read_id  read_chrom  read_pos  read_flag  r2c_cigar  r2c_start  r2c_rc
+ *   r2c_nm  support  r2c_score  native_score  read_seq
+ *
+ * We index by contig_name so that when the user clicks a BPS row whose
+ * `contig_and_region` == contig_name, we can re-plot that contig's reads
+ * on demand, rather than having pre-rendered every possible variant up
+ * front. See renderR2c() for the plot logic.
+ */
+const R2C = {
+  loaded:false, fn:"", byName:new Map(), col:null, currentCname:null,
+  // color palette reused from alignments_viewer.html look/feel
+  palette:["#6c8cff","#4ade80","#f87171","#fbbf24","#60a5fa","#a855f7","#f0883e","#22d3ee","#e879f9","#34d399"],
+  prefixColor:new Map(), prefixCounter:0
+};
+
+async function loadR2cBlob(blob,name){
+  $("file-name-r2c").textContent="Loading "+name+"...";
+  $("file-name-r2c").style.display="";
+  try{
+    let text;
+    if(name.endsWith(".gz")){
+      if(typeof DecompressionStream==="undefined") throw new Error("Browser lacks DecompressionStream");
+      text=await new Response(blob.stream().pipeThrough(new DecompressionStream("gzip"))).text();
+    } else text=await blob.text();
+    parseR2c(text,name);
+  }catch(e){
+    $("file-name-r2c").textContent="Error: "+e.message;
+    console.error(e);
+  }
+  $("file-input-r2c").value="";
+}
+
+function parseR2c(text,name){
+  const t0=performance.now();
+  const lines=text.replace(/\r\n?/g,"\n").split("\n");
+  if(lines.length<2) throw new Error("r2c file empty or missing rows");
+  const hdr=lines[0].split("\t");
+  const col={};
+  hdr.forEach((c,i)=>{col[c]=i});
+  // sanity: the essential cols we need
+  for(const need of ["record_type","contig_name","read_id","r2c_cigar","r2c_start","r2c_rc","support","read_seq","contig_seq","frags","bps"]){
+    if(!(need in col)) throw new Error("r2c file missing expected column: "+need);
+  }
+  const byName=new Map();
+  for(let i=1;i<lines.length;i++){
+    const line=lines[i];
+    if(!line) continue;
+    const c=line.split("\t");
+    if(c.length<hdr.length) continue;
+    const cname=c[col.contig_name];
+    let entry=byName.get(cname);
+    if(!entry){entry={contig:null,reads:[]};byName.set(cname,entry)}
+    if(c[col.record_type]==="contig") entry.contig=c;
+    else if(c[col.record_type]==="read") entry.reads.push(c);
+  }
+  R2C.loaded=true;R2C.fn=name;R2C.byName=byName;R2C.col=col;
+  R2C.prefixColor.clear();R2C.prefixCounter=0;
+  const ms=(performance.now()-t0).toFixed(0);
+  $("drop-zone-r2c").classList.add("loaded");
+  $("file-name-r2c").style.display="";
+  $("file-name-r2c").textContent=name+" \u2014 "+byName.size.toLocaleString()+" contigs \u2014 parsed in "+ms+"ms";
+  // If a row is already selected and its cname is now in the r2c, enable the
+  // plot button without requiring a fresh row-click.
+  updateR2cPlotBtn();
+}
+
+function r2cPrefixColor(p){
+  if(!R2C.prefixColor.has(p)){
+    R2C.prefixColor.set(p,R2C.palette[R2C.prefixCounter%R2C.palette.length]);
+    R2C.prefixCounter++;
+  }
+  return R2C.prefixColor.get(p);
+}
+
+function updateR2cPlotBtn(){
+  const btn=$("r2c-plot-btn");
+  const r=S.filt.find(x=>x.id===S.selId)||(S.rows||[]).find(x=>x.id===S.selId);
+  const cname=r?r.contig_and_region:null;
+  const ok=R2C.loaded && cname && R2C.byName.has(cname);
+  btn.disabled=!ok;
+  if(!R2C.loaded) btn.title="Upload an r2c.txt.gz to enable plotting";
+  else if(!cname) btn.title="Selected row has no contig_and_region";
+  else if(!R2C.byName.has(cname)) btn.title="Contig "+cname+" not in loaded r2c (was the r2c filtered to PASS-only?)";
+  else btn.title="Plot the read-to-contig alignment for "+cname;
+}
+
+function showR2cForSelected(){
+  const r=S.filt.find(x=>x.id===S.selId);
+  if(!r) return;
+  const cname=r.contig_and_region;
+  if(!R2C.loaded || !R2C.byName.has(cname)) return;
+  $("r2c-panel").style.display="";
+  renderR2c(cname);
+  $("r2c-panel").scrollIntoView({behavior:"smooth",block:"nearest"});
+}
+
+/* === R2C re-plot renderer ===
+ * Produces a <pre>-style block that visually matches alignments_viewer.html
+ * but is generated fresh from the TSV rather than read as ASCII. Each read
+ * line is gap-expanded from its own r2c_cigar and positioned at
+ * (r2c_start - leading_soft_clip_len), clipped if that's negative — exact
+ * mirror of AlignedContig::printToAlignmentsFile in src/svaba/.
+ */
+function renderR2c(cname){
+  R2C.currentCname=cname;
+  const entry=R2C.byName.get(cname);
+  const col=R2C.col;
+  const body=$("r2c-body");
+  body.innerHTML="";
+  $("r2c-title").textContent=cname;
+
+  if(!entry||!entry.contig){
+    body.innerHTML='<div class="empty">No contig row for this cname (file may be malformed).</div>';
+    return;
+  }
+  const contig=entry.contig;
+  const contig_seq=contig[col.contig_seq]||"";
+  const contig_len=+(contig[col.contig_len]||contig_seq.length);
+
+  // --- Collect visual filter state ---
+  const imperfectOnly=$("r2c-imperfect-only").checked;
+  const showSupport={split:$("r2c-show-split").checked, disc:$("r2c-show-disc").checked,
+                     both:$("r2c-show-both").checked,  none:$("r2c-show-none").checked};
+
+  // --- Build prefix color swatches from all reads (pre-filter) so colors
+  //     stay stable as the user toggles checkboxes. ---
+  const prefixes=new Map();
+  for(const rr of entry.reads){
+    const id=rr[col.read_id]||"";
+    const m=id.match(/^([a-z]\d{3})_/i);
+    const p=m?m[1]:"";
+    if(p) prefixes.set(p,(prefixes.get(p)||0)+1);
+  }
+  const leg=$("r2c-legend");leg.innerHTML="";
+  if(prefixes.size){
+    const lab=document.createElement("span");lab.textContent="source:";lab.style.color="var(--text2)";
+    leg.appendChild(lab);
+    const sorted=Array.from(prefixes.keys()).sort();
+    for(const p of sorted){
+      const sw=document.createElement("span");
+      sw.className="sw";sw.style.background=r2cPrefixColor(p)+"33";
+      sw.style.border="1px solid "+r2cPrefixColor(p);
+      sw.textContent=p+" ("+prefixes.get(p)+")";
+      sw.dataset.on="1";sw.dataset.prefix=p;
+      sw.addEventListener("click",()=>{
+        const on=sw.dataset.on==="1";
+        sw.dataset.on=on?"0":"1";
+        body.querySelectorAll('span.row.read[data-prefix="'+p+'"]').forEach(el=>{
+          el.style.display=on?"none":"";
+        });
+      });
+      leg.appendChild(sw);
+    }
+  }
+
+  const pre=document.createElement("pre");
+  pre.className="r2c-pre";
+
+  // --- Contig row + simple 10bp ruler above it ---
+  {
+    const ruler=document.createElement("span");
+    ruler.className="row ruler";
+    const marks=[];
+    for(let i=0;i<contig_len;i+=10){
+      const label=String(i);
+      marks.push(label.padEnd(10," "));
+    }
+    ruler.textContent=marks.join("").slice(0,contig_len)+"  (contig 0-based)";
+    pre.appendChild(ruler);
+
+    const c=document.createElement("span");
+    c.className="row contig";
+    c.textContent=contig_seq+"    "+cname;
+    pre.appendChild(c);
+  }
+
+  // --- Fragment rows (one per BWA hit of contig vs. ref) ---
+  const fragsRaw=contig[col.frags]||"NA";
+  if(fragsRaw!=="NA"&&fragsRaw!==""){
+    for(const f of fragsRaw.split("|")){
+      const parts=f.split(":");
+      if(parts.length<10) continue;
+      const [chr,pos,strand,cigar,mapq,br1,br2,gbr1,gbr2,flipped]=parts;
+      const rendered=renderFragCigar(cigar,strand,flipped==="1");
+      const el=document.createElement("span");
+      el.className="row frag";
+      el.textContent=rendered+"\tC["+br1+","+br2+"] G["+gbr1+","+gbr2+"] -> "+chr+":"+pos+"("+strand+") CIG:"+cigar+" MAPQ:"+mapq;
+      pre.appendChild(el);
+    }
+  }
+
+  // --- Breakpoint summary rows ---
+  const bpsRaw=contig[col.bps]||"NA";
+  if(bpsRaw!=="NA"&&bpsRaw!==""){
+    for(const b of bpsRaw.split("|")){
+      const parts=b.split(":");
+      if(parts.length<9) continue;
+      const [kind,c1,p1,s1,c2,p2,sp2,span,ins]=parts;
+      let line;
+      if(kind==="indel"){
+        line=(ins==="."? "Del "+span+"bp" : "Ins "+ins.length+"bp ("+ins+")")+
+             " at "+c1+":"+p1+"("+s1+") - "+c2+":"+p2+"("+sp2+")";
+      } else {
+        line=(kind==="global"?"Global":"Multi")+" BP: "+c1+":"+p1+"("+s1+") \u2192 "+c2+":"+p2+"("+sp2+
+             ") SPAN "+span+(ins!=="."? " INS:"+ins : "");
+      }
+      const el=document.createElement("span");
+      el.className="row bp";
+      el.textContent=line;
+      pre.appendChild(el);
+    }
+  }
+
+  // --- Read rows ---
+  // Sort by r2c_start so the plot is visually ordered along the contig.
+  const reads=entry.reads.slice().sort((a,b)=>
+    (+a[col.r2c_start])-(+b[col.r2c_start]));
+
+  let nShown=0;
+  for(const rr of reads){
+    const supp=rr[col.support]||"none";
+    if(!showSupport[supp]) continue;
+    const cig=rr[col.r2c_cigar]||"";
+    if(imperfectOnly && !/[ID]/.test(cig)) continue;
+
+    const id=rr[col.read_id]||"";
+    const m=id.match(/^([a-z]\d{3})_/i);
+    const prefix=m?m[1]:"";
+
+    const line=renderReadLine(rr,col);
+    if(line===null) continue;
+
+    const el=document.createElement("span");
+    el.className="row read support-"+supp;
+    if(prefix) el.dataset.prefix=prefix;
+    const color=prefix?r2cPrefixColor(prefix):"#555";
+    el.style.borderLeftColor=color;
+    el.style.background=color+"11";
+
+    // Pad left with spaces to place the read at its start column.
+    const pad=" ".repeat(Math.max(0,line.startCol));
+    const metaParts=[
+      id,
+      "r2c POS:"+rr[col.r2c_start],
+      "FLAG:"+(rr[col.r2c_rc]==="1"?"16":"0"),
+      "NM:"+rr[col.r2c_nm],
+      "support:"+supp,
+      "r2cScore:"+(rr[col.r2c_score]||"NA"),
+      "nativeScore:"+(rr[col.native_score]||"NA"),
+      "CIGAR:"+(cig||"NA")
+    ];
+    const meta=document.createElement("span");
+    meta.className="meta";
+    meta.textContent="  "+metaParts.join(" ");
+    // text node for aligned row body:
+    el.appendChild(document.createTextNode(pad+line.text));
+    el.appendChild(meta);
+    pre.appendChild(el);
+    nShown++;
+  }
+
+  body.appendChild(pre);
+
+  // Stats footer
+  const stats=document.createElement("div");
+  stats.style.padding=".25rem .4rem";
+  stats.style.fontSize=".7rem";
+  stats.style.color="var(--text2)";
+  stats.textContent=cname+" \u2014 contig "+contig_len+"bp, "+entry.reads.length+" reads in file, "+nShown+" shown after filters.";
+  body.appendChild(stats);
+}
+
+function renderReadLine(rr,col){
+  const rawSeq=rr[col.read_seq]||"";
+  const cigStr=rr[col.r2c_cigar]||"";
+  const rc=rr[col.r2c_rc]==="1";
+  if(!cigStr||cigStr==="NA") return null;
+
+  const seq=rc ? revcomp(rawSeq) : rawSeq;
+  const ops=parseCigar(cigStr);
+  if(!ops.length) return null;
+
+  let lead=0, trail=0;
+  if(ops[0].op==="S") lead=ops[0].len;
+  if(ops.length>1 && ops[ops.length-1].op==="S") trail=ops[ops.length-1].len;
+
+  const leadClip=seq.substr(0,lead).toLowerCase();
+  const trailClip=trail>0 ? seq.substr(seq.length-trail).toLowerCase() : "";
+
+  // Walk through the CIGAR, consuming the query (seq) and emitting to body:
+  //   M -> base; D -> '-'; I/S -> skip (no contig column).
+  let p=0, body="";
+  for(const o of ops){
+    if(o.op==="M"){ body += seq.substr(p,o.len); p += o.len; }
+    else if(o.op==="D"){ body += "-".repeat(o.len); }
+    else if(o.op==="I" || o.op==="S" || o.op==="H"){ p += o.len; }
+  }
+
+  // Anchor the render string: shift left by the leading-clip width so the
+  // lowercase clip bases fall in their true contig columns. If that goes
+  // negative (clip extends off the contig left edge), chop the overhang.
+  let startCol=(+rr[col.r2c_start]) - lead;
+  let text=leadClip+body+trailClip;
+  if(startCol<0){
+    const drop=-startCol;
+    text = drop>=text.length ? "" : text.substr(drop);
+    startCol=0;
+  }
+  return {startCol, text};
+}
+
+function renderFragCigar(cigStr,strand,flipped){
+  const ops=parseCigar(cigStr);
+  const ordered=flipped ? ops.slice().reverse() : ops;
+  const sign=strand==="-"?"<":">";
+  let s="";
+  for(const o of ordered){
+    if(o.op==="M") s += sign.repeat(o.len);
+    else if(o.op==="I") s += "I".repeat(o.len);
+    else if(o.op==="S" || o.op==="H") s += ".".repeat(o.len);
+  }
+  return s;
+}
+
+function parseCigar(s){
+  // Matches standard CIGAR tokens like "24M1D15M7I1M7D103M".
+  const ops=[];
+  const re=/(\d+)([MIDNSHP=X])/g;
+  let m;
+  while((m=re.exec(s))!==null) ops.push({len:+m[1], op:m[2]});
+  return ops;
+}
+
+function revcomp(s){
+  let out="";
+  for(let i=s.length-1;i>=0;i--){
+    const c=s.charCodeAt(i);
+    // Standard IUPAC basic complement, case-preserving.
+    // Non-ACGT (e.g. N, .) -> unchanged.
+    const ch=s.charAt(i);
+    switch(ch){
+      case "A": out+="T"; break; case "a": out+="t"; break;
+      case "T": out+="A"; break; case "t": out+="a"; break;
+      case "C": out+="G"; break; case "c": out+="g"; break;
+      case "G": out+="C"; break; case "g": out+="c"; break;
+      default:  out+=ch;
+    }
+  }
+  return out;
+}
+
+/* === GT legend popover === */
+function showGtLegend(anchorEl){
+  const leg=$("gt-legend");
+  leg.classList.add("on");
+  // Position below the anchor, clamped to viewport so it never clips.
+  const r=anchorEl.getBoundingClientRect();
+  const vw=window.innerWidth,vh=window.innerHeight;
+  // Measure after display; offscreen-measure via opacity:0 trick isn't needed
+  // because we set display:block first.
+  const lw=leg.offsetWidth,lh=leg.offsetHeight;
+  let x=r.left, y=r.bottom+4;
+  if(x+lw>vw-8) x=Math.max(8,vw-lw-8);
+  if(y+lh>vh-8) y=Math.max(8,r.top-lh-4);
+  leg.style.left=x+"px";
+  leg.style.top=y+"px";
+}
+function hideGtLegend(){$("gt-legend").classList.remove("on")}
+$("gt-legend-close").onclick=e=>{e.stopPropagation();hideGtLegend()};
+document.addEventListener("click",e=>{
+  const leg=$("gt-legend");
+  if(!leg.classList.contains("on"))return;
+  if(e.target.closest("#gt-legend"))return;
+  if(e.target.closest(".gt-cell")||e.target.closest(".gt-head"))return;
+  hideGtLegend();
+});
+document.addEventListener("keydown",e=>{if(e.key==="Escape")hideGtLegend()});
 
 /* === File load === */
 async function loadBlob(blob,name){
@@ -290,6 +823,10 @@ function ingest(text,name){
   resetF();S.selId=rows.length?rows[0].id:null;S.sort={k:"maxlod",d:"desc"};
 
   ["controls","chip-bar","stats-bar","charts-row","table-wrap","pagination","detail-panel"].forEach(id=>{$(id).style.display=""});
+  // Close any open r2c plot from a previous file.
+  $("r2c-panel").style.display="none";
+  R2C.currentCname=null;
+  updateR2cPlotBtn();
   $("drop-zone").classList.add("loaded");
   $("file-name").style.display="";$("file-name").textContent=name;
   const ms=(performance.now()-t0).toFixed(0);
@@ -304,7 +841,13 @@ function mkRow(id,cells,coreCols,sampHdr,cc){
   r.chr1=stripH(r.chr1);r.chr2=stripH(r.chr2);
   r.eventType=evType(r);
   r.spanAbs=(r.span==null||r.span===-1)?Infinity:Math.abs(r.span);
+  r.igvPos1=igvLoc(r.chr1,r.pos1);
+  r.igvPos2=igvLoc(r.chr2,r.pos2);
   r.samp=sampHdr.map((h,j)=>parseSamp(h,cells[cc+j],r.evidence));
+  // Compact per-sample GT summary for the GT column. Uses the first char of
+  // the sample label as a prefix (e.g. "t001_..." -> "t"), so a typical
+  // tumor/normal row looks like "n:0/0 t:0/1".
+  r.gtSummary=r.samp.map(s=>((s.lbl||"?").charAt(0)||"?")+":"+(s.gt||"./.")).join(" ");
   r._st=[r.chr1,r.pos1,r.chr2,r.pos2,r.eventType,r.evidence,r.conf,r.ref,r.alt_allele,
     r.contig_and_region,r.insert,r.repeat,r.homol,r.dbsnp,r.somatic]
     .concat(r.samp.map(s=>s.lbl+" "+s.raw)).join(" ").toLowerCase();
@@ -329,12 +872,13 @@ function parseSamp(h,raw,ev){
 /* === Filters === */
 function resetF(){
   S.f={search:"",region:null,somlodMin:null,somlodMax:null,maxlodMin:null,maxlodMax:null,
-    qualMin:null,splitMin:null,altMin:null,spanMin:null,spanMax:null,
+    qualMin:null,splitMin:null,altMin:null,spanMin:null,spanMax:null,stdChrOnly:false,
     eventTypes:new Set(),evidence:new Set(),confidence:new Set(),somatic:new Set()};
   S.pg=1;S.pgSz=100;
   ["f-search","f-region","f-somlod-min","f-somlod-max","f-maxlod-min","f-maxlod-max",
    "f-qual-min","f-split-min","f-alt-min","f-span-min","f-span-max"].forEach(id=>{$(id).value=""});
   $("f-page-size").value="100";
+  const sc=$("f-std-chr");if(sc)sc.classList.remove("on");
 }
 
 function syncF(){
@@ -367,6 +911,7 @@ function doFilter(){
   S.filt=S.rows.filter(r=>{
     if(f.search&&!r._st.includes(f.search))return false;
     if(f.region&&!regMatch(r,f.region))return false;
+    if(f.stdChrOnly&&(!isStdChr(r.chr1)||!isStdChr(r.chr2)))return false;
     if(!nRng(r.somlod,f.somlodMin,f.somlodMax))return false;
     if(!nRng(r.maxlod,f.maxlodMin,f.maxlodMax))return false;
     if(!nMin(r.qual,f.qualMin))return false;
@@ -423,17 +968,31 @@ function rStats(){
 }
 
 /* === Chips === */
+// Chip rendering: the full set of possible values comes from S.rows so the
+// user can toggle ON a filter for a value that's currently invisible; the
+// COUNT shown on each chip reflects S.filt (the post-filter view) so the
+// numbers stay live as other filters change. A value that currently has
+// 0 matches is still shown, just dimmed, so it remains clickable.
 function rChips(){
   const bar=$("chip-bar");bar.innerHTML="";
   [{k:"eventTypes",f:"eventType",l:"Type"},{k:"evidence",f:"evidence",l:"Evidence"},
    {k:"confidence",f:"conf",l:"Conf"},{k:"somatic",f:"somatic",l:"Somatic"}].forEach(g=>{
-    const cnts=cntBy(S.rows,g.f);if(!cnts.size)return;
+    const universe=cntBy(S.rows,g.f);if(!universe.size)return;
+    const filteredCnts=cntBy(S.filt,g.f);
     const wrap=document.createElement("div");wrap.className="ctrl";
     wrap.innerHTML='<label>'+esc(g.l)+'</label>';
     const chips=document.createElement("div");chips.className="chips";
-    Array.from(cnts.entries()).sort((a,b)=>b[1]-a[1]).forEach(([v,n])=>{
-      const c=document.createElement("button");c.className="chip"+(S.f[g.k].has(v)?" on":"");
+    // Sort by filtered count desc, then by universe count desc as tiebreaker
+    // so empty-but-possible chips sink to the end but stay in a stable order.
+    Array.from(universe.entries()).sort((a,b)=>{
+      const fa=filteredCnts.get(a[0])||0, fb=filteredCnts.get(b[0])||0;
+      return fb-fa || b[1]-a[1];
+    }).forEach(([v,total])=>{
+      const n=filteredCnts.get(v)||0;
+      const c=document.createElement("button");
+      c.className="chip"+(S.f[g.k].has(v)?" on":"")+(n===0?" empty":"");
       c.textContent=v+" ("+n.toLocaleString()+")";
+      c.title=n.toLocaleString()+" of "+total.toLocaleString()+" rows match this filter";
       c.onclick=()=>{togSet(S.f[g.k],v);S.pg=1;render()};
       chips.appendChild(c);
     });
@@ -452,16 +1011,51 @@ function rTable(){
       h.push('<tr data-id="'+r.id+'"'+(r.id===S.selId?' class="sel"':'')+'>');
       for(const c of TCOLS){
         let v=r[c.k],cls=c.n?"num":"";
+        if(c.w) cls+=(cls?" ":"")+"w-"+c.w;
         if(c.k==="conf")cls+=" "+(v==="PASS"?"pass":v==="LOWLOD"||v==="LOWMAPQ"?"lowlod":"nopass");
+        if(c.k==="strand1"||c.k==="strand2"){
+          cls+=" "+(v==="+"?"strand-plus":v==="-"?"strand-minus":"");
+          h.push('<td class="'+cls+'">'+esc(v||"-")+'</td>');
+          continue;
+        }
+        if(c.k==="gtSummary"){
+          const title="Click for genotype and FORMAT field explanations";
+          h.push('<td class="'+cls+' gt-cell" title="'+esc(title)+'">'+esc(v||"")+'</td>');
+          continue;
+        }
+        if(c.k==="igvPos1"||c.k==="igvPos2"){
+          if(v)h.push('<td class="'+cls+'"><a class="igv-link" href="#" data-locus="'+esc(v)+'" title="Click to navigate IGV (requires IGV running on port 60151)">'+esc(v)+'</a></td>');
+          else h.push('<td class="'+cls+'">-</td>');
+          continue;
+        }
         if(c.k==="span")v=r.span===-1?"inter":fN(v);
         else if(typeof v==="number")v=fN(v);
-        h.push('<td class="'+cls+'">'+esc(v)+'</td>');
+        h.push('<td class="'+cls+'" title="'+esc(v||"")+'">'+esc(v)+'</td>');
       }
       h.push('</tr>');
     }
     $("tbody").innerHTML=h.join("");
     $("tbody").querySelectorAll("tr[data-id]").forEach(tr=>{
-      tr.onclick=()=>{S.selId=+tr.dataset.id;rTable();rDetail()};
+      tr.addEventListener("mousedown",e=>{tr._mdx=e.clientX;tr._mdy=e.clientY});
+      tr.onclick=e=>{
+        // don't steal the click if this was a drag-select gesture or user has a non-empty selection
+        const dx=e.clientX-(tr._mdx||e.clientX),dy=e.clientY-(tr._mdy||e.clientY);
+        if(Math.hypot(dx,dy)>4)return;
+        const sel=window.getSelection&&window.getSelection();
+        if(sel&&sel.toString().length>0)return;
+        // allow clicking the IGV link without selecting the row
+        if(e.target&&e.target.closest&&e.target.closest("a.igv-link"))return;
+        // GT cell: open legend popover, don't select the row
+        const gt=e.target&&e.target.closest&&e.target.closest("td.gt-cell");
+        if(gt){e.stopPropagation();showGtLegend(gt);return}
+        S.selId=+tr.dataset.id;rTable();rDetail();
+      };
+    });
+    $("tbody").querySelectorAll("a.igv-link").forEach(a=>{
+      a.addEventListener("click",e=>{
+        e.preventDefault();e.stopPropagation();
+        igvGoto(a.dataset.locus,a);
+      });
     });
   }
   $("pg-info").textContent="Page "+S.pg+"/"+tp+" ("+S.filt.length.toLocaleString()+" rows)";
@@ -472,7 +1066,9 @@ function rTable(){
 /* === Detail === */
 function rDetail(){
   const r=S.filt.find(x=>x.id===S.selId)||S.rows.find(x=>x.id===S.selId);
-  if(!r){$("dp-body").innerHTML='<div class="dp-empty">Click a row</div>';$("dp-locus").textContent="-";return}
+  if(!r){$("dp-body").innerHTML='<div class="dp-empty">Click a row</div>';$("dp-locus").textContent="-";updateR2cPlotBtn();return}
+  // Keep the plot button in sync with the new selection.
+  updateR2cPlotBtn();
   $("dp-locus").textContent=r.chr1+":"+r.pos1+" "+r.strand1+" \u2192 "+r.chr2+":"+r.pos2+" "+r.strand2+" | "+r.eventType+" | "+r.evidence+" | "+r.conf;
 
   const allCols=S.coreCnt>=LEGACY.length+V2.length?LEGACY.concat(V2):LEGACY;
@@ -491,15 +1087,18 @@ function rDetail(){
 
 /* === Charts === */
 function rCharts(){
-  hist("c-somlod",S.filt.map(r=>r.somlod).filter(v=>v!=null&&isFinite(v)),"#6c8cff");
-  hist("c-maxlod",S.filt.map(r=>r.maxlod).filter(v=>v!=null&&isFinite(v)),"#4ade80");
-  bars("c-type",cntBy(S.filt,"eventType"),"#6c8cff");
-  bars("c-conf",cntBy(S.filt,"conf"),"#fbbf24");
-  bars("c-chr",chrCnt(S.filt),"#60a5fa");
+  const som=S.filt.map(r=>r.somlod).filter(v=>v!=null&&isFinite(v));
+  const mx=S.filt.map(r=>r.maxlod).filter(v=>v!=null&&isFinite(v));
+  hist("c-somlod",S.logScale.somlod?som.map(symlog):som,"#6c8cff",S.logScale.somlod);
+  hist("c-maxlod",S.logScale.maxlod?mx.map(symlog):mx,"#4ade80",S.logScale.maxlod);
   hist("c-span",S.filt.map(r=>r.spanAbs).filter(v=>v!=null&&isFinite(v)&&v>0).map(v=>Math.log10(v)),"#a855f7");
+  // Note: Type/Confidence/Chr charts were removed — their info is covered
+  // by the live chip filter bar (which now also shows filter-aware counts)
+  // and by the stats bar. bars() / chrCnt() are kept in the source for
+  // potential future reuse.
 }
 
-function hist(id,vals,color){
+function hist(id,vals,color,isLog){
   const cv=$(id),ctx=cv.getContext("2d"),dpr=devicePixelRatio||1;
   const w=cv.clientWidth,h=cv.clientHeight;cv.width=w*dpr;cv.height=h*dpr;
   ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);
@@ -516,8 +1115,12 @@ function hist(id,vals,color){
   ctx.globalAlpha=1;ctx.strokeStyle="#444";ctx.lineWidth=.5;
   ctx.beginPath();ctx.moveTo(p.l,p.t);ctx.lineTo(p.l,p.t+ph);ctx.lineTo(p.l+pw,p.t+ph);ctx.stroke();
   ctx.fillStyle="#777";ctx.font="9px monospace";ctx.textAlign="center";
-  for(let i=0;i<=3;i++)ctx.fillText((mn+rng*i/3).toFixed(1),p.l+pw*i/3,h-2);
-  ctx.textAlign="right";
+  for(let i=0;i<=3;i++){
+    const tv=mn+rng*i/3;
+    ctx.fillText(isLog?fmtSymlog(tv):tv.toFixed(1),p.l+pw*i/3,h-2);
+  }
+  if(isLog){ctx.textAlign="left";ctx.fillStyle="#6c8cff";ctx.fillText("symlog10",p.l+2,p.t+9)}
+  ctx.fillStyle="#777";ctx.textAlign="right";
   for(let i=0;i<=2;i++)ctx.fillText(Math.round(mxB*i/2).toLocaleString(),p.l-2,p.t+ph-ph*i/2+3);
 }
 
@@ -559,6 +1162,23 @@ function exportTSV(){
 /* === Util === */
 function mNum(s){if(!s||s==="NA"||s==="x"||s==="NOTSET")return null;const v=+s;return isFinite(v)?v:null}
 function nNum(s){if(s===""||s==null)return null;const v=+s;return isFinite(v)?v:null}
+function symlog(v){return Math.sign(v)*Math.log10(1+Math.abs(v))}
+function fmtSymlog(t){const v=Math.sign(t)*(Math.pow(10,Math.abs(t))-1);if(Math.abs(v)>=100)return v.toFixed(0);if(Math.abs(v)>=10)return v.toFixed(1);return v.toFixed(2)}
+function isStdChr(c){return /^([1-9]|1[0-9]|2[0-2]|x|y|m|mt)$/i.test(normC(c))}
+function igvLoc(chr,pos){
+  if(chr==null||chr===""||pos==null||pos===""||!isFinite(+pos))return "";
+  let c=String(chr).replace(/^#/,"");
+  if(!/^chr/i.test(c))c="chr"+c;
+  return c+":"+pos;
+}
+function igvGoto(locus,anchor){
+  if(!locus)return;
+  const url="http://localhost:60151/goto?locus="+encodeURIComponent(locus);
+  // IGV's port is CORS-less; use no-cors so the request fires even though we can't read the response.
+  fetch(url,{mode:"no-cors",cache:"no-store"})
+    .then(()=>{if(anchor){anchor.classList.remove("err");anchor.classList.add("ok");setTimeout(()=>anchor.classList.remove("ok"),600)}})
+    .catch(()=>{if(anchor){anchor.classList.add("err");setTimeout(()=>anchor.classList.remove("err"),1500)}});
+}
 function nRng(v,mn,mx){if(mn==null&&mx==null)return true;if(v==null||!isFinite(v))return false;if(mn!=null&&v<mn)return false;if(mx!=null&&v>mx)return false;return true}
 function nMin(v,mn){if(mn==null)return true;if(v==null||!isFinite(v))return false;return v>=mn}
 function sn(v){if(v===Infinity)return 9e15;if(v==null||Number.isNaN(v))return-9e15;return+v}

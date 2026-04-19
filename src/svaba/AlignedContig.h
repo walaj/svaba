@@ -71,6 +71,18 @@ class AlignedContig {
 
   //! print this contig
   std::string printToAlignmentsFile(const SeqLib::BamHeader& h) const;
+
+  // SvABA2.0: emit the same information as printToAlignmentsFile but in a
+  // structured TSV that can be re-plotted later, rather than pre-plotted into
+  // ASCII. Emits a header line once (via r2cTsvHeader()) and then a "contig"
+  // row followed by one "read" row per r2c-aligned read. See SvabaOutputWriter
+  // for how it's wired, and viewer/bps_explorer.html for the re-plot path.
+  // Rows share a `contig_name` key so reads can be grouped back to their
+  // parent contig without a sorted file.
+  std::string printToR2CTsv(const SeqLib::BamHeader& h) const;
+
+  // Column header for the r2c TSV; call once per file, before any rows.
+  static std::string r2cTsvHeader();
   
   // Return if this contig contains a potential variant (indel or multi-map)
   bool hasVariant() const;

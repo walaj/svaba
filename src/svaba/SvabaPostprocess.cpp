@@ -6,13 +6,28 @@
 //        |
 //        |  (unless --dedup-only)
 //        v
-//   samtools sort -@ jthreads -m MEM -o sorted.bam ${bam}       # shell out
-//   rename sorted.bam -> ${bam}
+//   samtools sort -@ jthreads -m MEM -o *.sort.tmp.bam ${bam}    # shell out
+//   rename *.sort.tmp.bam -> ${bam}
 //        |
 //        |  (if suffix in DEDUP set, unless --sort-only)
 //        v
-//   native streaming dedup+merge  -> deduped.bam                 # htslib
-//   rename deduped.bam -> ${bam}
+//   native streaming dedup+merge  -> *.dedup.tmp.bam             # htslib
+//     (writer uses a header with our @PG line appended)
+//   rename *.dedup.tmp.bam -> ${bam}                             # PG stamped
+//        |
+//        |  (only if dedup didn't run for this suffix)
+//        v
+//   samtools reheader <hdr+PG> ${bam} > *.reheader.tmp.bam       # shell out
+//   rename *.reheader.tmp.bam -> ${bam}                          # PG stamped
+//        |
+//        v
+//   sam_index_build(${bam}, 0)                                   # htslib
+//     → ${bam}.bai
+//
+// Every final ${ID}.${suffix}.bam therefore ends up sorted, deduped (where
+// applicable), carrying an @PG "svaba_postprocess" line chained onto the
+// existing PG chain, and accompanied by a .bai index. The user never has to
+// know the intermediate .postprocess.*.tmp.bam files existed.
 //
 // The dedup step is NOT a straight drop of duplicate (qname, flag) records
 // at a locus: overlapping assembly windows can emit the same read twice
@@ -31,15 +46,19 @@
 
 #include <getopt.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
+#include <algorithm>
 #include <cerrno>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <chrono>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <mutex>
+#include <set>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -47,9 +66,14 @@
 #include <unordered_map>
 #include <vector>
 
+#include "htslib/sam.h"
+
+#include "SeqLib/BamHeader.h"
 #include "SeqLib/BamReader.h"
 #include "SeqLib/BamRecord.h"
 #include "SeqLib/BamWriter.h"
+
+#include "SvabaOptions.h"  // SVABA_VERSION
 
 namespace {
 
@@ -185,6 +209,192 @@ std::string shQuote(const std::string& s) {
   return out;
 }
 
+// Forward decl: defined further down in the "per-suffix pipeline" section.
+// Declared here so the reheader helper below can use std::rename via the same
+// diagnostics-rich wrapper the dedup path uses.
+void renameOrThrow(const std::string& from, const std::string& to);
+
+// ---------- @PG stamping ----------
+//
+// Every final BAM produced by `svaba postprocess` gets a new @PG line stamped
+// onto its header so downstream tools (and humans) can tell at a glance that
+// postprocess ran and with what arguments. The line chains onto the existing
+// @PG chain via PP: so samtools' `--pg` resolution keeps working.
+//
+// Conventions:
+//   ID: "svaba_postprocess" (or ".1", ".2", ... if already present — IDs must
+//       be unique within a header)
+//   PN: "svaba"
+//   VN: SVABA_VERSION
+//   CL: the original argv reassembled, with "svaba " prepended so the CL
+//       matches what the user actually typed
+//   PP: the tail of the existing PG chain (the ID that is nobody's PP pointer)
+
+struct PgChainInfo {
+  std::vector<std::string> ids;   // all @PG IDs, in file order
+  std::string              tail;  // ID that is nobody else's PP (or "" if none)
+};
+
+PgChainInfo scanPgChain(const std::string& hdr_text) {
+  PgChainInfo info;
+  std::set<std::string> is_pp_target;
+  std::istringstream iss(hdr_text);
+  std::string line;
+  while (std::getline(iss, line)) {
+    if (line.rfind("@PG\t", 0) != 0) continue;
+    std::string id, pp;
+    std::istringstream ls(line);
+    std::string field;
+    while (std::getline(ls, field, '\t')) {
+      if      (field.rfind("ID:", 0) == 0) id = field.substr(3);
+      else if (field.rfind("PP:", 0) == 0) pp = field.substr(3);
+    }
+    if (!id.empty()) info.ids.push_back(id);
+    if (!pp.empty()) is_pp_target.insert(pp);
+  }
+  // Tail = an ID that no one else's PP points at. If multiple, take the last
+  // one in file order — matches what samtools reheader/markdup do in practice.
+  for (const auto& id : info.ids) {
+    if (is_pp_target.find(id) == is_pp_target.end()) info.tail = id;
+  }
+  return info;
+}
+
+std::string uniquifyId(const std::string& base,
+                       const std::vector<std::string>& existing) {
+  auto has = [&](const std::string& s) {
+    return std::find(existing.begin(), existing.end(), s) != existing.end();
+  };
+  if (!has(base)) return base;
+  for (int i = 1; i < 10000; ++i) {
+    std::string cand = base + "." + std::to_string(i);
+    if (!has(cand)) return cand;
+  }
+  return base + ".new";  // extremely unreachable fallback
+}
+
+// Strip tab/newline/CR from a value so it can't break @PG line structure.
+std::string sanitizeHeaderValue(const std::string& s) {
+  std::string out;
+  out.reserve(s.size());
+  for (char c : s) {
+    if (c == '\t') out.push_back(' ');
+    else if (c == '\n' || c == '\r') continue;
+    else out.push_back(c);
+  }
+  return out;
+}
+
+// Append a single @PG line to hdr_text. Does not otherwise touch the header.
+std::string appendSvabaPostprocessPg(const std::string& hdr_text,
+                                     const std::string& cl) {
+  const PgChainInfo info = scanPgChain(hdr_text);
+  const std::string id   = uniquifyId("svaba_postprocess", info.ids);
+  const std::string vn   = SVABA_VERSION;
+  const std::string cl_s = sanitizeHeaderValue(cl);
+
+  std::string line = "@PG\tID:" + id + "\tPN:svaba\tVN:" + vn + "\tCL:" + cl_s;
+  if (!info.tail.empty()) line += "\tPP:" + info.tail;
+  line.push_back('\n');
+
+  std::string out = hdr_text;
+  if (!out.empty() && out.back() != '\n') out.push_back('\n');
+  out += line;
+  return out;
+}
+
+// Build a new SeqLib::BamHeader with our @PG line appended onto `src`.
+SeqLib::BamHeader stampedHeader(const SeqLib::BamHeader& src,
+                                const std::string& cl) {
+  return SeqLib::BamHeader(appendSvabaPostprocessPg(src.AsString(), cl));
+}
+
+// Read the header of `bam` (without walking records) and return it as a
+// SeqLib::BamHeader. The BamReader is closed on scope exit.
+SeqLib::BamHeader readHeaderOnly(const std::string& bam) {
+  SeqLib::BamReader r;
+  if (!r.Open(bam))
+    throw std::runtime_error("reheader: cannot open " + bam);
+  return r.Header();
+}
+
+// Use `samtools reheader` to swap in a new header on an existing BAM. Fast
+// because samtools reheader streams the BGZF body as opaque blocks. We use
+// this for the suffixes whose pipeline doesn't already rewrite the file
+// (i.e. `contigs`, or any suffix when --sort-only is passed).
+int reheaderBamWithPg(const std::string& bam,
+                      const std::string& cl,
+                      const std::string& tag,
+                      int verbose) {
+  const std::string tmp_hdr = bam + ".postprocess.hdr.tmp.sam";
+  const std::string tmp_bam = bam + ".postprocess.reheader.tmp.bam";
+
+  try {
+    const SeqLib::BamHeader src = readHeaderOnly(bam);
+    const std::string new_text = appendSvabaPostprocessPg(src.AsString(), cl);
+
+    {
+      std::ofstream ofs(tmp_hdr, std::ios::binary);
+      if (!ofs)
+        throw std::runtime_error("cannot write temp header " + tmp_hdr);
+      ofs << new_text;
+      if (!ofs)
+        throw std::runtime_error("short write on " + tmp_hdr);
+    }
+
+    const std::string cmd = "samtools reheader " + shQuote(tmp_hdr) + " " +
+                            shQuote(bam) + " > " + shQuote(tmp_bam);
+    if (verbose >= 2) logLine("[", tag, "] exec: ", cmd);
+
+    const auto t0 = std::chrono::steady_clock::now();
+    const int rc = std::system(cmd.c_str());
+    const double elapsed =
+        std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+
+    ::unlink(tmp_hdr.c_str());
+
+    if (rc != 0) {
+      ::unlink(tmp_bam.c_str());
+      logLine("[", tag, "] samtools reheader FAILED (exit ", rc, ") after ",
+              std::fixed, std::setprecision(1), elapsed, "s");
+      return rc;
+    }
+
+    renameOrThrow(tmp_bam, bam);
+    if (verbose >= 1)
+      logLine("[", tag, "] PG stamped via reheader in ",
+              std::fixed, std::setprecision(1), elapsed, "s");
+    return 0;
+  } catch (const std::exception& e) {
+    ::unlink(tmp_hdr.c_str());
+    ::unlink(tmp_bam.c_str());
+    logLine("[", tag, "] reheader error: ", e.what());
+    return -1;
+  }
+}
+
+// ---------- BAI indexing ----------
+
+// Build a .bai alongside `bam`. Uses htslib directly rather than shelling out
+// to `samtools index` — one less fork, and we're already linked against
+// htslib through SeqLib. `sam_index_build(fn, 0)` emits BAI; min_shift > 0
+// would emit CSI (which svaba's consumers don't expect).
+int indexBam(const std::string& bam, const std::string& tag, int verbose) {
+  const auto t0 = std::chrono::steady_clock::now();
+  const int rc = sam_index_build(bam.c_str(), 0);
+  const double elapsed =
+      std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+  if (rc < 0) {
+    logLine("[", tag, "] indexing FAILED (sam_index_build rc=", rc, ") after ",
+            std::fixed, std::setprecision(2), elapsed, "s");
+    return rc;
+  }
+  if (verbose >= 1)
+    logLine("[", tag, "] indexed (.bai) in ",
+            std::fixed, std::setprecision(2), elapsed, "s");
+  return 0;
+}
+
 // ---------- sort step ----------
 
 // Run samtools sort on in_bam producing out_bam. Returns process exit code.
@@ -305,6 +515,7 @@ bool mergeZTagInto(SeqLib::BamRecord& existing,
 // only blow up transiently.
 DedupStats streamDedup(const std::string& in_bam,
                        const std::string& out_bam,
+                       const SeqLib::BamHeader& out_hdr,
                        const std::string& tag,
                        int verbose) {
   using clock = std::chrono::steady_clock;
@@ -320,7 +531,10 @@ DedupStats streamDedup(const std::string& in_bam,
   SeqLib::BamWriter w;
   if (!w.Open(out_bam))
     throw std::runtime_error("dedup: cannot open output " + out_bam);
-  w.SetHeader(r.Header());
+  // Use the caller-supplied header (which already carries our @PG stamp)
+  // rather than blindly mirroring the reader's — that's how postprocess
+  // marks its output without a separate reheader pass for dedup suffixes.
+  w.SetHeader(out_hdr);
   if (!w.WriteHeader())
     throw std::runtime_error("dedup: cannot write header " + out_bam);
 
@@ -463,38 +677,67 @@ bool isDedupSuffix(const std::string& s) {
   return false;
 }
 
-// Run the full sort + dedup pipeline for a single suffix. Safe to invoke
-// from its own thread. Never throws out — caller joins; any failure is
-// logged and the pipeline aborts for this suffix only.
+// Run the full sort + dedup + reheader + index pipeline for a single suffix.
+// Safe to invoke from its own thread. Never throws out — caller joins; any
+// failure is logged and the pipeline aborts for this suffix only.
+//
+// End state on success: the file at ${id}.${suffix}.bam is the final output,
+// coord-sorted, dedup-collapsed (for dedup-eligible suffixes), @PG-stamped,
+// and accompanied by a ${id}.${suffix}.bam.bai index. All intermediate
+// filenames use a .postprocess.*.tmp.bam suffix so anything left behind on
+// failure is obviously transient and trivially cleanable.
 void processSuffix(const std::string& id,
                    const std::string& suffix,
                    int  per_job_threads,
                    const std::string& mem,
                    bool do_sort,
                    bool do_dedup,
+                   const std::string& cl,
                    int  verbose) {
-  const std::string bam     = id + "." + suffix + ".bam";
-  const std::string sorted  = id + "." + suffix + ".sorted.bam";
-  const std::string deduped = id + "." + suffix + ".deduped.bam";
+  const std::string bam       = id + "." + suffix + ".bam";
+  // Intermediate temp files. Named so there's no ambiguity about the step
+  // that produced them — anything matching .postprocess.*.tmp.bam is safe
+  // to remove after the run is done.
+  const std::string sort_tmp  = id + "." + suffix + ".postprocess.sort.tmp.bam";
+  const std::string dedup_tmp = id + "." + suffix + ".postprocess.dedup.tmp.bam";
+
+  auto cleanup_tmps = [&]() {
+    ::unlink(sort_tmp.c_str());
+    ::unlink(dedup_tmp.c_str());
+  };
 
   if (!fileExists(bam)) {
     logLine("[", suffix, "] skipping: ", bam, " not found");
     return;
   }
 
+  bool pg_stamped = false;
+
   try {
+    // --- Sort -----------------------------------------------------------
     if (do_sort) {
-      const int rc = runSort(bam, sorted, per_job_threads, mem, suffix, verbose);
+      const int rc = runSort(bam, sort_tmp, per_job_threads, mem, suffix, verbose);
       if (rc != 0)
         throw std::runtime_error("samtools sort exited " + std::to_string(rc));
-      renameOrThrow(sorted, bam);
+      renameOrThrow(sort_tmp, bam);
     }
 
+    // --- Dedup (also stamps PG on the way) ------------------------------
     if (do_dedup && isDedupSuffix(suffix)) {
       if (verbose >= 1)
         logLine("[", suffix, "] starting dedup on ", bam);
-      const DedupStats ds = streamDedup(bam, deduped, suffix, verbose);
-      renameOrThrow(deduped, bam);
+
+      // Read the current header, append our @PG line, and hand the stamped
+      // header to the writer. This is free — dedup is already rewriting the
+      // file, so we avoid a separate reheader pass.
+      const SeqLib::BamHeader stamped =
+          stampedHeader(readHeaderOnly(bam), cl);
+
+      const DedupStats ds =
+          streamDedup(bam, dedup_tmp, stamped, suffix, verbose);
+      renameOrThrow(dedup_tmp, bam);
+      pg_stamped = true;
+
       logLine("[", suffix, "] dedup complete: ",
               ds.in_records, " in, ",
               ds.kept, " kept, ",
@@ -508,14 +751,36 @@ void processSuffix(const std::string& id,
       if (verbose >= 2)
         logLine("[", suffix, "] dedup skipped (not a dedup suffix)");
     }
+
+    // --- Reheader to stamp @PG for any suffix that didn't go through -----
+    // --- dedup (e.g. `contigs`, or anything under --sort-only)    -----
+    if (!pg_stamped) {
+      const int rc = reheaderBamWithPg(bam, cl, suffix, verbose);
+      if (rc != 0)
+        throw std::runtime_error("reheader failed with rc " + std::to_string(rc));
+    }
+
+    // --- Index ----------------------------------------------------------
+    // Index last so the .bai matches the BGZF offsets of the final file.
+    // Any earlier index would be invalidated by the dedup/reheader rewrite.
+    (void) indexBam(bam, suffix, verbose);
+
   } catch (const std::exception& e) {
     logLine("[", suffix, "] ERROR: ", e.what());
+    cleanup_tmps();
   }
 }
 
 }  // namespace
 
 void runPostprocess(int argc, char** argv) {
+  // Reconstruct the invocation string for the @PG CL: tag BEFORE parseOpts
+  // consumes argv via getopt_long. We prepend "svaba" so the CL in the
+  // final BAM headers reads as the user actually typed it (the dispatch in
+  // svaba.cpp strips the "svaba" token before calling us).
+  std::string cl = "svaba";
+  for (int i = 0; i < argc; ++i) { cl.push_back(' '); cl += argv[i]; }
+
   const Opts o = parseOpts(argc, argv);
 
   // Pick active suffixes — only the ones whose BAM actually exists. No point
@@ -575,10 +840,13 @@ void runPostprocess(int argc, char** argv) {
         o.mem,
         /*do_sort=*/  !o.dedup_only,
         /*do_dedup=*/ !o.sort_only,
+        cl,
         o.verbose);
   }
   for (auto& t : workers) t.join();
 
   if (o.verbose >= 1)
-    std::cerr << "svaba postprocess: all suffixes done" << std::endl;
+    std::cerr << "svaba postprocess: all suffixes done (sorted"
+              << (o.sort_only ? "" : ", deduped where applicable")
+              << ", PG-stamped, indexed)" << std::endl;
 }

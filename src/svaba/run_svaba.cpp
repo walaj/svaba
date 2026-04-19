@@ -249,6 +249,48 @@ void runsvaba(int argc, char** argv) {
   // parse the region file, count number of jobs
   SeqLib::GRC regionsToRun;
   loader.countJobs(regionsToRun);
+
+  // SvABA2.0: drop any queued region that is 100% covered by the blacklist.
+  // svaba already filters reads by blacklist *inside* each region (see
+  // SvabaRegionProcessor.cpp:74), so a chunk that sits entirely in a
+  // blacklisted contig (e.g. the chrUn / *_decoy / *_alt contigs in the
+  // nonstd_chr blacklist) would otherwise still get its full region
+  // pipeline run — open the BAM walker, learn params, attempt local
+  // assembly on a stream of reads that all get dropped — just to produce
+  // zero callable bases. Net behavior is unchanged; this is pure
+  // optimization of the queue.
+  //
+  // The blacklist has had MergeOverlappingIntervals() + CreateTreeMap()
+  // called already (a few lines above), so FindOverlapWidth is an O(k log n)
+  // tree walk over the blacklist intervals that touch each region. Runs
+  // once, pre-queue, so it's off the critical path.
+  if (!sc.blacklist.empty() && regionsToRun.size() > 0) {
+    SeqLib::GRC kept;
+    size_t dropped_n  = 0;
+    size_t dropped_bp = 0;
+    for (const auto& r : regionsToRun) {
+      const int w = r.Width();
+      if (w > 0 &&
+          static_cast<int>(sc.blacklist.FindOverlapWidth(r, /*ignore_strand=*/true)) >= w) {
+        ++dropped_n;
+        dropped_bp += static_cast<size_t>(w);
+        continue;
+      }
+      kept.add(r);
+    }
+    if (dropped_n > 0) {
+      logger.log(true, true,
+        "...pruned ", SeqLib::AddCommas(dropped_n), " of ",
+        SeqLib::AddCommas(regionsToRun.size()),
+        " queued regions (", SeqLib::AddCommas(dropped_bp),
+        " bp) that were 100% covered by the blacklist");
+      regionsToRun = std::move(kept);
+      // No runtime.txt line will be emitted for a pruned region; the
+      // accounting in sc.total_regions_to_process below reflects what
+      // actually gets queued.
+    }
+  }
+
   sc.total_regions_to_process = regionsToRun.size();
   if (sc.total_regions_to_process < opts.numThreads) {
     opts.numThreads = sc.total_regions_to_process;

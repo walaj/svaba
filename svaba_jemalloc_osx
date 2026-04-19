@@ -1,1 +1,0 @@
-export DYLD_INSERT_LIBRARIES=/opt/homebrew/opt/jemalloc/lib/libjemalloc.dylib
