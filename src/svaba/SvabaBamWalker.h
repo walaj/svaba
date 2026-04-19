@@ -1,0 +1,149 @@
+#pragma once
+
+#include <vector>
+#include <sstream>
+#include <unordered_map>
+#include <unordered_set>
+//#include "malloc.h" //debug
+
+#include "SeqLib/BamReader.h"
+#include "SeqLib/ReadFilter.h"
+#include "STCoverage.h"
+#include "SeqLib/BWAAligner.h"
+#include "DiscordantRealigner.h"
+
+#include "SeqLib/BFC.h"
+
+class svabaThreadUnit;
+class SvabaSharedConfig;
+
+// storage container for mate lookup-regions
+class MateRegion: public SeqLib::GenomicRegion
+{
+ public:
+  MateRegion() {}
+  MateRegion (int32_t c, uint32_t p1, uint32_t p2, char s = '*') : SeqLib::GenomicRegion(c, p1, p2, s) {}
+  size_t count = 0;// read count
+  SeqLib::GenomicRegion partner;
+
+};
+
+typedef SeqLib::GenomicRegionCollection<MateRegion> MateRegionVector;
+
+class svabaBamWalker: public SeqLib::BamReader {
+  
+ public:
+  
+  svabaBamWalker(SvabaSharedConfig& sc_);
+
+  // read in the reads
+  SeqLib::GRC readBam(svabaThreadUnit& unit); 
+
+  // clear it out
+  void clear() { 
+    cov.clear();
+    weird_cov.clear();
+    
+    bfc.ClearReads();
+    cigmap.clear();
+    
+    mate_regions.clear();
+    reads.clear();
+    
+    get_coverage = true;
+    get_mate_regions = true;
+    
+    local_blacklist.clear();
+
+    //malloc_trim(0);//debug
+  }
+
+  void AddBackReadsToCorrect();
+  
+  //
+  void Train();
+
+  void ErrorCorrect();
+
+  void ClearTraining();
+  
+  // set the id for this bam e.g. t001
+  void SetPrefix(std::string_view pref) { prefix_ = pref; }
+  
+  void RealignDiscordants(svabaThreadUnit& unit);
+  
+  ///bool hasAdapter(const SeqLib::BamRecord& r) const;
+  
+  void addCigar(const svabaReadPtr& r);
+  
+  //bool isDuplicate(const SeqLib::BamRecord &r);
+  
+  void subSampleToWeirdCoverage(double max_coverage);
+  
+  void calculateMateRegions();
+
+  void TagDiscordant(svabaReadPtr& r);
+  
+  // should we store the mate regions?
+  bool get_mate_regions = true;
+
+  // place to store reads when we get them
+  svabaReadPtrVector reads; //c
+
+  // cov is the all-read coverage tracker
+  // weird-cov just tracks coverage of accepted (clip, disc, etc reads)
+  // buffered cov is coverage minus first 8 and last 8 bp. Why?
+  //    because when looking for variant-supporting reads, we require
+  //    alignment of a read to the variant to overlap it by 8 bp
+  //    to reduce false-positive alt reads. So we use the buffered
+  //    coverage to compare against this buffered alt cov.
+  STCoverage cov, weird_cov; //c
+
+  // hash of cigars for indels
+  SeqLib::CigarMap cigmap; //c
+
+  // mate regions to lookup
+  MateRegionVector mate_regions; //c
+
+  // object for realigning discordant reads
+  DiscordantRealigner discordantRealigner; //c
+  
+  // maximum coverage of accepted reads, before subsampling
+  size_t max_cov = 100;
+
+  // should we keep reads for learning correction 
+  double kmer_subsample = 0.5;
+  
+  // should we subsample the learning reads?
+  bool do_kmer_filtering = true;
+
+  // should we get the read coverage
+  bool get_coverage = true;
+
+  // set a hard limit on how many reads to accept
+  size_t m_limit = 0;
+
+  // an extra learned region-specific blacklist
+  SeqLib::GRC local_blacklist;
+  
+  SeqLib::BFC bfc;
+
+ private:
+
+  // for setting the SR tag
+  std::string prefix_; // eg. tumor, normal
+
+  // might want these in case we are looking for duplicates
+  //std::unordered_set<std::string> seq_set; //c
+
+  // seed for the kmer-learning subsampling
+  uint32_t m_seed = 1337;
+
+  // for logging to console, options etc
+  SvabaSharedConfig& sc;
+
+  // cache RG cutoffs so don't have to recalculate
+  std::unordered_map<std::string, int> isize_cutoff_per_rg;
+  
+  
+};
