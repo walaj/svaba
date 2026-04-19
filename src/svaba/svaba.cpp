@@ -14,7 +14,7 @@
 #include <string_view>
 #include "SvabaOptions.h"
 
-//void runToVCF(int argc, char** argv);
+void runToVCF(int argc, char** argv);
 void runsvaba(int argc, char** argv);
 void runRefilterBreakpoints(int argc, char** argv);
 void runPostprocess(int argc, char** argv);
@@ -33,7 +33,7 @@ static void printUsage() {
               << "  run          Run SV and indel detection on BAM(s)\n"
               << "  refilter     Re-run LOD/PASS filtering on an existing bps.txt.gz\n"
               << "  postprocess  Sort + streaming-dedup per-suffix output BAMs\n"
-      //        << "  tovcf        Convert bps.txt.gz into a VCF\n\n"
+              << "  tovcf        Convert a deduped bps.txt.gz into VCFv4.5 output\n\n"
               << "Report bugs to jeremiah.wala@gmail.com\n";
 }
 
@@ -59,9 +59,9 @@ int main(int argc, char* argv[]) {
     else if (cmd == "postprocess") {
         return (runPostprocess(argc - 1, argv + 1), EXIT_SUCCESS);
     }
-    // else if (cmd == "tovcf") {
-    //     return (runToVCF(argc - 1, argv + 1), EXIT_SUCCESS);
-    // }
+    else if (cmd == "tovcf") {
+        return (runToVCF(argc - 1, argv + 1), EXIT_SUCCESS);
+    }
     else {
         std::cerr << "Unknown command: " << cmd << "\n\n";
         printUsage();

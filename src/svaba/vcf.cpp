@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cmath>       // std::lround (QUAL phred-rescaling)
 #include <cstdint>
 #include <cstdlib>
 #include <fstream>
@@ -219,6 +220,13 @@ std::string VCFEntry::getAltString(const SeqLib::BamHeader& header) const {
     return bp->alt;
   }
 
+  // SvABA2.0: symbolic SV emission for SvFormat::SYMBOLIC_WHEN_OBVIOUS.
+  // The writer classifies each pair before calling; when symbolic_rep
+  // is set we emit `<DEL>` / `<DUP>` / `<INV>` as the single-record ALT
+  // and rely on END / SVLEN / SVTYPE INFO to describe the event.
+  if (symbolic_rep)
+    return "<" + symbolic_kind + ">";
+
   // SV breakends get the BND-style `N]chr:pos]` mate notation.
   const std::string ref = getRefString();
 
@@ -261,9 +269,55 @@ std::unordered_map<std::string, std::string> VCFEntry::fillInfoFields() const {
   info["SPAN"] = std::to_string(bp->getSpan());
   info["SCTG"] = bp->cname;
 
+  // SvABA2.0: common per-record metadata, populated for both SVs and
+  // indels so downstream filters don't need to condition on shape.
+  if (bp->somatic == SomaticState::SOMATIC_LOD)
+    info["SOMATIC"] = "";   // flag
+
+  if (!bp->id.empty())
+    info["EVENT"] = bp->id; // v3 bp_id (col 52 of bps.txt)
+
+  {
+    std::stringstream ss; ss << std::setprecision(4) << bp->max_lod;
+    info["MAXLOD"] = ss.str();
+  }
+  {
+    std::stringstream ss; ss << std::setprecision(4) << bp->LO_s;
+    info["SOMLOD"] = ss.str();
+  }
+
   if (bp->svtype != SVType::INDEL) {
     info["EVDNC"]  = svtype_to_string(bp->svtype);
-    info["SVTYPE"] = "BND";
+
+    // SvABA2.0: SVTYPE is either BND (paired-breakend notation) or a
+    // symbolic type (DEL/DUP/INV) when the writer has opted into
+    // symbolic alleles and this record qualifies. symbolic_rep /
+    // symbolic_kind are set by writeSvsSingleFile before toFileString
+    // runs; when they're unset we fall back to legacy BND.
+    if (symbolic_rep) {
+      info["SVTYPE"] = symbolic_kind;  // "DEL" / "DUP" / "INV"
+      // For symbolic alleles we must set END (SV end position) and
+      // SVLEN (positive for INS/DUP, negative for DEL; absolute length
+      // for INV because the inverted segment length is what matters).
+      const int pos1_1idx = bp->b1.gr.pos1 + 1;
+      const int pos2_1idx = bp->b2.gr.pos1 + 1;
+      const int end_pos   = std::max(pos1_1idx, pos2_1idx);
+      const int length    = std::abs(pos2_1idx - pos1_1idx);
+      info["END"] = std::to_string(end_pos);
+      if      (symbolic_kind == "DEL") info["SVLEN"] = std::to_string(-length);
+      else                              info["SVLEN"] = std::to_string(length);
+      // svaba uses primarily junction evidence (+ optional depth via
+      // discordant pairs). "J" is the honest claim for assembly-only,
+      // "DJ" for ASDIS (assembly+discordant). DSCRD-only is rare for
+      // symbolic-eligible intrachrom events but we'd emit "D" there.
+      if      (bp->svtype == SVType::ASSMB) info["SVCLAIM"] = "J";
+      else if (bp->svtype == SVType::ASDIS) info["SVCLAIM"] = "DJ";
+      else if (bp->svtype == SVType::DSCRD) info["SVCLAIM"] = "D";
+      else                                   info["SVCLAIM"] = "J";
+    } else {
+      info["SVTYPE"]  = "BND";
+      info["SVCLAIM"] = "J";
+    }
   }
 
   if (!bp->repeat_seq.empty())
@@ -320,7 +374,8 @@ std::unordered_map<std::string, std::string> VCFEntry::fillInfoFields() const {
   return info;
 }
 
-std::string VCFEntry::toFileString(const SeqLib::BamHeader& header) const {
+std::string VCFEntry::toFileString(const SeqLib::BamHeader& header,
+                                   QualMode qual_mode) const {
 
   std::stringstream out;
 
@@ -344,18 +399,68 @@ std::string VCFEntry::toFileString(const SeqLib::BamHeader& header) const {
   if (!info.empty())
     info.pop_back(); // trim trailing ';'
 
-  const BreakEnd* be = (id_num == 1) ? &bp->b1 : &bp->b2;
-  const char sep = '\t';
+  // SvABA2.0: pick QUAL representation. Legacy (SUM_LO_PHRED) keeps
+  // exactly the pre-2.0 behavior by passing bp->quality through; the
+  // two new modes are for the `svaba tovcf` path, where the canonical
+  // confidence lives in INFO/MAXLOD / INFO/SOMLOD and writing the sum-
+  // of-LOs Phred into QUAL just invites confused downstream filters.
+  std::string qual_str;
+  switch (qual_mode) {
+    case QualMode::MISSING:
+      qual_str = ".";
+      break;
+    case QualMode::MAXLOD_PHRED: {
+      // maxlod is already log10 — scale by 10 for Phred and cap at 99
+      // to stay inside the conventional VCF QUAL range.
+      const double v = std::max(0.0, bp->max_lod);
+      const long   p = std::lround(10.0 * v);
+      qual_str = std::to_string(std::min<long>(p, 99));
+      break;
+    }
+    case QualMode::SUM_LO_PHRED:
+    default:
+      qual_str = std::to_string(bp->quality);
+      break;
+  }
 
-  out << be->gr.ChrName(header) << sep
-      << be->gr.pos1             << sep
+  // For symbolic SV records, POS is the lower of the two breakend
+  // positions (the event's 5' anchor); the INFO/END field carries the
+  // other boundary. For BND records, POS is just the breakend this
+  // entry represents (legacy behavior).
+  int pos;
+  std::string chr_name;
+  if (symbolic_rep) {
+    const int p1 = bp->b1.gr.pos1;
+    const int p2 = bp->b2.gr.pos1;
+    pos      = std::min(p1, p2);
+    // Both breakends live on the same chrom when symbolic; use b1's.
+    chr_name = bp->b1.gr.ChrName(header);
+  } else {
+    const BreakEnd* be = (id_num == 1) ? &bp->b1 : &bp->b2;
+    pos      = be->gr.pos1;
+    chr_name = be->gr.ChrName(header);
+  }
+
+  const char sep = '\t';
+  out << chr_name               << sep
+      << pos                     << sep
       << getIdString()           << sep
       << getRefString()          << sep
       << getAltString(header)    << sep
-      << bp->quality             << sep
+      << qual_str                << sep
       << bp->confidence          << sep
       << info                    << sep
       << (bp->svtype == SVType::INDEL ? kIndelFormat : kSvFormat);
+
+  // SvABA2.0: per-sample columns (VCF column 10+). Iterating bp->allele
+  // in-order is deterministic because SampleInfo is stored in a
+  // std::map keyed by the 4-char bam prefix (n001, t001, ...). The
+  // header's `colnames` must list samples in the same order for the
+  // VCF to be well-formed — callers that build the header from the
+  // bps.txt.gz row-0 sample list implicitly match this ordering.
+  for (const auto& [_, al] : bp->allele) {
+    out << sep << al.toFileString(bp->svtype);
+  }
 
   return out.str();
 }
@@ -405,10 +510,14 @@ VCFEntryPair::VCFEntryPair(std::shared_ptr<BreakPoint>& b) {
   e2.id = hashed;
 }
 
-std::string VCFEntryPair::toFileString(const SeqLib::BamHeader& header) const {
+std::string VCFEntryPair::toFileString(const SeqLib::BamHeader& header,
+                                       QualMode qual_mode) const {
   std::stringstream out;
-  out << e1.toFileString(header) << '\n';
-  out << e2.toFileString(header) << '\n';
+  // If e1 is marked symbolic_rep, only emit it (single-record SV event).
+  // Otherwise emit both breakends as a paired BND event.
+  out << e1.toFileString(header, qual_mode) << '\n';
+  if (!e1.symbolic_rep)
+    out << e2.toFileString(header, qual_mode) << '\n';
   return out.str();
 }
 
@@ -468,6 +577,15 @@ void populate_sv_header(VCFHeader& h) {
   h.addInfoField("SPAN",      "1", "Integer", "Distance between the breakpoints. -1 for interchromosomal");
   h.addInfoField("DISC_MAPQ", "1", "Integer", "Mean mapping quality of discordant reads mapped here");
 
+  // SvABA2.0 (v3): VCF 4.5-aligned SV INFO fields.
+  h.addInfoField("SOMATIC",   "0", "Flag",    "Somatic call per svaba's somatic LOD model (see BreakPoint::score_somatic)");
+  h.addInfoField("EVENT",     "1", "String",  "ID of the SV event this breakend belongs to. Paired BND records share the same EVENT; a symbolic SV is its own event. Populated from BreakPoint::id (col 52 of bps.txt) when available.");
+  h.addInfoField("END",       "1", "Integer", "End position for symbolic alleles (<DEL>/<DUP>/<INV>). Not set for BND.");
+  h.addInfoField("SVLEN",     "1", "Integer", "Length of the SV in bp. Negative for deletions. Only set on symbolic alleles.");
+  h.addInfoField("SVCLAIM",   "1", "String",  "Evidence type supporting the SV call, per VCFv4.5: J=junction-level (split/assembly), D=depth, DJ=both.");
+  h.addInfoField("MAXLOD",    "1", "Float",   "Maximum per-sample log-odds (variant vs error) across all samples (see BreakPoint::max_lod)");
+  h.addInfoField("SOMLOD",    "1", "Float",   "Somatic log-odds (LLR of somatic vs non-somatic; see SvabaModels::SomaticLOD)");
+
   // FORMATs (SV)
   h.addFormatField("GT",   "1", "String",  "Most likely genotype");
   h.addFormatField("AD",   "1", "Integer", "Allele depth: Number of reads supporting the variant");
@@ -504,6 +622,14 @@ void populate_indel_header(VCFHeader& h) {
   h.addInfoField("DBSNP",    "0", "Flag",    "Variant found in dbSNP");
   h.addInfoField("LOD",      "1", "Float",   "Log of the odds that variant is real vs artifact");
 
+  // SvABA2.0 (v3): VCF 4.5-aligned indel INFO fields.
+  h.addInfoField("SOMATIC",  "0", "Flag",    "Somatic indel per svaba's somatic LOD model");
+  h.addInfoField("EVENT",    "1", "String",  "Stable indel identifier (populated from BreakPoint::id when available)");
+  h.addInfoField("SVTYPE",   "1", "String",  "INS / DEL for indels emitted with explicit SVTYPE");
+  h.addInfoField("SVLEN",    "1", "Integer", "Length of the indel (negative for deletions)");
+  h.addInfoField("MAXLOD",   "1", "Float",   "Maximum per-sample log-odds (variant vs error) across samples");
+  h.addInfoField("SOMLOD",   "1", "Float",   "Somatic log-odds (LLR of somatic vs non-somatic)");
+
   // FORMATs (indel)
   h.addFormatField("GT",   "1", "String",  "Most likely genotype");
   h.addFormatField("AD",   "1", "Integer", "Allele depth: Number of reads supporting the variant");
@@ -523,12 +649,14 @@ VCFFile::VCFFile(std::string              file,
                  const SvabaSharedConfig& sc,
                  const VCFHeader&         vheader,
                  bool                     nopass,
-                 bool                     m_verbose) {
+                 bool                     m_verbose,
+                 bool                     skip_dedup_in_ctor) {
 
   filename        = file;
   analysis_id     = id;
   verbose         = m_verbose;
   include_nonpass = nopass;
+  skip_dedup      = skip_dedup_in_ctor;  // captured before ctor's deduplicate() runs
 
   // Seed both headers from the caller-provided base (which carries contig
   // and sample field lines), then layer on the SV- and indel-specific
@@ -624,6 +752,18 @@ class GenomicRegionWithID : public SeqLib::GenomicRegion {
 } // namespace
 
 void VCFFile::deduplicate(const SeqLib::BamHeader& header) {
+
+  // SvABA2.0: `svaba tovcf` receives a bps.txt.gz that has already been
+  // sorted + deduped by scripts/svaba_postprocess.sh (step 3). Rerunning
+  // the internal paired-interval-tree dedup on that input is wasted work
+  // and can introduce its own collisions via the high-overlap blacklist
+  // logic below. Short-circuit when the caller opts in.
+  if (skip_dedup) {
+    if (verbose)
+      std::cerr << "...vcf - skip_dedup set, bypassing internal dedupe\n";
+    return;
+  }
+
 
   // Build separate interval trees for left (b1) and right (b2) breakends.
   SeqLib::GenomicRegionCollection<GenomicRegionWithID> grv1;
@@ -865,5 +1005,137 @@ void VCFFile::writeSVs(std::string              basename,
     if (!r.bp->pass && !include_nonpass)
       continue;
     out << r.toFileString(header) << '\n';
+  }
+}
+
+// ===========================================================================
+// SvABA2.0: symbolic-allele classifier + single-file writers (tovcf path).
+// ===========================================================================
+
+namespace {
+
+// Classify a BreakPoint pair to decide whether it can be emitted as a
+// single symbolic-allele record (<DEL>/<DUP>/<INV>) instead of two paired
+// BND records. Conservative:
+//   - both breakends must live on the same chromosome
+//   - INDEL records keep their existing REF/ALT shape (not this path)
+//   - strand pattern determines the symbolic kind:
+//       +/+  or  -/-  -> <DEL>
+//       -/+            -> <DUP>
+//       +/-            -> <INV>
+//   - anything ambiguous / inter-chrom falls through to BND.
+// Returns empty string when the pair should stay as paired BND.
+std::string classify_symbolic_kind(const BreakPoint& bp) {
+  if (bp.svtype == SVType::INDEL)        return "";
+  if (bp.b1.gr.chr != bp.b2.gr.chr)      return "";
+  const char s1 = bp.b1.gr.strand;
+  const char s2 = bp.b2.gr.strand;
+  if (s1 == '+' && s2 == '+')            return "DEL";
+  if (s1 == '-' && s2 == '-')            return "DEL";
+  if (s1 == '-' && s2 == '+')            return "DUP";
+  if (s1 == '+' && s2 == '-')            return "INV";
+  return "";
+}
+
+// Sort key used by the single-file writers: for a BND entry use its
+// represented breakend; for a symbolic entry use the lower of the two
+// endpoints (matching VCF convention for the POS of a symbolic SV).
+bool entry_lt_for_output(const VCFEntry& a, const VCFEntry& b) {
+  const BreakEnd* ba = a.symbolic_rep
+      ? (a.bp->b1.gr.pos1 < a.bp->b2.gr.pos1 ? &a.bp->b1 : &a.bp->b2)
+      : (a.id_num == 1 ? &a.bp->b1 : &a.bp->b2);
+  const BreakEnd* bb = b.symbolic_rep
+      ? (b.bp->b1.gr.pos1 < b.bp->b2.gr.pos1 ? &b.bp->b1 : &b.bp->b2)
+      : (b.id_num == 1 ? &b.bp->b1 : &b.bp->b2);
+  return ba->gr < bb->gr;
+}
+
+// Open path for writing (gzipped or plain). Returns empty unique_ptr on
+// failure, with the error already logged to stderr.
+std::unique_ptr<std::ostream> open_vcf_out(const std::string& path, bool gzip) {
+  if (gzip) {
+    auto g = std::make_unique<ogzstream>(path.c_str(), std::ios::out);
+    if (!g->good()) {
+      std::cerr << "vcf: failed to open " << path << " for writing\n";
+      return {};
+    }
+    return g;
+  }
+  auto f = std::make_unique<std::ofstream>(path);
+  if (!f->good()) {
+    std::cerr << "vcf: failed to open " << path << " for writing\n";
+    return {};
+  }
+  return f;
+}
+
+} // namespace
+
+void VCFFile::writeSvsSingleFile(const std::string&       path,
+                                 bool                     gzip,
+                                 const SeqLib::BamHeader& header) const {
+
+  auto out_owner = open_vcf_out(path, gzip);
+  if (!out_owner) return;
+  std::ostream& out = *out_owner;
+
+  out << sv_header << '\n';
+
+  // Build the emit list. For each pair:
+  //   - skip dups (if dedup ran)
+  //   - classify symbolic eligibility when sv_format == SYMBOLIC_WHEN_OBVIOUS
+  //   - emit one e1 (symbolic) or two (BND) entries into rows
+  VCFEntryVec rows;
+  rows.reserve(entry_pairs.size() * 2);
+  for (const auto& kv : entry_pairs) {
+    if (dups.count(kv.first)) continue;
+
+    VCFEntryPair pair_copy = *kv.second;  // shallow copy to stamp symbolic_rep
+    if (sv_format == SvFormat::SYMBOLIC_WHEN_OBVIOUS) {
+      const std::string kind = classify_symbolic_kind(*pair_copy.bp);
+      if (!kind.empty()) {
+        pair_copy.e1.symbolic_rep  = true;
+        pair_copy.e1.symbolic_kind = kind;
+        rows.push_back(pair_copy.e1);
+        continue;
+      }
+    }
+    rows.push_back(pair_copy.e1);
+    rows.push_back(pair_copy.e2);
+  }
+
+  std::sort(rows.begin(), rows.end(), entry_lt_for_output);
+
+  for (const auto& r : rows) {
+    if (!r.bp->pass && !include_nonpass)
+      continue;
+    out << r.toFileString(header, qual_mode) << '\n';
+  }
+}
+
+void VCFFile::writeIndelsSingleFile(const std::string&       path,
+                                    bool                     gzip,
+                                    const SeqLib::BamHeader& header) const {
+
+  auto out_owner = open_vcf_out(path, gzip);
+  if (!out_owner) return;
+  std::ostream& out = *out_owner;
+
+  out << indel_header << '\n';
+
+  // Indels are always a single REF/ALT record per event (no BND pair),
+  // so this is simpler than the SV path: collect e1 of every indel,
+  // sort, emit.
+  VCFEntryVec rows;
+  rows.reserve(indels.size());
+  for (const auto& kv : indels)
+    rows.push_back(kv.second->e1);
+
+  std::sort(rows.begin(), rows.end());
+
+  for (const auto& r : rows) {
+    if (!r.bp->pass && !include_nonpass)
+      continue;
+    out << r.toFileString(header, qual_mode) << '\n';
   }
 }

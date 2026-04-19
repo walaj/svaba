@@ -261,6 +261,75 @@ Gotcha: `zcat` on macOS is BSD zcat (looks for `.Z`), not GNU. This script
 uses `gzip -dc` everywhere for portability — if you add a new decompression
 step, do the same or it'll fail on Mac.
 
+## `svaba tovcf` subcommand
+
+Standalone converter: pre-deduplicated `bps.txt.gz` → two VCFv4.5 files
+(`${id}.sv.vcf.gz` + `${id}.indel.vcf.gz`). Lives in `src/svaba/tovcf.cpp`;
+dispatch wired into `src/svaba/svaba.cpp`. Runs the VCFFile parser with
+`skip_dedup=true` because the postprocess pipeline has already sorted
+and deduplicated the bps.txt.gz upstream — the internal interval-tree
+dedup would just be wasted work and can spuriously dup things via its
+SV-pileup blacklist.
+
+Design calls made (see `docs/vcf-design-decisions.md` if created; for
+now this is the reference):
+
+- **VCF spec:** declares `##fileformat=VCFv4.5` (latest formal spec,
+  Oct 2024). Backwards-compatible at the record level with anything
+  that accepts 4.2+.
+- **File structure:** one SV VCF + one indel VCF per sample-set. Every
+  record (somatic + germline) goes into both files; somatic rows carry
+  the `SOMATIC` flag INFO so `bcftools view -f .,PASS -i 'INFO/SOMATIC'`
+  peels them off cleanly. Replaces the older 4-file split
+  (sv.somatic / sv.germline / indel.somatic / indel.germline).
+- **SV representation:** intrachrom events with unambiguous orientation
+  become single-record symbolic alleles — `+/+` or `-/-` → `<DEL>`,
+  `-/+` → `<DUP>`, `+/-` → `<INV>`. Inter-chrom and anything else falls
+  through to paired BND records with mate-bracket notation. Override
+  with `--always-bnd` to force BND for every SV (useful if downstream
+  tooling gets confused by symbolic alleles). Classification lives in
+  `classify_symbolic_kind()` in `vcf.cpp`.
+- **EVENT grouping:** both BND records of a pair get `EVENT=<bp_id>`
+  (taken from col 52 of bps.txt.gz, the v3 per-BP identifier). This
+  uses the same namespace as `r2c.txt.gz`'s `split_bps`/`disc_bps` and
+  the BAM `bi:Z` tag, so a user can follow a single variant across all
+  svaba outputs with one key.
+- **QUAL column:** defaults to `.` (missing). QUAL was historically the
+  Phred of `Σ per-sample LO`, which is strongly correlated with
+  `INFO/MAXLOD` but can mislead users into filtering on QUAL when they
+  should be filtering on SOMLOD / MAXLOD / FILTER. `.` is VCF-spec-valid
+  missing and makes downstream tools fall through to the INFO fields
+  where the canonical scores live. Override with `--qual maxlod`
+  (writes `round(10 * maxlod)` capped at 99) or `--qual sum` (legacy).
+- **SVCLAIM:** per VCF 4.5. `J` for pure assembly-only SVs, `DJ` for
+  ASDIS (both assembly + discordant evidence), `D` for discordant-only.
+  svaba is junction-native so most calls end up `J` or `DJ`.
+
+Flag surface:
+```
+svaba tovcf -i BPS.txt.gz -b BAM -a ID [options]
+  --sv-out FILE           override SV path (default ${ID}.sv.vcf.gz)
+  --indel-out FILE        override indel path (default ${ID}.indel.vcf.gz)
+  --plain                 write plain .vcf (no bgzip)
+  --always-bnd            force BND for every SV
+  --qual MODE             missing (default) | maxlod | sum
+  --include-nonpass       include FILTER != PASS records
+  --dedup                 re-run legacy interval-tree dedup
+  -v / --verbose
+  -h / --help
+```
+
+Gotcha: the BAM is required only for the chromosome name/length table
+(used by contig `##contig` lines in the VCF header and by the
+BreakPoint parser to turn chrom-name strings into chr IDs). No reads are
+actually read from it — any BAM that shares the reference is fine.
+
+Not-yet-done on this subcommand: bgzip-proper (current `--plain=false`
+output is plain gzip, which bcftools accepts but tabix doesn't index
+correctly). For now, pipe through `bcftools sort -Oz` + `tabix -p vcf`
+after. If this becomes painful, revisit with htslib's `hts_open` +
+`vcf_write` path instead of ogzstream.
+
 ## BreakPoint IDs (v3 schema)
 
 Every BP gets a unique stable identifier of the form `bpTTTNNNNNNNN`
@@ -606,6 +675,10 @@ RelWithDebInfo build.
   `::r2cTsvHeader`
 - Postprocess (C++): `src/svaba/SvabaPostprocess.cpp`
 - Postprocess (shell orchestration): `scripts/svaba_postprocess.sh`
+- `svaba tovcf` driver: `src/svaba/tovcf.cpp::runToVCF`
+- VCF engine (parse + dedup + emit): `src/svaba/vcf.cpp` + `vcf.h`
+- Symbolic SV classifier: `vcf.cpp::classify_symbolic_kind`
+- Single-file VCF writers: `vcf.cpp::writeSvsSingleFile` + `writeIndelsSingleFile`
 - Blacklist combiner: `scripts/combine_blacklists.sh`
 - Runtime-file schema: `src/svaba/SvabaUtils.cpp::svabaTimer::header`
 - Options parsing: `src/svaba/SvabaOptions.cpp::SvabaOptions::parse`

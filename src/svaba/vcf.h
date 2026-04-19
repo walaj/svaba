@@ -44,6 +44,35 @@ using SampleMap      = std::unordered_map<std::string, std::string>;
 using ContigFieldMap = std::unordered_map<std::string, std::string>;
 
 // ---------------------------------------------------------------------------
+// Knobs for the `svaba tovcf` subcommand.
+// ---------------------------------------------------------------------------
+//
+// QualMode — what to put in the VCF QUAL column.
+//   SUM_LO_PHRED (legacy): -10 log10 P(all alt reads are errors), taken from
+//                          BreakPoint::quality (col 34 of bps.txt). Keeps
+//                          behavior compatible with `svaba run` / refilter.
+//   MAXLOD_PHRED:          round(10 * bp->max_lod), cap 99. One-to-one with
+//                          INFO/MAXLOD, meaningful as a VCF QUAL field.
+//   MISSING:               emit '.' (VCF spec-valid missing value). Forces
+//                          users to look at FILTER / INFO for confidence,
+//                          which is usually what you want when somlod and
+//                          maxlod are the canonical scores.
+enum class QualMode { SUM_LO_PHRED, MAXLOD_PHRED, MISSING };
+
+// SvFormat — how to serialize an SV call.
+//   BND_ALWAYS (legacy):          every SV emits as two paired BND records
+//                                 with mate-bracket ALT notation. Matches
+//                                 the current `svaba run` output exactly.
+//   SYMBOLIC_WHEN_OBVIOUS:        intrachromosomal events with unambiguous
+//                                 orientation emit as a single symbolic
+//                                 record (<DEL> / <DUP> / <INV>). Inter-
+//                                 chromosomal and complex events stay BND.
+//                                 Nicer for IGV / samplot / bcftools
+//                                 pipelines that render symbolic alleles
+//                                 natively.
+enum class SvFormat { BND_ALWAYS, SYMBOLIC_WHEN_OBVIOUS };
+
+// ---------------------------------------------------------------------------
 // VCFHeader — the ##-lines that precede a VCF body.
 // ---------------------------------------------------------------------------
 struct VCFHeader {
@@ -51,7 +80,11 @@ struct VCFHeader {
   VCFHeader()  = default;
   ~VCFHeader() = default;
 
-  std::string fileformat = "VCFv4.2";
+  // VCF spec version this header declares. Defaulted to 4.5 (the most
+  // recent formal spec as of 2024) — backwards-compatible at the record
+  // level with anything accepting 4.2+, and enables the clean symbolic-
+  // SV / EVENT / SVCLAIM idioms the tovcf path uses.
+  std::string fileformat = "VCFv4.5";
   std::string filedate;
   std::string source;
   std::string reference = "hg19";
@@ -90,15 +123,29 @@ struct VCFEntry {
   uint32_t id      = 0;
   uint8_t  id_num  = 0;
 
+  // Set by VCFFile::writeSvsSingleFile when the SvFormat::
+  // SYMBOLIC_WHEN_OBVIOUS mode decides this pair should be emitted as
+  // a single `<DEL>`/`<DUP>`/`<INV>` record instead of two paired BND
+  // records. When true, only the e1 entry of the pair gets serialized
+  // (the caller skips e2 for that pair). Kind is stashed here so
+  // getAltString / fillInfoFields can key off it without reclassifying.
+  bool        symbolic_rep  = false;
+  std::string symbolic_kind;  // "DEL" / "DUP" / "INV" when symbolic_rep is true
+
   std::string getRefString() const;
   std::string getAltString(const SeqLib::BamHeader& header) const;
   std::string getIdString () const;
 
   // Build the full INFO map (keys → values) for this entry.
+  // `somatic_flag` = true adds `SOMATIC` (a flag INFO field).
   std::unordered_map<std::string, std::string> fillInfoFields() const;
 
   // Serialize the entry as one VCF body line (no trailing newline).
-  std::string toFileString(const SeqLib::BamHeader& header) const;
+  //   qual_mode   — what goes in the QUAL column (see QualMode).
+  //   NB: the symbolic/BND choice is read off this->symbolic_rep,
+  //       which the writer sets before calling.
+  std::string toFileString(const SeqLib::BamHeader& header,
+                           QualMode qual_mode = QualMode::SUM_LO_PHRED) const;
 
   // Sort primarily by genomic position of the represented breakend.
   bool operator< (const VCFEntry& v) const;
@@ -124,7 +171,8 @@ struct VCFEntryPair {
   VCFEntry                    e1, e2;
   std::shared_ptr<BreakPoint> bp;
 
-  std::string toFileString(const SeqLib::BamHeader& header) const;
+  std::string toFileString(const SeqLib::BamHeader& header,
+                           QualMode qual_mode = QualMode::SUM_LO_PHRED) const;
 };
 
 using VCFEntryPairMap = std::unordered_map<int, std::shared_ptr<VCFEntryPair>>;
@@ -141,18 +189,32 @@ struct VCFFile {
   // build VCFEntryPairs, and deduplicate. `nopass` controls whether
   // initially non-PASS records are retained (they can still be filtered
   // later by writeIndels/writeSVs via `include_nonpass`).
+  //
+  // `skip_dedup_in_ctor` = true has the ctor set `this->skip_dedup`
+  // BEFORE the internal `deduplicate()` call fires, so no dedup runs
+  // on input that was already deduped upstream (the `svaba tovcf` path).
+  // Default false keeps backward-compat with run_svaba and refilter.
   VCFFile(std::string              file,
           std::string              id,
           const SvabaSharedConfig& sc,
           const VCFHeader&         vheader,
           bool                     nopass,
-          bool                     verbose);
+          bool                     verbose,
+          bool                     skip_dedup_in_ctor = false);
 
   std::string filename;
   std::string analysis_id;
 
   bool verbose         = false;
   bool include_nonpass = false;
+
+  // SvABA2.0 tovcf-path knobs. All default to legacy-compatible values so
+  // run_svaba.cpp and refilter.cpp pick up no behavior change. The `svaba
+  // tovcf` entry point flips them to the new defaults (MISSING qual,
+  // SYMBOLIC_WHEN_OBVIOUS sv format, skip_dedup=true).
+  bool     skip_dedup = false;  // deduplicate() returns immediately when set
+  QualMode qual_mode  = QualMode::SUM_LO_PHRED;
+  SvFormat sv_format  = SvFormat::BND_ALWAYS;
 
   VCFHeader indel_header;
   VCFHeader sv_header;
@@ -176,4 +238,17 @@ struct VCFFile {
                 bool                     zip,
                 bool                     onefile,
                 const SeqLib::BamHeader& header) const;
+
+  // SvABA2.0: single-file writers used by `svaba tovcf`. Unlike
+  // writeSVs / writeIndels above, these write EVERY record (somatic and
+  // germline together) to one path, with the SOMATIC INFO flag set on
+  // somatic rows for downstream filtering. Honors sv_format, qual_mode,
+  // and include_nonpass set on the VCFFile. `gzip=true` uses ogzstream;
+  // otherwise a plain ofstream is used.
+  void writeSvsSingleFile   (const std::string&       path,
+                             bool                     gzip,
+                             const SeqLib::BamHeader& header) const;
+  void writeIndelsSingleFile(const std::string&       path,
+                             bool                     gzip,
+                             const SeqLib::BamHeader& header) const;
 };

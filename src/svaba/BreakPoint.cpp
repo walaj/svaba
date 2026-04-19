@@ -2500,6 +2500,26 @@ BreakPoint::BreakPoint(const std::string& line, const SvabaSharedConfig* _sc)
       b2.local               = to_local(l2);
       contig_len             = to_int_safe(tok[i++], 0);   // 50
       flipped_on_contig      = (to_int_safe(tok[i++], 0) != 0); // 51
+
+      // SvABA2.0 v3: optional col 52 = bp_id. Same "no colons" test used
+      // above for cols 42..51: per-sample blocks are colon-delimited
+      // (GT:AD:DP:SR:...), while bp_id is a plain `bpTTTNNNNNNNN` string.
+      // If the next token is non-colon AND there are >= n_samples_expected
+      // tokens left after it, we treat it as the bp_id column. Older dumps
+      // (pre-v3, 51 core cols) skip this and leave bp->id empty; the VCF
+      // emitter falls back to its legacy hash-based id in that case.
+      if (static_cast<size_t>(i) < tok.size() &&
+          tok[static_cast<size_t>(i)].find(':') == std::string::npos) {
+        const std::string& maybe_bp_id = tok[static_cast<size_t>(i)];
+        // bp_id always starts with "bp" or is "." (unset sentinel). Guard
+        // against a malformed input that happens to have a non-colon
+        // token here that isn't actually a bp_id.
+        if (maybe_bp_id == "." ||
+            (maybe_bp_id.size() >= 2 && maybe_bp_id[0] == 'b' && maybe_bp_id[1] == 'p')) {
+          id = (maybe_bp_id == "." ? std::string() : maybe_bp_id);  // 52
+          ++i;
+        }
+      }
     } else {
       // Legacy dump: leave the new fields at their defaults. The PASS /
       // assembly-only filters that depend on these will degrade gracefully
