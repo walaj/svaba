@@ -1,271 +1,195 @@
-[![Build Status](https://travis-ci.org/walaj/svaba.svg?branch=master)](https://travis-ci.org/walaj/svaba)
+## *SvABA* — Structural variation and indel analysis by assembly
 
-## *SvABA* - Structural variation and indel analysis by assembly
+SvABA (formerly *Snowman*) is an SV and indel caller for short-read BAMs.
+It performs genome-wide local assembly with a vendored SGA, realigns
+contigs with BWA-MEM, and scores variants by reassembled read support.
+Tumor/normal, trios, and single-sample modes are supported; variants
+are emitted as VCF plus a verbose tab-delimited companion
+(`bps.txt.gz`) that carries the full per-sample evidence.
 
-[This project was formerly "Snowman"]
+**License:** [GNU GPLv3](./LICENSE). Uses the [SeqLib][seqlib] API for
+BAM I/O, BWA-MEM alignment, interval trees, and the assembly front-end.
 
-**License:** [GNU GPLv3][license] 
+## Install
 
-Table of contents
-=================
+CMake is required; htslib is an external dependency. No bundled htslib.
 
-  * [Installation](#gh-md-toc)
-  * [Description](#description)
-  * [Output file description](#output-file-description)
-  * [Filtering and refiltering](#filtering-and-refiltering)
-  * [Post-processing output BAMs](#post-processing-output-bams)
-  * [Recipes and examples](#recipes-and-examples)
-    * [Whole genome somatic SV and indel detection](#whole-genome-somatic-sv-and-indel-detection)
-    * [Whole genome germline SV and indel detection](#whole-genome-germline-sv-and-indel-detection)
-    * [Targeted (exome) detection](#targeted-detection)
-    * [Targeted local assembly](#targeted-local-assembly)
-    * [Assemble all reads](#assemble-all-reads)
-    * [Runtime snapshot](#snapshot-of-where-svaba-run-is-currently-operating)
-    * [Debug a local assembly and produce assembly graph](#debug-a-local-assembly-and-produce-the-assembly-graph)
-    * [View all of the ASCII alignments](#view-all-of-the-ascii-alignments)
-    * [View a particular contig with read-to-contig alignments](#view-a-particular-contig-with-read-to-contig-alignments)
-    * [Make a function to sort and index the contigs](#make-a-function-to-sort-and-index-contigs)
-  * [Attributions](#attributions)
-
-
-Installation
-------------
-We recommend compiling with GCC-4.8 or greater. svaba now uses CMake instead of autotools.
-Note: svaba no longer bundles htslib. A system version of htslib needs to be pointed to during compilation
-```
+```bash
 git clone --recursive https://github.com/walaj/svaba
-cd svaba
-mkdir build
-cd build
-## replace the paths below with the paths on your own system
-cmake .. -DHTSLIB_DIR=/home/jaw34/software/htslib-1.16
-make
-
-## QUICK START (eg run tumor / normal on Chr22, with 4 cores)
-build/svaba -t tumor.bam -n normal.bam -k 22 -G ref.fa -a test_id -p -4
-
-## get help
-svaba --help
-svaba run --help
+cd svaba && mkdir build && cd build
+cmake .. -DHTSLIB_DIR=/path/to/htslib-1.xx
+make -j
 ```
 
-SvABA uses the [SeqLib][seqlib] API for BAM access, BWA-MEM alignments, interval trees and operations,
-and several other auxillary operations.
+Build type defaults to `RelWithDebInfo` (`-O2 -g -DNDEBUG`). The
+vendored `SeqLib/bwa` and `SeqLib/fermi-lite` hardcode `-O2` in their
+Makefiles; see `CLAUDE.md` for how to push them to `-O3 -mcpu=native`
+(typically a 5–15% wall-time win).
 
-Description
------------
+## Quick start
 
-SvABA is a method for detecting structural variants in sequencing data using genome-wide local assembly. Under the hood, 
-SvABA uses a custom implementation of [SGA](https://github.com/jts/sga) (String Graph Assembler) by Jared Simpson, and [BWA-MEM](https://github.com/lh3/bwa) by Heng Li. Contigs are assembled
-for every 25kb window (with some small overlap) for every region in the genome. The default is to use only clipped, discordant, 
-unmapped and indel reads, although this can be customized to any set of reads at the command line using [VariantBam][vbam] rules. 
-These contigs are then immediately aligned to the reference with BWA-MEM and parsed to identify variants. Sequencing reads are then
-realigned to the contigs with BWA-MEM, and variants are scored by their read support.
+Tumor/normal on chr22 with 4 threads:
 
-SvABA is currently configured to provide indel and rearrangement calls (and anything "in between"). It can jointly call any number of BAM/CRAM/SAM files,
-and has built-in support for case-control experiments (e.g. tumor/normal, or trios or quads). In case/control mode, 
-any number of cases and controls (but min of 1 case) can be input, and 
-will jointly assemble all sequences together. If both a case and control are present, variants are output separately in "somatic" and "germline" VCFs. 
-If only a single BAM is present (input with the ``-t`` flag), a single SV and a single indel
-VCF will be emitted.
-
-A BWA-MEM index reference genome must also be supplied with ``-G``.
-
-<img src="https://github.com/walaj/svaba/blob/master/gitfig_schematic.png"
-width=800/>
-
-Output file description
------------------------
-
-##### ``*.bps.txt.gz``
-Raw, unfiltered variants. This file is parsed at the end to produce the VCF files. With the bps.txt.gz,
-one can define a new set of filteirng criteria (depending on sensitivity/specificity needs) using ``svaba refilter``. 
-
-##### ``*.contigs.bam``
-All assembly contigs as aligned to the reference with BWA-MEM. Note that this is an unsorted file. To view in IGV,
-it must be first sorted and indexed (e.g. ``samtools sort -m 8G id.contigs.bam id.sort && samtools index id.sort.bam``)
-
-##### ``*.discordants.txt.gz``
-Information on all clusters of discordant reads identified with 2+ reads. 
-
-##### ``*.log``
-Log file giving run-time information, including CPU and Wall time (and how it was partitioned among the tasks), number of 
-reads retrieved and contigs assembled for each region.
-
-##### ``*.alignments.txt.gz``
-An ASCII plot of variant-supporting contigs and the BWA-MEM alignment of reads to the contigs. This file is incredibly
-useful for debugging and visually inspecting the exact information SvABA saw when it performed the variant-calling. This file
-is typically quite large. The recommended usage is to identify the contig name of your variant of interest first from the VCF file 
-(SCTG=contig_name). Then do ``gunzip -c id.alignment.txt.gz | grep contig_name > plot.txt``. It is highly recommended that you 
-view in a text editor with line truncation turned OFF, so as to not jumble the alignments.
-
-<img src="https://github.com/walaj/svaba/blob/master/gitfig_ascii.png"
-width=800/>
-
-##### ``*.vcf``
-VCF of rearrangements and indels parsed from bps.txt.gz and with a somatic_score == 1 (somatic) or 0 (germline) and quality == PASS. *NOTE* that 
-the cutoff for rearrangement vs indel is taken from BWA-MEM, whether it produces a single gapped-alignment 
-or two separate alignments. This is an arbitrary cutoff, just as there is no clear consensus distinction between what 
-constitutes an "indel" and a "structural variant". The unfiltered VCF files include non-PASS variants. 
-
-Filtering and Refiltering
------------------------
-
-SvABA performs a series of log-likelihood calculations for each variant. The purpose is to first classify a variant as real vs artifact, 
-and then to determine if the variant is somatic or germline. These log-likelihoods are output in the VCF and bps.txt.gz file and described here:
-* ``LOD (LO)`` - Log of the odds that variant is real vs artifact. For indels, the likelihood of an artifact read is proportional to the length of local repeats (repeating units up to 5 long per unit)
-* ``LR`` - Log of the odds that the variant has allelic fraction (AF) of 0 or >=0.5. This is used for somatic vs germline classification
-* ``SL`` - Scaled LOD. LOD scores is heuristically scaled as: (min(Mapping quality #1, Mapping quality #2) - 2 * NM) / 60 * LOD
-
-SvABA can refilter the bps.txt.gz file to produce new VCFs with different stringency cutoffs. To run, the following are required:
-* ``-b`` - a BAM from the original run, which is used just for its header
-* ``-i`` - input bps.txt.gz file
-
-Post-processing output BAMs
----------------------------
-
-When run with multiple threads, ``svaba run`` emits per-thread, unsorted BAMs
-for each read class (``discordant``, ``weird``, ``corrected``, ``contigs``),
-and overlapping assembly windows produce some duplicated records. Before
-these BAMs are usable in IGV or downstream tools they need to be merged,
-coord-sorted, deduped, and indexed. ``sort_output.sh`` is the one-shot
-wrapper that does this.
-
-```
-./sort_output.sh <ID> [THREADS]          # default THREADS=4
-MEM=4G ./sort_output.sh <ID> 8           # per-sort-thread memory (default 2G)
-SPLIT_BY_SOURCE=1 ./sort_output.sh <ID>  # also split by QNAME prefix (e.g. t001/n001)
-SVABA=/path/to/svaba ./sort_output.sh <ID>  # override binary on PATH
+```bash
+svaba run -t tumor.bam -n normal.bam -k chr22 -G ref.fa -a my_run -p 4
 ```
 
-What it does, per suffix:
+A single-sample call drops `-n`. Any number of cases/controls can be
+jointly assembled; prefix on the sample ID drives case/control routing
+(`t*` = case, `n*` = control).
 
-1. **Merge** per-thread BAMs (``${ID}.threadN.${suffix}.bam``) into
-   ``${ID}.${suffix}.bam`` via ``samtools merge``.
-2. **Sort + dedup** via ``svaba postprocess``, which shells out to
-   ``samtools sort`` (unchanged external sort) and then runs a native
-   SeqLib streaming dedup+merge. For duplicate ``(qname, flag)`` records at
-   the same ``(chr, pos)`` — typically emitted by overlapping assembly
-   windows that each mapped the read to a different contig — it keeps the
-   first record and **unions** the second record's ``bi:Z`` / ``bz:Z``
-   contig-support tags into it, so no alt support is lost. Uses the same
-   boundary-aware comma-token merge ``svaba run`` uses internally. Replaces
-   the old ``samtools view | awk | samtools view`` text round-trip;
-   suffixes run in parallel. ``contigs`` is sorted but not deduped.
-3. **Index** each final BAM with ``samtools index``.
-4. *(Optional, ``SPLIT_BY_SOURCE=1``)* Demux each BAM by the first 4 chars
-   of QNAME (the source tag), writing
-   ``${ID}.${suffix}.${prefix}.bam``.
+## Subcommands
 
-``MEM`` is per ``samtools sort`` thread; peak sort memory is roughly
-``n_suffixes * (THREADS / n_suffixes) * MEM``. Units follow samtools
-(``K``/``M``/``G``).
+SvABA is a multi-tool binary. `svaba help` lists everything. The main
+ones:
 
-Examples and recipes
---------------------
+`svaba run` performs the whole assembly + variant-calling pipeline.
+Takes a BAM (or many) plus a reference, a blacklist, and an output ID.
+Emits `bps.txt.gz`, per-sample VCFs, `contigs.bam`, `runtime.txt`, and
+(with `--dump-reads`) per-thread `*.discordant.bam`,
+`*.corrected.bam`, `*.weird.bam`, and `*.r2c.txt.gz`.
 
-#### Whole genome somatic SV and indel detection 
-```
-wget "https://data.broadinstitute.org/snowman/dbsnp_indel.vcf" ## get a DBSNP known indel file
-DBSNP=dbsnp_indel.vcf
-CORES=8 ## set any number of cores
-REF=/seq/references/Homo_sapiens_assembly19/v1/Homo_sapiens_assembly19.fasta
-## -a is any string you like, which gives the run a unique ID
-svaba run -t $TUM_BAM -n $NORM_BAM -p $CORES -D $DBSNP -a somatic_run -G $REF
-```
+`svaba postprocess` sorts, deduplicates, @PG-stamps, and indexes the
+per-thread BAMs and the `bps.txt.gz` emitted by `svaba run`. Typically
+invoked via `scripts/svaba_postprocess.sh` which also merges per-thread
+files and builds the PASS / PASS-somatic r2c subsets.
 
-#### Whole genome germline SV and indel detection
-```
-## Set -I to not do mate-region lookup if mates are mapped to different chromosome.
-##   This is appropriate for germline-analysis, where we don't have a built-in control
-##   to against mapping artifacts, and we don't want to get bogged down with mate-pair
-##   lookups.
-## Set -L to 6 which means that 6 or more mate reads must be clustered to 
-##   trigger a mate lookup. This also reduces spurious lookups as above, and is more 
-##   appropriate the expected ALT counts found in a germline sample 
-##   (as opposed to impure, subclonal events in cancer that may have few discordant reads).
-svaba run -t $GERMLINE_BAM -p $CORES -L 6 -I -a germline_run -G $REF
-```
+`svaba tovcf` converts a deduplicated `bps.txt.gz` into VCFv4.5 output
+(one SV VCF, one indel VCF; somatic distinguished by the `SOMATIC`
+INFO flag). Clean intrachrom events emit as symbolic `<DEL>`/`<DUP>`/
+`<INV>`; everything else stays paired BND. Input is assumed already
+sorted/deduped by `svaba_postprocess.sh` — use `--dedup` to opt back
+into the legacy internal dedup.
 
-#### Targeted detection
-```
-## eg targets.bed is a set of exome capture regions
-svaba run -t $BAM -k targets.bed -a exome_cap -G $REF
-```
+`svaba refilter` re-runs the LOD cutoffs / PASS logic on an existing
+`bps.txt.gz` with new thresholds, regenerating VCFs without rerunning
+assembly. Use it when you want to tune sensitivity/specificity after
+the fact.
 
-#### Targeted local assembly
-```
-## -k can be a chromosome, a samtools/IGV style string 
-##     (e.g. 1:1,000,000-2,000,000), or a BED file
-k=chr17:7,541,145-7,621,399
-svaba run -t $TUM_BAM -n $NORM_BAM -p $CORES -k $k  -a TP53 -G $REF
-```
+## Output files
 
-#### Assemble all reads
-```
-## default behavior is just assemble clipped/discordant/unmapped/gapped reads
-## This can be overridden with -r all flag
-svaba run -t $BAM -r all -G $REF
+`${ID}.bps.txt.gz` is the primary output — one row per breakpoint,
+with a v3 schema of 52 core columns + per-sample blocks (see
+`BreakPoint::header` for column names). The 52nd column is a unique
+`bp_id` of the form `bpTTTNNNNNNNN` that joins back to the BAM aux
+tags and the VCF `EVENT=` field. `${ID}.contigs.bam` holds every
+assembled contig, `${ID}.runtime.txt` holds per-region timing, and
+`${ID}.log` carries the run log.
+
+The VCF files (`${ID}.sv.vcf.gz`, `${ID}.indel.vcf.gz`) declare
+`VCFv4.5`, use symbolic alleles where unambiguous, and carry the
+canonical scoring in INFO: `MAXLOD` (variant-vs-error, per-sample
+max), `SOMLOD` (somatic LLR), `SOMATIC` (flag), and `SVCLAIM`
+(evidence class). VCF `QUAL` defaults to `.` — filter on `FILTER=PASS`
+or the two LOD fields, not QUAL. See `CLAUDE.md` for the full scoring
+model.
+
+Opt-in outputs (gated behind `--dump-reads`): `${ID}.r2c.txt.gz` is a
+structured, re-plottable dump of every contig + its r2c-aligned reads;
+`${ID}.corrected.bam` / `${ID}.weird.bam` / `${ID}.discordant.bam`
+carry per-read evidence streams. These can run to tens of GB on deep
+samples, so they're off by default.
+
+## Post-processing pipeline
+
+`svaba run` emits per-thread, unsorted BAMs and a raw per-thread
+`r2c.txt.gz`. Merge + sort + dedup + filter them with one command:
+
+```bash
+scripts/svaba_postprocess.sh -t 8 -m 4G my_run
 ```
 
-#### Snapshot of where svaba run is currently operating
+Five idempotent steps: merge per-thread BAMs and r2c files, run
+`svaba postprocess` (sort + stream-dedup + @PG-stamp + index), sort
+and dedup `bps.txt.gz` with PASS filter, emit PASS / PASS-somatic
+subsets of `r2c.txt.gz`, and (optional) demux the BAMs by source
+prefix. See `CLAUDE.md` for the full flag surface.
+
+## Viewers
+
+All-HTML, no server, drop files in from `file://`. Entry point:
+`viewer/index.html`. The primary viewer is `bps_explorer.html` —
+sortable `bps.txt.gz` table with chip filters, per-sample detail
+panel, log10 histograms for somlod/maxlod/span, and click-to-IGV
+navigation. `r2c_explorer.html` re-plots the structured r2c TSV in
+browser (contig ruler, fragment rows, indel `||` marker rows with
+labels, per-read gap-expanded CIGAR, bp_id filter dropdown).
+`runtime_explorer.html` visualizes `runtime.txt`; `comparison.html`
+does side-by-side diffs of two runs.
+
+`viewer/alignments_viewer.html` still renders the legacy
+`alignments.txt.gz` ASCII output, but new runs don't produce that
+file — `r2c_explorer.html` is the replacement.
+
+## Blacklists
+
+`tracks/hg38.combined_blacklist.bed` is the ready-made blacklist;
+feed it to `svaba run --blacklist`. It is a regeneratable union of
+component BED files in `tracks/` (ENCODE, high-runtime regions, manual
+curations, simple repeats, non-standard contigs, and a
+low-mappability blacklist derived from paired mosdepth runs). See
+`tracks/README.md` for the recipe.
+
+## Recipes
+
+Whole-genome somatic with a DBSNP indel file and 8 cores:
+
+```bash
+svaba run -t tumor.bam -n normal.bam -p 8 -a somatic \
+    -G ref.fa -D dbsnp_indel.vcf -B tracks/hg38.combined_blacklist.bed
 ```
+
+Germline-only. `-I` disables mate lookups across chroms, `-L 6`
+requires a larger cluster to trigger one:
+
+```bash
+svaba run -t germline.bam -p 8 -L 6 -I -a germline_run -G ref.fa
+```
+
+Targeted assembly over a list of regions (BED, chr, or IGV-style
+string):
+
+```bash
+svaba run -t sample.bam -k targets.bed -a exome_cap -G ref.fa
+svaba run -t sample.bam -k chr17:7,541,145-7,621,399 -a TP53 -G ref.fa
+```
+
+Dump all per-read evidence (large output, only for debugging a
+specific call):
+
+```bash
+svaba run -t sample.bam -G ref.fa -a debug_run --dump-reads
+scripts/svaba_postprocess.sh -t 8 -m 4G debug_run
+```
+
+Snapshot where a long-running job currently is:
+
+```bash
 tail somatic_run.log
 ```
 
-#### Debug a local assembly and produce the assembly graph
-```
-k=chr17:7,541,145-7,621,399
-svaba run -t $BAM -a local_test -k $k --write-asqg
+## Further reading
 
-## plot the graph
-$GIT/svaba/R/svaba-asqg.R
-```
+`CLAUDE.md` at the repo root is the crash-safety-net doc — conventions,
+file landmarks, build-system quirks (the `-O2` hardcoding in
+submodules), the somatic LOD model, the postprocess pipeline details,
+performance notes, and open investigations. Always update `CLAUDE.md`
+when you change something non-obvious.
 
-#### View all of the ASCII alignments 
-```
-## Make a read-only and no-line-wrapping version of emacs.
-## Very useful for *.alignments.txt.gz files
-function ev { 
-  emacs $1 --eval '(setq buffer-read-only t)' -nw --eval '(setq truncate-lines t)';
-  }
-ev somatic_run.alignments.txt.gz 
-```
+`scripts/svaba_local_function.sh` is a sourceable bash helper library
+with `svaba_*` utilities for grepping contigs, following a bp_id
+through the output set, opening locations in IGV, etc. Source it from
+your shell rc file to use.
 
-#### View a particular contig with read to contig alignments
-```
-gunzip -c somatic_run.alignments.txt.gz | grep c_1_123456789_123476789 > c_1_123456789_123476789.alignments.txt
-ev c_1_123456789_123476789.alignments.txt
-```
+## Attributions
 
-#### Make a function to sort and index contigs
-```
-function sai() {
-  if [[ -f $1.contigs.bam ]]; then
-     samtools sort -m 4G $1.contigs.bam -o $1.contigs.sort.bam
-     mv $1.contigs.sort.bam $1.contigs.bam
-     samtools index $1.contigs.bam
-  fi
-}
-## for example, for somatic_run.contigs.bam:
-sai somatic_run
-```
+SvABA is developed by Jeremiah Wala (jwala@broadinstitute.org) in the
+Rameen Berkoukhim lab at Dana-Farber Cancer Institute, in collaboration
+with the Cancer Genome Analysis team at the Broad Institute. Particular
+thanks to Cheng-Zhong Zhang (HMS DBMI) and Marcin Imielinski (Weill
+Cornell / NYGC).
 
-
-Attributions
-============
-
-SvABA is developed and maintained by Jeremiah Wala (jwala@broadinstitute.org) --  Rameen Berkoukhim lab -- Dana Farber Cancer Institute, Boston, MA. 
-
-This project was developed in collaboration with the Cancer Genome Analysis team at the Broad Institute. Particular thanks to:
-* Cheng-Zhong Zhang - Asst Prof of Biomedical Informatics, Harvard Medical School (https://dbmi.hms.harvard.edu/person/faculty/cheng-zhong-zhang)
-* Marcin Imielinski - Asst Prof of Computational Genomics, Weill Cornell Medicine, (http://www.nygenome.org/lab-groups-overview/imielinski-lab/)
-
-Additional thanks to Jared Simpson for SGA, Heng Li for htslib and BWA, and for the other developers whose  
-code contributed to [SeqLib](https://github.com/walaj/SeqLib).
-
-[vbam]: https://github.com/walaj/VariantBam
-
-[license]: https://github.com/walaj/svaba/blob/master/LICENSE
+Additional thanks to Jared Simpson for SGA, Heng Li for htslib and
+BWA, and the SeqLib contributors.
 
 [seqlib]: https://github.com/walaj/SeqLib
