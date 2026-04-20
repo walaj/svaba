@@ -263,4 +263,8 @@ Zhang (HMS DBMI) and Marcin Imielinski (Weill Cornell / NYGC).
 Additional thanks to Jared Simpson for SGA, Heng Li for htslib and
 BWA, and the SeqLib contributors.
 
+The SvABA 2.0 release and its documentation were built with the
+assistance of OpenAI Codex and Anthropic Claude, with extensive
+human-in-the-loop review, testing, and decision-making throughout.
+
 [seqlib]: https://github.com/walaj/SeqLib
