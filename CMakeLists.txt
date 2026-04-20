@@ -41,18 +41,72 @@ endif()
 find_package(BZip2 REQUIRED)
 
 ## HTSLIB
-if (htslib_FOUND)
-    # If htslib was found on the system, use it
-    message(STATUS "Using system htslib")
-else()
-    set(HTSLIB_DIR "" CACHE PATH "Path to HTSLib root directory")
+#
+# Detection order:
+#   1. find_package(htslib) — works only if htslib ships a
+#      htslibConfig.cmake (rare outside conda/vcpkg installs).
+#   2. pkg-config — system-installed htslib typically provides a
+#      htslib.pc, so `pkg-config --libs htslib` works.
+#   3. find_path/find_library for htslib/hts.h and libhts on the
+#      default system paths (/usr/include, /usr/local/include,
+#      /opt/homebrew/include, etc.).
+#   4. Explicit -DHTSLIB_DIR=/path/to/htslib for non-standard installs.
+#
+# The first three paths auto-detect a system install, so a vanilla
+# `cmake .. && make` works when htslib is installed system-wide. Only
+# fall back to HTSLIB_DIR when all auto-detections fail, matching the
+# pattern used here for ZLIB / BZip2 (also auto-detected).
+set(SVABA_HTSLIB_FOUND FALSE)
+set(SVABA_HTSLIB_LIBRARIES "")
 
-    if (NOT HTSLIB_DIR)
-        message(FATAL_ERROR "HTSLIB_DIR not specified. Please specify -DHTSLIB_DIR=/path/to/htslib")
-    else()
-        # Automatically set include and library paths based on HTSLIB_DIR
+if (htslib_FOUND)
+    message(STATUS "htslib: found via find_package()")
+    set(SVABA_HTSLIB_FOUND TRUE)
+    set(SVABA_HTSLIB_LIBRARIES hts)
+endif()
+
+if (NOT SVABA_HTSLIB_FOUND)
+    find_package(PkgConfig QUIET)
+    if (PkgConfig_FOUND)
+        pkg_check_modules(HTSLIB_PC QUIET htslib)
+        if (HTSLIB_PC_FOUND)
+            message(STATUS "htslib: found via pkg-config (version ${HTSLIB_PC_VERSION})")
+            include_directories(${HTSLIB_PC_INCLUDE_DIRS})
+            link_directories(${HTSLIB_PC_LIBRARY_DIRS})
+            set(SVABA_HTSLIB_FOUND TRUE)
+            set(SVABA_HTSLIB_LIBRARIES ${HTSLIB_PC_LIBRARIES})
+        endif()
+    endif()
+endif()
+
+if (NOT SVABA_HTSLIB_FOUND)
+    find_path(HTSLIB_INCLUDE_DIR NAMES htslib/hts.h
+              DOC "Directory containing htslib/hts.h")
+    find_library(HTSLIB_LIBRARY NAMES hts
+                 DOC "Path to the hts library")
+    if (HTSLIB_INCLUDE_DIR AND HTSLIB_LIBRARY)
+        message(STATUS "htslib: found headers at ${HTSLIB_INCLUDE_DIR}, lib at ${HTSLIB_LIBRARY}")
+        include_directories(${HTSLIB_INCLUDE_DIR})
+        set(SVABA_HTSLIB_FOUND TRUE)
+        set(SVABA_HTSLIB_LIBRARIES ${HTSLIB_LIBRARY})
+    endif()
+endif()
+
+if (NOT SVABA_HTSLIB_FOUND)
+    set(HTSLIB_DIR "" CACHE PATH "Path to HTSLib root directory")
+    if (HTSLIB_DIR)
+        message(STATUS "htslib: using explicit HTSLIB_DIR=${HTSLIB_DIR}")
         include_directories(${HTSLIB_DIR}/include)
         link_directories(${HTSLIB_DIR}/lib)
+        set(SVABA_HTSLIB_FOUND TRUE)
+        set(SVABA_HTSLIB_LIBRARIES hts)
+    else()
+        message(FATAL_ERROR
+            "htslib not found. Install htslib system-wide (e.g. "
+            "`brew install htslib` or `apt install libhts-dev`) so "
+            "pkg-config / find_library locate it automatically, "
+            "or pass -DHTSLIB_DIR=/path/to/htslib to point at a "
+            "manual build.")
     endif()
 endif()
 
@@ -183,14 +237,32 @@ add_custom_target(
 )
 
 # Linking
-target_link_libraries(svaba 
+target_link_libraries(svaba
     seqlib
     ${CMAKE_CURRENT_SOURCE_DIR}/SeqLib/bwa/libbwa.a
     ${CMAKE_CURRENT_SOURCE_DIR}/SeqLib/fermi-lite/libfml.a
     Threads::Threads
-    hts
+    ${SVABA_HTSLIB_LIBRARIES}
     ZLIB::ZLIB
     ${CURL_LIBRARY}
     ${LZMA_LIBRARY}
     BZip2::BZip2
 )
+
+# ---------------------------------------------------------------------------
+# Install support.
+#
+# `make install` (equivalent: `cmake --install build`) copies the svaba
+# binary to ${CMAKE_INSTALL_PREFIX}/bin. GNUInstallDirs sets the usual
+# distro-friendly defaults for BINDIR / LIBDIR / etc., so this follows
+# standard Unix conventions.
+#
+# Default CMAKE_INSTALL_PREFIX is /usr/local (may need sudo). To stage
+# into a non-system location, pass -DCMAKE_INSTALL_PREFIX=/some/path at
+# cmake time, or use `cmake --install build --prefix /some/path` at
+# install time. To drop the binary into this repo's `bin/` directory:
+#   cmake --install build --prefix ${CMAKE_SOURCE_DIR}
+# ---------------------------------------------------------------------------
+include(GNUInstallDirs)
+install(TARGETS svaba
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})

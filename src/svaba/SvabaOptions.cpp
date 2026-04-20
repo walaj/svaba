@@ -7,6 +7,7 @@
 #include <stdexcept>
 
 #include "SvabaLogger.h"
+#include "SvabaAssemblerConfig.h"  // SVABA_ASSEMBLER_FERMI for SGA guards
 
 void SvabaOptions::printUsage() {
   std::cout << R"(
@@ -31,12 +32,20 @@ Mode:
       --discordant-only   Skip assembly, only discordants
       --override-ref-check
                          Skip BAM vs REF compatibility check
-
-Assembly:
+)"
+#if !SVABA_ASSEMBLER_FERMI
+  // SGA-specific knobs. Only surface them to --help when svaba was
+  // compiled with SGA as the active assembler (see
+  // SvabaAssemblerConfig.h). The option codes themselves still parse
+  // under fermi — they just get ignored.
+            << R"(
+Assembly (SGA):
       --min-overlap <bp>  Minimum read overlap for SGA
       --error-rate <f>    SGA fractional error rate
       --rounds <N>        Number of assembly rounds
-
+)"
+#endif
+            << R"(
 Error-correction:
       --ec-type <s|f|0>   s=SGA k-mer; f=Fermi BFC; 0=off
       --ec-subsample <f>  Fraction to sample for EC learning
@@ -259,10 +268,15 @@ void SvabaOptions::printLogger(SvabaLogger& logger) const {
   logger.log(verbose > 1, true, "    Max cov to assemble: ",            maxCov);
   logger.log(verbose > 1, true, "    Error correction mode: ",          ecCorrectType);
   logger.log(verbose > 1, true, "    Subsample-rate for correction learning: ", ecSubsample);
-  logger.log(verbose > 1, true, "    ErrorRate: ", 
-             (sgaErrorRate < 0.001f ? std::string("EXACT (0)") 
+  logger.log(verbose > 1, true, "    Assembler: ", svaba::kAssemblerName);
+#if !SVABA_ASSEMBLER_FERMI
+  // SGA-only parameters; don't confuse fermi-build operators with
+  // values they can't tune without recompiling.
+  logger.log(verbose > 1, true, "    ErrorRate (SGA): ",
+             (sgaErrorRate < 0.001f ? std::string("EXACT (0)")
                                         : std::to_string(sgaErrorRate)));
-  logger.log(verbose > 1, true, "    Num assembly rounds: ",           sgaNumRounds);
+  logger.log(verbose > 1, true, "    Num assembly rounds (SGA): ",     sgaNumRounds);
+#endif
   logger.log(verbose > 1, true, "    Discordant read extract SD cutoff: ",  sdDiscCutoff);
   logger.log(verbose > 1, true, "    Discordant cluster std-dev cutoff: ",  sdDiscCutoff);
   logger.log(verbose > 1, true, "    Minimum number of reads for mate lookup: ", mateLookupMin);

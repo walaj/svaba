@@ -425,12 +425,11 @@ function renderR2c(cname){
   }
 
   // Fragment rows + accumulate indel marker positions from each
-  // fragment's CIGAR. We render the fragments now and queue the
-  // indel-marker rows to emit after them (before the BP summary
-  // rows), which mirrors the layout of the old alignments.txt.gz
-  // output that the user expects.
+  // fragment's CIGAR, and remember each fragment's junction cpos
+  // for later bp_id ↔ cpos matching on SV breakpoints.
   const fragsRaw = contig[col.frags] || "NA";
   const indelMarks = [];
+  const fragJunctionCpos = [];  // cpos values where fragments meet
   if(fragsRaw !== "NA" && fragsRaw !== ""){
     for(const f of fragsRaw.split("|")){
       const parts = f.split(":");
@@ -450,34 +449,23 @@ function renderR2c(cname){
       const frMarks = computeIndelMarksForFrag(cigar, strand, flipped==="1",
                                                chr, pos);
       for(const m of frMarks) indelMarks.push(m);
+
+      // Record this fragment's internal break columns. For single-
+      // fragment indel contigs these are 0 / contig_len (not
+      // meaningful SV junctions); for multi-fragment SV contigs
+      // these mark where the fragment meets its neighbors, which
+      // is the contig-space location of the SV breakpoint.
+      const b1v = +br1, b2v = +br2;
+      if (b1v > 0 && b1v < contig_len) fragJunctionCpos.push(b1v);
+      if (b2v > 0 && b2v < contig_len) fragJunctionCpos.push(b2v);
     }
   }
 
-  // Emit one marker row per indel. Deletions render as `||` at
-  // adjacent contig columns followed by a description; insertions
-  // render as `|...|` bracketing the inserted region. Labels
-  // include chr:refStart-refEnd for easy cross-reference to the
-  // bp summary row below.
-  for(const m of indelMarks){
-    let line;
-    if(m.kind === "del"){
-      const lead = " ".repeat(Math.max(0, m.col - 1));
-      line = lead + "||  Del " + m.len + "bp at " +
-             m.chr + ":" + m.refStart + "-" + m.refEnd;
-    } else {
-      const lead  = " ".repeat(m.col1);
-      const inner = " ".repeat(Math.max(0, m.col2 - m.col1 - 1));
-      line = lead + "|" + inner + "|  Ins " + m.len + "bp at " +
-             m.chr + ":" + m.refStart + "-" + m.refEnd;
-    }
-    const el = document.createElement("span");
-    el.className = "row marker";
-    el.textContent = line;
-    pre.appendChild(el);
-  }
-
-  // Parse breakpoints ONCE into a structured list so we can both render
-  // the BP summary rows and populate the bp_id filter dropdown below.
+  // Parse breakpoints ONCE into a structured list so we can
+  //   (a) render the BP summary rows,
+  //   (b) populate the bp_id filter dropdown,
+  //   (c) match bp_ids to indel-mark / fragment-junction cpos
+  //       for a compact "BP index" summary row.
   //
   // Two schemas live in the wild:
   //   pre-v3 (9 fields):  kind:chr1:pos1:strand1:chr2:pos2:strand2:span:insertion
@@ -487,7 +475,7 @@ function renderR2c(cname){
   // or is ".") — the older format had `chr1` in that slot, which would
   // start with "chr" or a digit.
   const bpsRaw = contig[col.bps] || "NA";
-  const bpsList = []; // {kind, bpId, span, line}
+  const bpsList = []; // {kind, bpId, span, line, cpos (nullable)}
   if(bpsRaw !== "NA" && bpsRaw !== ""){
     for(const b of bpsRaw.split("|")){
       const parts = b.split(":");
@@ -510,8 +498,102 @@ function renderR2c(cname){
         line = (kind==="global"?"Global":"Multi")+" BP: "+c1+":"+p1+"("+s1+") \u2192 "+c2+":"+p2+"("+sp2+
                ") SPAN "+span + (ins !== "." ? " INS:"+ins : "") + idTag;
       }
-      bpsList.push({kind, bpId, span, line});
+      bpsList.push({kind, bpId, span, line,
+                    chr1: c1, pos1: +p1, chr2: c2, pos2: +p2,
+                    cpos: null});
     }
+  }
+
+  // Match each bps entry to a contig-space position (cpos). Strategy:
+  //
+  //   INDEL bps:  walk the fragment CIGAR (we already did above and
+  //     cached indelMarks), then match the marker's refStart/refEnd
+  //     against the bps entry's pos1/pos2. On a match, use the
+  //     marker's contig column (single point for del, col1 for ins)
+  //     and stamp the bp_id back onto the mark so the marker row
+  //     label can carry it.
+  //
+  //   SV bps (kind = global/multi):  the contig-space junction is
+  //     wherever the fragments meet. For a 2-fragment contig with a
+  //     single SV junction, there's exactly one interior
+  //     fragJunctionCpos — use that. For rarer multi-junction
+  //     contigs we leave cpos null and fall back to ref-only
+  //     display (still useful; just one less anchor).
+  //
+  // cpos is ALWAYS the left-to-right screen column, independent of
+  // which reference strand a fragment maps to — see the comment on
+  // contig rendering above for why.
+  for (const bp of bpsList) {
+    if (bp.kind === "indel") {
+      for (const mk of indelMarks) {
+        if (mk.chr === bp.chr1 &&
+            Math.min(mk.refStart, mk.refEnd) === Math.min(bp.pos1, bp.pos2) &&
+            Math.max(mk.refStart, mk.refEnd) === Math.max(bp.pos1, bp.pos2)) {
+          bp.cpos = (mk.kind === "del") ? mk.col : mk.col1;
+          mk.bpId = bp.bpId;
+          break;
+        }
+      }
+    } else if (fragJunctionCpos.length > 0) {
+      // Dedupe and sort; adjacent fragments double-report the same
+      // junction. For a 2-frag contig this collapses to 1 value.
+      const uniq = Array.from(new Set(fragJunctionCpos)).sort((a, b) => a - b);
+      if (uniq.length === 1) bp.cpos = uniq[0];
+      // If >1 unique junction, we don't know the 1:1 mapping bps→junction
+      // without deeper parsing. Leave cpos null.
+    }
+  }
+
+  // Emit a compact "BP index" row above the indel markers when the
+  // contig hosts ≥1 BP. Shows `bp_id @ cpos X [kind Nbp]` per entry.
+  // Makes multi-BP contigs (e.g. indel + flanking SV) navigable at a
+  // glance without having to scroll to the per-BP summary row below.
+  {
+    const labeled = bpsList.filter(b => b.bpId && b.bpId !== ".");
+    if (labeled.length) {
+      const chunks = labeled.map(b => {
+        const where = (b.cpos != null) ? "@ cpos " + b.cpos : "@ " + b.chr1 + ":" + b.pos1;
+        let kindShort;
+        if (b.kind === "indel") {
+          kindShort = (b.line.indexOf("Ins ") === 0 || b.line.indexOf("Ins ") > 0)
+            ? "Ins " + b.span + "bp"
+            : "Del " + b.span + "bp";
+        } else {
+          kindShort = (b.kind === "global" ? "global" : "multi") + " SV";
+        }
+        return b.bpId + " " + where + " [" + kindShort + "]";
+      });
+      const el = document.createElement("span");
+      el.className = "row bp";
+      el.textContent = "BP index: " + chunks.join("  |  ");
+      pre.appendChild(el);
+    }
+  }
+
+  // Emit one marker row per indel now that bp_ids are matched in.
+  // Deletions render as `||` at adjacent contig columns followed by
+  // a description; insertions render as `|...|` bracketing the
+  // inserted region. Labels include chr:refStart-refEnd and the
+  // matched bp_id (when we were able to tie a CIGAR op back to a
+  // bps entry above) so the operator can cross-reference the
+  // marker and the BP summary row without counting columns.
+  for(const m of indelMarks){
+    const idTag = m.bpId ? "  [" + m.bpId + "]" : "";
+    let line;
+    if(m.kind === "del"){
+      const lead = " ".repeat(Math.max(0, m.col - 1));
+      line = lead + "||  Del " + m.len + "bp at " +
+             m.chr + ":" + m.refStart + "-" + m.refEnd + idTag;
+    } else {
+      const lead  = " ".repeat(m.col1);
+      const inner = " ".repeat(Math.max(0, m.col2 - m.col1 - 1));
+      line = lead + "|" + inner + "|  Ins " + m.len + "bp at " +
+             m.chr + ":" + m.refStart + "-" + m.refEnd + idTag;
+    }
+    const el = document.createElement("span");
+    el.className = "row marker";
+    el.textContent = line;
+    pre.appendChild(el);
   }
 
   // Populate the bp_id filter dropdown. Only v3 files have per-BP IDs,

@@ -132,6 +132,12 @@ struct VCFEntry {
   bool        symbolic_rep  = false;
   std::string symbolic_kind;  // "DEL" / "DUP" / "INV" when symbolic_rep is true
 
+  // Somlod cutoff for stamping the INFO/SOMATIC flag. A record gets the
+  // flag iff bp->LO_s >= somatic_threshold AND bp->somatic != FAILED.
+  // Writers set this per-entry from VCFFile::somatic_threshold before
+  // calling toFileString(); default 1.0 matches the tovcf default.
+  double      somatic_threshold = 1.0;
+
   std::string getRefString() const;
   std::string getAltString(const SeqLib::BamHeader& header) const;
   std::string getIdString () const;
@@ -215,6 +221,12 @@ struct VCFFile {
   bool     skip_dedup = false;  // deduplicate() returns immediately when set
   QualMode qual_mode  = QualMode::SUM_LO_PHRED;
   SvFormat sv_format  = SvFormat::BND_ALWAYS;
+
+  // Minimum somlod (LO_s) to mark a record with the INFO/SOMATIC flag.
+  // Writers stamp this onto each VCFEntry before emission. Default 1.0
+  // is the recommended somatic-call gate; lower it to be permissive,
+  // raise it to be stricter.
+  double   somatic_threshold = 1.0;
 
   VCFHeader indel_header;
   VCFHeader sv_header;

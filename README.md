@@ -12,13 +12,31 @@ BAM I/O, BWA-MEM alignment, interval trees, and the assembly front-end.
 
 ## Install
 
-CMake is required; htslib is an external dependency. No bundled htslib.
+CMake is required; htslib is an external dependency (no bundled
+copy). If htslib is installed system-wide, svaba auto-detects it
+via pkg-config or the default include/lib search paths:
 
 ```bash
 git clone --recursive https://github.com/walaj/svaba
 cd svaba && mkdir build && cd build
+cmake .. && make -j
+```
+
+For a non-standard htslib install location, point at it explicitly:
+
+```bash
 cmake .. -DHTSLIB_DIR=/path/to/htslib-1.xx
 make -j
+```
+
+The binary lands at `build/svaba`. To install it system-wide (or
+into this repo's `bin/`), use CMake's install target — the default
+prefix is `/usr/local` and needs sudo, or override it with
+`-DCMAKE_INSTALL_PREFIX`:
+
+```bash
+make install                                           # /usr/local/bin/svaba
+cmake --install build --prefix $(pwd)/..               # repo-local bin/svaba
 ```
 
 Build type defaults to `RelWithDebInfo` (`-O2 -g -DNDEBUG`). The
@@ -34,7 +52,7 @@ fully supported but off by default — switch it on at compile time by
 passing `-DSVABA_ASSEMBLER_FERMI=0` to CMake:
 
 ```bash
-cmake .. -DHTSLIB_DIR=/path/to/htslib-1.xx -DSVABA_ASSEMBLER_FERMI=0
+cmake .. -DSVABA_ASSEMBLER_FERMI=0
 make -j
 ```
 
@@ -93,6 +111,22 @@ INFO flag). Clean intrachrom events emit as symbolic `<DEL>`/`<DUP>`/
 `<INV>`; everything else stays paired BND. Input is assumed already
 sorted/deduped by `svaba_postprocess.sh` — use `--dedup` to opt back
 into the legacy internal dedup.
+
+The `SOMATIC` flag is stamped when a record's somatic LOD
+(`INFO/SOMLOD`) meets or exceeds a configurable cutoff; the default
+is **1.0**, which is a reasonable "confident somatic" gate and keeps
+marginal calls out of the somatic set. Tune it with `--somlod`:
+
+```bash
+svaba tovcf -i deduped.bps.txt.gz -b tumor.bam -a my_run            # default somlod >= 1
+svaba tovcf ... --somlod 2.0                                         # stricter: only strong somatic calls
+svaba tovcf ... --somlod 0.0                                         # permissive: flag anything with LO_s >= 0
+```
+
+The raw score is always written to `INFO/SOMLOD` regardless of the
+cutoff, so downstream `bcftools view -i 'INFO/SOMLOD >= 3'` still
+works if you want to re-threshold after the fact without regenerating
+the VCF.
 
 `svaba refilter` re-runs the LOD cutoffs / PASS logic on an existing
 `bps.txt.gz` with new thresholds, regenerating VCFs without rerunning

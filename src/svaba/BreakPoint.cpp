@@ -2556,7 +2556,7 @@ BreakPoint::BreakPoint(const std::string& line, const SvabaSharedConfig* _sc)
       local = LocalAlignment::NOTSET;
     }
     imprecise = 0;
-    pass      = 0;
+    pass      = 0;  // unreliable — downstream code should gate on confidence
 
     // ---- trailing per-sample fields (map by order to sc->opts.bams) ----
     const size_t rem = tok.size() - static_cast<size_t>(i);

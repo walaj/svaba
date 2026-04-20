@@ -271,7 +271,15 @@ std::unordered_map<std::string, std::string> VCFEntry::fillInfoFields() const {
 
   // SvABA2.0: common per-record metadata, populated for both SVs and
   // indels so downstream filters don't need to condition on shape.
-  if (bp->somatic == SomaticState::SOMATIC_LOD)
+  //
+  // SOMATIC flag: gated on the somlod threshold carried per-entry
+  // (`somatic_threshold`, defaulted 1.0, overridable via `svaba tovcf
+  // --somlod N`). The svaba-run-time SomaticState::FAILED state is
+  // honored as a hard veto — something earlier in the pipeline
+  // explicitly said "not somatic", so we don't mark it regardless
+  // of what LO_s looks like.
+  if (bp->LO_s >= somatic_threshold &&
+      bp->somatic != SomaticState::FAILED)
     info["SOMATIC"] = "";   // flag
 
   if (!bp->id.empty())
@@ -703,8 +711,12 @@ VCFFile::VCFFile(std::string              file,
       continue;
     }
 
-    // Honor the unfiltered/filtered flag from the caller.
-    if (!include_nonpass && !bp->pass)
+    // Honor the unfiltered/filtered flag from the caller. Gate on
+    // `confidence` (the FILTER column string) rather than bp->pass —
+    // the parser doesn't repopulate the `pass` bool from the dump,
+    // and the scorer only updates `confidence`, so `confidence` is
+    // the single source of truth for "did this record PASS".
+    if (!include_nonpass && bp->confidence != "PASS")
       continue;
 
     // Per-contig cap: cap the number of entries per contig name.
@@ -771,12 +783,17 @@ void VCFFile::deduplicate(const SeqLib::BamHeader& header) {
 
   for (const auto& kv : entry_pairs) {
     const auto& bpp = kv.second->bp;
+    // Use the confidence string (not the stale bp->pass bool) to
+    // decide PASS status for the dedup grouping — see BreakPoint.cpp
+    // parser note: pass never gets repopulated from the dumped
+    // confidence column, so it's 0 across all parsed records.
+    const int bp_pass_int = (bpp->confidence == "PASS") ? 1 : 0;
     grv1.add(GenomicRegionWithID(bpp->b1.gr.chr, bpp->b1.gr.pos1,
                                  bpp->b1.gr.pos2, kv.first,
-                                 kv.second->e1.bp->pass));
+                                 bp_pass_int));
     grv2.add(GenomicRegionWithID(bpp->b2.gr.chr, bpp->b2.gr.pos1,
                                  bpp->b2.gr.pos2, kv.first,
-                                 kv.second->e2.bp->pass));
+                                 bp_pass_int));
   }
   grv1.CreateTreeMap();
   grv2.CreateTreeMap();
@@ -862,8 +879,9 @@ void VCFFile::deduplicate(const SeqLib::BamHeader& header) {
     assert(giv2.size() <= HIGH_OVERLAP_LIMIT);
 
     // A hit is a dup if the same entry_pairs key appears on BOTH sides, with
-    // matching strands and matching pass status.
-    const bool   is_pass  = pair->e1.bp->pass;
+    // matching strands and matching pass status. Source of truth for
+    // PASS is confidence == "PASS" (see note at top of deduplicate()).
+    const bool   is_pass  = (pair->e1.bp->confidence == "PASS");
     const char   s1_here  = bpp->b1.gr.strand;
     const char   s2_here  = bpp->b2.gr.strand;
 
@@ -968,7 +986,9 @@ void VCFFile::writeIndels(std::string              basename,
   std::sort(rows.begin(), rows.end());
 
   for (const auto& r : rows) {
-    if (!r.bp->pass && !include_nonpass)
+    // PASS/FILTER gate: use the confidence string as source of truth
+    // (bp->pass is a stale bool; see parser note in BreakPoint.cpp).
+    if (r.bp->confidence != "PASS" && !include_nonpass)
       continue;
     out << r.toFileString(header) << '\n';
   }
@@ -1002,7 +1022,9 @@ void VCFFile::writeSVs(std::string              basename,
   std::sort(rows.begin(), rows.end());
 
   for (const auto& r : rows) {
-    if (!r.bp->pass && !include_nonpass)
+    // PASS/FILTER gate: use the confidence string as source of truth
+    // (bp->pass is a stale bool; see parser note in BreakPoint.cpp).
+    if (r.bp->confidence != "PASS" && !include_nonpass)
       continue;
     out << r.toFileString(header) << '\n';
   }
@@ -1106,9 +1128,14 @@ void VCFFile::writeSvsSingleFile(const std::string&       path,
 
   std::sort(rows.begin(), rows.end(), entry_lt_for_output);
 
-  for (const auto& r : rows) {
-    if (!r.bp->pass && !include_nonpass)
+  for (auto& r : rows) {
+    // PASS/FILTER gate: use the confidence string as source of truth
+    // (bp->pass is a stale bool; see parser note in BreakPoint.cpp).
+    if (r.bp->confidence != "PASS" && !include_nonpass)
       continue;
+    // Stamp the per-entry somlod threshold so fillInfoFields applies
+    // the right cutoff to the SOMATIC flag.
+    r.somatic_threshold = somatic_threshold;
     out << r.toFileString(header, qual_mode) << '\n';
   }
 }
@@ -1133,9 +1160,12 @@ void VCFFile::writeIndelsSingleFile(const std::string&       path,
 
   std::sort(rows.begin(), rows.end());
 
-  for (const auto& r : rows) {
-    if (!r.bp->pass && !include_nonpass)
+  for (auto& r : rows) {
+    // PASS/FILTER gate: use the confidence string as source of truth
+    // (bp->pass is a stale bool; see parser note in BreakPoint.cpp).
+    if (r.bp->confidence != "PASS" && !include_nonpass)
       continue;
+    r.somatic_threshold = somatic_threshold;
     out << r.toFileString(header, qual_mode) << '\n';
   }
 }

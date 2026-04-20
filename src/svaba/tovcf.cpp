@@ -68,6 +68,11 @@ struct ToVcfOpts {
   bool        gzip          = true;
   int         verbose       = 0;
   QualMode    qual_mode     = QualMode::MISSING;
+  // Minimum somlod (INFO/SOMLOD) to mark a record with the SOMATIC
+  // INFO flag. 1.0 is the recommended default — strong enough that
+  // `bcftools view -i 'INFO/SOMATIC'` picks out confident somatic
+  // calls without dragging in marginal ones.
+  double      somlod_cutoff = 1.0;
 };
 
 constexpr const char* TOVCF_USAGE =
@@ -90,6 +95,7 @@ constexpr const char* TOVCF_USAGE =
 "  Format knobs:\n"
 "        --always-bnd            force paired BND for every SV\n"
 "        --qual MODE             missing | maxlod | sum (default: missing)\n"
+"        --somlod N              min INFO/SOMLOD to stamp SOMATIC flag (default 1.0)\n"
 "        --include-nonpass       include records with FILTER != PASS\n"
 "        --dedup                 re-run legacy interval-tree dedup on input\n"
 "\n"
@@ -108,6 +114,7 @@ constexpr int OPT_QUAL            = 2004;
 constexpr int OPT_INCLUDE_NONPASS = 2005;
 constexpr int OPT_DEDUP           = 2006;
 constexpr int OPT_PLAIN           = 2007;
+constexpr int OPT_SOMLOD          = 2008;
 
 const struct option LONGOPTS[] = {
   { "help",            no_argument,       nullptr, 'h' },
@@ -122,6 +129,7 @@ const struct option LONGOPTS[] = {
   { "include-nonpass", no_argument,       nullptr, OPT_INCLUDE_NONPASS },
   { "dedup",           no_argument,       nullptr, OPT_DEDUP },
   { "plain",           no_argument,       nullptr, OPT_PLAIN },
+  { "somlod",          required_argument, nullptr, OPT_SOMLOD },
   { nullptr, 0, nullptr, 0 }
 };
 
@@ -154,6 +162,16 @@ ToVcfOpts parse_cli(int argc, char** argv) {
       case OPT_INCLUDE_NONPASS: o.include_nonpass = true; break;
       case OPT_DEDUP:           o.dedup = true; break;
       case OPT_PLAIN:           o.gzip = false; break;
+      case OPT_SOMLOD: {
+        try {
+          o.somlod_cutoff = std::stod(optarg ? optarg : "");
+        } catch (const std::exception&) {
+          std::cerr << "ERROR: --somlod expects a floating-point cutoff (got '"
+                    << (optarg ? optarg : "") << "')\n";
+          std::exit(EXIT_FAILURE);
+        }
+        break;
+      }
       default: die = true; break;
     }
   }
@@ -211,6 +229,7 @@ void runToVCF(int argc, char** argv) {
               << "\n"
               << "  sv-format:   "
               << (o.always_bnd ? "BND_ALWAYS" : "SYMBOLIC_WHEN_OBVIOUS") << "\n"
+              << "  somlod:      " << o.somlod_cutoff << "\n"
               << "  dedup:       " << (o.dedup ? "yes" : "no (input assumed pre-deduped)") << "\n"
               << "  nonpass:     " << (o.include_nonpass ? "yes" : "no") << "\n";
   }
@@ -321,10 +340,11 @@ void runToVCF(int argc, char** argv) {
               /*verbose=*/o.verbose > 0,
               /*skip_dedup_in_ctor=*/skip_internal_dedup);
 
-  vcf.qual_mode       = o.qual_mode;
-  vcf.sv_format       = o.always_bnd ? SvFormat::BND_ALWAYS
-                                     : SvFormat::SYMBOLIC_WHEN_OBVIOUS;
-  vcf.include_nonpass = o.include_nonpass;
+  vcf.qual_mode         = o.qual_mode;
+  vcf.sv_format         = o.always_bnd ? SvFormat::BND_ALWAYS
+                                       : SvFormat::SYMBOLIC_WHEN_OBVIOUS;
+  vcf.include_nonpass   = o.include_nonpass;
+  vcf.somatic_threshold = o.somlod_cutoff;
   // vcf.skip_dedup is already set from the ctor param above.
 
   // ---- 5. Emit --------------------------------------------------------
