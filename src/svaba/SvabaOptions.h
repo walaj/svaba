@@ -6,8 +6,15 @@
 #include <cstddef>
 
 // version & date
-inline constexpr char SVABA_VERSION[] = "1.3.0";
-inline constexpr char SVABA_DATE[]    = "05/2025";
+//
+// Bumped to 2.0.0 to mark the SvABA2.0 overhaul: v3 bps.txt schema with
+// per-BP bp_id (col 52), r2c.txt.gz structured r2c emission replacing the
+// old alignments.txt.gz, comparative split-coverage gate, standalone
+// `svaba tovcf` + `svaba postprocess` subcommands, VCFv4.5 output, and
+// fermi-lite as the default local-assembly engine. See CLAUDE.md for the
+// full set of changes.
+inline constexpr char SVABA_VERSION[] = "2.0.0";
+inline constexpr char SVABA_DATE[]    = "04/2026";
 
 // from AlignmentFragment.h
 inline constexpr std::size_t MAX_CONTIG_SIZE = 5'000'000;

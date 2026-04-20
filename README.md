@@ -26,12 +26,45 @@ vendored `SeqLib/bwa` and `SeqLib/fermi-lite` hardcode `-O2` in their
 Makefiles; see `CLAUDE.md` for how to push them to `-O3 -mcpu=native`
 (typically a 5–15% wall-time win).
 
-## Quick start
+### Assembler selection
 
-Tumor/normal on chr22 with 4 threads:
+By default svaba assembles contigs with **fermi-lite** (ropebwt2-based,
+the faster path). The vendored SGA (String Graph Assembler) is still
+fully supported but off by default — switch it on at compile time by
+passing `-DSVABA_ASSEMBLER_FERMI=0` to CMake:
 
 ```bash
-svaba run -t tumor.bam -n normal.bam -k chr22 -G ref.fa -a my_run -p 4
+cmake .. -DHTSLIB_DIR=/path/to/htslib-1.xx -DSVABA_ASSEMBLER_FERMI=0
+make -j
+```
+
+The choice is a single compile-time symbol in
+`src/svaba/SvabaAssemblerConfig.h`; you can also flip it by editing that
+file directly and rebuilding. Runtime logs report the active
+assembler under `svaba::kAssemblerName`, so you can always confirm
+which engine a build was compiled with.
+
+## Quick start
+
+Three steps. Run the caller, merge + dedup + index the per-thread
+outputs, then convert the deduped `bps.txt.gz` to VCF. The bundled
+combined blacklist is strongly recommended — it keeps svaba out of
+well-known pileup / high-complexity regions that would otherwise
+dominate wall-clock time with no real calls to show for it. See
+`tracks/README.md` for customizing or extending the blacklist.
+
+```bash
+# 1. Call: tumor/normal on chr22 with 4 threads, bundled blacklist
+svaba run -t tumor.bam -n normal.bam -G ref.fa -a my_run -p 4 \
+          -k chr22 \
+          --blacklist tracks/hg38.combined_blacklist.bed
+
+# 2. Post-process: merge per-thread BAMs, sort+dedup+index,
+#    sort+dedup bps.txt.gz, filter r2c to PASS.
+scripts/svaba_postprocess.sh -t 8 -m 4G my_run
+
+# 3. Convert the deduped bps.txt.gz to VCFv4.5 (SV + indel)
+svaba tovcf -i my_run.bps.sorted.dedup.txt.gz -b tumor.bam -a my_run
 ```
 
 A single-sample call drops `-n`. Any number of cases/controls can be
@@ -132,18 +165,18 @@ low-mappability blacklist derived from paired mosdepth runs). See
 
 ## Recipes
 
-Whole-genome somatic with a DBSNP indel file and 8 cores:
+Germline-only. Raise the mate-lookup threshold so only larger
+discordant clusters trigger a cross-region lookup — more conservative
+and usually appropriate for a single-sample germline run where we
+don't have a built-in control to guard against mapping artifacts
+(a tumor would typically see smaller, subclonal clusters we want
+to chase down). Add `--single-end` to disable mate lookups entirely
+if you want to be even more conservative:
 
 ```bash
-svaba run -t tumor.bam -n normal.bam -p 8 -a somatic \
-    -G ref.fa -D dbsnp_indel.vcf -B tracks/hg38.combined_blacklist.bed
-```
-
-Germline-only. `-I` disables mate lookups across chroms, `-L 6`
-requires a larger cluster to trigger one:
-
-```bash
-svaba run -t germline.bam -p 8 -L 6 -I -a germline_run -G ref.fa
+svaba run -t germline.bam -p 8 --mate-min 6 -a germline_run \
+          -G ref.fa \
+          --blacklist tracks/hg38.combined_blacklist.bed
 ```
 
 Targeted assembly over a list of regions (BED, chr, or IGV-style
@@ -165,7 +198,7 @@ scripts/svaba_postprocess.sh -t 8 -m 4G debug_run
 Snapshot where a long-running job currently is:
 
 ```bash
-tail somatic_run.log
+tail my_run.log
 ```
 
 ## Further reading
@@ -181,13 +214,17 @@ with `svaba_*` utilities for grepping contigs, following a bp_id
 through the output set, opening locations in IGV, etc. Source it from
 your shell rc file to use.
 
+## Issues and contact
+
+Please file bug reports, feature requests, and questions on the GitHub
+issues tracker: https://github.com/walaj/svaba/issues.
+
 ## Attributions
 
-SvABA is developed by Jeremiah Wala (jwala@broadinstitute.org) in the
-Rameen Berkoukhim lab at Dana-Farber Cancer Institute, in collaboration
-with the Cancer Genome Analysis team at the Broad Institute. Particular
-thanks to Cheng-Zhong Zhang (HMS DBMI) and Marcin Imielinski (Weill
-Cornell / NYGC).
+SvABA is developed by Jeremiah Wala in the Rameen Berkoukhim lab at
+Dana-Farber Cancer Institute, in collaboration with the Cancer Genome
+Analysis team at the Broad Institute. Particular thanks to Cheng-Zhong
+Zhang (HMS DBMI) and Marcin Imielinski (Weill Cornell / NYGC).
 
 Additional thanks to Jared Simpson for SGA, Heng Li for htslib and
 BWA, and the SeqLib contributors.
