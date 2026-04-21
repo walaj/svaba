@@ -706,8 +706,11 @@ DedupStats streamDedup(const std::string& in_bam,
     }
     ++st.in_records;
 
-    // Progress print every 5M reads (was 1M — too chatty on deep BAMs).
-    constexpr std::size_t PROGRESS_EVERY = 5'000'000ULL;
+    // Progress print every 25M reads. Was 1M originally, then 5M; post
+    // BGZF-threading + bucket-clear fix the dedup runs fast enough that
+    // 5M was firing too often on deep BAMs. 25M gives ~a screenful of
+    // lines for a typical 100–500M-read WGS BAM.
+    constexpr std::size_t PROGRESS_EVERY = 25'000'000ULL;
     if (verbose >= 1 && (st.in_records % PROGRESS_EVERY) == 0) {
       const auto now = clock::now();
       const double elapsed = std::chrono::duration<double>(now - t0).count();
@@ -718,7 +721,10 @@ DedupStats streamDedup(const std::string& in_bam,
 
       // Column widths chosen so the line never shifts as counters grow:
       //   chr:    5 chars right-padded   ("chr22" max)
-      //   pos:    9 chars right-padded   (human chr1 goes to ~249M = 9 digits)
+      //   :
+      //   pos:    left-justified, with thousands separators
+      //             (flush against colon; human chr1 max "248,956,422" = 11 chars)
+      //   locus total padded to 17 so subsequent columns stay anchored.
       //   counts: 11 chars right-aligned with thousands separators
       //             (fits "999,999,999" = 9 figures + 2 commas)
       //   rps:    6 chars "%6.2f"        (up to 999.99 M/s)
@@ -730,12 +736,15 @@ DedupStats streamDedup(const std::string& in_bam,
         return oss.str();
       };
 
+      // Locus = right-padded chr + ':' + left-justified comma'd pos.
+      // Flush to 17 chars total so " | " lands at a fixed column regardless
+      // of chr length or position magnitude.
       std::ostringstream locus_oss;
       locus_oss << std::setw(5) << std::right << cur_chr_name
                 << ":"
-                << std::setw(9) << std::right
-                << (cur_pos >= 0 ? cur_pos + 1 : 0);
-      const std::string locus_str = locus_oss.str();
+                << SeqLib::AddCommas<int32_t>(cur_pos >= 0 ? cur_pos + 1 : 0);
+      std::string locus_str = locus_oss.str();
+      if (locus_str.size() < 17) locus_str.append(17 - locus_str.size(), ' ');
 
       // Input-size hint for a coarse "how far into the job" feel. A true
       // ETA would need bytes-read from htslib, which SeqLib doesn't expose.
@@ -753,7 +762,7 @@ DedupStats streamDedup(const std::string& in_bam,
               fmtN(st.merged),     " merged (",
               fmtN(st.tag_edits),  " tag-edits) | ",
               std::fixed, std::setprecision(2),
-              std::setw(6), inst_rps / 1e6, "M/s last-5M, ",
+              std::setw(6), inst_rps / 1e6, "M/s last-25M, ",
               std::setw(6), avg_rps  / 1e6, "M/s avg, ",
               std::setprecision(1), std::setw(8), elapsed, "s elapsed",
               size_hint);
