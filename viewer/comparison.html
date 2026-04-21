@@ -86,18 +86,34 @@
   }
   .tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
   .table-wrap { max-height: 500px; overflow: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
-  table { width: 100%; border-collapse: collapse; font-size: 0.75rem; white-space: nowrap; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.68rem; white-space: nowrap; }
   th {
-    background: var(--surface2); color: var(--text2); text-align: left; padding: 0.4rem 0.6rem;
+    background: var(--surface2); color: var(--text2); text-align: left; padding: 0.28rem 0.4rem;
     position: sticky; top: 0; cursor: pointer; user-select: none; z-index: 1;
+    font-weight: 600;
   }
   th:hover { color: var(--accent); }
-  th .sort-arrow { font-size: 0.6rem; margin-left: 0.2rem; }
-  td { padding: 0.4rem 0.6rem; border-top: 1px solid var(--border); }
+  th .sort-arrow { font-size: 0.56rem; margin-left: 0.2rem; }
+  td { padding: 0.24rem 0.4rem; border-top: 1px solid var(--border); overflow: hidden; text-overflow: ellipsis; }
   tr.agree-row td:first-child { border-left: 3px solid var(--green); }
   tr.a-only-row td:first-child { border-left: 3px solid var(--blue); }
   tr.b-only-row td:first-child { border-left: 3px solid var(--purple); }
   tr:hover td { background: var(--surface2); }
+
+  /* Column width classes — match bps_explorer's sizing so columns
+     stay tight and we can fit A+B sample blocks on one row.        */
+  td.w-loc,    th.w-loc    { max-width: 14ch; }
+  td.w-strand, th.w-strand { max-width: 2ch; text-align: center; }
+  td.w-tiny,   th.w-tiny   { max-width: 6ch; }
+  td.w-num,    th.w-num    { max-width: 6ch; text-align: right; font-variant-numeric: tabular-nums; }
+  td.w-wrap,   th.w-wrap   { max-width: 24ch; white-space: normal; word-break: break-all; }
+  td.w-gt,     th.w-gt     { max-width: 40ch; white-space: pre; font-family: ui-monospace, Menlo, Consolas, monospace; }
+
+  /* IGV click-out links — same interaction model as bps_explorer. */
+  a.igv-link        { color: var(--accent); text-decoration: none; cursor: pointer; }
+  a.igv-link:hover  { text-decoration: underline; }
+  a.igv-link.ok     { color: var(--green); }
+  a.igv-link.err    { color: var(--red); }
 
   /* Placeholder / Progress */
   .placeholder { text-align: center; padding: 4rem 2rem; color: var(--text2); }
@@ -381,6 +397,8 @@ let oldCalls = [];
 let newCalls = [];
 let oldHeader = [];           // bps.txt header columns, side A
 let newHeader = [];           // bps.txt header columns, side B
+let oldSamplePrefixes = [];   // [t001, n001, ...] for side A
+let newSamplePrefixes = [];   // [t001, n001, ...] for side B
 let currentTableData = [];
 let currentSortCol = -1;
 let currentSortAsc = true;
@@ -497,6 +515,55 @@ function canonicalize(c) {
 // two NEWs, or one of each — and the downstream diff works on the
 // canonical (chr1,pos1,chr2,pos2) keys plus the normalized type/conf/
 // maxlod/etc fields.
+// =========================================================================
+// IGV click-out helpers (shared with bps_explorer.html). IGV listens on
+// http://localhost:60151; fetch with no-cors so the request fires and we
+// can ignore the response.
+// =========================================================================
+function igvLoc(chr, pos) {
+  if (chr == null || chr === "" || pos == null || pos === "" || !isFinite(+pos)) return "";
+  let c = String(chr).replace(/^#/, "");
+  if (!/^chr/i.test(c)) c = "chr" + c;
+  return c + ":" + pos;
+}
+function igvGoto(locus, anchor) {
+  if (!locus) return;
+  const url = "http://localhost:60151/goto?locus=" + encodeURIComponent(locus);
+  fetch(url, { mode: "no-cors", cache: "no-store" })
+    .then(() => {
+      if (anchor) {
+        anchor.classList.remove("err");
+        anchor.classList.add("ok");
+        setTimeout(() => anchor.classList.remove("ok"), 600);
+      }
+    })
+    .catch(() => {
+      if (anchor) {
+        anchor.classList.add("err");
+        setTimeout(() => anchor.classList.remove("err"), 1500);
+      }
+    });
+}
+
+// Find where the per-sample columns start in a bps.txt header. The
+// convention (matching refilter.cpp / tovcf.cpp) is: scan from col 34
+// onward for the first header whose first char is 't' or 'n' — those
+// are sample prefixes. Returns -1 if not found.
+function detectSampleStart(hdr) {
+  for (let i = 34; i < hdr.length; i++) {
+    const h = hdr[i];
+    if (h && (h[0] === 't' || h[0] === 'n')) return i;
+  }
+  return -1;
+}
+
+// Pull the prefix out of a sample header token like "t001_/path/to.bam"
+// into just "t001". If there's no underscore, the whole token is the prefix.
+function _samplePrefix(tok) {
+  const us = tok.indexOf('_');
+  return us >= 0 ? tok.substring(0, us) : tok;
+}
+
 function parseBpsRows(text, sideLetter) {
   const lines = text.trim().split('\n');
   const hdr = lines[0].replace(/^#/, '').split('\t');
@@ -534,6 +601,13 @@ function parseBpsRows(text, sideLetter) {
   // "contig" / "cname" / "contig_id". Try all.
   const iContig = cia('contig_and_region', 'contig', 'cname', 'contig_id');
 
+  // Locate the per-sample block (t001/n001/...) and cache the sample
+  // prefixes. Each data row's _cols[sampleStart..] maps 1:1 to these.
+  const sampleStart    = detectSampleStart(hdr);
+  const samplePrefixes = sampleStart >= 0
+      ? hdr.slice(sampleStart).map(_samplePrefix)
+      : [];
+
   const records = [];
   for (let i = 1; i < lines.length; i++) {
     const cols = lines[i].split('\t');
@@ -542,9 +616,23 @@ function parseBpsRows(text, sideLetter) {
     // Positional for the 6 identifier columns — these are stable across
     // OLD and NEW schemas; both start with chr1/pos1/strand1/chr2/pos2/
     // strand2 in that fixed order.
+    // Per-sample FORMAT strings, indexed by prefix (t001/n001/...).
+    // Empty object when this dump has no samples or the header didn't
+    // expose a sample block.
+    const samples = {};
+    if (sampleStart >= 0) {
+      for (let s = 0; s < samplePrefixes.length; s++) {
+        samples[samplePrefixes[s]] = cols[sampleStart + s] || '';
+      }
+    }
+
     const rec = {
       chr1: cols[0], pos1: parseInt(cols[1]), strand1: cols[2],
       chr2: cols[3], pos2: parseInt(cols[4]), strand2: cols[5],
+      // Pre-computed IGV locus strings for the table renderer. Empty
+      // when chr/pos is missing or non-numeric.
+      igvPos1: igvLoc(cols[0], cols[1]),
+      igvPos2: igvLoc(cols[3], cols[4]),
       // Canonical normalized fields. Populate BOTH the new-style name
       // ("type", "conf") and the old aliases ("evidence", "confidence")
       // from the same source column so any downstream code that read
@@ -558,6 +646,7 @@ function parseBpsRows(text, sideLetter) {
       contig:     iContig >= 0 ? cols[iContig]            : '',
       qual:       iQual   >= 0 ? parseInt(cols[iQual])    : 0,
       span:       iSpan   >= 0 ? parseInt(cols[iSpan])    : 0,
+      samples,              // prefix -> "GT:AD:DP:..." colon-joined cell
       _cols: cols,          // full raw bps.txt row for detail rendering
       _side: sideLetter,
     };
@@ -565,13 +654,14 @@ function parseBpsRows(text, sideLetter) {
     canonicalize(rec);
   }
 
-  return { records, header: hdr, format };
+  return { records, header: hdr, format, samplePrefixes };
 }
 
 function parseOld(text) {
   const r = parseBpsRows(text, 'A');
-  oldCalls  = r.records;
-  oldHeader = r.header;
+  oldCalls          = r.records;
+  oldHeader         = r.header;
+  oldSamplePrefixes = r.samplePrefixes || [];
   updateDynamicChecks(oldCalls, 'type', 'evidenceChecks', true);
   updateDynamicChecks(oldCalls, 'conf', 'confChecksOld',  false);
   return { count: oldCalls.length, format: r.format };
@@ -579,8 +669,9 @@ function parseOld(text) {
 
 function parseNew(text) {
   const r = parseBpsRows(text, 'B');
-  newCalls  = r.records;
-  newHeader = r.header;
+  newCalls          = r.records;
+  newHeader         = r.header;
+  newSamplePrefixes = r.samplePrefixes || [];
   updateDynamicChecks(newCalls, 'type', 'typeChecks',    true);
   updateDynamicChecks(newCalls, 'conf', 'confChecksNew', false);
   return { count: newCalls.length, format: r.format };
@@ -826,17 +917,74 @@ function renderCharts(result) {
 }
 
 // ── Table rendering ──
-const TABLE_COLS_AGREE = ['chr1','pos1','strand1','chr2','pos2','strand2','span_A','type_A','conf_A','somlod_A','maxlod_A','qual_A','type_B','conf_B','somlod_B','maxlod_B','qual_B','contig','dist'];
-const TABLE_COLS_OLD = ['chr1','pos1','strand1','chr2','pos2','strand2','span','type','conf','somlod','maxlod','qual','contig'];
-const TABLE_COLS_NEW = ['chr1','pos1','strand1','chr2','pos2','strand2','span','type','conf','somlod','maxlod','qual','contig'];
-
+//
+// Column metadata entries: {k, l, w} — k = row-field key, l = display label,
+// w = width class (loc / strand / tiny / num / wrap / gt / samp). Sample
+// columns are pushed on dynamically at tab-render time from the per-side
+// sample prefix lists so the set of columns adjusts to whatever the loaded
+// bps.txt.gz actually carries.
 const _fmtLod = v => (v === undefined || v === null || isNaN(v)) ? '' : (+v).toFixed(2);
+
+// Core shared columns: IGV1 / S1 / IGV2 / S2 / Span appear on every tab.
+const CORE_LOCUS_COLS = [
+  { k:'igvPos1', l:'IGV1', w:'loc'    },
+  { k:'strand1', l:'S1',   w:'strand' },
+  { k:'igvPos2', l:'IGV2', w:'loc'    },
+  { k:'strand2', l:'S2',   w:'strand' },
+];
+
+function agreeCols() {
+  const cols = [
+    ...CORE_LOCUS_COLS,
+    { k:'span_A',   l:'Span',    w:'num'  },
+    { k:'type_A',   l:'Type A',  w:'tiny' },
+    { k:'conf_A',   l:'Conf A',  w:'tiny' },
+    { k:'somlod_A', l:'Som A',   w:'num'  },
+    { k:'maxlod_A', l:'Max A',   w:'num'  },
+    { k:'qual_A',   l:'Q A',     w:'num'  },
+    { k:'type_B',   l:'Type B',  w:'tiny' },
+    { k:'conf_B',   l:'Conf B',  w:'tiny' },
+    { k:'somlod_B', l:'Som B',   w:'num'  },
+    { k:'maxlod_B', l:'Max B',   w:'num'  },
+    { k:'qual_B',   l:'Q B',     w:'num'  },
+    { k:'dist',     l:'\u0394',  w:'num'  },
+    { k:'contig',   l:'Contig',  w:'wrap' },
+  ];
+  // Per-sample A then B blocks so each prefix appears twice for an
+  // at-a-glance comparison. Keys are namespaced `sampA_t001` / `sampB_t001`.
+  for (const p of oldSamplePrefixes) {
+    cols.push({ k:'sampA_'+p, l:p+' A', w:'gt' });
+  }
+  for (const p of newSamplePrefixes) {
+    cols.push({ k:'sampB_'+p, l:p+' B', w:'gt' });
+  }
+  return cols;
+}
+
+function singleSideCols(samplePrefixes) {
+  const cols = [
+    ...CORE_LOCUS_COLS,
+    { k:'span',    l:'Span',   w:'num'  },
+    { k:'type',    l:'Type',   w:'tiny' },
+    { k:'conf',    l:'Conf',   w:'tiny' },
+    { k:'somlod',  l:'Som',    w:'num'  },
+    { k:'maxlod',  l:'Max',    w:'num'  },
+    { k:'qual',    l:'Qual',   w:'num'  },
+    { k:'contig',  l:'Contig', w:'wrap' },
+  ];
+  for (const p of samplePrefixes) {
+    cols.push({ k:'samp_'+p, l:p, w:'gt' });
+  }
+  return cols;
+}
 
 function buildRow(item, category) {
   if (category === 'agree') {
     const a = item.old, b = item.new;
-    return {
-      chr1: a.chr1, pos1: a.pos1, strand1: a.strand1, chr2: a.chr2, pos2: a.pos2, strand2: a.strand2,
+    const row = {
+      igvPos1: a.igvPos1, igvPos2: a.igvPos2,
+      chr1: a.chr1, pos1: a.pos1, strand1: a.strand1,
+      chr2: a.chr2, pos2: a.pos2, strand2: a.strand2,
       span_A: a.span,
       type_A: a.type, conf_A: a.conf, somlod_A: _fmtLod(a.somlod), maxlod_A: _fmtLod(a.maxlod), qual_A: a.qual,
       type_B: b.type, conf_B: b.conf, somlod_B: _fmtLod(b.somlod), maxlod_B: _fmtLod(b.maxlod), qual_B: b.qual,
@@ -844,13 +992,19 @@ function buildRow(item, category) {
       dist: item.dist,
       _search: `${a.chr1} ${a.pos1} ${a.pos2} ${a.type} ${a.conf} ${b.type} ${b.conf} ${a.contig || ''} ${b.contig || ''}`.toLowerCase(),
       _cat: 'agree',
-      _recA: a,       // full record (includes _cols + _side)
+      _recA: a,
       _recB: b
     };
+    for (const p of oldSamplePrefixes) row['sampA_'+p] = (a.samples && a.samples[p]) || '';
+    for (const p of newSamplePrefixes) row['sampB_'+p] = (b.samples && b.samples[p]) || '';
+    return row;
   } else {
     const c = item;
-    return {
-      chr1: c.chr1, pos1: c.pos1, strand1: c.strand1, chr2: c.chr2, pos2: c.pos2, strand2: c.strand2,
+    const prefixes = (c._side === 'A') ? oldSamplePrefixes : newSamplePrefixes;
+    const row = {
+      igvPos1: c.igvPos1, igvPos2: c.igvPos2,
+      chr1: c.chr1, pos1: c.pos1, strand1: c.strand1,
+      chr2: c.chr2, pos2: c.pos2, strand2: c.strand2,
       span: c.span, type: c.type, conf: c.conf, somlod: _fmtLod(c.somlod), maxlod: _fmtLod(c.maxlod),
       qual: c.qual, contig: c.contig || '',
       _search: `${c.chr1} ${c.pos1} ${c.pos2} ${c.type} ${c.conf} ${c.contig || ''}`.toLowerCase(),
@@ -858,6 +1012,8 @@ function buildRow(item, category) {
       _recA: c._side === 'A' ? c : null,
       _recB: c._side === 'B' ? c : null
     };
+    for (const p of prefixes) row['samp_'+p] = (c.samples && c.samples[p]) || '';
+    return row;
   }
 }
 
@@ -1008,7 +1164,7 @@ function renderTable(rows, cols, rowClass) {
 
   // Sort
   if (currentSortCol >= 0 && currentSortCol < cols.length) {
-    const key = cols[currentSortCol];
+    const key = cols[currentSortCol].k;
     filtered = [...filtered].sort((a, b) => {
       let va = a[key], vb = b[key];
       const na = parseFloat(va), nb = parseFloat(vb);
@@ -1023,13 +1179,27 @@ function renderTable(rows, cols, rowClass) {
   const show = filtered.slice(0, max);
   let html = '<table><thead><tr>';
   for (let i = 0; i < cols.length; i++) {
+    const c = cols[i];
     const arrow = currentSortCol === i ? (currentSortAsc ? ' &#9650;' : ' &#9660;') : '';
-    html += `<th data-col="${i}">${cols[i]}<span class="sort-arrow">${arrow}</span></th>`;
+    const cls = c.w ? ('w-' + c.w) : '';
+    html += `<th data-col="${i}" class="${cls}">${esc(c.l)}<span class="sort-arrow">${arrow}</span></th>`;
   }
   html += '</tr></thead><tbody>';
   for (let ri = 0; ri < show.length; ri++) {
     html += `<tr class="${rowClass}" data-row-idx="${ri}">`;
-    for (const c of cols) html += `<td>${show[ri][c] ?? ''}</td>`;
+    for (const c of cols) {
+      const v = show[ri][c.k];
+      const cls = c.w ? ('w-' + c.w) : '';
+      if (c.k === 'igvPos1' || c.k === 'igvPos2') {
+        if (v) {
+          html += `<td class="${cls}"><a class="igv-link" href="#" data-locus="${esc(v)}" title="Open in IGV (localhost:60151)">${esc(v)}</a></td>`;
+        } else {
+          html += `<td class="${cls}"></td>`;
+        }
+      } else {
+        html += `<td class="${cls}">${esc(v ?? '')}</td>`;
+      }
+    }
     html += '</tr>';
   }
   if (filtered.length > max) html += `<tr><td colspan="${cols.length}" style="text-align:center;color:var(--text2)">... ${filtered.length - max} more</td></tr>`;
@@ -1046,11 +1216,24 @@ function renderTable(rows, cols, rowClass) {
     });
   });
 
+  // Wire IGV click-outs. stopPropagation so the row click (detail panel)
+  // doesn't also fire. Use the same `href="#"` + preventDefault dance
+  // as bps_explorer.html.
+  document.querySelectorAll('#detailTable a.igv-link').forEach(a => {
+    a.addEventListener('click', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      igvGoto(a.dataset.locus, a);
+    });
+  });
+
   // Wire row clicks → populate the row-detail panel with every bps.txt field.
   // Ignore clicks that land on a live text-selection so users can still
   // select/copy cell values without accidentally triggering a detail render.
+  // Also ignore clicks that originated on an IGV link above.
   document.querySelectorAll('#detailTable tbody tr[data-row-idx]').forEach(tr => {
-    tr.addEventListener('click', () => {
+    tr.addEventListener('click', e => {
+      if (e.target && e.target.closest && e.target.closest('a.igv-link')) return;
       const sel = window.getSelection();
       if (sel && sel.toString().length > 0 && tr.contains(sel.anchorNode)) return;
       const ri = parseInt(tr.dataset.rowIdx);
@@ -1061,14 +1244,23 @@ function renderTable(rows, cols, rowClass) {
   });
 }
 
+// HTML escape helper — matches the one used throughout bps_explorer.html
+function esc(v) {
+  return String(v == null ? '' : v)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 let activeTabData = null;
 function renderDetailTabs(result) {
   const tabsEl = document.getElementById('detailTabs');
   tabsEl.innerHTML = '';
+  // Build the column sets lazily each render so they pick up whatever
+  // sample prefixes the current input files actually carry.
   const entries = [
-    { label: `Agree (${result.agree.length})`, items: result.agree, cat: 'agree', cols: TABLE_COLS_AGREE, cls: 'agree-row' },
-    { label: `A only (${result.oldOnly.length})`, items: result.oldOnly, cat: 'oldOnly', cols: TABLE_COLS_OLD, cls: 'a-only-row' },
-    { label: `B only (${result.newOnly.length})`, items: result.newOnly, cat: 'newOnly', cols: TABLE_COLS_NEW, cls: 'b-only-row' },
+    { label: `Agree (${result.agree.length})`,   items: result.agree,   cat: 'agree',   cols: agreeCols(),                       cls: 'agree-row'  },
+    { label: `A only (${result.oldOnly.length})`, items: result.oldOnly, cat: 'oldOnly', cols: singleSideCols(oldSamplePrefixes), cls: 'a-only-row' },
+    { label: `B only (${result.newOnly.length})`, items: result.newOnly, cat: 'newOnly', cols: singleSideCols(newSamplePrefixes), cls: 'b-only-row' },
   ];
 
   entries.forEach((entry, i) => {

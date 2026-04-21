@@ -209,6 +209,45 @@ continue):
      got emitted by two overlapping assembly windows. Key function:
      `mergeCommaTokens` — boundary-aware union, mirrors
      `SvabaOutputWriter::stamp_tag`.
+     Both the reader and writer have the htslib BGZF thread pool enabled
+     via a new `SeqLib::BamReader::SetThreads(int)` /
+     `SeqLib::BamWriter::SetThreads(int)` API that calls
+     `hts_set_threads(fp, n)`. `streamDedup` accepts a `threads` parameter
+     (wired from the full postprocess budget, not the per-suffix slice —
+     see two-phase note below) and applies it on both sides.
+     Without this pool, BGZF decompress + compress is single-threaded
+     and dominates wall time (40 GB BAM → ~2 hours). With `-t 4..8`
+     this typically drops to 25–40 min, a 3–5× speedup.
+
+     **Two-phase driver.** `svaba postprocess` runs in two phases so the
+     thread budget lands where it actually helps:
+
+       Phase 1 (PARALLEL): samtools sort across all active suffixes
+         concurrently, each worker with `o.threads / n_active` threads.
+         Sort is disk+CPU bound and scales linearly across files.
+       Phase 2 (SERIAL): dedup + reheader + index, one BAM at a time,
+         each with the full `o.threads` as its BGZF pool. Serial here
+         is deliberate — running dedup in parallel across suffixes
+         would oversubscribe (each BAM needs its own read+write BGZF
+         pool), and BGZF parallelism has diminishing returns so
+         `4 workers × 2 threads` is worse wall-clock than
+         `1 worker × 8 threads` iterated four times.
+
+     **Idempotency.** Every phase has its own auto-skip so rerunning
+     the pipeline on an already-finished BAM is essentially instant:
+
+     - Phase 1 sort: `isCoordinateSorted()` inspects `@HD SO:coordinate`
+       and bypasses the sort when already done.
+     - Phase 2 dedup: `hasSvabaPostprocessPg()` scans the @PG chain for
+       any `svaba_postprocess` (or uniquified `.1`, `.2` variants); if
+       present, dedup AND the subsequent reheader step are both skipped
+       (only the `.bai` is rebuilt, which is cheap and covers the
+       missing-index case). The first successful `streamDedup` stamps
+       the PG line, so a second `svaba_postprocess.sh` run on the same
+       outputs no-ops almost entirely.
+     - The shell-layer merge step (`scripts/svaba_postprocess.sh` step 1)
+       is already a no-op when per-thread `.thread*.bam` files aren't
+       present (nothing to merge), so all three steps compose naturally.
    - **@PG stamp**: writes an `@PG ID:svaba_postprocess PN:svaba VN:<ver> CL:<argv> PP:<prev chain tail>`
      line into the output header. For dedup-eligible suffixes this is free
      (done in the writer during dedup); for `contigs` (no dedup) it's done

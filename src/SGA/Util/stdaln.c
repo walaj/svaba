@@ -751,10 +751,26 @@ int aln_local_core(unsigned char *seq1, int len1, unsigned char *seq2, int len2,
 end_func:
 	/* free */
 	free(eh); free(suba);
+	/* Suppress -Wfree-nonheap-object locally: the ++s_array[i] below
+	 * UNDOES the earlier --s_array[i] at line ~575 (done so the DP
+	 * code could use 1-based indexing), so after the increment
+	 * s_array[i] points at the original malloc() return. GCC 13+ sees
+	 * the explicit pointer arithmetic next to free() and warns even
+	 * though the math is a round-trip; the runtime behavior is
+	 * correct. Refactoring to avoid the offset trick would touch the
+	 * entire aln_local_core DP body, which isn't worth it for a
+	 * vendored legacy file. */
+#if defined(__GNUC__)
+#  pragma GCC diagnostic push
+#  pragma GCC diagnostic ignored "-Wfree-nonheap-object"
+#endif
 	for (i = 0; i != N_MATRIX_ROW; ++i) {
 		++s_array[i];
 		free(s_array[i]);
 	}
+#if defined(__GNUC__)
+#  pragma GCC diagnostic pop
+#endif
 	free(s_array);
 	return score_f;
 }

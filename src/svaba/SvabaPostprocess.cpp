@@ -260,6 +260,24 @@ PgChainInfo scanPgChain(const std::string& hdr_text) {
   return info;
 }
 
+// Idempotency check: has *any* svaba_postprocess @PG line (including
+// uniquified variants svaba_postprocess.1, .2, ...) already been stamped
+// onto this header? Used to auto-skip the dedup/reheader phase on
+// re-runs so `scripts/svaba_postprocess.sh` is safely rerunnable.
+//
+// Matches both the bare "svaba_postprocess" ID emitted on the first run
+// and the "svaba_postprocess.<n>" variants uniquifyId() would produce if
+// the user deliberately runs postprocess twice in a row. Either form
+// means "dedup+PG-stamp has already happened at least once."
+bool hasSvabaPostprocessPg(const std::string& hdr_text) {
+  const PgChainInfo info = scanPgChain(hdr_text);
+  for (const auto& id : info.ids) {
+    if (id == "svaba_postprocess") return true;
+    if (id.rfind("svaba_postprocess.", 0) == 0) return true;
+  }
+  return false;
+}
+
 std::string uniquifyId(const std::string& base,
                        const std::vector<std::string>& existing) {
   auto has = [&](const std::string& s) {
@@ -554,6 +572,7 @@ DedupStats streamDedup(const std::string& in_bam,
                        const std::string& out_bam,
                        const SeqLib::BamHeader& out_hdr,
                        const std::string& tag,
+                       int threads,
                        int verbose) {
   using clock = std::chrono::steady_clock;
   DedupStats st;
@@ -564,10 +583,21 @@ DedupStats streamDedup(const std::string& in_bam,
   SeqLib::BamReader r;
   if (!r.Open(in_bam))
     throw std::runtime_error("dedup: cannot open input " + in_bam);
+  // Enable BGZF decompression thread pool on the reader. Must happen
+  // after Open() (where fp_ is populated) and before the first Next().
+  // Typical 3–5x end-to-end speedup at threads=4..8 on dense BAMs,
+  // because without it the main thread does every BGZF block inflate
+  // sequentially.
+  const int io_threads = std::max(1, threads);
+  r.SetThreads(io_threads);
 
   SeqLib::BamWriter w;
   if (!w.Open(out_bam))
     throw std::runtime_error("dedup: cannot open output " + out_bam);
+  // Matching BGZF compression thread pool on the write side. The
+  // output is the expensive half of this function — every kept record
+  // goes through deflate — so pooling here matters most.
+  w.SetThreads(io_threads);
   // Use the caller-supplied header (which already carries our @PG stamp)
   // rather than blindly mirroring the reader's — that's how postprocess
   // marks its output without a separate reheader pass for dedup suffixes.
@@ -647,42 +677,56 @@ DedupStats streamDedup(const std::string& in_bam,
     }
     ++st.in_records;
 
-    if (verbose >= 1 && (st.in_records % 1'000'000ULL) == 0) {
+    // Progress print every 5M reads (was 1M — too chatty on deep BAMs).
+    constexpr std::size_t PROGRESS_EVERY = 5'000'000ULL;
+    if (verbose >= 1 && (st.in_records % PROGRESS_EVERY) == 0) {
       const auto now = clock::now();
       const double elapsed = std::chrono::duration<double>(now - t0).count();
       const double dt      = std::chrono::duration<double>(now - last).count();
-      const double inst_rps = dt > 0 ? 1'000'000.0 / dt : 0.0;
+      const double inst_rps = dt > 0 ? static_cast<double>(PROGRESS_EVERY) / dt : 0.0;
       const double avg_rps  = elapsed > 0 ? st.in_records / elapsed : 0.0;
       last = now;
 
-      // Show input size as a coarse "how far into the job are we" hint.
-      // A true ETA would need bytes-read from htslib, which SeqLib's API
-      // doesn't currently surface; skip rather than fabricate.
+      // Column widths chosen so the line never shifts as counters grow:
+      //   chr:    5 chars right-padded   ("chr22" max)
+      //   pos:    9 chars right-padded   (human chr1 goes to ~249M = 9 digits)
+      //   counts: 11 chars right-aligned with thousands separators
+      //             (fits "999,999,999" = 9 figures + 2 commas)
+      //   rps:    6 chars "%6.2f"        (up to 999.99 M/s)
+      //   elapsed 8 chars "%8.1f"        (up to 99999.9 s ≈ 27 hr)
+      //   MiB:    7 chars                (up to 9,999,999 MiB ≈ 10 TB)
+      auto fmtN = [](std::size_t n) {
+        std::ostringstream oss;
+        oss << std::setw(11) << std::right << SeqLib::AddCommas<std::size_t>(n);
+        return oss.str();
+      };
+
+      std::ostringstream locus_oss;
+      locus_oss << std::setw(5) << std::right << cur_chr_name
+                << ":"
+                << std::setw(9) << std::right
+                << (cur_pos >= 0 ? cur_pos + 1 : 0);
+      const std::string locus_str = locus_oss.str();
+
+      // Input-size hint for a coarse "how far into the job" feel. A true
+      // ETA would need bytes-read from htslib, which SeqLib doesn't expose.
       std::string size_hint;
       if (in_size > 0) {
         std::ostringstream oss;
-        oss << " (input " << (in_size / (1024 * 1024)) << " MiB)";
+        oss << " (input " << std::setw(7) << std::right
+            << (in_size / (1024 * 1024)) << " MiB)";
         size_hint = oss.str();
       }
 
-      // Report the most recently seen locus as a coarse progress mark.
-      // cur_pos is 0-based (BAM convention); print 1-based for readability.
-      std::string locus_str;
-      {
-        std::ostringstream oss;
-        oss << cur_chr_name << ":"
-            << (cur_pos >= 0 ? cur_pos + 1 : 0);
-        locus_str = oss.str();
-      }
-
       logLine("[", tag, "] dedup: at ", locus_str, " | ",
-              st.in_records / 1'000'000ULL, "M reads | ",
-              st.kept, " kept, ", st.merged, " merged (",
-              st.tag_edits, " tag-edits) | ",
+              fmtN(st.in_records), " reads | ",
+              fmtN(st.kept),       " kept, ",
+              fmtN(st.merged),     " merged (",
+              fmtN(st.tag_edits),  " tag-edits) | ",
               std::fixed, std::setprecision(2),
-              inst_rps / 1e6, "M/s last-1M, ",
-              avg_rps / 1e6,  "M/s avg, ",
-              std::setprecision(1), elapsed, "s elapsed",
+              std::setw(6), inst_rps / 1e6, "M/s last-5M, ",
+              std::setw(6), avg_rps  / 1e6, "M/s avg, ",
+              std::setprecision(1), std::setw(8), elapsed, "s elapsed",
               size_hint);
     }
   }
@@ -723,12 +767,18 @@ bool isDedupSuffix(const std::string& s) {
 // and accompanied by a ${id}.${suffix}.bam.bai index. All intermediate
 // filenames use a .postprocess.*.tmp.bam suffix so anything left behind on
 // failure is obviously transient and trivially cleanable.
+// do_finalize controls whether the dedup + reheader + index phase runs.
+// Phase-splitting the driver lets sort run in parallel across suffixes
+// (narrow thread budget each) and dedup run serially with the full thread
+// budget, which is what the user wants since htslib BGZF pools are
+// per-file — sharing them across concurrent workers oversubscribes.
 void processSuffix(const std::string& id,
                    const std::string& suffix,
                    int  per_job_threads,
                    const std::string& mem,
                    bool do_sort,
                    bool do_dedup,
+                   bool do_finalize,
                    const std::string& cl,
                    int  verbose) {
   const std::string bam       = id + "." + suffix + ".bam";
@@ -768,19 +818,37 @@ void processSuffix(const std::string& id,
       renameOrThrow(sort_tmp, bam);
     }
 
+    if (!do_finalize) {
+      // Caller wants sort-only (the parallel Phase 1 of the driver); leave
+      // dedup + reheader + index to the caller's Phase 2 invocation. This
+      // split exists so Phase 2 can run serially with the full thread
+      // budget dedicated to BGZF read/write pooling per BAM, instead of
+      // fragmenting threads across concurrent workers.
+      return;
+    }
+
+    // Read the current header ONCE and reuse it for both the PG-idempotency
+    // check and (if we do run dedup) the stamped output header. Avoids a
+    // second BAM open just to look up PG state.
+    const SeqLib::BamHeader existing_hdr = readHeaderOnly(bam);
+    const std::string       existing_txt = existing_hdr.AsString();
+    const bool already_postprocessed     = hasSvabaPostprocessPg(existing_txt);
+
     // --- Dedup (also stamps PG on the way) ------------------------------
-    if (do_dedup && isDedupSuffix(suffix)) {
+    if (do_dedup && isDedupSuffix(suffix) && !already_postprocessed) {
       if (verbose >= 1)
         logLine("[", suffix, "] starting dedup on ", bam);
 
-      // Read the current header, append our @PG line, and hand the stamped
-      // header to the writer. This is free — dedup is already rewriting the
-      // file, so we avoid a separate reheader pass.
+      // Append our @PG line to the existing header text, then hand the
+      // stamped header to the writer. This is free — dedup is already
+      // rewriting the file, so we avoid a separate reheader pass.
       const SeqLib::BamHeader stamped =
-          stampedHeader(readHeaderOnly(bam), cl);
+          SeqLib::BamHeader(appendSvabaPostprocessPg(existing_txt, cl));
 
       const DedupStats ds =
-          streamDedup(bam, dedup_tmp, stamped, suffix, verbose);
+          streamDedup(bam, dedup_tmp, stamped, suffix,
+                      per_job_threads,   // BGZF read/write pool size
+                      verbose);
       renameOrThrow(dedup_tmp, bam);
       pg_stamped = true;
 
@@ -793,14 +861,22 @@ void processSuffix(const std::string& id,
               "% dup, ",
               ds.tag_edits, " bi/bz tag-edits) in ",
               std::fixed, std::setprecision(1), ds.seconds, "s");
+    } else if (do_dedup && isDedupSuffix(suffix) && already_postprocessed) {
+      // BAM has already been through svaba_postprocess. Skip the expensive
+      // dedup rewrite AND the reheader below — PG is already stamped.
+      logLine("[", suffix, "] already has svaba_postprocess @PG in header; "
+              "skipping dedup (rerun-safe no-op)");
+      pg_stamped = true;
     } else if (do_dedup && !isDedupSuffix(suffix)) {
       if (verbose >= 2)
         logLine("[", suffix, "] dedup skipped (not a dedup suffix)");
     }
 
     // --- Reheader to stamp @PG for any suffix that didn't go through -----
-    // --- dedup (e.g. `contigs`, or anything under --sort-only)    -----
-    if (!pg_stamped) {
+    // --- dedup (e.g. `contigs`, or anything under --sort-only). Also      -----
+    // --- skipped when `already_postprocessed` set `pg_stamped` above      -----
+    // --- (nothing to add to an already-PG-stamped header).                -----
+    if (!pg_stamped && !already_postprocessed) {
       const int rc = reheaderBamWithPg(bam, cl, suffix, verbose);
       if (rc != 0)
         throw std::runtime_error("reheader failed with rc " + std::to_string(rc));
@@ -809,6 +885,8 @@ void processSuffix(const std::string& id,
     // --- Index ----------------------------------------------------------
     // Index last so the .bai matches the BGZF offsets of the final file.
     // Any earlier index would be invalidated by the dedup/reheader rewrite.
+    // Always runs — even on a rerun, the .bai may be missing or stale
+    // (e.g. if the user renamed the BAM after a previous run). Cheap op.
     (void) indexBam(bam, suffix, verbose);
 
   } catch (const std::exception& e) {
@@ -886,26 +964,69 @@ void runPostprocess(int argc, char** argv) {
                "pipeline, not before the read passes that produce them."
             << std::endl;
 
-  // Launch one thread per active suffix. max_parallel is only used to cap the
-  // samtools sort thread count — since we only launch n_active workers total,
-  // we don't need an external throttle. The heavy lifting inside each worker
-  // is the samtools sort subprocess (which itself respects per_job_sort_t),
-  // plus a CPU-light streaming dedup loop.
-  std::vector<std::thread> workers;
-  workers.reserve(active.size());
+  // Two-phase execution:
+  //
+  //   Phase 1 (PARALLEL): run samtools sort across all active suffixes
+  //     concurrently. Sort is disk+CPU bound and perfectly parallelizable
+  //     across files, so each worker gets `per_job_sort_t = o.threads /
+  //     n_active` threads — total thread usage ≈ o.threads.
+  //
+  //   Phase 2 (SERIAL): dedup + reheader + index, one suffix at a time,
+  //     each with the FULL `o.threads` budget for its BGZF read/write
+  //     pool. Running the dedup phase in parallel would fragment the
+  //     thread budget (4 suffixes × 2 threads/pool = 2× oversubscription
+  //     once you count read+write pools per suffix), yielding worse wall
+  //     time than serial-with-wide-pools because BGZF parallelism has
+  //     diminishing returns — 8 threads get ~5x vs single-thread, but 4
+  //     parallel workers with 2 threads each get only 4 × 1.8x / 4 ≈ 1.8x
+  //     effective per-BAM.
+  //
+  // Each phase is itself idempotent: Phase 1 skips sort when the BAM is
+  // already @HD SO:coordinate; Phase 2 skips dedup when the header
+  // already carries a `svaba_postprocess` @PG line. Rerunning a
+  // completed postprocess is essentially instant.
+
+  // --- Phase 1: parallel sort ----------------------------------------
+  if (!o.dedup_only) {
+    if (o.verbose >= 1)
+      std::cerr << "svaba postprocess: phase 1/2 — parallel sort across "
+                << active.size() << " suffixes ("
+                << per_job_sort_t << " threads each)" << std::endl;
+    std::vector<std::thread> workers;
+    workers.reserve(active.size());
+    for (const auto& suffix : active) {
+      workers.emplace_back(
+          processSuffix,
+          o.id,
+          suffix,
+          per_job_sort_t,
+          o.mem,
+          /*do_sort=*/    true,
+          /*do_dedup=*/   false,  // deferred to phase 2
+          /*do_finalize=*/false,  // phase 1 exits right after sort
+          cl,
+          o.verbose);
+    }
+    for (auto& t : workers) t.join();
+  }
+
+  // --- Phase 2: serial dedup + reheader + index ----------------------
+  // `o.threads` per invocation — one BAM at a time gets the whole budget.
+  if (o.verbose >= 1)
+    std::cerr << "svaba postprocess: phase 2/2 — serial dedup+reheader+index"
+              << " (" << o.threads << " threads per BAM)" << std::endl;
   for (const auto& suffix : active) {
-    workers.emplace_back(
-        processSuffix,
+    processSuffix(
         o.id,
         suffix,
-        per_job_sort_t,
+        o.threads,                   // full BGZF pool budget
         o.mem,
-        /*do_sort=*/  !o.dedup_only,
-        /*do_dedup=*/ !o.sort_only,
+        /*do_sort=*/    false,       // already sorted in phase 1 (or skipped by --dedup-only)
+        /*do_dedup=*/   !o.sort_only,
+        /*do_finalize=*/true,
         cl,
         o.verbose);
   }
-  for (auto& t : workers) t.join();
 
   if (o.verbose >= 1)
     std::cerr << "svaba postprocess: all suffixes done (sorted"

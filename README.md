@@ -62,6 +62,47 @@ file directly and rebuilding. Runtime logs report the active
 assembler under `svaba::kAssemblerName`, so you can always confirm
 which engine a build was compiled with.
 
+### jemalloc (Linux, high thread count)
+
+On Linux, running svaba with **jemalloc** as the allocator typically
+wins 10–20 % wall-time at `-p 16+` (large WGS, tumor/normal). svaba's
+per-thread assembly loop generates heavy malloc/free traffic and
+glibc's default allocator serializes on its arena locks under that
+contention pattern; jemalloc's thread-local arenas sidestep the
+problem. The repo ships a drop-in wrapper at `./svaba_jemalloc` that
+`LD_PRELOAD`s the system `libjemalloc.so.2` and then exec's svaba:
+
+```bash
+# one-liner replacement for `svaba run ...`:
+./svaba_jemalloc run -t tumor.bam -n normal.bam -G ref.fa -a my_run -p 16 \
+                     --blacklist tracks/hg38.combined_blacklist.bed
+```
+
+Install jemalloc first (`apt install libjemalloc2`, `yum install
+jemalloc`, `dnf install jemalloc`). The wrapper auto-detects the
+library under the standard distro paths; if yours is elsewhere, set
+`JEMALLOC_LIB=/path/to/libjemalloc.so.2`. If the svaba binary isn't on
+your `$PATH`, set `SVABA=/path/to/svaba`.
+
+For very high concurrency (`-p 24+`), also pass jemalloc's own tuning
+knobs via `MALLOC_CONF`:
+
+```bash
+MALLOC_CONF=background_thread:true,narenas:24,dirty_decay_ms:10000 \
+    ./svaba_jemalloc run -p 24 ...
+```
+
+`narenas` should match or modestly exceed the thread count;
+`background_thread:true` asks jemalloc to reclaim dirty pages on a
+background thread instead of in the hot path.
+
+**macOS users should not use jemalloc.** Apple's native libmalloc
+(with its nanomalloc fast path for small allocations) and the
+DYLD_INSERT_LIBRARIES mechanism combine to run 5–10× slower than
+system malloc on this exact workload in our A/B tests. The wrapper
+refuses to run on Darwin for that reason. Stick with the system
+allocator on macOS.
+
 ## Quick start
 
 Three steps. Run the caller, merge + dedup + index the per-thread

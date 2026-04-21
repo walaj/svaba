@@ -1,3 +1,84 @@
-#!/bin/bash
-#LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libjemalloc.so.2 ~/git/svaba/memprof.sh ~/git/svaba/build_release/svaba "$@"
-LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libjemalloc.so.2 ~/git/svaba/build/svaba "$@"
+#!/usr/bin/env bash
+#
+# svaba_jemalloc — run svaba with jemalloc forced as the allocator via
+# LD_PRELOAD. Recommended for Linux workloads at high thread counts
+# (~12+ threads): jemalloc's thread-local arenas relieve lock
+# contention the glibc allocator suffers under heavy malloc/free
+# traffic from the per-thread assembly pipeline. Typical wall-time
+# win: 10–20 % at -p 16 on a WGS region; less at low -p, sometimes a
+# wash under -p 4.
+#
+# *Do not use this on macOS.* Apple's libmalloc (nanomalloc fast path)
+# plus DYLD_INSERT_LIBRARIES overhead has empirically run 5–10× SLOWER
+# than the default allocator on the same BAM. Stick with system malloc
+# there.
+#
+# Usage:
+#   svaba_jemalloc run -t tumor.bam -n normal.bam -G ref.fa ...
+#     # or any other svaba subcommand — args are passed through.
+#
+# Optional environment overrides:
+#   JEMALLOC_LIB=/path/to/libjemalloc.so.2    # skip auto-detection
+#   SVABA=/path/to/svaba                      # skip $PATH lookup
+#
+# MALLOC_CONF is passed through if the caller sets it; a reasonable
+# default for high-concurrency svaba runs is:
+#   MALLOC_CONF=background_thread:true,narenas:24,dirty_decay_ms:10000
+# Tune `narenas` to match -p if you go above 24 threads.
+
+set -euo pipefail
+
+# Refuse to run on macOS — jemalloc loses badly there.
+case "$(uname -s)" in
+  Darwin)
+    echo "svaba_jemalloc: Linux only. On macOS, Apple's libmalloc is" >&2
+    echo "                faster than jemalloc for this workload." >&2
+    echo "                Just run svaba directly." >&2
+    exit 1
+    ;;
+esac
+
+# 1) Resolve libjemalloc path.
+JEMALLOC_LIB=${JEMALLOC_LIB:-}
+if [[ -z "$JEMALLOC_LIB" ]]; then
+  for cand in \
+      /usr/lib/x86_64-linux-gnu/libjemalloc.so.2 \
+      /usr/lib64/libjemalloc.so.2 \
+      /usr/lib/libjemalloc.so.2 \
+      /usr/local/lib/libjemalloc.so.2 \
+      /opt/homebrew/lib/libjemalloc.so.2
+  do
+    if [[ -f "$cand" ]]; then JEMALLOC_LIB=$cand; break; fi
+  done
+fi
+if [[ -z "$JEMALLOC_LIB" ]]; then
+  # last-ditch: ask ldconfig for a cached match
+  JEMALLOC_LIB=$(ldconfig -p 2>/dev/null | awk '/libjemalloc\.so\.2/ {print $NF; exit}')
+fi
+if [[ -z "$JEMALLOC_LIB" || ! -f "$JEMALLOC_LIB" ]]; then
+  echo "svaba_jemalloc: could not find libjemalloc.so.2." >&2
+  echo "  Install it (e.g. 'apt install libjemalloc2' or 'yum install jemalloc')" >&2
+  echo "  or set JEMALLOC_LIB=/path/to/libjemalloc.so.2." >&2
+  exit 1
+fi
+
+# 2) Resolve svaba binary.
+SVABA=${SVABA:-}
+if [[ -z "$SVABA" ]]; then
+  # Prefer $PATH; fall back to a build/svaba next to this script.
+  if command -v svaba >/dev/null 2>&1; then
+    SVABA=$(command -v svaba)
+  else
+    here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+    for cand in "$here/build/svaba" "$here/bin/svaba"; do
+      if [[ -x "$cand" ]]; then SVABA=$cand; break; fi
+    done
+  fi
+fi
+if [[ -z "$SVABA" || ! -x "$SVABA" ]]; then
+  echo "svaba_jemalloc: could not find the svaba binary." >&2
+  echo "  Put svaba on \$PATH, or set SVABA=/path/to/svaba." >&2
+  exit 1
+fi
+
+exec env LD_PRELOAD="$JEMALLOC_LIB" "$SVABA" "$@"

@@ -79,6 +79,9 @@ td.w-tiny,th.w-tiny{max-width:8ch;overflow:hidden;text-overflow:ellipsis}
 td.w-num,th.w-num{max-width:7ch}
 td.w-seq,th.w-seq{max-width:10ch;white-space:normal;word-break:break-all;font-family:'SF Mono','Consolas',monospace;line-height:1.1}
 td.w-wrap,th.w-wrap{max-width:22ch;white-space:normal;word-break:break-all;line-height:1.1}
+/* Genes column — comma-joined gene symbols from the user-uploaded GTF;
+   soft-wrap so multi-gene hits don't blow the row height out. */
+td.w-genes,th.w-genes{max-width:16ch;white-space:normal;word-break:break-word;line-height:1.15;color:var(--green)}
 /* Samples column — shows the full per-sample FORMAT value
    (GT:AD:DP:SR:DR:GQ:PL:LO:LO_n), one sample per line, monospace so the
    colon-separated fields stack column-wise visually. white-space:pre
@@ -146,6 +149,12 @@ th.w-gt{cursor:help}
     Drop or click &mdash; <code>.bps.txt</code> / <code>.bps.txt.gz</code>
     <div class="fn" id="file-name" style="display:none"></div>
     <input type="file" id="file-input" accept=".txt,.gz,.tsv,text/plain,application/gzip">
+  </div>
+  <div class="upload-box" id="gtf-zone" onclick="document.getElementById('gtf-input').click()"
+       title="Optional: upload a GTF / GTF.gz of gene annotations (e.g. GENCODE). When loaded, each variant row gets a Genes column listing any gene whose EXONS overlap pos1 or pos2.">
+    Drop or click &mdash; <code>.gtf</code> / <code>.gtf.gz</code> <em>(optional, for gene annotation)</em>
+    <div class="fn" id="gtf-name" style="display:none"></div>
+    <input type="file" id="gtf-input" accept=".gtf,.gz,text/plain,application/gzip">
   </div>
   <button class="btn-ghost btn" id="export-btn" disabled>Export TSV</button>
 </div>
@@ -283,6 +292,11 @@ const TCOLS=[
   // the chr1:pos1 → chr2:pos2 interval; easier to scan the "where"
   // columns all at once before moving on to quality/support metrics.
   {k:"span",l:"Span",n:1,w:"num"},
+  // Genes column — populated only when the user has loaded a GTF.
+  // Shows the comma-joined union of any gene whose EXON(S) overlap
+  // pos1 OR pos2. Stays adjacent to the locus block so the biological
+  // context is visually anchored to where the breakpoint is.
+  {k:"genes",l:"Genes",w:"genes"},
   {k:"eventType",l:"Type",w:"tiny"},{k:"evidence",l:"Evid",w:"tiny"},{k:"conf",l:"Conf",w:"tiny"},
   {k:"qual",l:"Qual",n:1,w:"num"},{k:"somlod",l:"Somlod",n:1,w:"num"},{k:"maxlod",l:"Maxlod",n:1,w:"num"},
   {k:"gtSummary",l:"Samples \u24d8",w:"gt",help:true},
@@ -325,6 +339,13 @@ $("file-input").onchange=e=>{const f=e.target.files[0];if(f)loadBlob(f,f.name)};
 ["dragenter","dragover"].forEach(e=>$("drop-zone").addEventListener(e,ev=>{ev.preventDefault();$("drop-zone").classList.add("over")}));
 ["dragleave","drop"].forEach(e=>$("drop-zone").addEventListener(e,ev=>{ev.preventDefault();$("drop-zone").classList.remove("over")}));
 $("drop-zone").addEventListener("drop",e=>{const f=e.dataTransfer.files[0];if(f)loadBlob(f,f.name)});
+
+// GTF upload box — optional; enables the Genes column once a GTF is
+// loaded. Mirrors the bps drop-zone wiring so the UX is identical.
+$("gtf-input").onchange=e=>{const f=e.target.files[0];if(f)loadGtfBlob(f,f.name)};
+["dragenter","dragover"].forEach(e=>$("gtf-zone").addEventListener(e,ev=>{ev.preventDefault();$("gtf-zone").classList.add("over")}));
+["dragleave","drop"].forEach(e=>$("gtf-zone").addEventListener(e,ev=>{ev.preventDefault();$("gtf-zone").classList.remove("over")}));
+$("gtf-zone").addEventListener("drop",e=>{const f=e.dataTransfer.files[0];if(f)loadGtfBlob(f,f.name)});
 
 $("export-btn").onclick=exportTSV;
 $("reset-btn").onclick=()=>{resetF();render()};
@@ -395,6 +416,174 @@ async function loadBlob(blob,name){
   $("file-input").value="";
 }
 
+/* === GTF (gene annotation) load =======================================
+ *
+ * User uploads a GTF / GTF.gz; we parse EXON features only and build a
+ * per-chromosome sorted index of {start, end, gene_name}. When the bps
+ * file is (re)loaded or the GTF changes, every row gets annotated with
+ * the comma-joined union of gene names whose exons overlap pos1 OR pos2.
+ *
+ * Index shape per chrom (normalized via normC, i.e. "chr1" and "1"
+ * collapse to the same key):
+ *   { starts:[], ends:[], genes:[], maxEnd:[] }
+ * where maxEnd[i] is the running max of ends[0..i], enabling a bounded
+ * walk-back during lookup: once maxEnd[j] < pos we can stop — no
+ * earlier exon can still contain pos.
+ *
+ * Lookup: binary-search starts for largest index with start<=pos, then
+ * walk back checking end>=pos; bail when maxEnd falls below pos.
+ */
+const GTF = {
+  byChr: new Map(),     // normC(chrom) -> {starts,ends,genes,maxEnd}
+  nExons: 0,
+  loaded: false,
+  fn: ""
+};
+
+async function loadGtfBlob(blob, name) {
+  $("gtf-name").style.display = "";
+  $("gtf-name").textContent = "Loading " + name + "...";
+  try {
+    let text;
+    if (name.endsWith(".gz")) {
+      if (typeof DecompressionStream === "undefined") throw new Error("Browser lacks DecompressionStream");
+      text = await new Response(blob.stream().pipeThrough(new DecompressionStream("gzip"))).text();
+    } else text = await blob.text();
+    parseGtf(text, name);
+    annotateAllRowsWithGenes();
+    render();
+  } catch (e) {
+    $("gtf-name").textContent = "Error: " + e.message;
+    console.error(e);
+  }
+  $("gtf-input").value = "";
+}
+
+function parseGtf(text, name) {
+  const t0 = performance.now();
+
+  // Accumulate into per-chrom temp buckets of [start, end, gene] triples,
+  // then sort + split into parallel arrays at the end. gene-name strings
+  // are de-duplicated via a Map so each unique symbol lives once in memory.
+  const buckets = new Map();   // chrom_key -> [[s,e,gene], ...]
+  const geneIntern = new Map();
+
+  const nameRe  = /gene_name "([^"]+)"/;
+  const idRe    = /gene_id "([^"]+)"/;
+
+  let nLines = 0, nExons = 0;
+  // Split on \n; tolerate \r\n. split() here works fine for multi-hundred-MB
+  // strings as long as the browser had enough heap to hold the uncompressed
+  // GTF in the first place (GENCODE basic ≈ 1.5 GB is the real constraint,
+  // not this split).
+  const lines = text.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    nLines++;
+    if (!line || line.charCodeAt(0) === 35 /* # */) continue;
+    const tabs = line.split("\t");
+    if (tabs.length < 9) continue;
+    if (tabs[2] !== "exon") continue;
+
+    const chr = normC(tabs[0]);
+    const s = +tabs[3];
+    const e = +tabs[4];
+    if (!isFinite(s) || !isFinite(e)) continue;
+
+    const attrs = tabs[8];
+    let m = nameRe.exec(attrs);
+    if (!m) m = idRe.exec(attrs);   // fall back to gene_id when gene_name absent
+    if (!m) continue;
+    let gene = m[1];
+    const cached = geneIntern.get(gene);
+    if (cached) gene = cached; else geneIntern.set(gene, gene);
+
+    let buf = buckets.get(chr);
+    if (!buf) { buf = []; buckets.set(chr, buf); }
+    buf.push([s, e, gene]);
+    nExons++;
+  }
+
+  // Sort per-chrom by start, then flatten into parallel arrays + maxEnd.
+  const byChr = new Map();
+  for (const [chr, buf] of buckets) {
+    buf.sort((a, b) => a[0] - b[0]);
+    const n = buf.length;
+    const starts = new Int32Array(n);
+    const ends   = new Int32Array(n);
+    const genes  = new Array(n);
+    const maxEnd = new Int32Array(n);
+    let running = 0;
+    for (let i = 0; i < n; i++) {
+      starts[i] = buf[i][0];
+      ends[i]   = buf[i][1];
+      genes[i]  = buf[i][2];
+      if (buf[i][1] > running) running = buf[i][1];
+      maxEnd[i] = running;
+    }
+    byChr.set(chr, { starts, ends, genes, maxEnd });
+  }
+
+  GTF.byChr  = byChr;
+  GTF.nExons = nExons;
+  GTF.loaded = nExons > 0;
+  GTF.fn     = name;
+
+  const ms = (performance.now() - t0).toFixed(0);
+  $("gtf-zone").classList.add("loaded");
+  $("gtf-name").textContent =
+    name + " — " + nExons.toLocaleString() + " exons across " +
+    byChr.size + " chromosomes (parsed in " + ms + "ms)";
+}
+
+// Binary search: largest index i such that arr[i] <= target, or -1.
+function _upperBoundLE(arr, target) {
+  let lo = 0, hi = arr.length - 1, ret = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (arr[mid] <= target) { ret = mid; lo = mid + 1; }
+    else                     { hi = mid - 1; }
+  }
+  return ret;
+}
+
+// Find all genes whose EXONS overlap a given 1-based position. Returns
+// a Set of strings (possibly empty). Cheap: O(log n + k) where k is the
+// number of exons at the locus (typically 0..3).
+function genesAtPos(chr, pos) {
+  const out = new Set();
+  if (!GTF.loaded || chr == null || pos == null || !isFinite(+pos)) return out;
+  const idx = GTF.byChr.get(normC(chr));
+  if (!idx) return out;
+  const { starts, ends, genes, maxEnd } = idx;
+  const p = +pos;
+  const hi = _upperBoundLE(starts, p);
+  if (hi < 0) return out;
+  for (let i = hi; i >= 0; i--) {
+    if (ends[i] >= p) out.add(genes[i]);
+    if (maxEnd[i] < p) break;   // no earlier exon can still reach p
+  }
+  return out;
+}
+
+// Stamp `r.genes` onto every loaded bps row with the comma-joined union
+// of genes at pos1 and pos2. Called after GTF load and after bps load
+// (if a GTF was already loaded). Empty string when the GTF isn't loaded
+// yet so the column renders blank until there's data to show.
+function annotateAllRowsWithGenes() {
+  if (!S.rows || !S.rows.length) return;
+  for (const r of S.rows) {
+    const set = new Set();
+    if (GTF.loaded) {
+      for (const g of genesAtPos(r.chr1, r.pos1)) set.add(g);
+      for (const g of genesAtPos(r.chr2, r.pos2)) set.add(g);
+    }
+    r.genes = set.size ? Array.from(set).sort().join(", ") : "";
+    // Keep search corpus in sync so users can grep by gene name.
+    if (r._st && r.genes) r._st = r._st.concat([r.genes]);
+  }
+}
+
 function ingest(text,name){
   const t0=performance.now();
   const lines=text.replace(/\r\n?/g,"\n").split("\n").filter(l=>l);
@@ -436,6 +625,9 @@ function ingest(text,name){
   const ms=(performance.now()-t0).toFixed(0);
   $("file-meta").textContent=name+" \u2014 "+rows.length.toLocaleString()+" rows, "+
     (isV2?51:41)+" core cols, "+sampHdr.length+" samples \u2014 parsed in "+ms+"ms";
+  // If the user has already loaded a GTF, annotate every row we just
+  // parsed so the Genes column renders populated on first view.
+  annotateAllRowsWithGenes();
   render();
 }
 
