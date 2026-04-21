@@ -219,6 +219,22 @@ continue):
      and dominates wall time (40 GB BAM → ~2 hours). With `-t 4..8`
      this typically drops to 25–40 min, a 3–5× speedup.
 
+     **Buckets-clear gotcha** (landed alongside the thread-pool fix):
+     the per-locus `idx_by_key` is a `std::unordered_map<std::string,
+     size_t>`. `unordered_map::clear()` is **O(bucket_count)** — it
+     memsets the entire bucket array even when size is 0, and
+     `bucket_count` only grows, never shrinks. One pileup locus
+     (centromere / simple repeat / HLA) inflates buckets to 100k+
+     for the rest of the BAM, and every subsequent locus transition
+     (hundreds of millions of them) pays that memset. Pre-fix perf
+     showed 95% of main-thread CPU going to
+     `__memset_evex_unaligned_erms` called from `unordered_map::clear`.
+     `flushLocus` now swaps with a fresh small map when
+     `bucket_count() > 256`, paying the inflated-map destructor cost
+     ONCE per pileup exit rather than once per locus. Lesson: never
+     trust `unordered_map::clear()` in a transient reuse pattern where
+     the map briefly inflates.
+
      **Two-phase driver.** `svaba postprocess` runs in two phases so the
      thread budget lands where it actually helps:
 

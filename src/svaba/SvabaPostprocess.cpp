@@ -615,7 +615,7 @@ DedupStats streamDedup(const std::string& in_bam,
   std::vector<SeqLib::BamRecord> keep_buf;
   std::unordered_map<std::string, std::size_t> idx_by_key;
   keep_buf.reserve(64);
-  idx_by_key.reserve(1024);
+  idx_by_key.reserve(64);
 
   int32_t cur_chr = -2;  // -2 is a sentinel that won't match any valid ChrID
   int32_t cur_pos = -2;
@@ -623,14 +623,43 @@ DedupStats streamDedup(const std::string& in_bam,
   // we resolve it only on (rare) chromosome change, not per record.
   std::string cur_chr_name = "*";
 
+  // When bucket_count() drifts beyond this threshold (after a pileup locus
+  // inflates the map), flushLocus() swaps in a fresh small map instead of
+  // calling clear(). See comment below for why this matters.
+  constexpr std::size_t kBucketResetThreshold = 256;
+
   // Flush buffered records for the current locus in insertion order.
+  //
+  // Perf note: std::unordered_map::clear() is O(bucket_count), NOT O(size)
+  // — it walks the entire bucket array to zero out each slot, even when
+  // the map currently has 0 elements. The bucket array grows with the
+  // max number of entries ever held and NEVER shrinks. So after one
+  // pileup locus (centromere, simple repeat, HLA, etc.) bloats buckets
+  // to ~130k, every subsequent locus transition — hundreds of millions
+  // of them — pays a full memset of that inflated array. A perf profile
+  // showed 95% of main-thread CPU going to this single memset before
+  // this fix landed, explaining why the BGZF thread pools were starving.
+  //
+  // Fix: when the bucket count has grown past kBucketResetThreshold,
+  // swap the inflated map with a fresh small one. The inflated map's
+  // destructor pays the O(bucket_count) cost ONCE (on pileup exit)
+  // instead of once per locus transition. Subsequent small loci see a
+  // small bucket array and their clear() is fast.
   auto flushLocus = [&]() {
     for (auto& kept : keep_buf) {
       if (!w.WriteRecord(kept))
         throw std::runtime_error("dedup: WriteRecord failed on " + out_bam);
     }
     keep_buf.clear();
-    idx_by_key.clear();
+    if (idx_by_key.bucket_count() > kBucketResetThreshold) {
+      std::unordered_map<std::string, std::size_t> fresh;
+      fresh.reserve(64);
+      idx_by_key.swap(fresh);
+      // `fresh` (now holding the inflated map) destructs at end of this
+      // lambda — that's where we pay the one-time big memset.
+    } else {
+      idx_by_key.clear();
+    }
   };
 
   while (auto opt = r.Next()) {
