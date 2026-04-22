@@ -124,6 +124,7 @@ src/svaba/SvabaUtils.cpp
 src/svaba/svaba.cpp
 src/svaba/SvabaAssemblerEngine.cpp
 src/svaba/tovcf.cpp
+src/svaba/test_svaba.cpp
 src/svaba/vcf.cpp
 src/svaba/DiscordantRealigner.cpp
 src/svaba/SvabaOverlapAlgorithm.cpp

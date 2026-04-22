@@ -18,6 +18,12 @@ void runToVCF(int argc, char** argv);
 void runsvaba(int argc, char** argv);
 void runRefilterBreakpoints(int argc, char** argv);
 void runPostprocess(int argc, char** argv);
+// "Secret" benchmark subcommand: deliberately NOT listed in printUsage()
+// below so it doesn't show up in the user-facing --help. Invoke with
+// `svaba test -h` to see its own usage. Used to isolate the per-phase
+// CPU cost of the main hot paths (walk / correct / assemble / align)
+// independently of the real pipeline's bookkeeping and scoring.
+void runTest(int argc, char** argv);
 
 static void printUsage() {
     constexpr std::string_view header =
@@ -60,6 +66,11 @@ int main(int argc, char* argv[]) {
     }
     else if (cmd == "tovcf") {
         return (runToVCF(argc - 1, argv + 1), EXIT_SUCCESS);
+    }
+    // Secret benchmark subcommand — intentionally not in the user-facing
+    // command list. Entry point: `svaba test -h` for its own usage.
+    else if (cmd == "test") {
+        return (runTest(argc - 1, argv + 1), EXIT_SUCCESS);
     }
     else {
         std::cerr << "Unknown command: " << cmd << "\n\n";

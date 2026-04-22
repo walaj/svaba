@@ -147,9 +147,21 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
                                    size_t                       threadId)
 {
 
+  // SvABA2.0: are any dump-reads BAMs going to be written? Used to skip
+  // bi:Z and bz:Z tag bookkeeping on the read hot path when no dump
+  // output is requested — the tags feed only the weird/discordant/
+  // corrected BAM writers in SvabaOutputWriter, so under the default
+  // production command line (no --dump-reads) the tag work is pure
+  // waste. Declared at function scope so both the r2c-alignment
+  // (bz:Z) and BP-finalization (bi:Z) blocks see it.
+  const bool need_read_tags =
+      sc.opts.dump_weird_reads      ||   // compile-time constexpr
+      sc.opts.dump_discordant_reads ||   // both flip together under
+      sc.opts.dump_corrected_reads;      // --dump-reads
+
   // count for this unit
   unit.processed_count++;
-  sc.total_regions_done++; 
+  sc.total_regions_done++;
   if (sc.total_regions_done % 1000 == 0) {
     std::ostringstream msg;
     msg << "...processing "
@@ -698,6 +710,9 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
 
       // SvABA2.0: boundary-aware comma-append helper (matches the
       // dedupe semantics used for the bi:Z tag at BP finalization).
+      // `need_read_tags` is declared at function scope above and
+      // gates both this block (bz:Z) and the BP-finalization block
+      // (bi:Z) further down.
       auto append_unique = [](std::string& cur, const std::string& id) {
 	if (id.empty()) return false;
 	if (cur.empty()) { cur = id; return true; }
@@ -730,7 +745,12 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
 	// qname-keyed map. bz:Z is the "aligned to this contig"
 	// superset; bi:Z (set later at BP finalization) is the
 	// "supports a variant on this contig" subset.
-	{
+	//
+	// Gated on need_read_tags — the tags and the per-read map are
+	// consumed only by the dump-reads BAM writers. Skipping this
+	// under the default (--dump-reads off) is measurable on
+	// high-coverage contigs; with --dump-reads on, nothing changes.
+	if (need_read_tags) {
 	  std::string cur;
 	  i->GetZTag("bz", cur);
 	  if (append_unique(cur, contig_name)) {
@@ -1066,12 +1086,20 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
         append_unique(entry, this_bp_id);
       };
 
-      for (auto& r : i->reads)
-        tag_with_bp_id(r);
-      for (auto& [_, r] : i->dc.reads)
-        tag_with_bp_id(r);
-      for (auto& [_, r] : i->dc.mates)
-        tag_with_bp_id(r);
+      // Same need_read_tags gate as the bz:Z stamping in the r2c loop
+      // above — the bi:Z tag is consumed only by the dump-reads BAM
+      // emitters in SvabaOutputWriter, so skipping the per-alt-read
+      // GetZTag/RemoveTag/AddZTag triplets under the default (no
+      // --dump-reads) path is a measurable CPU win on SVs with many
+      // alt supporters. Under --dump-reads nothing changes.
+      if (need_read_tags) {
+        for (auto& r : i->reads)
+          tag_with_bp_id(r);
+        for (auto& [_, r] : i->dc.reads)
+          tag_with_bp_id(r);
+        for (auto& [_, r] : i->dc.mates)
+          tag_with_bp_id(r);
+      }
 
       unit.m_bps.push_back(i);
     }

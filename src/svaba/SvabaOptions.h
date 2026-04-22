@@ -52,6 +52,35 @@ inline constexpr int    INSERT_SIZE_TOO_BIG_SPAN_READS = 16;
 // correct conservative behavior.
 inline constexpr double T_R2C_MIN_MARGIN          = 0.10;
 inline constexpr double N_R2C_MIN_MARGIN          = 0.0;
+
+// ---------------------------------------------------------------------------
+// SVABA_R2C_NATIVE_GATE — compile-time kill-switch for the r2c-vs-native
+// alignment-score split-coverage gate in BreakPoint::splitCoverage.
+//
+//   1  (default)  — gate enabled. Correct, recommended. Each candidate
+//                   split-supporting read is scored against both its r2c
+//                   alignment and its native (read→reference) alignment,
+//                   and must win by the per-sample-prefix margin above
+//                   (T_R2C_MIN_MARGIN / N_R2C_MIN_MARGIN). Fixes the
+//                   long-homology false-positive somatic bug.
+//
+//   0  (opt-in)   — gate disabled. Falls back to counting any r2c-spanning
+//                   read as a split supporter regardless of how it
+//                   compares to the native alignment. Reintroduces the
+//                   homology-trap bug (long junction homology + clean
+//                   normal-side reads → spurious somatic calls), so do
+//                   NOT use for real calling. Provided solely to isolate
+//                   the CPU cost of native_score computation on dense
+//                   contigs — flip to 0, rebuild, time a reference
+//                   region. Delta vs default-build tells you what the
+//                   gate costs.
+//
+// Build with:
+//   cmake .. -DCMAKE_CXX_FLAGS='-DSVABA_R2C_NATIVE_GATE=0'
+// ---------------------------------------------------------------------------
+#ifndef SVABA_R2C_NATIVE_GATE
+#define SVABA_R2C_NATIVE_GATE 1
+#endif
 inline constexpr int    HOMOLOGY_FACTOR             = 4;
 inline constexpr int    MIN_SOMATIC_RATIO           = 15;
 inline constexpr int    COVERAGE_AVG_BUFF           = 10;

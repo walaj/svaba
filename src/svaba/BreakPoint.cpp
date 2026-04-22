@@ -409,6 +409,14 @@ void BreakPoint::splitCoverage(svabaReadPtrVector& bav) {
     //
     // Guard only on the r2c CIGAR being populated; if it isn't, there's
     // nothing to score and we let the downstream checks decide.
+    //
+    // Compile-time kill-switch: `SVABA_R2C_NATIVE_GATE` (SvabaOptions.h).
+    // When set to 0, this entire block is elided — reads are no longer
+    // compared r2c-vs-native and the old "any r2c-spanning read credits"
+    // behavior returns. Reintroduces the homology-trap false-positive
+    // somatic bug; flip only to measure the gate's CPU cost. See the
+    // macro's doc comment in SvabaOptions.h.
+#if SVABA_R2C_NATIVE_GATE
     if (this_r2c.cig.size() > 0) {
       // r2c side: use the cached NM on this_r2c (filled in r2c::AddAlignment).
       // The r2c is computed against the *corrected* read sequence.
@@ -463,6 +471,7 @@ void BreakPoint::splitCoverage(svabaReadPtrVector& bav) {
         read_should_be_skipped = true;
       }
     }
+#endif  // SVABA_R2C_NATIVE_GATE
 
     if (num_align == 1) {
 
