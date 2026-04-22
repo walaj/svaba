@@ -277,12 +277,12 @@ echo "  data_disk=$DATA_DISK bucket=$BUCKET id=$ID"
 echo "  jemalloc=$USE_JEMALLOC merge=$DO_MERGE"
 echo ""
 echo "  resolved paths (on worker VMs):"
-echo "    tumor:     ${MOUNT}/${TUMOR}"
+echo "    tumor:     ${MOUNT}/${TUMOR}  (data disk)"
 [[ -n "$NORMAL" ]] && \
-echo "    normal:    ${MOUNT}/${NORMAL}"
-echo "    ref:       ${MOUNT}/${REF}"
-echo "    svaba:     ${MOUNT}/${SVABA_BIN}"
-echo "    blacklist: ${MOUNT}/${BLACKLIST}"
+echo "    normal:    ${MOUNT}/${NORMAL}  (data disk)"
+echo "    ref:       ${MOUNT}/${REF}  (data disk)"
+echo "    svaba:     ${SVABA_BIN}  (boot image)"
+echo "    blacklist: ${BLACKLIST}  (boot image)"
 echo "============================================================"
 
 # Temp dir for startup scripts (--metadata-from-file needs real files;
@@ -337,14 +337,14 @@ PART_ID="${ID}_part${i}"
 cd /mnt/output
 
 ${PRELOAD} \\
-  ${MOUNT}/${SVABA_BIN} run \\
+  ${SVABA_BIN} run \\
     -t ${MOUNT}/${TUMOR} \\
     ${NORMAL_FLAG} \\
     -G ${MOUNT}/${REF} \\
     -p ${THREADS} \\
     -k ${REGIONS[$((i-1))]} \\
     -a \${PART_ID} \\
-    --blacklist ${MOUNT}/${BLACKLIST} \\
+    --blacklist ${BLACKLIST} \\
     ${EXTRA_ARGS} \\
   2>&1 | tee \${PART_ID}.log
 

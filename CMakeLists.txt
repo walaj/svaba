@@ -237,6 +237,36 @@ add_custom_target(
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
+# ---------------------------------------------------------------------------
+# Optional jemalloc support.
+#
+# On Linux with high thread counts (-p 16+), jemalloc eliminates glibc
+# arena-lock contention that can cost 30-40% wall time. Link it at
+# compile time so no LD_PRELOAD is needed at runtime.
+#
+#   cmake .. -DUSE_JEMALLOC=ON      # link jemalloc (recommended on Linux)
+#   cmake .. -DUSE_JEMALLOC=OFF     # use system malloc (default)
+#
+# macOS users should NOT enable this — Apple's libmalloc with its
+# nanomalloc fast path outperforms jemalloc on this workload.
+# ---------------------------------------------------------------------------
+option(USE_JEMALLOC "Link against jemalloc for reduced allocator contention" OFF)
+set(JEMALLOC_LIBRARIES "")
+if (USE_JEMALLOC)
+    find_library(JEMALLOC_LIB NAMES jemalloc
+                 PATHS /usr/lib/x86_64-linux-gnu /usr/lib /usr/local/lib
+                 DOC "Path to libjemalloc")
+    if (JEMALLOC_LIB)
+        message(STATUS "jemalloc: found at ${JEMALLOC_LIB}")
+        set(JEMALLOC_LIBRARIES ${JEMALLOC_LIB})
+    else()
+        message(FATAL_ERROR
+            "USE_JEMALLOC=ON but libjemalloc not found. "
+            "Install it (apt install libjemalloc-dev) or set "
+            "-DJEMALLOC_LIB=/path/to/libjemalloc.so")
+    endif()
+endif()
+
 # Linking
 target_link_libraries(svaba
     seqlib
@@ -248,6 +278,7 @@ target_link_libraries(svaba
     ${CURL_LIBRARY}
     ${LZMA_LIBRARY}
     BZip2::BZip2
+    ${JEMALLOC_LIBRARIES}
 )
 
 # ---------------------------------------------------------------------------

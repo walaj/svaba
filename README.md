@@ -29,6 +29,14 @@ cmake .. -DHTSLIB_DIR=/path/to/htslib-1.xx
 make -j
 ```
 
+To link jemalloc at compile time (recommended on Linux for `-p 16+`
+runs — eliminates allocator contention, no `LD_PRELOAD` needed):
+
+```bash
+cmake .. -DUSE_JEMALLOC=ON
+make -j
+```
+
 The binary lands at `build/svaba`. To install it system-wide (or
 into this repo's `bin/`), use CMake's install target — the default
 prefix is `/usr/local` and needs sudo, or override it with
