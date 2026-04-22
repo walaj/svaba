@@ -28,8 +28,9 @@ Top-level layout:
 - `scripts/` — post-processing and utility shell helpers, all kept here
   (not at the repo root): `svaba_postprocess.sh`, `combine_blacklists.sh`,
   `extract_discordants.sh`, `filter_contig_supporting_reads.sh`,
-  `r2c_for_contig.sh`, `sort_bps.sh`. Profiling helpers (`memprof*.sh`)
-  live under `opt/` (the user's ad-hoc tooling dir).
+  `r2c_for_contig.sh`, `sort_bps.sh`, `svaba_cloud.sh`. Profiling
+  helpers (`memprof*.sh`) live under `opt/` (the user's ad-hoc tooling
+  dir).
 - `somlod_maxlod_analysis.html` — deep-dive writeup of the somatic log-odds
   scoring model. See "Statistical model" below.
 
@@ -692,6 +693,35 @@ Build flag recommendation for production runs (see "Build system"):
 `-O3 -mcpu=native` on bwa + fermi-lite + (via `CMAKE_CXX_FLAGS_RELWITHDEBINFO`)
 the svaba C++. Measured 5–15% wall-time gain expected on top of the default
 RelWithDebInfo build.
+
+## Cloud scatter-gather (`scripts/svaba_cloud.sh`)
+
+`svaba_cloud.sh` parallelizes a WGS run across multiple GCP VMs — one
+per chromosome partition — sharing a single read-only persistent disk.
+Each VM runs `svaba run -k <partition>` independently; outputs go to a
+GCS bucket; an optional `--merge` step concatenates the per-partition
+`bps.txt.gz` files and runs `svaba_postprocess.sh`.
+
+Architecture rationale: svaba's bottleneck is BWA FM-index random
+lookups, which are latency-bound and NUMA-hostile. Multi-socket servers
+waste half their threads on cross-socket access. Small single-socket VMs
+(e.g. `c3d-highcpu-30`, AMD Genoa, ~128 MB L3, no NUMA) give each
+worker full-speed local memory. Horizontal scaling across VMs beats
+vertical scaling to more threads on a big box.
+
+On dual-socket Xeon servers (measured on 2×20-core Xeon @ 2.8 GHz),
+jemalloc is the single biggest optimization — 37% wall-time reduction at
+38 threads by eliminating glibc arena lock contention. NUMA pinning
+(`numactl --cpunodebind --membind`) is second-order at ≤40 threads on
+a 2-socket box but matters more on 4-socket or at higher thread counts.
+
+Disk I/O is ~9% of wall time (sequential BAM streaming). NVMe is
+unnecessary; standard persistent disk or even gcsfuse over a GCS bucket
+is fine.
+
+Interchromosomal SVs: both breakends get assembled independently by
+whichever partition contains the discordant read pileup. The merge +
+dedup step in `svaba_postprocess.sh` pairs them. No calls are lost.
 
 ## Conventions
 
