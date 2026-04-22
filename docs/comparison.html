@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SvABA New vs New Comparison</title>
+<title>SvABA BPS Comparison</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
@@ -262,7 +262,7 @@
 </head>
 <body>
 
-<h1><span>SvABA</span> New vs New Comparison</h1>
+<h1><span>SvABA</span> BPS Comparison</h1>
 
 <div class="container">
   <!-- File uploads -->
@@ -344,7 +344,7 @@
   <!-- Placeholder -->
   <div id="placeholder" class="placeholder">
     <div class="big">&#8593;</div>
-    <div>Load two new-format bps files, then click Compare</div>
+    <div>Load two bps files (any format), then click Compare</div>
   </div>
 
   <!-- Results -->
@@ -594,7 +594,7 @@ function parseBpsRows(text, sideLetter) {
   const iType   = cia('type', 'evidence');
   const iConf   = cia('conf', 'confidence');
   const iSomlod = cia('somlod', 'som_lod', 'somatic_lod');
-  const iMaxLod = cia('maxlod', 'max_lod', 'lod_max');
+  const iMaxLod = cia('maxlod', 'max_lod', 'lod_max', 'tlod');
   const iQual   = cia('qual', 'quality');
   const iSpan   = cia('span');
   // LEGACY uses "contig_and_region"; some older/experimental dumps used

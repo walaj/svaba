@@ -233,33 +233,53 @@ for i in $(seq 1 "$PARTITIONS"); do
   SCRIPT_FILE="${SCRIPT_TMPDIR}/startup_${i}.sh"
   cat > "$SCRIPT_FILE" <<STARTUP_EOF
 #!/bin/bash
-set -euo pipefail
+exec > /var/log/svaba_startup.log 2>&1
+set -euxo pipefail
+
+echo "=== svaba worker ${i} starting at \$(date) ==="
 
 # --- mount data disk ---
 mkdir -p ${MOUNT} /mnt/output
+
+echo "waiting for data disk..."
 for attempt in \$(seq 1 30); do
   [[ -b /dev/sdb ]] && break
+  echo "  attempt \${attempt}: /dev/sdb not yet available"
   sleep 2
 done
+
 if [[ ! -b /dev/sdb ]]; then
-  echo "FATAL: /dev/sdb not found after 60s" >&2
+  echo "FATAL: /dev/sdb not found after 60s"
+  echo "available block devices:"
+  lsblk
   exit 1
 fi
+
 MOUNT_DEV=/dev/sdb
 [[ -b /dev/sdb1 ]] && MOUNT_DEV=/dev/sdb1
+echo "mounting \${MOUNT_DEV} -> ${MOUNT}"
 mount -o ro,noload \${MOUNT_DEV} ${MOUNT} || mount -o ro \${MOUNT_DEV} ${MOUNT}
+
+echo "data disk mounted, contents:"
+ls ${MOUNT}/
 
 # --- run svaba ---
 PART_ID="${ID}_part${i}"
 cd /mnt/output
 
+echo "=== starting svaba at \$(date) ==="
 svaba run \\
   ${SVABA_ARGS_STR} \\
   -k ${REGIONS[$((i-1))]} \\
   -a \${PART_ID} \\
   2>&1 | tee \${PART_ID}.startup.log
 
+echo "=== svaba finished at \$(date) ==="
+echo "output files:"
+ls -lh /mnt/output/
+
 # --- upload results ---
+echo "uploading to ${BUCKET}/"
 gsutil -m cp \\
   \${PART_ID}.bps.txt.gz \\
   \${PART_ID}.log \\
@@ -274,7 +294,9 @@ for f in \${PART_ID}.discordant.bam \${PART_ID}.corrected.bam \${PART_ID}.r2c.tx
 done
 
 # Signal completion
+echo "=== uploading done marker at \$(date) ==="
 echo "DONE" | gsutil cp - ${BUCKET}/.done_part${i}
+echo "=== worker ${i} complete ==="
 STARTUP_EOF
 
   echo "[${i}/${PARTITIONS}] creating $vm  regions=${REGIONS[$((i-1))]}"
@@ -285,11 +307,11 @@ STARTUP_EOF
     --disk="name=${DATA_DISK},mode=ro,device-name=svaba-data" \
     --boot-disk-size="$BOOT_DISK_SIZE" \
     --scopes=storage-rw \
-    --metadata-from-file=startup-script="$SCRIPT_FILE" \
-    --no-address \
-    &
+    --metadata-from-file=startup-script="$SCRIPT_FILE"
+
+  # Stagger VM creation to avoid disk-attach races
+  [[ $i -lt $PARTITIONS ]] && sleep 5
 done
-wait
 echo "all $PARTITIONS VMs created"
 
 # ================================================================
