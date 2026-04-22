@@ -1,5 +1,6 @@
 #include "AlignmentFragment.h"
 #include "AlignedContig.h"
+#include "SvabaDebug.h"
 
 #define MIN_INDEL_MATCH_BRACKET 0
 #define MAX_INDELS 10000
@@ -113,25 +114,47 @@ void AlignmentFragment::SetIndels() {
     return; // ignore these
 
   const auto& cig = m_align->GetCigar();
+  const std::string _cname = m_align->Qname();
+
+  // Build CIGAR string for trace
+#ifdef SVABA_TRACING
+  {
+    std::string cig_str;
+    for (const auto& cf : cig)
+      cig_str += std::to_string(cf.Length()) + std::string(1, cf.Type());
+    SVABA_TRACE(_cname, "TP4 SetIndels: cigar=" << cig_str
+                << " cigar_ops=" << cig.size()
+                << " secondary=" << m_align->SecondaryFlag());
+  }
+#endif
+
   // loops the alignment fragment to extract indels
   // start at 1 and end at len-1 because we don't consider indels if they
   //   start the cigar string e.g. 1D5M, not reliable
-  for (size_t i = 1; i < cig.size() - 1; ++i) { 
+  for (size_t i = 1; i < cig.size() - 1; ++i) {
     const CigarField& c = cig[i];
     const CigarField& pre = cig[i-1];
     const CigarField& post = cig[i+1];
     if ( (c.Type() == 'D' || c.Type() == 'I')) {
-      bool prev_match = pre.Type() == 'M'; /* && cig[loc-2].Length() >= MIN_INDEL_MATCH_BRACKET*/
-      bool post_match = post.Type() == 'M';/* && cig[loc].Length() >= MIN_INDEL_MATCH_BRACKET*/
-      
-      // only consider indels if 
+      bool prev_match = pre.Type() == 'M';
+      bool post_match = post.Type() == 'M';
+
+      SVABA_TRACE(_cname, "TP4 indel at cigar[" << i << "]: "
+                  << c.Length() << c.Type()
+                  << " prev=" << pre.Length() << pre.Type()
+                  << " post=" << post.Length() << post.Type()
+                  << " prev_match=" << prev_match
+                  << " post_match=" << post_match);
+
+      // only consider indels if
       if (prev_match && post_match) {
 	// convention is that cpos and gpos for deletions refer to flanking REF sequence.
 	// eg a deletion of 1 bp of base 66 will have gpos1 = 65 and gpos2 = 67
-	BreakPointPtr bp = std::make_shared<BreakPoint>(this, i, sc);	
+	BreakPointPtr bp = std::make_shared<BreakPoint>(this, i, sc);
 	assert(bp);
-	// add the indel    
+	// add the indel
 	m_indel_breaks.push_back(bp);
+	SVABA_TRACE(_cname, "TP4 -> INDEL BP created");
       }
     }
   }

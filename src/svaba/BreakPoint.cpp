@@ -1,4 +1,5 @@
 #include "BreakPoint.h"
+#include "SvabaDebug.h"
 
 #include <getopt.h>
 #include <iomanip>
@@ -451,24 +452,30 @@ void BreakPoint::splitCoverage(svabaReadPtrVector& bav) {
         native_score = static_cast<double>(j->Length());
       }
 
-      // SvABA2.0 (v3): per-sample-prefix margin. Tumor reads need the
-      // r2c to beat native by at least T_R2C_MIN_MARGIN (default 10%);
-      // normal reads just need r2c strictly greater (N_R2C_MIN_MARGIN
-      // == 0 by default). Rationale: somatic calls need clean tumor-
-      // side evidence, so we raise the bar for tumor; germline/LOH
-      // classification needs sensitivity in normal, so we keep that
-      // gate loose.
+      // SvABA2.0 (v3.1): strict greater-than gate, no percentage margin.
+      // r2c must beat native — ties don't credit the read. Both tumor
+      // and normal use margin=0.
       //
-      // Ties and "r2c barely better than native" rejections on the
-      // tumor side are the intended failure mode for reads falling
-      // inside a long junction homology: without homology, r2c wins
-      // by tens of points; inside homology, scores are nearly equal
-      // and the margin filters them out in tumor while normal still
-      // sees them — also the intended behavior for ruling out somatic.
+      // v3 originally had a 10% margin for tumor reads to filter
+      // junction-homology borderline cases, but this was read-length-
+      // dependent and killed real small indels (1bp del on 150bp read =
+      // only 4.9% improvement, impossible to clear 10%; on 250bp read
+      // only 2.9%, can't even clear 3%). Junction-homology cases where
+      // both samples credit borderline reads equally are handled
+      // correctly by the downstream LOD model (similar split support
+      // in both → low somlod → not somatic).
       const double margin = j->Tumor() ? T_R2C_MIN_MARGIN : N_R2C_MIN_MARGIN;
       const double threshold = native_score * (1.0 + margin);
       if (r2c_score <= threshold) {
         read_should_be_skipped = true;
+        SVABA_TRACE(cname, "TP8 r2c<=native SKIP read=" << j->UniqueName()
+                    << " r2c=" << r2c_score << " native=" << native_score
+                    << " threshold=" << threshold << " margin=" << margin
+                    << " tumor=" << j->Tumor());
+      } else {
+        SVABA_TRACE(cname, "TP8 r2c>native PASS read=" << j->UniqueName()
+                    << " r2c=" << r2c_score << " native=" << native_score
+                    << " threshold=" << threshold);
       }
     }
 #endif  // SVABA_R2C_NATIVE_GATE
@@ -529,8 +536,16 @@ void BreakPoint::splitCoverage(svabaReadPtrVector& bav) {
         return (p >= b1c - ibuff && p <= b1c + ibuff) ||
                (p >= b2c - ibuff && p <= b2c + ibuff);
       };
-      for (auto& i : del_breaks) if (near_break(i)) read_should_be_skipped = true;
-      for (auto& i : ins_breaks) if (near_break(i)) read_should_be_skipped = true;
+      for (auto& i : del_breaks) if (near_break(i)) {
+        read_should_be_skipped = true;
+        SVABA_TRACE(cname, "TP9 r2c DEL near break SKIP read=" << j->UniqueName()
+                    << " del_pos=" << i << " b1c=" << b1c << " b2c=" << b2c << " buff=" << ibuff);
+      }
+      for (auto& i : ins_breaks) if (near_break(i)) {
+        read_should_be_skipped = true;
+        SVABA_TRACE(cname, "TP9 r2c INS near break SKIP read=" << j->UniqueName()
+                    << " ins_pos=" << i << " b1c=" << b1c << " b2c=" << b2c << " buff=" << ibuff);
+      }
     }
 
     if (read_should_be_skipped)  // default is r2c does not support var, so don't amend this_r2c
@@ -566,6 +581,11 @@ void BreakPoint::splitCoverage(svabaReadPtrVector& bav) {
     bool issplit2 = (leftend <= leftbreak2) && (rightend >= rightbreak2);
 
     bool one_split  = issplit1 || issplit2;
+    SVABA_TRACE(cname, "TP10 span check read=" << j->UniqueName()
+                << " leftend=" << leftend << " rightend=" << rightend
+                << " b1_cpos=" << m_b1_cpos << " b2_cpos=" << m_b2_cpos
+                << " issplit1=" << issplit1 << " issplit2=" << issplit2
+                << " one_split=" << one_split);
     // SvABA2.0 (v3): previously we required both_split when homlen > 0
     // (tumor *or* normal) and one_split only when homlen == 0. That
     // gate threw out legitimate split-supporters inside long junction
@@ -586,9 +606,13 @@ void BreakPoint::splitCoverage(svabaReadPtrVector& bav) {
     // check that deletion (in read to contig coords) doesn't cover break point
     size_t p = pos; // move along on contig, starting at first non-clipped base
     for (SeqLib::Cigar::const_iterator c = this_r2c.cig.begin(); c != this_r2c.cig.end(); ++c) {
-      if (c->Type() == 'D') { 
-	if ( (p >= leftbreak1 && p <= rightbreak1) || (p >= leftbreak2 && p <= rightbreak2) )
+      if (c->Type() == 'D') {
+	if ( (p >= leftbreak1 && p <= rightbreak1) || (p >= leftbreak2 && p <= rightbreak2) ) {
 	  read_should_be_skipped = true;
+	  SVABA_TRACE(cname, "TP11 r2c DEL covers break SKIP read=" << j->UniqueName()
+	              << " del_pos=" << p << " lb1=" << leftbreak1 << " rb1=" << rightbreak1
+	              << " lb2=" << leftbreak2 << " rb2=" << rightbreak2);
+	}
       }
       if (c->ConsumesReference()) // if it moves it along the contig
 	p += c->Length();
@@ -625,6 +649,8 @@ void BreakPoint::splitCoverage(svabaReadPtrVector& bav) {
 	// this is a valid read
 	this_r2c.supports_var = true;
 	valid_reads.insert(sr);
+	SVABA_TRACE(cname, "TP10+ CREDITED read=" << sr
+	            << " sample=" << sample_id << " tumor=" << j->Tumor());
 	
 	// how much of the contig do these span
 	// for a given read QNAME, get the coverage that 
@@ -679,12 +705,30 @@ void BreakPoint::splitCoverage(svabaReadPtrVector& bav) {
   for (auto& [_,al] : allele) {
     al.UpdateAltCounts();
   }
-  
+
+#ifdef SVABA_TRACING
+  {
+    int total_split = 0;
+    for (const auto& [pref,al] : allele)
+      total_split += al.split;
+    SVABA_TRACE(cname, "TP_SPLIT_SUMMARY total_split=" << total_split
+                << " reads.size=" << reads.size()
+                << " valid_reads=" << valid_reads.size()
+                << " per_sample:");
+    for (const auto& [pref,al] : allele) {
+      SVABA_TRACE(cname, "  " << pref << ": split=" << al.split
+                  << " alt=" << al.alt << " cov=" << al.cov);
+    }
+  }
+#endif
+
 }
 
 void BreakPoint::checkBlacklist(GRC &grv) {
-  if (grv.CountOverlaps(b1.gr) || grv.CountOverlaps(b2.gr)) 
+  if (grv.CountOverlaps(b1.gr) || grv.CountOverlaps(b2.gr)) {
     confidence = "BLACKLIST";
+    SVABA_TRACE(cname, "TP14 BLACKLIST hit");
+  }
 }
 
 void BreakPoint::set_homologies_insertions() {
@@ -1424,10 +1468,23 @@ void BreakPoint::score_indel() {
     confidence = "LOWLOD";
   else if (!is_refilter && std::min(left_match, right_match) < 20) 
     confidence = "SHORTALIGNMENT"; // no conf in indel if match on either side is too small
-  else if (min_cc < svaba::kContigConfPassThreshold) 
+  else if (min_cc < svaba::kContigConfPassThreshold)
     confidence = "WEAKCONTIG";
-  else 
+  else
     confidence="PASS";
+
+  SVABA_TRACE(cname, "TP16 score_indel: confidence=" << confidence
+              << " mapq=" << b1.mapq << " max_lod=" << max_lod
+              << " left_match=" << left_match << " right_match=" << right_match
+              << " min_cc=" << min_cc << " af_t=" << af_t << " af_n=" << af_n
+              << " t.split=" << t.split << " n.split=" << n.split
+              << " t.alt=" << t.alt << " t.cov=" << t.cov
+              << " n.alt=" << n.alt << " n.cov=" << n.cov);
+  for (const auto& [pref,al] : allele) {
+    SVABA_TRACE(cname, "  " << pref << ": LO=" << al.LO
+                << " split=" << al.split << " alt=" << al.alt
+                << " cov=" << al.cov);
+  }
 
   //debugprint
   // std::cerr <<" MAPQ " << b1.mapq << " b1.sub_n " << b1.sub_n <<
@@ -1520,10 +1577,16 @@ void BreakPoint::scoreBreakpoint() {
   // assert( (split == 0 && t.split == 0 && n.split==0) ||
   // 	  (split > 0 && (t.split + n.split > 0)));
 
+  SVABA_TRACE(cname, "TP13 scoreBreakpoint: svtype=" << (int)svtype
+              << " confidence=" << confidence
+              << " t.split=" << t.split << " n.split=" << n.split
+              << " dc.t=" << dc.tcount << " dc.n=" << dc.ncount
+              << " quality=" << quality);
+
   // if already overlapping blacklist, then we're done
   if (confidence == "BLACKLIST")
     return;
-  
+
   // do the scoring
   bool iscomplex =
     svtype == SVType::TSI_LOCAL ||

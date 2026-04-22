@@ -159,9 +159,8 @@ climbing as tumor evidence accumulates, but it asymptotes around ~9 for
 old `both_split && homlen > 0` / `one_split && homlen == 0` branching
 in `BreakPoint::splitCoverage` was removed. A read is now credited as
 a split-supporter iff (a) its r2c alignment scores strictly higher
-than its native alignment by at least a per-sample-prefix margin
-(`T_R2C_MIN_MARGIN`=10% for tumor, `N_R2C_MIN_MARGIN`=0 strict for
-normal — see `src/svaba/SvabaOptions.h`), and (b) it spans at least
+than its native alignment (`r2c_score > native_score`, no percentage
+margin — see `src/svaba/SvabaOptions.h`), and (b) it spans at least
 one breakend on the contig. Long junction homology → r2c and native
 tie → read doesn't credit either sample, which is the correct
 conservative behavior (rather than the old "homology=0 one_split is
@@ -171,6 +170,31 @@ The repeat_seq-length padding on the buffers is also gone — same
 rationale, subsumed by the comparative score gate. See the user-
 facing bp-id (v3 schema) work for how to trace a specific read's
 current support attribution end-to-end.
+
+**v3.1 fix — remove T_R2C_MIN_MARGIN (set to 0):**
+the 10% `T_R2C_MIN_MARGIN` was killing all tumor alt-supporting reads
+for small indels. A 1bp deletion on a 150bp read gives r2c=150 vs
+native=143, a 4.9% improvement — mathematically impossible to clear
+the 10% threshold. Traced via the `SVABA_TRACE_CONTIG` system on
+contig `c_fermi_chr2_215869501_215894501_13C` (CIGAR `392M1D530M`):
+every tumor read hit TP8 with r2c=150 vs threshold=157.3 → SKIP →
+0 split support → LOWLOD → hasMinimal fail → variant dropped.
+
+Fix: set `T_R2C_MIN_MARGIN` to 0.0 in `SvabaOptions.h` — same as
+normal, strict greater-than only. Any percentage margin is inherently
+read-length-dependent: a 1bp del gives 4.9% improvement on 150bp
+reads but only 2.9% on 250bp reads, so any fixed percentage either
+blocks long reads or is too loose for short reads. There's no
+percentage that works across all read lengths.
+
+The margin was belt-and-suspenders on top of the LOD model. In the
+junction-homology case it was designed for: if both tumor and normal
+credit borderline reads equally (r2c barely > native by 1-2 points),
+the downstream LOD model sees similar split support in both samples →
+low somlod → correctly not called somatic. Normal already used
+margin=0, so the asymmetry was the only thing preventing normal from
+crediting those reads — and it wasn't, because N_R2C_MIN_MARGIN was
+always 0. The somatic/germline distinction is the LOD model's job.
 
 **Important correctness notes (earned the hard way):**
 - Don't propose `aN >= 2` style hard count gates without an error-rate

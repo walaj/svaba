@@ -45,6 +45,16 @@ class AlignedContig {
   // return the name of the contig
   std::string getContigName() const;
 
+  // Debug accessors for compile-time trace (SvabaDebug.h)
+  size_t getFragCount() const { return m_frag_v.size(); }
+  bool hasGlobalBP() const { return m_global_bp != nullptr; }
+  size_t getLocalBreakCount() const { return m_local_breaks.size(); }
+  size_t getIndelBreakCount() const {
+    size_t n = 0;
+    for (const auto& f : m_frag_v) n += f.m_indel_breaks.size();
+    return n;
+  }
+
   // Return the max mapping quality from all alignments
   int getMaxMapq() const;
     

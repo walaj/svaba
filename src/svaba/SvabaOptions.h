@@ -37,20 +37,33 @@ inline constexpr int    INSERT_SIZE_TOO_BIG_SPAN_READS = 16;
 // read-to-reference alignment, which subsumes both the interior-clip
 // rejection and the duplicated-reference equally-clean case.
 
-// SvABA2.0 (v3): per-sample-prefix margin on the r2c-better-than-native
-// gate. A read is credited as a split-supporter iff
-//     r2c_score >  native_score * (1.0 + margin)
-// where margin is T_R2C_MIN_MARGIN for tumor-prefix reads (t***) and
-// N_R2C_MIN_MARGIN for normal-prefix reads (n***). Tumor is held to
-// a stricter standard (10% better) because a somatic call depends on
-// clean separation between the samples; normal only needs strictly
-// greater so we retain sensitivity for germline/LOH reads that help
-// rule out a somatic event. This replaces the older both_split /
-// one_split / homlen branching gate — when junction homology is on
-// the order of the read length, neither r2c nor native wins
-// decisively and such reads fall out here naturally, which is the
-// correct conservative behavior.
-inline constexpr double T_R2C_MIN_MARGIN          = 0.10;
+// SvABA2.0 (v3): r2c-better-than-native gate. A read is credited as a
+// split-supporter iff r2c_score > native_score (strict greater-than).
+// Ties don't credit the read — if the contig provides no better
+// explanation than the native alignment, the read is not evidence for
+// the variant.
+//
+// v3 originally used a per-sample percentage margin (10% for tumor,
+// 0% for normal) to filter junction-homology borderline cases on the
+// tumor side. v3.1 removed the margin entirely:
+//
+//   - The 10% margin was read-length-dependent and mathematically
+//     impossible to clear for small indels (a 1bp del on a 150bp read
+//     gives only 4.9% improvement; on a 250bp read only 2.9%).
+//   - Junction-homology cases where r2c barely beats native by 1-2
+//     points: normal already credits these reads (margin was always 0
+//     for normal). If both samples credit borderline reads equally,
+//     the downstream LOD model sees similar split support in both →
+//     low somlod → correctly not called somatic. The somatic/germline
+//     distinction is the LOD model's job, not the split-coverage gate's.
+//   - The margin was belt-and-suspenders with a worse failure mode
+//     (killing real small indels) than the problem it prevented.
+//
+// This replaces the older both_split / one_split / homlen branching
+// gate — when junction homology is on the order of the read length,
+// r2c and native tie and such reads fall out naturally via the strict >
+// comparison, which is the correct conservative behavior.
+inline constexpr double T_R2C_MIN_MARGIN          = 0.0;
 inline constexpr double N_R2C_MIN_MARGIN          = 0.0;
 
 // ---------------------------------------------------------------------------

@@ -227,8 +227,29 @@ include_directories(
     src/SGA
 )
 
+# ---------------------------------------------------------------------------
+# Optional compile-time contig tracing (SvabaDebug.h).
+#
+#   cmake .. -DSVABA_TRACE_CONTIG="c_fermi_chr2_215869501_215894501_11C"
+#
+# Prints detailed stderr trace for every decision point that contig
+# touches. Pass -DSVABA_TRACE_ALL=ON to trace ALL contigs (very noisy).
+# ---------------------------------------------------------------------------
+set(SVABA_TRACE_CONTIG "" CACHE STRING "Contig name to trace (empty=off)")
+option(SVABA_TRACE_ALL "Trace ALL contigs (very noisy)" OFF)
+
 # Generate the executable
 add_executable(svaba ${SOURCES})
+
+if (NOT "${SVABA_TRACE_CONTIG}" STREQUAL "")
+    message(STATUS "svaba: tracing contig '${SVABA_TRACE_CONTIG}'")
+    target_compile_definitions(svaba PRIVATE
+        SVABA_TRACE_CONTIG="${SVABA_TRACE_CONTIG}")
+endif()
+if (SVABA_TRACE_ALL)
+    message(STATUS "svaba: tracing ALL contigs (noisy!)")
+    target_compile_definitions(svaba PRIVATE SVABA_TRACE_ALL=1)
+endif()
 
 # If the submodules already have Makefiles, you can use custom commands to invoke make
 # in those directories.

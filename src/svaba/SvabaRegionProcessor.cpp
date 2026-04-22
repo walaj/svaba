@@ -5,6 +5,7 @@
 #include <sstream>  // For std::ostringstream
 #include <chrono>
 
+#include "SvabaDebug.h"
 #include "SvabaUtils.h"
 #include "SvabaOutputWriter.h"
 #include "ContigAlignmentScore.h"
@@ -577,8 +578,11 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
   for (auto& i : all_unaligned_contigs_this_region) {
     
     // if too short, skip
-    if ((int)i.Seq.length() < (sc.readlen * 1.2)) 
+    if ((int)i.Seq.length() < (sc.readlen * 1.2)) {
+      SVABA_TRACE(i.Name, "TP1 SKIP contig too short: len=" << i.Seq.length()
+                  << " threshold=" << (int)(sc.readlen * 1.2));
       continue;
+    }
     
     ++count_contigs_of_size;
     
@@ -608,6 +612,9 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
 				    0); // don' consider secondary alignments
 
 
+    SVABA_TRACE(i.Name, "TP2 BWA aligned: " << human_alignments.size()
+                << " alignments, contig_len=" << i.Seq.length());
+
     // provide a svaba-specific continuous "alignment score"
     for (auto& ba : human_alignments) {
       if (!ba) continue;
@@ -633,6 +640,11 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
     
     // make the AlignedContig object for this contig
     AlignedContig ac(human_alignments, region, &sc);
+
+    SVABA_TRACE(ac.getContigName(), "TP5 AlignedContig: frags=" << ac.getFragCount()
+                << " global_bp=" << (ac.hasGlobalBP() ? "YES" : "NO")
+                << " local_breaks=" << ac.getLocalBreakCount()
+                << " hasVariant=" << (ac.hasVariant() ? "YES" : "NO"));
 
     // add this
     all_AlignedContigs_this_region.insert_or_assign(ac.getContigName(), std::move(ac));
@@ -1003,7 +1015,12 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
   // transfer local versions to thread store
   for (const auto& [_, a] : all_AlignedContigs_this_region) {
     if (a.hasVariant()) {
+      SVABA_TRACE(a.getContigName(), "TP6 hasVariant=YES, pushing to master_alc");
       unit.master_alc.push_back(a); //std::move(a));
+    } else {
+      SVABA_TRACE(a.getContigName(), "TP6 hasVariant=NO — contig dropped from output"
+                  << " frags=" << a.getFragCount()
+                  << " indel_breaks=" << a.getIndelBreakCount());
     }
   }
   all_AlignedContigs_this_region.clear();
@@ -1012,7 +1029,12 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
 
   //for (const auto& a : alc)
   //  unit.m_bamreads_count += a.NumBamReads();
-  for (auto& i : bp_glob)
+  for (auto& i : bp_glob) {
+    SVABA_TRACE(i->cname, "TP23 hasMinimal check: dc.t=" << i->dc.tcount
+                << " dc.n=" << i->dc.ncount << " t.split=" << i->t.split
+                << " n.split=" << i->n.split << " local=" << (int)i->local
+                << " confidence=" << i->confidence
+                << " result=" << (i->hasMinimal() ? "PASS" : "FAIL"));
     if ( i->hasMinimal() ) {
 
       // SvABA2.0 (v3): assign this BP a unique, thread-stable ID
@@ -1103,6 +1125,7 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
 
       unit.m_bps.push_back(i);
     }
+  } // end for bp_glob
 
   unit.st.bps_count = bp_glob.size();
 
