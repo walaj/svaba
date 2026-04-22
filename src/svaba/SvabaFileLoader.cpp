@@ -1,6 +1,7 @@
 // SvabaFileLoader.cpp
-#include <filesystem> 
+#include <filesystem>
 #include <memory>                           // for std::unique_ptr
+#include <sstream>                          // for std::istringstream
 #include <string>                           // for std::string
 #include <vector>                           // if you use any std::vector in this file
 #include "SvabaFileLoader.h"                // your own header
@@ -68,16 +69,26 @@ void SvabaFileLoader::countJobs(
   } else if (rf.find(':') != string::npos && rf.find('-') != string::npos) {
     fileRegions.add(SeqLib::GenomicRegion(rf, sc.header));
     
-    // 3) If its just a single chromosome name
+    // 3) Bare chromosome name(s), possibly comma-separated (e.g. "chr1,chr2,chr3")
   } else if (!rf.empty()) {
-    // construct region from chr=rf, pos1=1..end
-    SeqLib::GenomicRegion gr(rf, "1", "1", sc.header);
-    if (gr.chr < 0 || gr.chr >= sc.header.NumSequences()) {
-      throw std::runtime_error("Region file '" + rf +
-			       "' failed to match any chromosome in BAM header");
+    // Split on commas to support -k chr1,chr2,chr3
+    std::istringstream ss(rf);
+    std::string token;
+    while (std::getline(ss, token, ',')) {
+      if (token.empty()) continue;
+      // Each token could be "chr1" or "chr1:100-200"
+      if (token.find(':') != string::npos && token.find('-') != string::npos) {
+        fileRegions.add(SeqLib::GenomicRegion(token, sc.header));
+      } else {
+        SeqLib::GenomicRegion gr(token, "1", "1", sc.header);
+        if (gr.chr < 0 || gr.chr >= sc.header.NumSequences()) {
+          throw std::runtime_error("Region '" + token +
+                                   "' failed to match any chromosome in BAM header");
+        }
+        gr.pos2 = sc.header.GetSequenceLength(gr.chr);
+        fileRegions.add(gr);
+      }
     }
-    gr.pos2 = sc.header.GetSequenceLength(gr.chr);
-    fileRegions.add(gr);
     
     // 4) else: whole genome
   } else {

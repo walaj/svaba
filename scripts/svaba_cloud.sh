@@ -89,7 +89,8 @@ ZONE="us-central1-a"
 THREADS=14
 PARTITIONS=6
 MOUNT="/mnt/data"
-BOOT_DISK_SIZE="50GB"
+BOOT_DISK_SIZE="10GB"
+IMAGE="svaba-worker-image"
 USE_JEMALLOC=1
 DO_MERGE=0
 KEEP_VMS=0
@@ -135,6 +136,7 @@ while [[ $# -gt 0 ]]; do
     --merge)          DO_MERGE=1;          shift ;;
     --keep-vms)       KEEP_VMS=1;          shift ;;
     --boot-disk-size) BOOT_DISK_SIZE="$2"; shift 2 ;;
+    --image)          IMAGE="$2";          shift 2 ;;
     --dry-run)        DRY_RUN=1;           shift ;;
     -h|--help)        print_usage;         exit 0 ;;
     --)               shift; break ;;
@@ -164,15 +166,22 @@ fi
 
 BUCKET=${BUCKET%/}  # strip trailing slash
 
+# Sanitize ID for GCP resource names: lowercase, replace _ with -, strip
+# anything that isn't [a-z0-9-].
+GCP_ID=$(echo "$ID" | tr '[:upper:]' '[:lower:]' | tr '_' '-' | sed 's/[^a-z0-9-]//g')
+if [[ "$GCP_ID" != "$ID" ]]; then
+  echo "note: sanitized ID for GCP names: '$ID' -> '$GCP_ID'"
+fi
+
 # Strip leading slashes from disk-relative paths. Users will naturally
 # pass absolute paths from their local machine (e.g. /mnt/ssd/tumor.bam)
 # but on the worker these are relative to the data-disk mount point.
+# SVABA_BIN and BLACKLIST are NOT stripped — they may live on the boot
+# disk (baked into the worker image) rather than the data disk.
 strip_leading_slash() { echo "${1#/}"; }
 TUMOR=$(strip_leading_slash "$TUMOR")
 NORMAL=$(strip_leading_slash "$NORMAL")
 REF=$(strip_leading_slash "$REF")
-SVABA_BIN=$(strip_leading_slash "$SVABA_BIN")
-BLACKLIST=$(strip_leading_slash "$BLACKLIST")
 
 # ---------------------------------------- default hg38 6-way partition ---
 # Balanced by approximate Mb so each VM does similar wall-clock work.
@@ -276,14 +285,21 @@ echo "    svaba:     ${MOUNT}/${SVABA_BIN}"
 echo "    blacklist: ${MOUNT}/${BLACKLIST}"
 echo "============================================================"
 
+# Temp dir for startup scripts (--metadata-from-file needs real files;
+# --metadata=startup-script= chokes on commas in the script body because
+# gcloud interprets them as key=value separators).
+SCRIPT_TMPDIR=$(mktemp -d)
+trap 'rm -rf "$SCRIPT_TMPDIR"' EXIT
+
 VM_NAMES=()
 for i in $(seq 1 "$PARTITIONS"); do
-  vm="svaba-${ID}-worker-${i}"
+  vm="svaba-${GCP_ID}-worker-${i}"
   VM_NAMES+=("$vm")
 
-  # Startup script: mount data disk read-only, install jemalloc,
-  # run svaba, upload results, signal completion.
-  STARTUP=$(cat <<STARTUP_EOF
+  # Write startup script to a temp file so we can use --metadata-from-file
+  # (avoids gcloud's comma-parsing issues with --metadata=).
+  SCRIPT_FILE="${SCRIPT_TMPDIR}/startup_${i}.sh"
+  cat > "$SCRIPT_FILE" <<STARTUP_EOF
 #!/bin/bash
 set -euo pipefail
 
@@ -299,11 +315,21 @@ if [[ ! -b /dev/sdb ]]; then
   echo "FATAL: /dev/sdb not found after 60s" >&2
   exit 1
 fi
-mount -o ro /dev/sdb ${MOUNT}
+# Try partition first (sdb1), fall back to whole-disk (sdb).
+# Most GCP persistent disks have a partition table; raw-formatted
+# disks don't. Use noload to skip ext4 journal recovery (required
+# when the source disk was detached without a clean unmount, which
+# is the normal case for a read-only shared disk).
+MOUNT_DEV=/dev/sdb
+[[ -b /dev/sdb1 ]] && MOUNT_DEV=/dev/sdb1
+mount -o ro,noload \${MOUNT_DEV} ${MOUNT} || mount -o ro \${MOUNT_DEV} ${MOUNT}
 
-# --- install jemalloc if needed ---
-if [[ ${USE_JEMALLOC} -eq 1 ]]; then
-  apt-get update -qq && apt-get install -y -qq libjemalloc2 >/dev/null 2>&1 || true
+# --- install runtime dependencies (only if no custom image) ---
+if ! ldconfig -p | grep -q libhts; then
+  apt-get update -qq
+  PKGS=(libhts3 libhtscodecs2)
+  [[ ${USE_JEMALLOC} -eq 1 ]] && PKGS+=(libjemalloc2)
+  apt-get install -y -qq "\${PKGS[@]}" >/dev/null 2>&1 || true
 fi
 
 # --- run svaba ---
@@ -338,16 +364,16 @@ done
 # Signal completion
 echo "DONE" | gsutil cp - ${BUCKET}/.done_part${i}
 STARTUP_EOF
-  )
 
   echo "[${i}/${PARTITIONS}] creating $vm  regions=${REGIONS[$((i-1))]}"
   run_cmd gcloud compute instances create "$vm" \
     --zone="$ZONE" \
     --machine-type="$MACHINE" \
+    --image="$IMAGE" \
     --disk="name=${DATA_DISK},mode=ro,device-name=svaba-data" \
     --boot-disk-size="$BOOT_DISK_SIZE" \
     --scopes=storage-rw \
-    --metadata=startup-script="$STARTUP" \
+    --metadata-from-file=startup-script="$SCRIPT_FILE" \
     --no-address \
     &
 done
@@ -364,8 +390,7 @@ poll_done() {
   local expected=$1
   while true; do
     local count
-    count=$(gsutil ls "${BUCKET}/.done_part*" 2>/dev/null | wc -l || echo 0)
-    count=$((count + 0))  # force numeric
+    count=$(gsutil ls "${BUCKET}/.done_part*" 2>/dev/null | grep -c '\.done_part' || true)
     if [[ $count -ge $expected ]]; then
       echo "all $expected partitions complete"
       return 0
