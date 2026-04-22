@@ -26,11 +26,17 @@
 #   svaba_cloud.sh [options]
 #
 # Required:
-#   --tumor PATH          path to tumor BAM on the data disk (relative to mount)
-#   --normal PATH         path to normal BAM on the data disk (relative to mount)
-#   --ref PATH            path to reference FASTA on the data disk
-#   --svaba PATH          path to svaba binary on the data disk
-#   --blacklist PATH      path to blacklist BED on the data disk
+#   --tumor PATH          path to tumor BAM *on the data disk*
+#   --normal PATH         path to normal BAM *on the data disk*
+#   --ref PATH            path to reference FASTA *on the data disk*
+#   --svaba PATH          path to svaba binary *on the data disk*
+#   --blacklist PATH      path to blacklist BED *on the data disk*
+#
+#   Paths are relative to the data disk's filesystem root. The script
+#   strips any leading / for safety.  If the data disk was formatted
+#   with files at its root (e.g. /tumor.bam), pass --tumor tumor.bam.
+#   If the files are in subdirectories (e.g. /data/bams/tumor.bam),
+#   pass --tumor data/bams/tumor.bam.
 #   --data-disk NAME      name of the GCP persistent disk
 #   --bucket gs://...     GCS bucket (or bucket/prefix) for outputs
 #   --id STR              analysis ID prefix
@@ -158,6 +164,16 @@ fi
 
 BUCKET=${BUCKET%/}  # strip trailing slash
 
+# Strip leading slashes from disk-relative paths. Users will naturally
+# pass absolute paths from their local machine (e.g. /mnt/ssd/tumor.bam)
+# but on the worker these are relative to the data-disk mount point.
+strip_leading_slash() { echo "${1#/}"; }
+TUMOR=$(strip_leading_slash "$TUMOR")
+NORMAL=$(strip_leading_slash "$NORMAL")
+REF=$(strip_leading_slash "$REF")
+SVABA_BIN=$(strip_leading_slash "$SVABA_BIN")
+BLACKLIST=$(strip_leading_slash "$BLACKLIST")
+
 # ---------------------------------------- default hg38 6-way partition ---
 # Balanced by approximate Mb so each VM does similar wall-clock work.
 # Total autosomal + X ≈ 3,088 Mb → ~515 Mb per partition.
@@ -250,6 +266,14 @@ echo "svaba_cloud.sh: launching $PARTITIONS workers"
 echo "  machine=$MACHINE zone=$ZONE threads=$THREADS"
 echo "  data_disk=$DATA_DISK bucket=$BUCKET id=$ID"
 echo "  jemalloc=$USE_JEMALLOC merge=$DO_MERGE"
+echo ""
+echo "  resolved paths (on worker VMs):"
+echo "    tumor:     ${MOUNT}/${TUMOR}"
+[[ -n "$NORMAL" ]] && \
+echo "    normal:    ${MOUNT}/${NORMAL}"
+echo "    ref:       ${MOUNT}/${REF}"
+echo "    svaba:     ${MOUNT}/${SVABA_BIN}"
+echo "    blacklist: ${MOUNT}/${BLACKLIST}"
 echo "============================================================"
 
 VM_NAMES=()
@@ -379,6 +403,12 @@ fi
 # STEP 4: Merge + postprocess (optional, --merge)
 # ================================================================
 if [[ $DO_MERGE -eq 1 ]]; then
+  if [[ $DRY_RUN -eq 1 ]]; then
+    echo "[dry-run] would merge ${PARTITIONS} partitions from ${BUCKET}/ and run svaba_postprocess.sh"
+    echo "svaba_cloud.sh: finished"
+    exit 0
+  fi
+
   echo "============================================================"
   echo "MERGE: downloading and postprocessing"
   echo "============================================================"
