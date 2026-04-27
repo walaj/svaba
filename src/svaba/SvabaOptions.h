@@ -238,6 +238,24 @@ class SvabaOptions {
   size_t      mateRegionLookupLim = 400;
   bool        noBadAvoid          = true;
 
+  // When true, skip the high-NM salvage path that pulls in reads with
+  // NM/len > 0.02 even when they don't pass the normal weird-read rules.
+  // Those reads are useful for catching NM-only SVs (no clips/discordance)
+  // but substantially increase read count and r2c cost. --no-nm disables
+  // the path entirely for maximum efficiency.
+  bool noNmSalvage = false;
+
+  // When false (default), reads whose corrected sequence matches the
+  // original BAM sequence reuse the input BAM's CIGAR/NM for the
+  // native-vs-r2c gate in splitCoverage, skipping the expensive
+  // full-reference BWA re-alignment. This is correct when the input
+  // BAM was aligned with BWA-MEM (same scoring model as svaba's
+  // internal aligner). When the input BAM was aligned with a
+  // different aligner (e.g. bowtie2, STAR, minimap2), the native
+  // CIGAR/NM may not be comparable — set this to true to force
+  // re-alignment of every corrected read against the reference.
+  bool alwaysRealignCorrected = false;
+
   // external DBs
   std::vector<std::string> blacklistFile;
   std::string germlineSvFile;

@@ -19,6 +19,7 @@
 #include "gzstream.h"  // ogzstream for the per-thread r2c.txt.gz
 
 #include "SeqLib/RefGenome.h"
+#include "SeqLib/BFC.h"
 #include "SvabaSharedConfig.h"
 #include "SeqLib/BWAAligner.h"
 
@@ -156,6 +157,13 @@ public:
   void clear();
 
   bool MemoryLimit(size_t readLimit, size_t contLimit) const;
+
+  // Per-thread BFC object, reused across regions. The k-mer hash
+  // (1M sub-tables at l_pre=20) is allocated once on first Train()
+  // and cleared+reused on subsequent calls via fml_count_into(),
+  // avoiding 2M malloc/free calls per region. unique_ptr because
+  // BFC has raw-pointer members — implicit move would double-free.
+  std::unique_ptr<SeqLib::BFC> pooled_bfc;
 
   // store the faidx index for this thread
   std::unique_ptr<SeqLib::RefGenome>   ref_genome;

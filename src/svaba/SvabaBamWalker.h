@@ -54,6 +54,7 @@ class svabaBamWalker: public SeqLib::BamReader {
     get_mate_regions = true;
     
     local_blacklist.clear();
+    train_reads.clear();
 
     //malloc_trim(0);//debug
   }
@@ -127,6 +128,10 @@ class svabaBamWalker: public SeqLib::BamReader {
   SeqLib::GRC local_blacklist;
   
   SeqLib::BFC bfc;
+
+  // subsampled non-weird reads kept for BFC training. Populated during
+  // readBam, consumed by the pooled BFC in SvabaRegionProcessor.
+  SeqLib::UnalignedSequenceVector train_reads;
 
  private:
 

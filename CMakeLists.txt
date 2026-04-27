@@ -237,6 +237,8 @@ include_directories(
 # ---------------------------------------------------------------------------
 set(SVABA_TRACE_CONTIG "" CACHE STRING "Contig name to trace (empty=off)")
 option(SVABA_TRACE_ALL "Trace ALL contigs (very noisy)" OFF)
+set(SVABA_TRACE_READ "" CACHE STRING "Read QNAME to trace (empty=off)")
+option(SVABA_TRACE_ALL_READS "Trace ALL reads (extremely noisy)" OFF)
 
 # Generate the executable
 add_executable(svaba ${SOURCES})
@@ -249,6 +251,15 @@ endif()
 if (SVABA_TRACE_ALL)
     message(STATUS "svaba: tracing ALL contigs (noisy!)")
     target_compile_definitions(svaba PRIVATE SVABA_TRACE_ALL=1)
+endif()
+if (NOT "${SVABA_TRACE_READ}" STREQUAL "")
+    message(STATUS "svaba: tracing read '${SVABA_TRACE_READ}'")
+    target_compile_definitions(svaba PRIVATE
+        SVABA_TRACE_READ="${SVABA_TRACE_READ}")
+endif()
+if (SVABA_TRACE_ALL_READS)
+    message(STATUS "svaba: tracing ALL reads (extremely noisy!)")
+    target_compile_definitions(svaba PRIVATE SVABA_TRACE_ALL_READS=1)
 endif()
 
 # If the submodules already have Makefiles, you can use custom commands to invoke make
