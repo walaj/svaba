@@ -66,7 +66,14 @@ class svabaRead : public SeqLib::BamRecord {
   svabaRead(svabaRead&&) = default;                                                                                                                                                   
   svabaRead& operator=(svabaRead&&) = default;  
   
-  std::string CorrectedSeq() const;  
+  std::string CorrectedSeq() const;
+
+  /// True if BFC correction or quality trimming changed the read sequence
+  /// relative to the original BAM record. When false, the original BAM's
+  /// CIGAR/NM is a valid native alignment (assuming the same aligner).
+  /// Compares the stored seq_corrected against the BAM 4-bit encoding
+  /// without constructing a second string for the original.
+  bool CorrectedSeqChanged() const;
 
   std::string Prefix() const;
 
@@ -87,6 +94,9 @@ class svabaRead : public SeqLib::BamRecord {
   void AddR2C(const std::string& contig_name, const r2c& r);
 
   r2c GetR2C(const std::string& contig_name) const;
+
+  /// Does this read have any r2c alignments?
+  bool HasR2C() const { return !m_r2c.empty(); }
 
   /// Trim the read based on quality score and store seq in char
   void QualityTrimRead();

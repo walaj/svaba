@@ -4,9 +4,10 @@
 #include "SvabaOptions.h"
 #include "SvabaLogger.h"
 #include "SvabaThreadUnit.h"
+#include "SvabaDebug.h"
 #include <string_view>
 
-#define QNAME "LH00306:129:227V5CLT4:6:1268:41599:27601" 
+#define QNAME "LH00306:129:227V5CLT4:6:1268:41599:27601"
 #define QFLAG 147
 
 using SeqLib::AddCommas;
@@ -25,9 +26,38 @@ inline void debug_read(std::string_view msg,
     std::cerr << "DEBUG: " << msg << " read " << read << '\n';
 }
 
-//static const std::string ILLUMINA_PE_PRIMER_2p0 = "CAAGCAGAAGACGGCAT";
-//static const std::string FWD_ADAPTER_A = "AGATCGGAAGAGC";
-//static const std::string FWD_ADAPTER_B = "AGATCGGAAAGCA";
+static const std::string ILLUMINA_PE_PRIMER_2p0 = "CAAGCAGAAGACGGCAT";
+
+// Detect adapter read-through: the fragment is shorter than the read
+// length, so the tail of the read sequences into the adapter.  Returns
+// true if the read looks like adapter contamination and should be
+// skipped.  Reads with indels or unmapped mates are exempted — those
+// might genuinely support an SV even if the geometry looks adapter-ish.
+static bool hasAdapter(const svabaRead& r) {
+
+  // keep reads with indels or unmapped mate — could be real SV signal
+  if (r.MaxDeletionBases() || r.MaxInsertionBases() || !r.InsertSize())
+    return false;
+
+  // toss if insert size ≈ read length (completely overlapping pair)
+  if (std::abs(r.FullInsertSize() - r.Length()) < 5)
+    return true;
+
+  // from here, only consider reads that have soft-clips
+  if (!r.NumClip())
+    return false;
+
+  // toss if insert size explains the clip length (adapter read-through)
+  int exp_ins_size = r.Length() - r.NumClip();
+  if (std::abs(exp_ins_size - std::abs(r.InsertSize())) <= 6)
+    return true;
+
+  // toss if literal Illumina adapter sequence is present
+  if (r.Sequence().find(ILLUMINA_PE_PRIMER_2p0) != std::string::npos)
+    return true;
+
+  return false;
+}
 //static const std::string REV_ADAPTER = "GCTCTTCCGATCT";
 
 svabaBamWalker::svabaBamWalker(SvabaSharedConfig& sc_) : sc(sc_) {}
@@ -85,7 +115,7 @@ SeqLib::GRC svabaBamWalker::readBam(svabaThreadUnit& unit) {
   // if we don't hit the limit, then add them to be assembled
   svabaReadPtrVector read_buffer;
   UnalignedSequenceVector train_buffer;
-  UnalignedSequenceVector train_reads;  
+  train_reads.clear();  // member — cleared per readBam call
   
   // if we have a LOT of reads (aka whole genome run), keep track for printing
   size_t countr = 0;
@@ -170,106 +200,145 @@ SeqLib::GRC svabaBamWalker::readBam(svabaThreadUnit& unit) {
       } 
     }
 
-    //    debug_read("read seen", s, QNAME, QFLAG);
+    SVABA_READ_TRACE(s->Qname(),
+      "SEEN flag=" << s->AlignmentFlag()
+      << " mapq=" << s->MapQuality()
+      << " pos=" << s->ChrName(sc.header) << ":" << s->Position()
+      << " isize=" << s->InsertSize()
+      << " cigar=" << s->CigarString()
+      << " len=" << s->Length());
 
-    
-    
     // check if this read passes the rules for potential SV reads
     if (s->DuplicateFlag() ||
 	s->QCFailFlag() ||
 	s->NumHardClip() ||
-	sc.blacklist.CountOverlaps(s->AsGenomicRegionMate()) || 
+	sc.blacklist.CountOverlaps(s->AsGenomicRegionMate()) ||
 	sc.blacklist.CountOverlaps(s->AsGenomicRegion()))
       {
+	SVABA_READ_TRACE(s->Qname(),
+	  "SKIP dup=" << s->DuplicateFlag()
+	  << " qcfail=" << s->QCFailFlag()
+	  << " hardclip=" << s->NumHardClip()
+	  << " blacklist_mate=" << sc.blacklist.CountOverlaps(s->AsGenomicRegionMate())
+	  << " blacklist_self=" << sc.blacklist.CountOverlaps(s->AsGenomicRegion()));
 	continue;
       }
 
-    //    debug_read("read first filter", s, QNAME, QFLAG);
-    
     // quality score trim read
     s->QualityTrimRead(); // copies sequence into svabaRead.seq_corrected
 
-    // this is the main rule check 
+    SVABA_READ_TRACE(s->Qname(),
+      "AFTER_TRIM corrected_len=" << s->CorrectedSeqLength());
+
+    // this is the main rule check
     bool rule_pass = sc.mr.isValid(*s);
 
+    SVABA_READ_TRACE(s->Qname(),
+      "RULE_CHECK rule_pass=" << rule_pass);
+
     // special case to also check against high mismatch
-    if (!rule_pass) {
+    // --no-nm disables this path entirely for maximum efficiency
+    if (!rule_pass && !sc.opts.noNmSalvage) {
       int32_t nm_tag = 0;
       s->GetIntTag("NM", nm_tag);
-      if (static_cast<float>(nm_tag) / static_cast<float>(s->Length()) > 0.02) {
-	//	  s->MapQuality() == 0*) {
+      float nm_frac = static_cast<float>(nm_tag) / static_cast<float>(s->Length());
+      bool is_adapter = hasAdapter(*s);
+      SVABA_READ_TRACE(s->Qname(),
+        "NM_SALVAGE nm=" << nm_tag
+        << " nm_frac=" << nm_frac
+        << " adapter=" << is_adapter
+        << " pass=" << (nm_frac > 0.02 && !is_adapter));
+      if (nm_frac > 0.02 && !is_adapter) {
 	s->to_assemble = false;
 	read_buffer.push_back(s);
+	SVABA_READ_TRACE(s->Qname(), "ADDED via NM salvage (to_assemble=false)");
       }
-	
     }
-    
+
     // if its less than 40, dont even mess with it
-    if (s->CorrectedSeqLength() < 40)
+    if (s->CorrectedSeqLength() < 40) {
+      SVABA_READ_TRACE_IF(rule_pass, s->Qname(),
+        "REJECT corrected_len=" << s->CorrectedSeqLength() << " < 40");
       rule_pass = false;
-    
+    }
+
     // special rule to filter "RF" "discordants" that are just overlaps
     if (s->PairOrientation() == SeqLib::Orientation::RF &&
-	std::abs(s->InsertSize()) < std::max(200, sc.readlen * 2))
+	std::abs(s->InsertSize()) < std::max(200, sc.readlen * 2)) {
+      SVABA_READ_TRACE_IF(rule_pass, s->Qname(),
+        "REJECT RF overlap isize=" << s->InsertSize()
+        << " threshold=" << std::max(200, sc.readlen * 2));
       rule_pass = false;
-    
+    }
+
     // for mate regions, be more strict
-    if (!get_mate_regions && s->MapQuality() == 0)
+    if (!get_mate_regions && s->MapQuality() == 0) {
+      SVABA_READ_TRACE_IF(rule_pass, s->Qname(),
+        "REJECT mapq=0 in non-mate region");
       rule_pass = false;
-    
+    }
+
     // add to all reads pile for kmer correction
     if (get_coverage) {
       cov.addRead(*s, 0);
     }
-    
+
     // add to weird coverage
-    if (rule_pass && get_coverage) 
-      weird_cov.addRead(*s, 0); 
-    
+    if (rule_pass && get_coverage)
+      weird_cov.addRead(*s, 0);
+
     // add to the cigar map for all non-duplicate reads
     if (get_mate_regions) // only add cigar for non-mate regions
       addCigar(s);
-    
+
     // add all the reads for kmer correction
     // TODO this will add reads to training even if this entire buffer is rejected, so need to make a training buffer as well before adding them
     if (!sc.opts.ecCorrectType.empty() && sc.opts.ecCorrectType != "0") {
-      
+
       // if its not a weird read, include for training purposes
       // but can subsample for speed
-      if (!rule_pass) { 
+      if (!rule_pass) {
 	uint32_t hashed  = __ac_Wang_hash(__ac_X31_hash_string(s->Qname().c_str()));
 	if ((double)(hashed&0xffffff) / 0x1000000 <= kmer_subsample)
 	  train_buffer.push_back(UnalignedSequence(s->UniqueName(),
 							   s->CorrectedSeq()));
       }
-
-      
     }
 
-    //    debug_read("read seen 2", s, QNAME, QFLAG);
-    
     // if not a weird read, move on
-    if (!rule_pass)
+    if (!rule_pass) {
+      SVABA_READ_TRACE(s->Qname(), "SKIP not weird (rule_pass=false after all gates)");
       continue;
+    }
 
-    //    debug_read("read seen 3d", s, QNAME, QFLAG);
-    
+    // skip adapter read-through (fragment shorter than read length)
+    // unless the read has an indel that could indicate real SV signal
+    if (hasAdapter(*s)) {
+      SVABA_READ_TRACE(s->Qname(),
+        "SKIP adapter isize=" << s->InsertSize()
+        << " len=" << s->Length()
+        << " nclip=" << s->NumClip());
+      continue;
+    }
+
     // label as discordant or not
     // modifies r in place
     TagDiscordant(s);
-    
+
     // message logging
     ++countr;
-    if (countr % 25000 == 0) {// && regions_.size() == 0) {
+    if (countr % 25000 == 0) {
       sc.logger.log(sc.opts.verbose > 1, false,
 		    "...read in ", AddCommas<size_t>(countr),
 		    " weird reads for whole genome read-in. At pos ",
 		    s->Brief());
     }
-    
+
     // adding first to a temp buffer, in case hit limit and then
     // just don't add any reads
     read_buffer.push_back(s);
+    SVABA_READ_TRACE(s->Qname(),
+      "ADDED as weird read (to_assemble=true) buffer_size=" << read_buffer.size());
   } // end the read loop
   
     // "reads" is total cache for this walker.
@@ -281,23 +350,9 @@ SeqLib::GRC svabaBamWalker::readBam(svabaThreadUnit& unit) {
     read_buffer.clear();  */ // shouldn't need to, but avoid "lingering state"
   reads.insert(reads.end(), read_buffer.begin(), read_buffer.end());
   read_buffer.clear();
+  // stash training reads as member for the pooled BFC in SvabaRegionProcessor
   train_reads.insert(train_reads.end(), train_buffer.begin(), train_buffer.end());
   train_buffer.clear();
-  
-  // in bfc addsequence, memory is copied. for all_seqs (SGA correction), copy explicitly
-  // this will move all of the "rule pass" = weird reads into the correction table
-  for (const auto& r : reads) {
-    if (r->to_assemble) {
-      bool ok = bfc.AddSequence(r->CorrectedSeq(), "", r->UniqueName());
-      assert(ok);
-    }
-  }
-
-  // and now add the "non-weird" reads to the correction table
-  for (const auto& u : train_reads) {
-    bool ok = bfc.AddSequence(u.Seq, "", u.Name);
-    assert(ok);
-  }
   
   // subsamples reads if too high of coverage
   //  if (get_coverage)

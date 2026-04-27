@@ -1,5 +1,7 @@
 #include "SvabaRead.h"
 
+#include <htslib/sam.h>  // bam_get_seq, bam_seqi
+
 svabaRead::svabaRead() = default;
 
 void svabaRead::AddR2C(const std::string& contig_name, const r2c& r) {
@@ -85,12 +87,31 @@ std::string svabaRead::Prefix() const {
 }
 
 std::string svabaRead::CorrectedSeq() const {
-  
+
   if (!seq_corrected.length())
     return Sequence();
   else
     return seq_corrected;
 
+}
+
+bool svabaRead::CorrectedSeqChanged() const {
+  // If seq_corrected was never set, it's empty → CorrectedSeq() would
+  // return Sequence(), so by definition nothing changed.
+  if (seq_corrected.empty()) return false;
+
+  // Fast path: length mismatch means quality trimming shortened the read.
+  const int32_t bam_len = Length(); // b->core.l_qseq
+  if (static_cast<int32_t>(seq_corrected.size()) != bam_len) return true;
+
+  // Same length: compare seq_corrected against the BAM's 4-bit encoding
+  // character by character, without allocating a Sequence() string.
+  const uint8_t* seq_enc = bam_get_seq(raw());
+  for (int32_t i = 0; i < bam_len; ++i) {
+    if (seq_corrected[i] != BASES[bam_seqi(seq_enc, i)])
+      return true;
+  }
+  return false;
 }
 
 void svabaRead::SetCorrectedSeq(std::string_view nseq) {

@@ -5,6 +5,7 @@
 #include "threadpool.h"
 #include <memory>
 
+#include <algorithm>
 #include <getopt.h>
 #include <iostream>
 #include <sstream>
@@ -217,7 +218,59 @@ void runsvaba(int argc, char** argv) {
   SeqLib::BamHeader first_header = first_tumor_bam_reader.Header();
   
   svabaUtils::checkHeaderCompatibility(first_header, bwa_header, logger);
-  
+
+  // Check input BAM @PG tags for BWA. When --always-realign-corrected is
+  // NOT set, svaba reuses the input BAM's native CIGAR/NM for unchanged
+  // reads in the r2c-vs-native gate. That comparison is only valid if the
+  // input was aligned with BWA (same scoring model as svaba's internal
+  // aligner). If the PG chain doesn't mention "bwa", warn loudly.
+  if (!opts.alwaysRealignCorrected) {
+    std::string hdr_text = first_header.AsString();
+    // case-insensitive search: look for "bwa" anywhere in @PG lines
+    bool found_bwa = false;
+    std::istringstream hdr_stream(hdr_text);
+    std::string line;
+    while (std::getline(hdr_stream, line)) {
+      if (line.substr(0, 3) != "@PG") continue;
+      // case-insensitive: lowercase the line for matching
+      std::string lower_line = line;
+      std::transform(lower_line.begin(), lower_line.end(),
+                     lower_line.begin(), ::tolower);
+      if (lower_line.find("bwa") != std::string::npos) {
+        found_bwa = true;
+        break;
+      }
+    }
+    if (!found_bwa) {
+      logger.log(true, true,
+        "");
+      logger.log(true, true,
+        "************************************************************");
+      logger.log(true, true,
+        "* WARNING: No BWA @PG tag found in input BAM header.      *");
+      logger.log(true, true,
+        "* svaba reuses the input BAM's CIGAR/NM for reads that    *");
+      logger.log(true, true,
+        "* BFC did not modify. This is only valid when the input   *");
+      logger.log(true, true,
+        "* was aligned with BWA-MEM (same scoring model as svaba's *");
+      logger.log(true, true,
+        "* internal aligner).                                      *");
+      logger.log(true, true,
+        "*                                                         *");
+      logger.log(true, true,
+        "* If this BAM was NOT aligned with BWA, re-run with:      *");
+      logger.log(true, true,
+        "*   --always-realign-corrected                            *");
+      logger.log(true, true,
+        "* to force re-alignment of every read to the reference.   *");
+      logger.log(true, true,
+        "************************************************************");
+      logger.log(true, true,
+        "");
+    }
+  }
+
   // open file loader
   SvabaFileLoader loader(sc); 
   

@@ -57,6 +57,9 @@ Filtering:
       --max-cov <N>       Max coverage to assemble, default 100
       --mate-min <N>      Min reads to trigger mate lookup, default 3
       --mate-lim <N>      Max reads in mate lookup, default 400
+      --no-nm             Skip high-NM read salvage (NM/len > 0.02).
+                          Faster: fewer reads enter r2c and correction.
+                          Trades away rare NM-only SV sensitivity.
 
 BWA-MEM tuning:
       --bw-op <N>         Gap-open pen, default 32
@@ -86,6 +89,13 @@ Output & DBs:
                           none of the per-read detail. Weird-reads BAM is
                           compile-time only; see
                           SvabaOptions.h::dump_weird_reads.
+      --always-realign-corrected
+                          Force re-alignment of every corrected read to
+                          the reference, even if BFC didn't modify it.
+                          By default, reads whose sequence is unchanged
+                          reuse the input BAM's CIGAR/NM (valid when the
+                          BAM was aligned with BWA). Use this flag when
+                          the input was aligned with a non-BWA aligner.
 )" << "\n";
 }
 
@@ -113,6 +123,7 @@ SvabaOptions SvabaOptions::parse(int argc, char** argv) {
     {"max-cov",    required_argument,      nullptr,  1400},
     {"mate-min",   required_argument,      nullptr,  1401},
     {"mate-lim",   required_argument,      nullptr,  1402},
+    {"no-nm",      no_argument,            nullptr,  1403},
     {"chunk-size", required_argument,      nullptr,  1500},
     {"bw-op",      required_argument,      nullptr,  1600},
     {"bw-ep",      required_argument,      nullptr,  1601},
@@ -130,6 +141,7 @@ SvabaOptions SvabaOptions::parse(int argc, char** argv) {
     // Single flag, both side effects — see comment in SvabaOptions.h.
     // Weird-reads BAM is deliberately not on this flag (compile-time only).
     {"dump-reads", no_argument,            nullptr,  1800},
+    {"always-realign-corrected", no_argument, nullptr, 1801},
     {nullptr,0,nullptr,0}
   };
 
@@ -163,6 +175,7 @@ SvabaOptions SvabaOptions::parse(int argc, char** argv) {
       case 1400: o.maxCov           = std::stoi(optarg); break;
       case 1401: o.mateLookupMin    = std::stoul(optarg);break;
       case 1402: o.mateRegionLookupLim = std::stoul(optarg); break;
+      case 1403: o.noNmSalvage        = true; break;
 
       case 1500: o.chunkSize        = std::stoi(optarg); break;
 
@@ -189,6 +202,10 @@ SvabaOptions SvabaOptions::parse(int argc, char** argv) {
         o.dump_discordant_reads = true;
         o.dump_corrected_reads  = true;
         o.dump_alignments       = true;
+        break;
+
+      case 1801:
+        o.alwaysRealignCorrected = true;
         break;
 
       case '?':
@@ -245,8 +262,7 @@ SvabaOptions SvabaOptions::parse(int argc, char** argv) {
       { "ins":   true },
       { "del":   true },
       { "mapped":      true, "mate_mapped": false },
-      { "mate_mapped": true, "mapped":      false },
-      { "nm": [3, 0] },
+      { "mate_mapped": true, "mapped":      false }
     ]
   }
 }
