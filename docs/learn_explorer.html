@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SvABA Learn Explorer</title>
+<style>
+:root {
+  --bg: #0f1117; --surface: #1a1d27; --surface2: #252833;
+  --border: #2e3140; --text: #e1e4ed; --text2: #8b8fa3;
+  --accent: #6c8cff; --green: #4ade80; --red: #f87171; --amber: #fbbf24;
+  --blue: #60a5fa; --purple: #a855f7; --cyan: #22d3ee; --pink: #f472b6;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'SF Mono','Fira Code','Consolas',monospace;background:var(--bg);color:var(--text);min-height:100vh;font-size:12px}
+.header{display:flex;align-items:center;justify-content:space-between;padding:.6rem 1rem;border-bottom:1px solid var(--border);background:var(--surface)}
+.header h1{font-size:1rem;font-weight:600} .header h1 span{color:var(--accent)}
+.header .meta{font-size:.75rem;color:var(--text2)}
+
+/* Upload */
+.upload-row{display:flex;gap:.8rem;align-items:center;padding:.6rem 1rem;background:var(--surface);border-bottom:1px solid var(--border)}
+.upload-box{background:var(--surface2);border:2px dashed var(--border);border-radius:6px;padding:.6rem 1rem;cursor:pointer;transition:border-color .2s;font-size:.78rem;color:var(--text2);flex:1;text-align:center;max-width:600px}
+.upload-box:hover,.upload-box.over{border-color:var(--accent)}
+.upload-box.loaded{border-color:var(--green);border-style:solid}
+.upload-box input{display:none}
+.upload-box .fn{color:var(--green);font-size:.72rem;margin-top:.2rem;word-break:break-all}
+
+/* Stats bar */
+.stats-bar{display:flex;gap:1.2rem;padding:.4rem 1rem;background:var(--surface);border-bottom:1px solid var(--border);font-size:.75rem;color:var(--text2);flex-wrap:wrap}
+.stats-bar .sv{color:var(--accent);font-weight:600}
+
+/* Controls */
+.controls{display:flex;flex-wrap:wrap;gap:.5rem .8rem;padding:.5rem 1rem;background:var(--surface);border-bottom:1px solid var(--border);align-items:end}
+.ctrl{display:flex;flex-direction:column;gap:.2rem}
+.ctrl label{font-size:.65rem;color:var(--text2);text-transform:uppercase;letter-spacing:.05em}
+.ctrl input,.ctrl select{background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:.3rem .5rem;font-family:inherit;font-size:.78rem;color:var(--text)}
+.ctrl input[type=number]{width:80px}
+.ctrl input:focus,.ctrl select:focus{outline:none;border-color:var(--accent)}
+.chip{padding:.2rem .5rem;border-radius:4px;border:1px solid var(--border);font-size:.7rem;cursor:pointer;color:var(--text2);background:var(--surface2);display:inline-flex;align-items:center;gap:.3rem}
+.chip:hover{border-color:var(--accent);color:var(--text)}
+.chip.on{background:rgba(108,140,255,.15);border-color:var(--accent);color:var(--accent)}
+.chip .cnt{font-size:.6rem;opacity:.6}
+
+/* Charts */
+.charts-area{padding:.5rem 1rem;background:var(--bg)}
+.chart-row{display:grid;gap:.5rem;margin-bottom:.5rem}
+.chart-row.hero{grid-template-columns:1fr}
+.chart-row.hero .chart-card{min-height:260px}
+.chart-row.hero canvas{height:230px}
+.chart-row.grid2{grid-template-columns:repeat(auto-fill,minmax(320px,1fr))}
+.chart-card{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:.4rem .5rem;min-height:160px;position:relative}
+.chart-card .ct{font-size:.65rem;color:var(--text2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:.3rem;display:flex;align-items:center;justify-content:space-between;gap:.3rem}
+.chart-card canvas{width:100%;height:140px;display:block}
+.log-tog{background:transparent;border:1px solid var(--border);color:var(--text2);font-size:.6rem;padding:1px 5px;border-radius:3px;cursor:pointer;font-family:inherit;text-transform:none;letter-spacing:0;line-height:1.1}
+.log-tog:hover{border-color:var(--accent);color:var(--text)}
+.log-tog.on{background:rgba(108,140,255,.15);border-color:var(--accent);color:var(--accent)}
+
+/* Table */
+.table-wrap{overflow:auto;background:var(--surface);border:1px solid var(--border);border-radius:6px;margin:.5rem 1rem;max-height:calc(100vh - 480px)}
+table{width:100%;border-collapse:collapse;white-space:nowrap}
+th{background:var(--surface2);color:var(--text2);text-align:left;padding:.3rem .5rem;position:sticky;top:0;cursor:pointer;user-select:none;z-index:1;font-size:.72rem;text-transform:uppercase;letter-spacing:.03em}
+th:hover{color:var(--accent)}
+th .sa{font-size:.6em;margin-left:.15rem;opacity:.5}
+td{padding:.3rem .5rem;border-top:1px solid rgba(46,49,64,.5);font-size:.75rem}
+tr:hover td{background:var(--surface2)}
+tr.sel td{background:#1e3a5f !important}
+tr{cursor:pointer}
+td.num{text-align:right;font-variant-numeric:tabular-nums}
+::selection{background:#3b5bdb;color:#fff}
+.swatch{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:.3rem}
+
+.footer{margin-top:1rem;padding:.6rem 1rem;font-size:.7rem;color:var(--text2);text-align:center;border-top:1px solid var(--border)}
+.footer a{color:var(--accent);text-decoration:none}
+#content{display:none}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1><span>SvABA</span> Learn Explorer</h1>
+  <div class="meta" id="file-meta">No file loaded</div>
+</div>
+
+<div class="upload-row">
+  <div class="upload-box" id="drop-zone" onclick="document.getElementById('file-input').click()">
+    Drop or click &mdash; <code>*.learn.tsv.gz</code> (columns: bam, rg, isize)
+    <div class="fn" id="file-name" style="display:none"></div>
+    <input type="file" id="file-input" accept=".tsv,.gz,.tsv.gz,text/plain,application/gzip">
+  </div>
+</div>
+
+<div id="content">
+  <div class="stats-bar" id="stats-bar"></div>
+
+  <div class="controls" id="controls">
+    <div class="ctrl"><label>RG filter</label><div id="rg-chips" style="display:flex;flex-wrap:wrap;gap:.3rem;max-width:800px"></div></div>
+    <div class="ctrl"><label>Bins</label><input id="f-bins" type="number" value="80" min="10" max="500"></div>
+  </div>
+
+  <!-- Combined overlay histogram -->
+  <div class="charts-area">
+    <div class="chart-row hero">
+      <div class="chart-card">
+        <div class="ct">
+          Insert size distribution (all selected RGs overlaid)
+          <button class="log-tog" id="tog-log-main" title="Toggle log10 Y axis">log Y</button>
+        </div>
+        <canvas id="chart-main"></canvas>
+      </div>
+    </div>
+    <!-- Per-RG faceted histograms -->
+    <div class="chart-row grid2" id="facet-row"></div>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead id="thead"></thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="footer">
+  SvABA &mdash; Learn Explorer &mdash;
+  <a href="index.html">&larr; all viewers</a> &mdash;
+  <a href="https://github.com/walaj/svaba">github.com/walaj/svaba</a>
+</div>
+
+<script>
+/* ===================================================================
+   SvABA Learn Explorer — interactive isize distribution viewer
+   Single-file, no external dependencies (Canvas2D histograms).
+   =================================================================== */
+
+const PALETTE = [
+  '#6c8cff','#4ade80','#f87171','#fbbf24','#a855f7',
+  '#22d3ee','#f472b6','#fb923c','#34d399','#818cf8',
+  '#e879f9','#facc15','#38bdf8','#f43f5e','#a3e635',
+  '#c084fc','#2dd4bf','#fb7185','#84cc16','#e2e8f0'
+];
+
+let DATA = [];      // [{bam, rg, isize}]
+let RG_STATS = [];  // [{rg, n, mean, median, sd, p01, p99, color}]
+let activeRGs = new Set();
+let sortCol = 'n', sortDir = -1;
+let logYMain = false;
+
+// ---- file loading ----
+const dropZone = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('over'));
+dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('over'); handleFile(e.dataTransfer.files[0]); });
+fileInput.addEventListener('change', () => { if (fileInput.files.length) handleFile(fileInput.files[0]); });
+
+async function handleFile(file) {
+  const fn = file.name;
+  document.getElementById('file-name').textContent = fn;
+  document.getElementById('file-name').style.display = 'block';
+  dropZone.classList.add('loaded');
+  document.getElementById('file-meta').textContent = 'Loading ' + fn + '…';
+
+  let text;
+  if (fn.endsWith('.gz')) {
+    const buf = await file.arrayBuffer();
+    const ds = new DecompressionStream('gzip');
+    const reader = new Blob([buf]).stream().pipeThrough(ds).getReader();
+    const chunks = [];
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      chunks.push(value);
+    }
+    text = new TextDecoder().decode(await new Blob(chunks).arrayBuffer());
+  } else {
+    text = await file.text();
+  }
+
+  parseTSV(text);
+  document.getElementById('file-meta').textContent = fn;
+  document.getElementById('content').style.display = 'block';
+  buildUI();
+}
+
+function parseTSV(text) {
+  DATA = [];
+  const lines = text.split('\n');
+  let headerParsed = false;
+  let colBam = 0, colRg = 1, colIsize = 2;
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    const parts = line.split('\t');
+    if (!headerParsed) {
+      // detect header
+      if (parts[0] === 'bam' || parts[0] === '#bam') {
+        // map column names
+        for (let i = 0; i < parts.length; i++) {
+          const c = parts[i].replace(/^#/, '').toLowerCase();
+          if (c === 'bam') colBam = i;
+          else if (c === 'rg') colRg = i;
+          else if (c === 'isize') colIsize = i;
+        }
+        headerParsed = true;
+        continue;
+      }
+      headerParsed = true;
+    }
+    const isize = parseInt(parts[colIsize], 10);
+    if (isNaN(isize) || isize <= 0) continue;
+    DATA.push({ bam: parts[colBam] || '', rg: parts[colRg] || 'NA', isize });
+  }
+}
+
+function computeStats() {
+  const byRG = {};
+  for (const d of DATA) {
+    if (!byRG[d.rg]) byRG[d.rg] = [];
+    byRG[d.rg].push(d.isize);
+  }
+  RG_STATS = [];
+  const rgs = Object.keys(byRG).sort();
+  rgs.forEach((rg, i) => {
+    const arr = byRG[rg].slice().sort((a, b) => a - b);
+    const n = arr.length;
+    const mean = arr.reduce((s, v) => s + v, 0) / n;
+    const median = n % 2 ? arr[(n - 1) / 2] : (arr[n / 2 - 1] + arr[n / 2]) / 2;
+    const sd = Math.sqrt(arr.reduce((s, v) => s + (v - mean) ** 2, 0) / n);
+    const p01 = arr[Math.floor(n * 0.01)] || arr[0];
+    const p99 = arr[Math.min(Math.floor(n * 0.99), n - 1)];
+    RG_STATS.push({ rg, n, mean, median, sd, p01, p99, color: PALETTE[i % PALETTE.length], values: arr });
+  });
+  activeRGs = new Set(RG_STATS.map(r => r.rg));
+}
+
+// ---- UI ----
+function buildUI() {
+  computeStats();
+  renderStats();
+  renderChips();
+  renderTable();
+  renderMainChart();
+  renderFacets();
+
+  document.getElementById('f-bins').addEventListener('input', () => { renderMainChart(); renderFacets(); });
+  document.getElementById('tog-log-main').addEventListener('click', function() {
+    logYMain = !logYMain;
+    this.classList.toggle('on', logYMain);
+    renderMainChart();
+  });
+}
+
+function renderStats() {
+  const nRG = RG_STATS.length;
+  const nObs = DATA.length;
+  const bams = new Set(DATA.map(d => d.bam));
+  document.getElementById('stats-bar').innerHTML =
+    `<span><span class="sv">${nObs.toLocaleString()}</span> observations</span>` +
+    `<span><span class="sv">${nRG}</span> read groups</span>` +
+    `<span><span class="sv">${bams.size}</span> BAM source${bams.size > 1 ? 's' : ''}</span>`;
+}
+
+function renderChips() {
+  const box = document.getElementById('rg-chips');
+  box.innerHTML = '';
+  // "all" toggle
+  const allChip = document.createElement('span');
+  allChip.className = 'chip on';
+  allChip.textContent = 'All';
+  allChip.addEventListener('click', () => {
+    if (activeRGs.size === RG_STATS.length) {
+      activeRGs.clear();
+    } else {
+      activeRGs = new Set(RG_STATS.map(r => r.rg));
+    }
+    syncChips(); renderMainChart(); renderFacets(); renderTable();
+  });
+  box.appendChild(allChip);
+
+  for (const s of RG_STATS) {
+    const chip = document.createElement('span');
+    chip.className = 'chip' + (activeRGs.has(s.rg) ? ' on' : '');
+    chip.dataset.rg = s.rg;
+    chip.innerHTML = `<span class="swatch" style="background:${s.color}"></span>${s.rg} <span class="cnt">${s.n.toLocaleString()}</span>`;
+    chip.addEventListener('click', () => {
+      if (activeRGs.has(s.rg)) activeRGs.delete(s.rg); else activeRGs.add(s.rg);
+      syncChips(); renderMainChart(); renderFacets(); renderTable();
+    });
+    box.appendChild(chip);
+  }
+}
+
+function syncChips() {
+  for (const chip of document.querySelectorAll('#rg-chips .chip')) {
+    if (chip.dataset.rg) {
+      chip.classList.toggle('on', activeRGs.has(chip.dataset.rg));
+    } else {
+      chip.classList.toggle('on', activeRGs.size === RG_STATS.length);
+    }
+  }
+}
+
+// ---- table ----
+const COLS = [
+  { key: 'rg', label: 'Read Group', fmt: v => v },
+  { key: 'n', label: 'N', fmt: v => v.toLocaleString(), num: true },
+  { key: 'mean', label: 'Mean', fmt: v => v.toFixed(1), num: true },
+  { key: 'median', label: 'Median', fmt: v => v.toFixed(1), num: true },
+  { key: 'sd', label: 'SD', fmt: v => v.toFixed(1), num: true },
+  { key: 'p01', label: 'P1', fmt: v => v.toLocaleString(), num: true },
+  { key: 'p99', label: 'P99', fmt: v => v.toLocaleString(), num: true },
+];
+
+function renderTable() {
+  const thead = document.getElementById('thead');
+  thead.innerHTML = '<tr>' + COLS.map(c =>
+    `<th data-col="${c.key}">${c.label}<span class="sa">${sortCol === c.key ? (sortDir > 0 ? '▲' : '▼') : ''}</span></th>`
+  ).join('') + '</tr>';
+  thead.querySelectorAll('th').forEach(th => {
+    th.addEventListener('click', () => {
+      const col = th.dataset.col;
+      if (sortCol === col) sortDir *= -1; else { sortCol = col; sortDir = col === 'rg' ? 1 : -1; }
+      renderTable();
+    });
+  });
+
+  const rows = RG_STATS.filter(s => activeRGs.has(s.rg)).slice().sort((a, b) => {
+    const va = a[sortCol], vb = b[sortCol];
+    if (typeof va === 'string') return sortDir * va.localeCompare(vb);
+    return sortDir * (va - vb);
+  });
+
+  const tbody = document.getElementById('tbody');
+  tbody.innerHTML = rows.map(r =>
+    '<tr data-rg="' + r.rg + '">' + COLS.map(c =>
+      `<td class="${c.num ? 'num' : ''}"><span class="swatch" style="background:${r.color}"></span>${c.fmt(r[c.key])}</td>`
+    ).join('') + '</tr>'
+  ).join('');
+
+  tbody.querySelectorAll('tr').forEach(tr => {
+    tr.addEventListener('click', () => {
+      const rg = tr.dataset.rg;
+      // toggle to solo this RG (or back to all if already solo)
+      if (activeRGs.size === 1 && activeRGs.has(rg)) {
+        activeRGs = new Set(RG_STATS.map(r => r.rg));
+      } else {
+        activeRGs = new Set([rg]);
+      }
+      syncChips(); renderMainChart(); renderFacets(); renderTable();
+    });
+  });
+}
+
+// ---- histogram rendering (Canvas 2D) ----
+function getBins() { return parseInt(document.getElementById('f-bins').value, 10) || 80; }
+
+function histogram(values, nBins, lo, hi) {
+  const binW = (hi - lo) / nBins;
+  const counts = new Array(nBins).fill(0);
+  for (const v of values) {
+    let idx = Math.floor((v - lo) / binW);
+    if (idx < 0) idx = 0;
+    if (idx >= nBins) idx = nBins - 1;
+    counts[idx] = (counts[idx] || 0) + 1;
+  }
+  return { counts, lo, hi, binW };
+}
+
+function drawHistogram(canvas, datasets, { logY = false, title = '' } = {}) {
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.clientWidth, H = canvas.clientHeight;
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+
+  if (!datasets.length) return;
+
+  const nBins = getBins();
+  // global range across all datasets
+  let glo = Infinity, ghi = -Infinity;
+  for (const ds of datasets) {
+    if (!ds.values.length) continue;
+    // use p01/p99 for range to trim outliers
+    const sorted = ds.values; // already sorted
+    const p01 = sorted[Math.floor(sorted.length * 0.005)] || sorted[0];
+    const p99 = sorted[Math.min(Math.floor(sorted.length * 0.995), sorted.length - 1)];
+    glo = Math.min(glo, p01);
+    ghi = Math.max(ghi, p99);
+  }
+  if (glo >= ghi) return;
+
+  // compute histograms
+  const hists = datasets.map(ds => ({
+    ...histogram(ds.values, nBins, glo, ghi),
+    color: ds.color, label: ds.label
+  }));
+
+  // find max count
+  let maxC = 0;
+  for (const h of hists) for (const c of h.counts) maxC = Math.max(maxC, c);
+  if (logY) maxC = Math.log10(maxC + 1);
+  if (maxC === 0) return;
+
+  // layout
+  const ml = 50, mr = 12, mt = 8, mb = 28;
+  const pw = W - ml - mr, ph = H - mt - mb;
+
+  // axes
+  ctx.strokeStyle = 'rgba(46,49,64,0.8)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(ml, mt); ctx.lineTo(ml, mt + ph); ctx.lineTo(ml + pw, mt + ph);
+  ctx.stroke();
+
+  // Y ticks
+  ctx.fillStyle = '#8b8fa3'; ctx.font = '10px monospace'; ctx.textAlign = 'right';
+  const nYTicks = 5;
+  for (let i = 0; i <= nYTicks; i++) {
+    const frac = i / nYTicks;
+    const y = mt + ph - frac * ph;
+    const val = logY ? Math.pow(10, frac * maxC) - 1 : frac * maxC;
+    ctx.fillText(val < 10 ? val.toFixed(1) : Math.round(val).toLocaleString(), ml - 4, y + 3);
+    if (i > 0) {
+      ctx.strokeStyle = 'rgba(46,49,64,0.4)';
+      ctx.beginPath(); ctx.moveTo(ml, y); ctx.lineTo(ml + pw, y); ctx.stroke();
+    }
+  }
+
+  // X ticks
+  ctx.textAlign = 'center';
+  const nXTicks = Math.min(8, nBins);
+  for (let i = 0; i <= nXTicks; i++) {
+    const frac = i / nXTicks;
+    const x = ml + frac * pw;
+    const val = glo + frac * (ghi - glo);
+    ctx.fillStyle = '#8b8fa3';
+    ctx.fillText(Math.round(val).toLocaleString(), x, mt + ph + 14);
+  }
+
+  // draw bars (stacked alpha for overlay)
+  const barW = pw / nBins;
+  for (const h of hists) {
+    ctx.fillStyle = h.color;
+    ctx.globalAlpha = datasets.length > 1 ? 0.45 : 0.7;
+    for (let i = 0; i < nBins; i++) {
+      if (h.counts[i] === 0) continue;
+      const val = logY ? Math.log10(h.counts[i] + 1) : h.counts[i];
+      const barH = (val / maxC) * ph;
+      const x = ml + i * barW;
+      ctx.fillRect(x, mt + ph - barH, Math.max(barW - 0.5, 1), barH);
+    }
+  }
+  ctx.globalAlpha = 1;
+
+  // x-axis label
+  ctx.fillStyle = '#8b8fa3'; ctx.font = '9px monospace'; ctx.textAlign = 'center';
+  ctx.fillText('insert size (bp)', ml + pw / 2, H - 2);
+
+  // legend if multiple
+  if (datasets.length > 1 && datasets.length <= 8) {
+    let lx = ml + 8, ly = mt + 14;
+    ctx.font = '9px monospace'; ctx.textAlign = 'left';
+    for (const h of hists) {
+      ctx.fillStyle = h.color; ctx.globalAlpha = 0.8;
+      ctx.fillRect(lx, ly - 7, 8, 8);
+      ctx.globalAlpha = 1; ctx.fillStyle = '#e1e4ed';
+      ctx.fillText(h.label, lx + 12, ly);
+      ly += 13;
+    }
+  }
+}
+
+function renderMainChart() {
+  const canvas = document.getElementById('chart-main');
+  const datasets = RG_STATS
+    .filter(s => activeRGs.has(s.rg))
+    .map(s => ({ values: s.values, color: s.color, label: s.rg }));
+  drawHistogram(canvas, datasets, { logY: logYMain });
+}
+
+function renderFacets() {
+  const row = document.getElementById('facet-row');
+  row.innerHTML = '';
+  const active = RG_STATS.filter(s => activeRGs.has(s.rg));
+  // only show facets if there are multiple active RGs (otherwise the main chart is enough)
+  if (active.length <= 1) return;
+  for (const s of active) {
+    const card = document.createElement('div');
+    card.className = 'chart-card';
+    const label = `${s.rg}  (n=${s.n.toLocaleString()}, μ=${s.mean.toFixed(0)}, σ=${s.sd.toFixed(0)})`;
+    card.innerHTML = `<div class="ct">${label}</div><canvas style="height:120px"></canvas>`;
+    row.appendChild(card);
+    const cvs = card.querySelector('canvas');
+    // defer render to next frame so layout is settled
+    requestAnimationFrame(() => {
+      drawHistogram(cvs, [{ values: s.values, color: s.color, label: s.rg }]);
+    });
+  }
+}
+
+// resize handler
+window.addEventListener('resize', () => { renderMainChart(); renderFacets(); });
+</script>
+</body>
+</html>
