@@ -28,6 +28,7 @@ a.card:hover{border-color:var(--accent);transform:translateY(-2px)}
 .tag-runtime{background:rgba(248,113,113,.15);color:#f87171}
 .tag-compare{background:rgba(168,85,247,.15);color:var(--purple)}
 .tag-legacy{background:rgba(251,191,36,.12);color:var(--amber)}
+.tag-learn{background:rgba(244,114,182,.15);color:#f472b6}
 .card .desc{font-size:.75rem;color:var(--text2);line-height:1.5}
 .card .files{font-size:.65rem;color:var(--text2);margin-top:.4rem;opacity:.6}
 .footer{margin-top:2rem;font-size:.7rem;color:var(--text2);text-align:center}
@@ -74,6 +75,17 @@ a.card:hover{border-color:var(--accent);transform:translateY(-2px)}
         from svaba runs <em>before</em> the r2c migration. New runs no
         longer produce <code>alignments.txt.gz</code> — prefer the R2C
         Explorer above. Kept for rendering historical outputs.
+      </div>
+    </a>
+
+    <a class="card" href="learn_explorer.html">
+      <div class="title">Learn Explorer <span class="tag tag-learn">learn.tsv.gz</span></div>
+      <div class="desc">
+        Interactive viewer for BAM learning data &mdash; per-read-group
+        insert-size distributions emitted by <code>svaba run</code> as
+        <code>${ID}.*.learn.tsv.gz</code>. Overlaid + faceted histograms,
+        sortable summary table (n, mean, median, SD, percentiles), RG chip
+        filters, click-to-solo. Drag-and-drop the gzipped TSV to explore.
       </div>
     </a>
 

@@ -3,9 +3,11 @@
 #include "LearnBamParams.h"
 #include "SeqLib/BamRecord.h"
 #include "SeqLib/BamReader.h"
+#include "SeqLib/GenomicRegion.h"
 #include "SvabaSharedConfig.h"
 #include "SvabaOptions.h"
 #include "SvabaLogger.h"
+#include "gzstream.h"
 
 #include <stdexcept>
 #include <sstream>
@@ -14,9 +16,10 @@
 #include <algorithm>
 #include <numeric>
 #include <cmath>
+#include <unordered_set>
 
 namespace {
-  
+
   // helper to extract read group ids from the header
   std::vector<std::string> extractReadGroups(const SeqLib::BamHeader& hdr) {
     std::vector<std::string> groups;
@@ -35,7 +38,7 @@ namespace {
     }
     return groups;
   }
-  
+
 } // anonymous namespace
 
 #include <ostream>
@@ -50,24 +53,67 @@ std::ostream& operator<<(std::ostream& os, const BamReadGroup& bg) {
      << " MQ=" << bg.mapq_max
      << " RL=" << bg.readlen_max
      << " mIS=" << bg.isize_mean
-     << " sdIS=" << bg.sd_isize;
+     << " sdIS=" << bg.sd_isize
+     << " n_isize=" << bg.isize_vec.size();
   return os;
 }
 
 
 LearnBamParams::LearnBamParams(SvabaSharedConfig& sc_,
-			       const std::string& bamPath) 
+			       const std::string& bamPath)
   : sc(sc_),
     bam_(bamPath)
 {
 
   // make the new BamReader
   reader_ = std::make_shared<SeqLib::BamReader>();
-  
+
   // open the BAM for learning
   if (!reader_->Open(bam_)) {
     throw std::runtime_error("Could not open bam file " + bam_ + " in LearnBamParams");
   }
+}
+
+size_t LearnBamParams::consumeReads(
+    size_t max_reads,
+    std::unordered_map<std::string, size_t>& rg_count,
+    std::unordered_set<std::string>& satisfied_rgs,
+    const std::vector<std::string>& groups)
+{
+  size_t consumed = 0;
+
+  while (auto r = reader_->Next()) {
+    if (consumed >= max_reads)
+      break;
+
+    // get read group tag
+    std::string rg;
+    if (!r->GetZTag("RG", rg))
+      rg = "NA";
+
+    ++consumed;
+
+    // already saturated this RG — skip
+    if (satisfied_rgs.count(rg))
+      continue;
+
+    // check if this read pushes the RG over the limit
+    size_t& cnt = rg_count[rg];
+    if (cnt >= static_cast<size_t>(sc.opts.perRgLearnLimit)) {
+      satisfied_rgs.insert(rg);
+      // check if all header-declared RGs are satisfied
+      if (satisfied_rgs.size() >= groups.size())
+	break;
+      continue;
+    }
+
+    // refer to existing BamReadGroup or make new
+    auto& bstats = bam_read_groups[rg];
+    bstats.addRead(*r);
+    ++cnt;
+  }
+
+  return consumed;
 }
 
 void LearnBamParams::learnParams() {
@@ -75,70 +121,137 @@ void LearnBamParams::learnParams() {
   // gather read group ids from the header
   auto hdr = reader_->Header();
   auto groups = extractReadGroups(hdr);
+  int n_contigs = hdr.NumSequences();
 
-  // read-group, count
+  sc.logger.log(true, true, "......header declares ",
+		groups.size(), " read groups across ",
+		n_contigs, " contigs");
+
+  // per-RG counts and satisfaction tracking
   std::unordered_map<std::string, size_t> rg_count;
-  size_t countr = 0;
+  std::unordered_set<std::string> satisfied_rgs;
+  size_t total_reads = 0;
 
-  // track how many read groups are satisfied. Break when all are done
-  size_t satisfied = 0;
-  
-  // set the BAM reader to the beginning of the BAM
-  reader_->Reset();
+  // --- Phase 1: multi-region sampling ---
+  // Build sampling windows at the midpoint of each reference contig.
+  // This ensures we see reads from every part of the genome, catching
+  // read groups that only appear on later chromosomes.
+  //
+  // For standard contigs (chr1-chrY, ~25 contigs), the 1M-read-per-window
+  // budget means we sample ~25M reads total in the worst case. For BAMs
+  // with many small contigs (alt/decoy/random), we skip contigs shorter
+  // than 1 Mb to avoid wasting time on regions with few reads.
 
-  // scan through records
-  while (auto r = reader_->Next()) {
+  constexpr int32_t MIN_CONTIG_LEN = 1'000'000;   // skip tiny contigs
+  constexpr size_t  READS_PER_WINDOW = 1'000'000;  // reads per sampling window
+  constexpr int32_t WINDOW_HALF = 500'000;          // +/- 500kb around midpoint
 
-    // get read group tag
-    std::string rg;
-    if (!r->GetZTag("RG", rg)) {
-      rg = "NA";
-    }
-
-    // hard max
-    if (countr > 10'000'000)
+  for (int c = 0; c < n_contigs; ++c) {
+    // early exit if all RGs are satisfied
+    if (satisfied_rgs.size() >= groups.size())
       break;
-    
-    // print update
-    ++countr;
-    if (countr % 10000000==0) {
-      sc.logger.log(true,true,"......learning for read ",
-		    SeqLib::AddCommas(countr), " and learned ",
-		    satisfied, " read groups of ", groups.size());
-      
-    }
 
-    // already seen too many of these reads
-    if (rg_count[rg] > sc.opts.perRgLearnLimit)
+    int32_t clen = hdr.GetSequenceLength(c);
+    if (clen < MIN_CONTIG_LEN)
       continue;
-    
-    // already seen too many of these reads
-    else if (rg_count[rg] == sc.opts.perRgLearnLimit) {
-      satisfied++;
 
-      // check if we satisifed all the read groups
-      if (satisfied == groups.size()) {
-	break;
-      }
+    // sample from the midpoint of the contig
+    int32_t mid = clen / 2;
+    int32_t start = std::max(0, mid - WINDOW_HALF);
+    int32_t end = std::min(clen, mid + WINDOW_HALF);
+
+    SeqLib::GenomicRegion region(c, start, end);
+    if (!reader_->SetRegion(region))
+      continue; // skip if region query fails (no index?)
+
+    size_t consumed = consumeReads(READS_PER_WINDOW, rg_count, satisfied_rgs, groups);
+    total_reads += consumed;
+
+    // log progress every 5 contigs
+    if (c % 5 == 0 || c == n_contigs - 1) {
+      sc.logger.log(sc.opts.verbose > 0, true,
+		    "......sampling contig ", c + 1, "/", n_contigs,
+		    " - ", SeqLib::AddCommas(total_reads), " reads, ",
+		    satisfied_rgs.size(), "/", groups.size(), " RGs satisfied");
     }
-
-    // refer to existing BamReadGroup or make new
-    auto& bstats = bam_read_groups[rg];
-    bstats.addRead(*r); // add the read for learning
-
-    // update the counter for this group
-    rg_count[rg]++;
-    
   }
-  
+
+  // --- Phase 2: fallback sequential scan ---
+  // If some RGs are still unsatisfied (e.g. BAM has no index, or RGs
+  // appear only in unmapped reads), do a sequential scan from the start
+  // with a generous cap.
+  if (satisfied_rgs.size() < groups.size()) {
+    sc.logger.log(true, true,
+		  "......", satisfied_rgs.size(), "/", groups.size(),
+		  " RGs satisfied after multi-region sampling (",
+		  SeqLib::AddCommas(total_reads), " reads); ",
+		  "falling back to sequential scan for remaining RGs");
+
+    constexpr size_t SEQUENTIAL_CAP = 100'000'000; // 100M reads
+    reader_->Reset();
+    size_t consumed = consumeReads(SEQUENTIAL_CAP, rg_count, satisfied_rgs, groups);
+    total_reads += consumed;
+  }
+
+  sc.logger.log(true, true,
+		"......learning complete: ", SeqLib::AddCommas(total_reads),
+		" reads scanned, ",
+		bam_read_groups.size(), " read groups found, ",
+		satisfied_rgs.size(), "/", groups.size(), " header RGs satisfied");
+
+  // log any RGs from the header that we never found reads for
+  for (const auto& g : groups) {
+    if (bam_read_groups.find(g) == bam_read_groups.end()) {
+      sc.logger.log(true, true,
+		    "......WARNING: read group '", g,
+		    "' declared in header but no reads found");
+    }
+  }
+
+  // dump raw isize data for R plotting BEFORE computeStats clears the vectors.
+  // Use the BAM filename stem in the output name so multiple BAMs don't clobber.
+  if (!sc.opts.analysisId.empty()) {
+    // extract basename: /path/to/foo.bam -> foo
+    std::string stem = bam_;
+    auto slash = stem.rfind('/');
+    if (slash != std::string::npos) stem = stem.substr(slash + 1);
+    auto dot = stem.rfind('.');
+    if (dot != std::string::npos) stem = stem.substr(0, dot);
+    dumpLearnData(sc.opts.analysisId + "." + stem);
+  }
+
   // compute isize stats
   // store the max readlen and mapq for this entire bam across RGs
   for (auto& br : bam_read_groups) {
-    br.second.computeStats();    
+    br.second.computeStats();
     readlen_max = std::max(readlen_max, br.second.readlen_max);
     mapq_max = std::max(mapq_max, br.second.mapq_max);
     isize_max = std::max(isize_max, br.second.isize_mean);
   }
+}
+
+void LearnBamParams::dumpLearnData(const std::string& prefix) const {
+
+  std::string fn = prefix + ".learn.tsv.gz";
+
+  ogzstream out(fn.c_str());
+  if (!out.good()) {
+    sc.logger.log(true, true, "WARNING: could not open ", fn, " for writing learn data");
+    return;
+  }
+
+  // header
+  out << "bam\trg\tisize\n";
+
+  // one row per isize observation, per RG
+  for (const auto& [rg, brg] : bam_read_groups) {
+    for (uint32_t is : brg.isize_vec) {
+      out << bam_ << '\t' << rg << '\t' << is << '\n';
+    }
+  }
+
+  out.close();
+  sc.logger.log(true, true, "......wrote learning data to ", fn);
 }
 
 void BamReadGroup::addRead(const SeqLib::BamRecord &r)
@@ -157,11 +270,10 @@ void BamReadGroup::addRead(const SeqLib::BamRecord &r)
   if (!r.MateMappedFlag())
     ++mate_unmap;
 
-  // track the mapq 
+  // track the mapq
   mapq_max = std::max(mapq_max, r.MapQuality());
-  
+
   // track the insert size
-  int isizer = -1;
   if (!r.PairMappedFlag() || r.Interchromosomal() || r.PairOrientation() != SeqLib::Orientation::FR)
     ;
   else if (!r.Interchromosomal())
@@ -179,68 +291,29 @@ void BamReadGroup::addRead(const SeqLib::BamRecord &r)
      sd_isize   = 0.0;
      return;
    }
-   
+
    // Remove the top 2% of values to filter out extreme outliers
    std::sort(isize_vec.begin(), isize_vec.end());
    size_t n = isize_vec.size();
    size_t keep = static_cast<size_t>(std::floor(n * 0.98));
    if (keep == 0) {
-     // If 95% rounds down to 0, keep at least one element
+     // If 98% rounds down to 0, keep at least one element
      keep = 1;
    }
    isize_vec.resize(keep);
-   
+
    // Calculate mean
    isize_mean = std::accumulate(isize_vec.begin(), isize_vec.end(), 0.0) / keep;
-    
+
     // Calculate population standard deviation
     double sq_sum = 0.0;
-    for (int val : isize_vec) {
+    for (uint32_t val : isize_vec) {
       double diff = val - isize_mean;
         sq_sum += diff * diff;
     }
     sd_isize = std::sqrt(sq_sum / keep);
-    
+
     // Clean up memory
     isize_vec.clear();
-    
+
  }
- 
- 
-/*BamLearningResult LearnBamParams::learnAll(
-    const std::map<std::string,std::string>& bamFiles,
-    size_t perRGLimit,
-    int sdCutoff,
-    SvabaLogger& logger)
-{
-
-  // this is the master map of bams : (RG : params)
-  BamLearningResult R;
-
-  // loop through the BAM files and do the learning
-  for (auto const& entry : sc.opts.bams) {
-    
-    auto const& name = entry.first;  // t001 etc
-    auto const& path = entry.second; // filename
-
-    sc.logger.log(opts.verbose > 1,true,"learning insert size for bam ", name, " at ", path);
-
-    // the learn the RG params for a single BAM file
-    LearnBamParams learner(path, sc.opts.perRGLimit, sc.logger);
-    R.perFile[name] = learner.learnParams();
-
-    // update global metrics
-    for (auto const& grp : R.perFile[name]) {
-      auto const& params = grp.second;
-      R.globalReadLen = std::max(R.globalReadLen, params.readlen);
-      R.globalMaxMapQ = std::max(R.globalMaxMapQ, params.max_mapq);
-      int cutoff = int(std::floor(params.mean_isize 
-                         + params.sd_isize * sdCutoff));
-      R.globalMinDiscordantSize = 
-        std::max(R.globalMinDiscordantSize, cutoff);
-    }
-  }
-
-  return R;
-}
-*/
