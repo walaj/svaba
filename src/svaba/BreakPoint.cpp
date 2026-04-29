@@ -375,6 +375,14 @@ void BreakPoint::splitCoverage(svabaReadPtrVector& bav) {
   for (const auto& j : bav) {
 
     r2c this_r2c = j->GetR2C(cname);
+    SVABA_READ_TRACE(j->Qname(), "SPLIT_COV enter contig=" << cname
+                << " r2c_start=" << this_r2c.start_on_contig
+                << " r2c_end=" << this_r2c.end_on_contig
+                << " r2c_rc=" << this_r2c.rc
+                << " r2c_cigar=" << this_r2c.cig
+                << " r2c_nm=" << this_r2c.nm
+                << " b1_cpos=" << m_b1_cpos << " b2_cpos=" << m_b2_cpos
+                << " num_align=" << num_align);
 
     bool read_should_be_skipped = false;
 
@@ -472,10 +480,24 @@ void BreakPoint::splitCoverage(svabaReadPtrVector& bav) {
                     << " r2c=" << r2c_score << " native=" << native_score
                     << " threshold=" << threshold << " margin=" << margin
                     << " tumor=" << j->Tumor());
+        SVABA_READ_TRACE(j->Qname(), "SPLIT_COV TP8 SKIP r2c<=native"
+                    << " contig=" << cname
+                    << " r2c_score=" << r2c_score << " native_score=" << native_score
+                    << " threshold=" << threshold << " margin=" << margin
+                    << " tumor=" << j->Tumor()
+                    << " r2c_cigar=" << this_r2c.cig
+                    << " native_cigar=" << native_cig
+                    << " r2c_nm=" << this_r2c.nm << " native_nm=" << native_nm);
       } else {
         SVABA_TRACE(cname, "TP8 r2c>native PASS read=" << j->UniqueName()
                     << " r2c=" << r2c_score << " native=" << native_score
                     << " threshold=" << threshold);
+        SVABA_READ_TRACE(j->Qname(), "SPLIT_COV TP8 PASS r2c>native"
+                    << " contig=" << cname
+                    << " r2c_score=" << r2c_score << " native_score=" << native_score
+                    << " r2c_cigar=" << this_r2c.cig
+                    << " native_cigar=" << native_cig
+                    << " r2c_nm=" << this_r2c.nm << " native_nm=" << native_nm);
       }
     }
 #endif  // SVABA_R2C_NATIVE_GATE
@@ -540,16 +562,24 @@ void BreakPoint::splitCoverage(svabaReadPtrVector& bav) {
         read_should_be_skipped = true;
         SVABA_TRACE(cname, "TP9 r2c DEL near break SKIP read=" << j->UniqueName()
                     << " del_pos=" << i << " b1c=" << b1c << " b2c=" << b2c << " buff=" << ibuff);
+        SVABA_READ_TRACE(j->Qname(), "SPLIT_COV TP9 SKIP r2c DEL near break"
+                    << " contig=" << cname
+                    << " del_pos=" << i << " b1_cpos=" << b1c << " b2_cpos=" << b2c << " buff=" << ibuff);
       }
       for (auto& i : ins_breaks) if (near_break(i)) {
         read_should_be_skipped = true;
         SVABA_TRACE(cname, "TP9 r2c INS near break SKIP read=" << j->UniqueName()
                     << " ins_pos=" << i << " b1c=" << b1c << " b2c=" << b2c << " buff=" << ibuff);
+        SVABA_READ_TRACE(j->Qname(), "SPLIT_COV TP9 SKIP r2c INS near break"
+                    << " contig=" << cname
+                    << " ins_pos=" << i << " b1_cpos=" << b1c << " b2_cpos=" << b2c << " buff=" << ibuff);
       }
     }
 
-    if (read_should_be_skipped)  // default is r2c does not support var, so don't amend this_r2c
+    if (read_should_be_skipped) {  // default is r2c does not support var, so don't amend this_r2c
+      SVABA_READ_TRACE(j->Qname(), "SPLIT_COV SKIPPED (gate failed) contig=" << cname);
       continue;
+    }
 
     // get read ID
     std::string sample_id = j->Prefix(); //substr(0,4); // maybe just make this prefix
@@ -586,6 +616,15 @@ void BreakPoint::splitCoverage(svabaReadPtrVector& bav) {
                 << " b1_cpos=" << m_b1_cpos << " b2_cpos=" << m_b2_cpos
                 << " issplit1=" << issplit1 << " issplit2=" << issplit2
                 << " one_split=" << one_split);
+    SVABA_READ_TRACE(j->Qname(), "SPLIT_COV TP10 span check"
+                << " contig=" << cname
+                << " leftend=" << leftend << " rightend=" << rightend
+                << " b1_cpos=" << m_b1_cpos << " b2_cpos=" << m_b2_cpos
+                << " lbreak1=" << leftbreak1 << " rbreak1=" << rightbreak1
+                << " lbreak2=" << leftbreak2 << " rbreak2=" << rightbreak2
+                << " issplit1=" << issplit1 << " issplit2=" << issplit2
+                << " one_split=" << one_split
+                << " tumor=" << j->Tumor());
     // SvABA2.0 (v3): previously we required both_split when homlen > 0
     // (tumor *or* normal) and one_split only when homlen == 0. That
     // gate threw out legitimate split-supporters inside long junction
@@ -612,6 +651,9 @@ void BreakPoint::splitCoverage(svabaReadPtrVector& bav) {
 	  SVABA_TRACE(cname, "TP11 r2c DEL covers break SKIP read=" << j->UniqueName()
 	              << " del_pos=" << p << " lb1=" << leftbreak1 << " rb1=" << rightbreak1
 	              << " lb2=" << leftbreak2 << " rb2=" << rightbreak2);
+	  SVABA_READ_TRACE(j->Qname(), "SPLIT_COV TP11 SKIP r2c DEL covers break"
+	              << " contig=" << cname
+	              << " del_pos=" << p);
 	}
       }
       if (c->ConsumesReference()) // if it moves it along the contig
@@ -623,7 +665,13 @@ void BreakPoint::splitCoverage(svabaReadPtrVector& bav) {
     // be more sensitive to germline) and if it spans both ends for deletion (should be next to 
     // each other), or one end for insertions larger than 10, or this is a complex breakpoint
     
-    if (valid) { 
+    if (!valid) {
+      SVABA_READ_TRACE(j->Qname(), "SPLIT_COV NOT CREDITED (failed span check)"
+                  << " contig=" << cname << " one_split=" << one_split
+                  << " read_should_be_skipped=" << read_should_be_skipped);
+    }
+
+    if (valid) {
       std::string qn = j->Qname();
       
       
@@ -651,6 +699,10 @@ void BreakPoint::splitCoverage(svabaReadPtrVector& bav) {
 	valid_reads.insert(sr);
 	SVABA_TRACE(cname, "TP10+ CREDITED read=" << sr
 	            << " sample=" << sample_id << " tumor=" << j->Tumor());
+	SVABA_READ_TRACE(j->Qname(), "SPLIT_COV CREDITED as variant supporter"
+	            << " contig=" << cname << " sample=" << sample_id
+	            << " tumor=" << j->Tumor()
+	            << " issplit1=" << issplit1 << " issplit2=" << issplit2);
 	
 	// how much of the contig do these span
 	// for a given read QNAME, get the coverage that 

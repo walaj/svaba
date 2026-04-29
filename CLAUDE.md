@@ -771,6 +771,73 @@ dedup step in `svaba_postprocess.sh` pairs them. No calls are lost.
   1500 = chunking, 1600s = bwa-mem tuning, 1700s = output/DBs, 1800 =
   dump-reads. Keep the ranges coherent when adding new options.
 
+## Mate-region lookup pipeline
+
+When svaba encounters discordant reads (insert size too large or wrong
+orientation), it collects their mate loci and considers doing a secondary
+"mate-region" assembly to catch the other breakend of an SV.
+
+**Six gates** a mate candidate must pass (in order):
+
+1. **Primary MAPQ** (`minMateMAPQ`, default -1 = no gate): the discordant
+   read itself must have MAPQ ≥ this. Set to e.g. 10 to skip
+   multi-mapped primaries.
+2. **Chromosome ID** (`maxMateChrID`, default 23): mate must land on
+   chr ≤ this ID (0-indexed: 0=chr1 .. 22=chrX, 23=chrY). Skips
+   chrM/alt/decoy in human. Set to -1 (via `--non-human`) to disable
+   entirely for non-human genomes.
+3. **Blacklist**: mate locus checked against `sc.blacklist`.
+4. **Min count** (`mateRegionMinCount`, default 2): merged region must
+   have ≥ N supporting reads to survive the BamWalker filter.
+5. **Somatic mateLookupMin** (default 3, `MATE_LOOKUP_MIN`): in
+   `SvabaRegionProcessor`, only look up regions with ≥ this many
+   somatic-only reads.
+6. **Max regions** (6): cap at 6 mate regions per assembly window.
+
+All constants live in `SvabaOptions.h` as `inline constexpr` with
+runtime overrides in the `SvabaOptions` class:
+
+```
+--min-mate-mapq N     (default -1, no gate)
+--max-mate-chr  N     (default 23, through chrY; set -1 for no limit)
+--mate-min-count N    (default 2)
+--non-human           (sets maxMateChrID = -1, removes human assumptions)
+```
+
+Code: `SvabaBamWalker.cpp::calculateMateRegions()`.
+
+## Compile-time read & contig tracing
+
+Two zero-cost compile-time trace systems for debugging why a specific
+read was or wasn't credited / a contig was or wasn't called:
+
+**`SVABA_TRACE_READ`** — traces a single read (by QNAME) through the
+entire pipeline: BamWalker intake → BFC correction → r2c alignment →
+native realignment → splitCoverage scoring → output tagging.
+
+```bash
+cmake .. -DCMAKE_CXX_FLAGS='-DSVABA_TRACE_READ="\"LH00306:129:227V5CLT4:6:1204:38807:7191\""'
+```
+
+Trace points (19 total across 3 files):
+- `SvabaBamWalker.cpp`: initial read filter decisions (existing)
+- `SvabaRegionProcessor.cpp`: BFC correction result, r2c alignment
+  per-contig, native realignment reuse/done/miss, bi:Z tagging
+- `BreakPoint.cpp`: splitCoverage entry, TP8 r2c-vs-native comparison,
+  TP9 del/ins near break, TP10 span check, TP11 del covers,
+  CREDITED/NOT CREDITED final decision
+
+**`SVABA_TRACE_CONTIG`** — traces a single contig through assembly,
+alignment, and scoring:
+
+```bash
+cmake .. -DCMAKE_CXX_FLAGS='-DSVABA_TRACE_CONTIG="\"c_fermi_chr2_215869501_215894501_13C\""'
+```
+
+Both can be combined. Both are `#ifdef`-guarded so they compile to
+nothing when not defined. See `src/svaba/SvabaDebug.h` for the macro
+definitions and `README.md` for full recipes.
+
 ## Useful jump points
 
 - Somatic LOD calc: `src/svaba/SvabaModels.cpp:86`
@@ -792,3 +859,9 @@ dedup step in `svaba_postprocess.sh` pairs them. No calls are lost.
 - Runtime-file schema: `src/svaba/SvabaUtils.cpp::svabaTimer::header`
 - Options parsing: `src/svaba/SvabaOptions.cpp::SvabaOptions::parse`
 - Analysis writeup (somlod/maxlod): `somlod_maxlod_analysis.html`
+- Mate-region lookup: `src/svaba/SvabaBamWalker.cpp::calculateMateRegions`
+- Mate-region constants: `src/svaba/SvabaOptions.h` (lines 126-141)
+- Read trace macro: `src/svaba/SvabaDebug.h`
+- Read trace (BFC/r2c/native): `src/svaba/SvabaRegionProcessor.cpp`
+- Read trace (splitCoverage): `src/svaba/BreakPoint.cpp`
+- Debugging recipes: `README.md` (in svaba_opt root)

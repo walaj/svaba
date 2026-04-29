@@ -114,3 +114,42 @@
   // SVABA_READ_TRACING intentionally not defined
 
 #endif
+
+// ── Kmer restriction ────────────────────────────────────────────────
+//
+// Compile-time read filter: after BFC error correction, only reads
+// whose corrected sequence contains the specified kmer survive into
+// assembly/r2c/corrected.bam. All others get to_assemble = false.
+//
+// Usage:
+//   cmake .. -DCMAKE_CXX_FLAGS='-DSVABA_KMER_RESTRICT="\"CCATGCAGAGTGTTGAAGAAAAGGC\""'
+//
+// Also checks the reverse complement so orientation doesn't matter.
+// Zero cost when not compiled in.
+
+#ifdef SVABA_KMER_RESTRICT
+
+  inline std::string _svaba_revcomp(const std::string& s) {
+    std::string rc(s.size(), 'N');
+    for (size_t i = 0; i < s.size(); ++i) {
+      switch (s[s.size() - 1 - i]) {
+        case 'A': case 'a': rc[i] = 'T'; break;
+        case 'T': case 't': rc[i] = 'A'; break;
+        case 'C': case 'c': rc[i] = 'G'; break;
+        case 'G': case 'g': rc[i] = 'C'; break;
+        default:            rc[i] = 'N'; break;
+      }
+    }
+    return rc;
+  }
+
+  inline bool _svaba_kmer_match(const std::string& seq) {
+    static const std::string kmer_fwd(SVABA_KMER_RESTRICT);
+    static const std::string kmer_rc = _svaba_revcomp(kmer_fwd);
+    return seq.find(kmer_fwd) != std::string::npos ||
+           seq.find(kmer_rc)  != std::string::npos;
+  }
+
+  #define SVABA_KMER_RESTRICTING 1
+
+#endif

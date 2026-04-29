@@ -421,15 +421,25 @@ void svabaBamWalker::calculateMateRegions() {
     int dd = r->GetDD(); 
     
     // throw away reads that have too many different discordant mappings
-    // or are otherwise bad (dd < 0)
+    // or are otherwise bad (dd < 0).
+    //
+    // maxMateChrID gate: skip mates on decoy/alt/mito chroms in
+    // human (default 23 = through chrY). Set to -1 via --non-human
+    // or --max-mate-chr to allow all chromosomes.
+    //
+    // minMateMAPQ gate: skip reads below this MAPQ (default -1 = no
+    // gate). Set via --min-mate-mapq to e.g. 1 to exclude MAPQ=0
+    // multi-mappers from triggering mate lookups.
+    const int maxChr = sc.opts.maxMateChrID;
+    const int minMQ  = sc.opts.minMateMAPQ;
     if (!r->PairedFlag() ||
-	r->MateChrID() > 22 ||
-	r->MapQuality() == 0 || 
-	r->ChrID() > 22 ||
+	(maxChr >= 0 && r->MateChrID() > maxChr) ||
+	(minMQ  >= 0 && r->MapQuality() < minMQ) ||
+	(maxChr >= 0 && r->ChrID() > maxChr) ||
 	!r->MappedFlag() ||
 	!r->MateMappedFlag() ||
 	dd < 0 ||
-	dd > MAX_SECONDARY_HIT_DISC) // no Y or M, no bad discordants
+	dd > MAX_SECONDARY_HIT_DISC)
       continue;
 
     // get the mate region position, will check next if different
@@ -437,32 +447,31 @@ void svabaBamWalker::calculateMateRegions() {
     MateRegion mate(r->MateChrID(), r->MatePosition(), r->MatePosition());
     mate.Pad(MATE_REGION_PAD);
     mate.partner = main_region;
-    
+
     // if mate not in main interval, add a padded version
     if (!main_region.GetOverlap(mate) &&
-	r->MapQuality() >= MIN_MAPQ_FOR_MATE_LOOKUP &&
-	!local_blacklist.CountOverlaps(mate) && 
+	!local_blacklist.CountOverlaps(mate) &&
 	!sc.blacklist.CountOverlaps(mate)) {
       tmp_mate_regions.add(mate);
     }
-    
+
   }
 
   // merge it down to get the mate regions
   tmp_mate_regions.MergeOverlappingIntervals();
 
-
-
-  // get the counts by overlapping mate-reads
-  // with the newly defined mate regions
+  // get the counts by overlapping mate-reads with the newly defined
+  // mate regions. Same MAPQ gate as above so the count is consistent
+  // with the candidate set.
+  const int minMQ_count = sc.opts.minMateMAPQ;
   for (const auto& r : reads) {
-    
+
     SeqLib::GenomicRegion mate(r->MateChrID(), r->MatePosition(), r->MatePosition());
 
     // if mate not in main interval, check which mate regions it's in
-    if (!main_region.GetOverlap(mate) && r->MapQuality() > 0) {
+    if (!main_region.GetOverlap(mate) &&
+        (minMQ_count < 0 || r->MapQuality() >= minMQ_count)) {
 
-      // loop all of the mate regions -slow?
       for (auto& k : tmp_mate_regions)
 	if (k.GetOverlap(mate)) {
 	  ++k.count;
@@ -473,13 +482,14 @@ void svabaBamWalker::calculateMateRegions() {
 
 #ifdef DEBUG_SVABA_BAMWALKER
   std::cerr << "SBW: Mate regions are" << std::endl;
-  for (auto& i : tmp_mate_regions) 
+  for (auto& i : tmp_mate_regions)
     std::cerr << "    " << i << " count " << i.count << std::endl;
 #endif
 
-  // keep only ones with 2+ reads
+  // keep only ones with enough supporting reads
+  const int minCount = sc.opts.mateRegionMinCount;
   for (auto& i : tmp_mate_regions) {
-    if (i.count >= 2)
+    if (i.count >= minCount)
       mate_regions.add(i);
   }
   

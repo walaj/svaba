@@ -137,19 +137,30 @@ void LearnBamParams::learnParams() {
   // This ensures we see reads from every part of the genome, catching
   // read groups that only appear on later chromosomes.
   //
-  // For standard contigs (chr1-chrY, ~25 contigs), the 1M-read-per-window
-  // budget means we sample ~25M reads total in the worst case. For BAMs
+  // For standard contigs (chr1-chrY, ~24 contigs), the 1M-read-per-window
+  // budget means we sample ~24M reads total in the worst case. For BAMs
   // with many small contigs (alt/decoy/random), we skip contigs shorter
   // than 1 Mb to avoid wasting time on regions with few reads.
+  //
+  // In human mode (default), we also skip non-standard chromosomes
+  // (chrID > MAX_MATE_CHR_ID, i.e. chrM/alt/decoy/random) to focus
+  // sampling on the primary assembly where isize/coverage stats are
+  // representative. --non-human disables this gate.
 
   constexpr int32_t MIN_CONTIG_LEN = 1'000'000;   // skip tiny contigs
   constexpr size_t  READS_PER_WINDOW = 1'000'000;  // reads per sampling window
   constexpr int32_t WINDOW_HALF = 500'000;          // +/- 500kb around midpoint
 
+  const int max_sample_chr = sc.opts.maxMateChrID; // 23 (through chrY) or -1 if --non-human
+
   for (int c = 0; c < n_contigs; ++c) {
     // early exit if all RGs are satisfied
     if (satisfied_rgs.size() >= groups.size())
       break;
+
+    // skip non-standard chromosomes in human mode
+    if (max_sample_chr >= 0 && c > max_sample_chr)
+      continue;
 
     int32_t clen = hdr.GetSequenceLength(c);
     if (clen < MIN_CONTIG_LEN)
@@ -170,27 +181,23 @@ void LearnBamParams::learnParams() {
     // log progress every 5 contigs
     if (c % 5 == 0 || c == n_contigs - 1) {
       sc.logger.log(sc.opts.verbose > 0, true,
-		    "......sampling contig ", c + 1, "/", n_contigs,
+		    "......sampling ", hdr.IDtoName(c),
 		    " - ", SeqLib::AddCommas(total_reads), " reads, ",
 		    satisfied_rgs.size(), "/", groups.size(), " RGs satisfied");
     }
   }
 
-  // --- Phase 2: fallback sequential scan ---
-  // If some RGs are still unsatisfied (e.g. BAM has no index, or RGs
-  // appear only in unmapped reads), do a sequential scan from the start
-  // with a generous cap.
+  // If some header-declared RGs weren't seen during multi-region
+  // sampling, they're likely absent from the BAM entirely (phantom
+  // header entries from upstream merges, etc.). Don't waste time on
+  // a sequential scan — the multi-region pass already covered every
+  // standard chromosome.
   if (satisfied_rgs.size() < groups.size()) {
     sc.logger.log(true, true,
 		  "......", satisfied_rgs.size(), "/", groups.size(),
 		  " RGs satisfied after multi-region sampling (",
 		  SeqLib::AddCommas(total_reads), " reads); ",
-		  "falling back to sequential scan for remaining RGs");
-
-    constexpr size_t SEQUENTIAL_CAP = 100'000'000; // 100M reads
-    reader_->Reset();
-    size_t consumed = consumeReads(SEQUENTIAL_CAP, rg_count, satisfied_rgs, groups);
-    total_reads += consumed;
+		  "skipping sequential fallback — missing RGs likely absent from BAM");
   }
 
   sc.logger.log(true, true,
