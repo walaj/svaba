@@ -42,6 +42,116 @@ using std::string;
 
 #include "SvabaAssemblerConfig.h"
 
+// ---------------------------------------------------------------------------
+// Alt-contig demotion: after BWA aligns a contig, prefer standard-chromosome
+// placements over alt/decoy when the alignment quality is comparable.
+//
+// BWA-MEM sometimes places a contig fragment on an alt contig (e.g.
+// chr11_JH159136v1_alt) when chr11 proper has an equally good alignment.
+// If the alt later gets blacklisted, the real breakpoint is lost. Fix: for
+// each primary/supplementary fragment on a non-standard chr, check if a
+// secondary on a standard chr covers the same query range with comparable
+// AS. If so, swap their SAM flags so the standard-chr placement becomes
+// the active fragment and the alt-chr one becomes a secondary.
+// ---------------------------------------------------------------------------
+namespace {
+
+// Query interval [start, end) consumed by an alignment, in contig
+// coordinates. Uses the CIGAR to find leading/trailing soft-clip
+// (hardclip=false so all clips are soft).
+inline std::pair<int,int> queryInterval(const SeqLib::BamRecord& r) {
+  const auto cig = r.GetCigar();
+  int lead_clip = 0, trail_clip = 0, qlen = r.Length();
+  if (cig.size() > 0) {
+    if (cig.front().Type() == 'S') lead_clip = cig.front().Length();
+    if (cig.size() > 1 && cig.back().Type() == 'S')
+      trail_clip = cig.back().Length();
+  }
+  return {lead_clip, qlen - trail_clip};
+}
+
+// Reciprocal overlap fraction between two intervals.
+inline double reciprocalOverlap(std::pair<int,int> a, std::pair<int,int> b) {
+  int ov = std::max(0, std::min(a.second, b.second) - std::max(a.first, b.first));
+  int la = a.second - a.first, lb = b.second - b.first;
+  if (la <= 0 || lb <= 0) return 0.0;
+  return std::min(static_cast<double>(ov) / la, static_cast<double>(ov) / lb);
+}
+
+// Number of swaps performed (for logging).
+size_t preferStandardChromosomes(BamRecordPtrVector& alns, int maxStdChr) {
+  if (maxStdChr < 0) return 0; // --non-human: no preference
+
+  size_t n_swaps = 0;
+  for (size_t i = 0; i < alns.size(); ++i) {
+    auto& aln = alns[i];
+    if (!aln || !aln->MappedFlag()) continue;
+    if (aln->SecondaryFlag())       continue; // only consider primary/supp
+    if (aln->ChrID() <= maxStdChr)  continue; // already on a standard chr
+
+    int32_t orig_as = 0;
+    aln->GetIntTag("AS", orig_as);
+    auto orig_qi = queryInterval(*aln);
+
+    size_t best_j = SIZE_MAX;
+    int32_t best_as = -1;
+
+    for (size_t j = 0; j < alns.size(); ++j) {
+      auto& sec = alns[j];
+      if (!sec || !sec->MappedFlag()) continue;
+      if (!sec->SecondaryFlag())      continue; // must be a secondary
+      if (sec->ChrID() > maxStdChr)   continue; // also non-standard
+
+      int32_t sec_as = 0;
+      sec->GetIntTag("AS", sec_as);
+
+      // Must be within 5% of the non-standard alignment's AS
+      if (orig_as > 0 && sec_as < static_cast<int32_t>(orig_as * 0.95))
+        continue;
+
+      // Must cover similar query range (>= 80% reciprocal overlap)
+      if (reciprocalOverlap(orig_qi, queryInterval(*sec)) < 0.80)
+        continue;
+
+      if (sec_as > best_as) {
+        best_as = sec_as;
+        best_j  = j;
+      }
+    }
+
+    if (best_j != SIZE_MAX) {
+      auto& promoted = alns[best_j];
+
+      SVABA_TRACE(aln->Qname(),
+                  "ALT_DEMOTION: chr" << aln->ChrID()
+                  << " AS=" << orig_as
+                  << " -> chr" << promoted->ChrID()
+                  << " AS=" << best_as
+                  << (aln->SupplementaryFlag() ? " (supp)" : " (pri)"));
+
+      // Swap SAM flags: demote non-standard to secondary,
+      // promote standard to the role the non-standard held.
+      bool was_supp = aln->SupplementaryFlag();
+
+      // Demote: secondary=1, supplementary=0
+      aln->raw()->core.flag |=  BAM_FSECONDARY;
+      aln->raw()->core.flag &= ~BAM_FSUPPLEMENTARY;
+
+      // Promote: secondary=0, supplementary=was_supp
+      promoted->raw()->core.flag &= ~BAM_FSECONDARY;
+      if (was_supp)
+        promoted->raw()->core.flag |= BAM_FSUPPLEMENTARY;
+      else
+        promoted->raw()->core.flag &= ~BAM_FSUPPLEMENTARY;
+
+      ++n_swaps;
+    }
+  }
+  return n_swaps;
+}
+
+} // anon namespace
+
 SvabaRegionProcessor::SvabaRegionProcessor(SvabaSharedConfig& sh_cf) : sc(sh_cf)
 { }
 
@@ -303,8 +413,8 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
   // add the discordant clusters to the svabathreadunit for writing later
   unit.m_disc.insert(dmap.begin(), dmap.end());
 
-  // for dumping all reads
-  if (sc.opts.dump_weird_reads) {
+  // for dumping all reads (weird BAM and/or discordant BAM)
+  if (sc.opts.dump_weird_reads || sc.opts.dump_discordant_reads) {
     for (auto& [_, dc] : dmap) {
       dc.labelReads(); // add the discordantcluster label to the read
     }
@@ -374,14 +484,43 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
         if (!r->to_assemble) continue;
         auto it = corrected_by_name.find(r->UniqueName());
         if (it != corrected_by_name.end()) {
+          SVABA_READ_TRACE(r->Qname(),
+            "BFC corrected: changed=" << (r->CorrectedSeq() != it->second ? "YES" : "NO")
+            << " orig_len=" << r->CorrectedSeq().size()
+            << " corr_len=" << it->second.size());
           r->SetCorrectedSeq(it->second);
           ++num_reads_corrected;
+        } else {
+          SVABA_READ_TRACE(r->Qname(), "BFC: not in corrected output (lost in hash?)");
         }
       }
     }
 
     sc.logger.log(sc.opts.verbose > 0, sc.opts.verbose_log,
 		  "...BFC corrected ", SeqLib::AddCommas(num_reads_corrected));
+
+#ifdef SVABA_KMER_RESTRICT
+    // Post-correction kmer filter: drop any read whose corrected
+    // sequence doesn't contain the target kmer (or its revcomp).
+    // Dropped reads get to_assemble=false so they won't enter
+    // fermi assembly, r2c alignment, corrected.bam, or scoring.
+    size_t kmer_kept = 0, kmer_dropped = 0;
+    for (auto& [_, walker] : unit.walkers) {
+      for (auto& r : walker->reads) {
+        if (!r->to_assemble) continue;
+        if (_svaba_kmer_match(r->CorrectedSeq())) {
+          ++kmer_kept;
+        } else {
+          r->to_assemble = false;
+          ++kmer_dropped;
+        }
+      }
+    }
+    sc.logger.log(true, true,
+                  "...KMER_RESTRICT: kept ", kmer_kept,
+                  " dropped ", kmer_dropped,
+                  " kmer=", SVABA_KMER_RESTRICT);
+#endif
 
     unit.st.stop("k");
   }
@@ -416,7 +555,12 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
                                         aln,
                                         false,
                                         0.6,
-                                        0); // no secondary alignments
+                                        SECONDARY_CAP);
+
+        // Alt-contig demotion: if BWA placed the primary on a non-
+        // standard chr but a secondary on a standard chr is comparable,
+        // swap them so the corrected.bam shows standard-chr placements.
+        preferStandardChromosomes(aln, sc.opts.maxMateChrID);
 
         // Pick the primary (non-supplementary, non-secondary, mapped)
         // record. If no usable record came back, leave the sentinel.
@@ -431,7 +575,12 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
           break;
         }
 
-        for (auto& a : aln) unit.all_corrected_reads.push_back(a);
+        // Only push non-secondary alignments into the corrected BAM
+        // output — secondaries were requested solely for alt-demotion.
+        for (auto& a : aln) {
+          if (!a->SecondaryFlag())
+            unit.all_corrected_reads.push_back(a);
+        }
       }
     }
     sc.logger.log(sc.opts.verbose > 0, sc.opts.verbose_log,
@@ -644,11 +793,32 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
     unit.bwa_aligner->alignSequence(i.Seq, i.Name,
 				    human_alignments,
 				    false, SECONDARY_FRAC,
-				    0); // don' consider secondary alignments
-
+				    SECONDARY_CAP);
 
     SVABA_TRACE(i.Name, "TP2 BWA aligned: " << human_alignments.size()
                 << " alignments, contig_len=" << i.Seq.length());
+
+    // Alt-contig demotion: if BWA placed a fragment on a non-standard
+    // chromosome (alt/decoy) but a secondary on a standard chromosome
+    // has a comparable score, swap them so the standard placement wins.
+    // This prevents real breakpoints from being lost when one fragment
+    // of a split-mapped contig lands on e.g. chr11_JH159136v1_alt
+    // instead of chr11 proper.
+    size_t n_demoted = preferStandardChromosomes(human_alignments,
+                                                  sc.opts.maxMateChrID);
+    SVABA_TRACE_IF(n_demoted > 0, i.Name,
+                   "TP2b alt-demotion: swapped " << n_demoted
+                   << " fragment(s) from non-standard to standard chr");
+
+    // Strip secondaries — they were only needed for alt-demotion above.
+    // AlignedContig's constructor assumes non-secondaries come first;
+    // a stray secondary before the first primary/supp causes a throw.
+    human_alignments.erase(
+      std::remove_if(human_alignments.begin(), human_alignments.end(),
+                     [](const BamRecordPtr& r) {
+                       return r && r->SecondaryFlag();
+                     }),
+      human_alignments.end());
 
     // provide a svaba-specific continuous "alignment score"
     for (auto& ba : human_alignments) {
@@ -657,7 +827,7 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
       const auto s = svaba::scoreContigAlignment(*ba);
       svaba::tagContigAlignment(*ba, s);
     }
-    
+
     // sort the alignments by position
     std::sort(human_alignments.begin(),
 	      human_alignments.end(),
@@ -734,6 +904,7 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
       // forward strand so no RC check is needed.
       if (!seq.empty() &&
           lregion.find(seq) != std::string::npos) {
+        SVABA_READ_TRACE(i->Qname(), "R2C SKIP: perfect ref match after BFC (seq_len=" << seq.size() << ")");
         ++n_ref_match_skipped;
         continue;
       }
@@ -782,6 +953,19 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
 			 std::remove_if(read2contigs.begin(), read2contigs.end(),
 					[&](const BamRecordPtr& r) { return !keep(r); }),
 			 read2contigs.end());
+
+      if (read2contigs.empty()) {
+        SVABA_READ_TRACE(i->Qname(), "R2C: no contig hits (0 alignments passed filters)");
+      } else {
+        for (const auto& rc : read2contigs) {
+          int as = 0; rc->GetIntTag("AS", as);
+          SVABA_READ_TRACE(i->Qname(), "R2C HIT: contig="
+            << all_unaligned_contigs_this_region[rc->ChrID()].Name
+            << " AS=" << as
+            << " rc=" << rc->ReverseFlag()
+            << " CIGAR=" << rc->CigarString());
+        }
+      }
 
       // SvABA2.0: boundary-aware comma-append helper (matches the
       // dedupe semantics used for the bi:Z tag at BP finalization).
@@ -975,6 +1159,8 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
         // encoding without allocating a Sequence() string.
         if (!sc.opts.alwaysRealignCorrected &&
             !r->CorrectedSeqChanged()) {
+          SVABA_READ_TRACE(r->Qname(),
+            "NATIVE_REALIGN: reusing BAM CIGAR (seq unchanged by BFC)");
           ++n_reused;
           continue;
         }
@@ -987,6 +1173,7 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
                                       0.6,
                                       0);
 
+        bool found_native = false;
         for (const auto& a : aln) {
           if (!a->MappedFlag())       continue;
           if ( a->SecondaryFlag())    continue;
@@ -995,7 +1182,16 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
           a->GetIntTag("NM", nm);
           r->corrected_native_cig = a->GetCigar();
           r->corrected_native_nm  = nm;
+          SVABA_READ_TRACE(r->Qname(),
+            "NATIVE_REALIGN: corrected seq realigned to ref"
+            << " NM=" << nm
+            << " CIGAR=" << a->CigarString());
+          found_native = true;
           break;
+        }
+        if (!found_native) {
+          SVABA_READ_TRACE(r->Qname(),
+            "NATIVE_REALIGN: no mapped primary alignment (unmapped after correction?)");
         }
         ++n_realigned;
       }
@@ -1312,6 +1508,10 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
 
       auto tag_with_bp_id = [&](auto& r) {
         if (!r || this_bp_id.empty()) return;
+        SVABA_READ_TRACE(r->Qname(), "OUTPUT TAG bi:Z with bp_id=" << this_bp_id
+                    << " contig=" << i->cname
+                    << " confidence=" << i->confidence
+                    << " somatic=" << (int)i->somatic);
         // (a) stamp the shared_ptr
         std::string cur;
         r->GetZTag("bi", cur);

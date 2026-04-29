@@ -214,6 +214,12 @@ svabaThreadUnit::~svabaThreadUnit() {
     it->second->Close();
   }
 
+  //
+  if (sc.opts.dump_discordant_reads) {
+    auto it = writers.find("d");
+    it->second->Close();
+  }
+
   // SvABA2.0: close the per-thread r2c stream if it was opened. The
   // unique_ptr is null when dump_alignments was off, so guard on it
   // rather than only on the flag (belt-and-braces in case the flag's

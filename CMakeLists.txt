@@ -330,3 +330,5 @@ target_link_libraries(svaba
 include(GNUInstallDirs)
 install(TARGETS svaba
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(PROGRAMS ${CMAKE_SOURCE_DIR}/scripts/svaba_postprocess.sh
+        DESTINATION ${CMAKE_INSTALL_BINDIR})

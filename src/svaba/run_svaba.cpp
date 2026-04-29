@@ -179,8 +179,8 @@ void runsvaba(int argc, char** argv) {
   logger.init(opts.analysisId + ".log");
   //logger.welcome(opts); // initial message
 
-  // open the human reference
-  logger.log(true, true, "...loading the human reference sequence for BWA");  
+  // open the reference genome
+  logger.log(true, true, "...loading the reference sequence for BWA");  
   BWAIndexPtr bwa_idx = make_shared<SeqLib::BWAIndex>();
   bwa_idx->LoadIndex(opts.refGenome);
   
@@ -441,11 +441,29 @@ void runsvaba(int argc, char** argv) {
 
   // close the writer
   writer.close();
-  
+
   // make the VCF file
   //makeVCFs(sc);
-  
+
   cerr << SeqLib::displayRuntime(sc.start) << endl;
+
+  // suggest postprocess command
+  std::string stars(72, '*');
+  logger.log(true, true, "");
+  logger.log(true, true, stars);
+  logger.log(true, true, "  svaba run complete for: ", opts.analysisId);
+  logger.log(true, true, "");
+  logger.log(true, true, "  Next step — sort, dedup, and filter outputs:");
+  logger.log(true, true, "");
+  logger.log(true, true, "    svaba_postprocess.sh -t 8 -m 4G ", opts.analysisId);
+  logger.log(true, true, "");
+  logger.log(true, true, "  Then convert to VCF:");
+  logger.log(true, true, "");
+  logger.log(true, true, "    svaba tovcf -i ", opts.analysisId,
+             ".bps.sorted.dedup.txt.gz -b ",
+             opts.main_bam, " -a ", opts.analysisId);
+  logger.log(true, true, stars);
+  logger.log(true, true, "");
 }
 
 

@@ -55,8 +55,19 @@ Discordant clustering:
 
 Filtering:
       --max-cov <N>       Max coverage to assemble, default 100
-      --mate-min <N>      Min reads to trigger mate lookup, default 3
+      --mate-min <N>      Min reads to trigger somatic mate lookup, default 3
+      --mate-min-count <N>
+                          Min reads to form a candidate mate region, default 2
       --mate-lim <N>      Max reads in mate lookup, default 400
+      --min-mate-mapq <N> Min MAPQ on primary read for mate-region candidate,
+                          default -1 (no gate). Set to e.g. 1 to exclude
+                          MAPQ=0 multi-mappers from mate lookup.
+      --max-mate-chr <N>  Exclude mate regions on chromosomes with ChrID > N,
+                          default 23 (through chrY; skips chrM/alt/decoy).
+                          Set to -1 for no limit (see --non-human).
+      --non-human         Remove hardcoded human genome assumptions.
+                          Currently sets --max-mate-chr -1 (allow all chroms)
+                          and samples all contigs during insert-size learning.
       --no-nm             Skip high-NM read salvage (NM/len > 0.02).
                           Faster: fewer reads enter r2c and correction.
                           Trades away rare NM-only SV sensitivity.
@@ -124,6 +135,10 @@ SvabaOptions SvabaOptions::parse(int argc, char** argv) {
     {"mate-min",   required_argument,      nullptr,  1401},
     {"mate-lim",   required_argument,      nullptr,  1402},
     {"no-nm",      no_argument,            nullptr,  1403},
+    {"min-mate-mapq",   required_argument, nullptr,  1404},
+    {"max-mate-chr",    required_argument, nullptr,  1405},
+    {"non-human",       no_argument,       nullptr,  1406},
+    {"mate-min-count",  required_argument, nullptr,  1407},
     {"chunk-size", required_argument,      nullptr,  1500},
     {"bw-op",      required_argument,      nullptr,  1600},
     {"bw-ep",      required_argument,      nullptr,  1601},
@@ -175,7 +190,11 @@ SvabaOptions SvabaOptions::parse(int argc, char** argv) {
       case 1400: o.maxCov           = std::stoi(optarg); break;
       case 1401: o.mateLookupMin    = std::stoul(optarg);break;
       case 1402: o.mateRegionLookupLim = std::stoul(optarg); break;
-      case 1403: o.noNmSalvage        = true; break;
+      case 1403: o.noNmSalvage          = true; break;
+      case 1404: o.minMateMAPQ          = std::stoi(optarg); break;
+      case 1405: o.maxMateChrID         = std::stoi(optarg); break;
+      case 1406: o.nonHuman             = true; break;
+      case 1407: o.mateRegionMinCount   = std::stoi(optarg); break;
 
       case 1500: o.chunkSize        = std::stoi(optarg); break;
 
@@ -212,6 +231,11 @@ SvabaOptions SvabaOptions::parse(int argc, char** argv) {
       default:
         throw std::runtime_error("Unknown or malformed option; see --help");
     }
+  }
+
+  // --non-human: remove human-specific assumptions
+  if (o.nonHuman) {
+    o.maxMateChrID = -1;  // allow all chromosomes for mate lookup
   }
 
   // post validation
@@ -296,6 +320,10 @@ void SvabaOptions::printLogger(SvabaLogger& logger) const {
   logger.log(verbose > 1, true, "    Discordant read extract SD cutoff: ",  sdDiscCutoff);
   logger.log(verbose > 1, true, "    Discordant cluster std-dev cutoff: ",  sdDiscCutoff);
   logger.log(verbose > 1, true, "    Minimum number of reads for mate lookup: ", mateLookupMin);
+  logger.log(verbose > 1, true, "    Min reads to form candidate mate region: ", mateRegionMinCount);
+  logger.log(verbose > 1, true, "    Min MAPQ for mate region candidate: ", minMateMAPQ, (minMateMAPQ < 0 ? " (no gate)" : ""));
+  logger.log(verbose > 1, true, "    Max ChrID for mate region: ", maxMateChrID, (maxMateChrID < 0 ? " (no limit)" : ""));
+  if (nonHuman) logger.log(true, true, "    Non-human genome mode: chromosome gates disabled");
   logger.log(verbose > 1, true, "    LOD cutoff (non-REF): ",           lod);
   logger.log(verbose > 1, true, "    LOD cutoff (non-REF, at DBSNP): ",  lodDb);
   logger.log(verbose > 1, true, "    LOD somatic cutoff: ",            lodSomatic);

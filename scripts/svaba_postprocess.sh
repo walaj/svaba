@@ -20,6 +20,10 @@
 #        ${ID}.bps.sorted.dedup.txt.gz      — best SV (max maxlod) per
 #                                              (chr1,pos1,strand1,chr2,pos2,strand2)
 #        ${ID}.bps.sorted.dedup.pass.txt.gz — dedup restricted to PASS rows
+#        ${ID}.bps.sorted.dedup.pass.somatic.txt.gz — PASS rows that are also
+#                                              somatic (somlod >= 0 for v3
+#                                              format, somatic_state == 1 for
+#                                              legacy format)
 #
 #   4. Filters ${ID}.r2c.txt.gz down to PASS breakpoints — writes both
 #      ${ID}.r2c.pass.txt.gz (all PASS calls) and
@@ -178,11 +182,11 @@ if [[ $SKIP_BAM -eq 0 ]]; then
     bam_files=("${INPUT_DIR}/${ID}".thread*."${suffix}".bam)
     shopt -u nullglob
     if [[ ${#bam_files[@]} -gt 1 ]]; then
-      echo "   merge ${#bam_files[@]} thread BAMs for '$suffix' -> $target"
+      echo "      merge ${#bam_files[@]} thread BAMs for '$suffix' -> $target"
       "$SAM" merge -f -@ "$THREADS" "$target" "${bam_files[@]}"
       rm -f "${bam_files[@]}"
     elif [[ ${#bam_files[@]} -eq 1 ]]; then
-      echo "   mv  ${bam_files[0]}  ->  $target"
+      echo "      mv ${bam_files[0]} -> $target"
       mv "${bam_files[0]}" "$target"
     fi
   done
@@ -197,7 +201,7 @@ if [[ $SKIP_BAM -eq 0 ]]; then
   r2c_files=("${INPUT_DIR}/${ID}".thread*.r2c.txt.gz)
   shopt -u nullglob
   if [[ ${#r2c_files[@]} -gt 1 ]]; then
-    echo "   merge ${#r2c_files[@]} thread r2c files -> $target"
+    echo "      merge ${#r2c_files[@]} thread r2c files -> $target"
     # Sort by thread index so thread 1 (with the header) is first.
     # Filenames are ${ID}.threadN.r2c.txt.gz — awk pulls the numeric
     # thread index out, sort -k1,1n orders it numerically, cut drops
@@ -218,7 +222,7 @@ if [[ $SKIP_BAM -eq 0 ]]; then
     cat "${r2c_sorted[@]}" > "$target"
     rm -f "${r2c_sorted[@]}"
   elif [[ ${#r2c_files[@]} -eq 1 ]]; then
-    echo "   mv  ${r2c_files[0]}  ->  $target"
+    echo "      mv ${r2c_files[0]} -> $target"
     mv "${r2c_files[0]}" "$target"
   fi
 else
@@ -248,7 +252,14 @@ if [[ $SKIP_BAM -eq 0 ]]; then
     dedup_banner=""
   fi
   echo "[2/5] svaba postprocess: sort + dedup + @PG + BAI index (threads=$THREADS, mem=$MEM) $dedup_banner"
-  (cd "$INPUT_DIR" && "$SVABA" postprocess "${pp_args[@]}")
+  # Indent all sub-output and suppress the harmless htslib "idx_find_and_load"
+  # warnings (index files don't exist yet when the reader opens the BAM —
+  # they're built as the final step of each suffix's pipeline). Also strip
+  # the NOTE line about those warnings since we're filtering them here.
+  # Use awk instead of grep -v so a zero-match case doesn't trigger pipefail.
+  (cd "$INPUT_DIR" && "$SVABA" postprocess "${pp_args[@]}" 2>&1) \
+    | awk '!/idx_find_and_load/ && !/Could not retrieve index file.*expected and can be ignored/' \
+    | sed 's/^/      /'
 else
   echo "[2/5] skipping svaba postprocess (--skip-bam)"
 fi
@@ -273,8 +284,16 @@ BPS_TXT="${INPUT_DIR}/${ID}.bps.txt"
 OUT_SORTED="${OUTPUT_DIR}/${ID}.bps.sorted.txt.gz"
 OUT_DEDUP="${OUTPUT_DIR}/${ID}.bps.sorted.dedup.txt.gz"
 OUT_PASS="${OUTPUT_DIR}/${ID}.bps.sorted.dedup.pass.txt.gz"
+OUT_PASS_SOM="${OUTPUT_DIR}/${ID}.bps.sorted.dedup.pass.somatic.txt.gz"
+
+# Column positions — auto-detected from the header when available (see
+# detect_columns below). These are the v3 defaults; the old format has
+# different positions (e.g. confidence at col 26 instead of 32).
 CONF_COL=32
+SOMATIC_COL=36
+SOMLOD_COL=37
 MAXLOD_COL=38
+CNAME_COL=30
 
 pick_sort() {
   if command -v gsort >/dev/null 2>&1; then
@@ -284,6 +303,36 @@ pick_sort() {
     echo sort; return 0
   fi
   return 1
+}
+
+# Auto-detect column positions from the header line. Looks for known
+# column names and sets CONF_COL, SOMATIC_COL, SOMLOD_COL, MAXLOD_COL.
+# Falls back to v3 defaults if the header is missing or unrecognised.
+detect_columns() {
+  local header_line="$1"
+  # strip leading # if present
+  local clean="${header_line#\#}"
+
+  # Use awk to find column indices by name. Tries both old and new
+  # column names (e.g. "somatic_score" vs the unnamed v3 col,
+  # "contig" vs "cname").
+  eval "$(echo "$clean" | awk -F'\t' '{
+    for (i = 1; i <= NF; i++) {
+      col = $i
+      # strip whitespace
+      gsub(/^[ \t]+|[ \t]+$/, "", col)
+      # normalise to lowercase for matching
+      lcol = tolower(col)
+
+      if (lcol == "confidence")          printf "CONF_COL=%d\n", i
+      if (lcol == "somatic_score")       printf "SOMATIC_COL=%d\n", i
+      if (lcol == "somatic_lod")         printf "SOMLOD_COL=%d\n", i
+      if (lcol == "tlod" || lcol == "maxlod" || lcol == "max_lod")
+                                         printf "MAXLOD_COL=%d\n", i
+      if (lcol == "contig" || lcol == "cname")
+                                         printf "CNAME_COL=%d\n", i
+    }
+  }')"
 }
 
 if [[ $SKIP_BPS -eq 0 ]]; then
@@ -314,6 +363,12 @@ if [[ $SKIP_BPS -eq 0 ]]; then
     FIRST_LINE=$($READER "$IN_BPS" | head -n 1 || true)
     HAS_HEADER=0
     [[ "${FIRST_LINE:0:1}" == "#" ]] && HAS_HEADER=1
+
+    # Auto-detect column positions from the header.
+    if [[ $HAS_HEADER -eq 1 ]]; then
+      detect_columns "$FIRST_LINE"
+    fi
+    echo "      columns: confidence=$CONF_COL cname=$CNAME_COL somatic=$SOMATIC_COL somlod=$SOMLOD_COL maxlod=$MAXLOD_COL"
 
     # --- 3a) sort ---
     {
@@ -357,6 +412,19 @@ if [[ $SKIP_BPS -eq 0 ]]; then
       $CCOL == "PASS" { print }
     ' | gzip -c > "$OUT_PASS"
     echo "      wrote $OUT_PASS"
+
+    # --- 3d) PASS + somatic filter ---
+    # Use somatic_score == "1" as the sole somatic gate. The old format's
+    # "somatic_lod" column is actually n.LO_n (normal variant LO) — high
+    # values mean strong normal evidence, which argues AGAINST somatic.
+    # The v3 "somlod" is a proper somatic log-odds, but somatic_score is
+    # set correctly in both formats, so we use it uniformly.
+    gzip -dc "$OUT_PASS" | awk -F'\t' -v OFS='\t' \
+        -v SCOL="$SOMATIC_COL" '
+      NR == 1 && $0 ~ /^#/ { print; next }
+      $SCOL == "1" { print }
+    ' | gzip -c > "$OUT_PASS_SOM"
+    echo "      wrote $OUT_PASS_SOM"
   fi
 else
   echo "[3/5] skipping bps sort/dedup/PASS (--skip-bps)"
@@ -372,10 +440,9 @@ fi
 # filtered outputs from a single pass over r2c.txt.gz:
 #
 #   ${ID}.r2c.pass.txt.gz          - rows for all PASS variants
-#                                    (col 32 == "PASS")
 #   ${ID}.r2c.pass.somatic.txt.gz  - rows for PASS variants that are also
-#                                    somatic (col 32 == "PASS"
-#                                    AND col 37 (somlod) >= 1)
+#                                    somatic (somlod >= 1 for v3 format,
+#                                    somatic_score == 1 for legacy)
 #
 # Both are keyed on cname (col 30 in bps.txt.gz, col 2 in r2c.txt.gz);
 # contig and read rows survive together since they share col 2.
@@ -401,18 +468,26 @@ if [[ $SKIP_R2C -eq 0 ]]; then
     echo "[4/5] filter r2c to PASS contigs (+ PASS-somatic subset)"
     pass_list="$(mktemp -t "svaba.${ID}.pass_cnames.XXXXXX")"
     som_list="$(mktemp  -t "svaba.${ID}.som_cnames.XXXXXX")"
-    # Column positions in bps.txt.gz (from BreakPoint::toFileString):
-    #   30 = cname (contig_and_region)
-    #   32 = confidence ("PASS" / "LOWLOD" / ...)
-    #   37 = somlod    (numeric or "NA"; $37+0 coerces non-numeric to 0)
+    # Column positions are auto-detected from the header in step 3 above
+    # (CONF_COL, CNAME_COL, SOMLOD_COL, SOMATIC_COL). If step 3 was
+    # skipped, re-detect from bps.txt.gz's own header here.
+    if [[ $SKIP_BPS -eq 1 ]]; then
+      BPS_HEADER=$(gzip -dc "$BPS_GZ" | head -n 1 || true)
+      [[ "${BPS_HEADER:0:1}" == "#" ]] && detect_columns "$BPS_HEADER"
+      echo "      columns: confidence=$CONF_COL cname=$CNAME_COL somatic=$SOMATIC_COL somlod=$SOMLOD_COL"
+    fi
     # One awk pass builds both cname sets so we only decompress bps.txt.gz
     # once. NB: use `gzip -dc` (not `zcat`) so this works on macOS — BSD
     # zcat hunts for a .Z suffix rather than .gz.
+    # Somatic criterion: somatic_score == "1" (reliable in both old and v3 formats).
     gzip -dc "$BPS_GZ" \
-      | awk -F'\t' -v pass_f="$pass_list" -v som_f="$som_list" '
-          NR>1 && $32=="PASS" {
-            print $30 >> pass_f
-            if ($37+0 >= 1) print $30 >> som_f
+      | awk -F'\t' -v pass_f="$pass_list" -v som_f="$som_list" \
+            -v CCOL="$CONF_COL" -v NCOL="$CNAME_COL" \
+            -v SCOL="$SOMATIC_COL" '
+          NR>1 && $CCOL=="PASS" {
+            print $NCOL >> pass_f
+            if ($SCOL == "1")
+              { print $NCOL >> som_f }
           }
         '
     LC_ALL=C sort -u "$pass_list" -o "$pass_list"

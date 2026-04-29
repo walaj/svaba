@@ -119,13 +119,34 @@ inline constexpr int         GET_MATES                  =     1;
 inline constexpr int         LARGE_INTRA_LOOKUP_LIMIT   = 50'000;
 inline constexpr double      SECONDARY_FRAC             =  0.90;
 
-// from svabaBamWalker
+// from svabaBamWalker — mate-region lookup
+//
+// A discordant read contributes its mate locus as a candidate mate region
+// iff its own MAPQ >= MIN_MATE_MAPQ AND the mate locus is on a chromosome
+// with ChrID <= MAX_MATE_CHR_ID (set to -1 to disable the chromosome
+// gate, e.g. for non-human genomes; default 23 = through chrY). After
+// candidate regions are merged,
+// a region must have >= MATE_REGION_MIN_COUNT supporting reads to survive
+// the initial BamWalker filter, and then >= mateLookupMin (runtime option,
+// default MATE_LOOKUP_MIN=3) to trigger the actual somatic mate lookup
+// in SvabaRegionProcessor.
+//
+// Defaults:
+//   MIN_MATE_MAPQ          = -1   (no MAPQ gate; any mapped read qualifies)
+//   MAX_MATE_CHR_ID        =  23  (skip chrM/alt/decoy in human; -1 = no limit)
+//                                  0-indexed: 0=chr1 .. 21=chr22, 22=chrX, 23=chrY
+//   MATE_REGION_MIN_COUNT  =   2  (at least 2 reads to form a candidate)
+//   MATE_REGION_PAD        = 250  (bp padding on each side of mate locus)
+inline constexpr int    MIN_MATE_MAPQ                      =    -1;
+inline constexpr int    MAX_MATE_CHR_ID                    =    23;
+inline constexpr int    MATE_REGION_MIN_COUNT              =     2;
+inline constexpr int    MATE_REGION_PAD                    =   250;
+
+// from svabaBamWalker — other
 inline constexpr int MIN_DSCRD_READS_DSCRD_ONLY          = 6;
-inline constexpr int MIN_MAPQ_FOR_MATE_LOOKUP            =     0;
 inline constexpr int MIN_ISIZE_FOR_DISCORDANT_REALIGNMENT = 1'000;
 inline constexpr int DISC_REALIGN_MATE_PAD                =   100;
 inline constexpr int MAX_SECONDARY_HIT_DISC               =    10;
-inline constexpr int MATE_REGION_PAD                      =   250;
 
 // coverage buffer
 inline constexpr int INFORMATIVE_COVERAGE_BUFFER = 0;
@@ -234,9 +255,20 @@ class SvabaOptions {
 
   // filtering
   std::string rulesJson;
-  size_t      mateLookupMin       = 3;
+  size_t      mateLookupMin       = MATE_LOOKUP_MIN;
   size_t      mateRegionLookupLim = 400;
   bool        noBadAvoid          = true;
+
+  // Mate-region lookup tuning (runtime overrides for compile-time defaults)
+  int         minMateMAPQ          = MIN_MATE_MAPQ;          // --min-mate-mapq
+  int         maxMateChrID         = MAX_MATE_CHR_ID;        // --max-mate-chr (or -1 via --non-human)
+  int         mateRegionMinCount   = MATE_REGION_MIN_COUNT;  // --mate-min-count
+
+  // Non-human genome mode: removes all hardcoded human chromosome
+  // assumptions (currently just the mate-lookup ChrID > 23 gate and
+  // the LearnBamParams chr1-chrY sampling preference).
+  // Sets maxMateChrID = -1 (no limit) and logs a banner.
+  bool        nonHuman            = false;
 
   // When true, skip the high-NM salvage path that pulls in reads with
   // NM/len > 0.02 even when they don't pass the normal weird-read rules.

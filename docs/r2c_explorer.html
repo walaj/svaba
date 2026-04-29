@@ -57,7 +57,15 @@ body{font-family:'SF Mono','Fira Code','Consolas',monospace;background:var(--bg)
 .panel{margin:.5rem 1rem;background:var(--surface);border:1px solid var(--border);border-radius:6px;overflow:hidden;min-height:140px}
 .panel-header{background:var(--surface2);padding:.4rem .8rem;font-size:.72rem;color:var(--text2);text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:.6rem}
 .panel-header strong{color:var(--text);text-transform:none;letter-spacing:0;font-family:inherit}
+.panel-header .hscroll-info{margin-left:auto;display:none;align-items:center;gap:.5rem;font-size:.68rem;color:var(--text2)}
+.panel-header .hscroll-info .hscroll-track{width:120px;height:6px;background:var(--border);border-radius:3px;position:relative;overflow:hidden}
+.panel-header .hscroll-info .hscroll-thumb{position:absolute;top:0;height:100%;background:var(--accent);border-radius:3px;opacity:.6;min-width:8px;transition:left .05s,width .05s}
 .panel-body{max-height:calc(100vh - 220px);overflow:auto;padding:.4rem .6rem;background:#0b0d13}
+.panel-body::-webkit-scrollbar{width:10px;height:10px}
+.panel-body::-webkit-scrollbar-track{background:#0b0d13}
+.panel-body::-webkit-scrollbar-thumb{background:var(--border);border-radius:5px}
+.panel-body::-webkit-scrollbar-thumb:hover{background:var(--text2)}
+.panel-body::-webkit-scrollbar-corner{background:#0b0d13}
 .panel-body .empty{padding:.8rem;text-align:center;color:var(--text2);font-size:.78rem}
 .r2c-pre{font-family:'SF Mono','Fira Code','Consolas',monospace;font-size:11px;line-height:1.15;white-space:pre;color:var(--text)}
 .r2c-pre .row{display:block;padding:0 2px;border-left:3px solid transparent}
@@ -142,6 +150,11 @@ body{font-family:'SF Mono','Fira Code','Consolas',monospace;background:var(--bg)
   <div class="panel-header">
     <span>Contig</span>
     <strong id="panel-title">-</strong>
+    <span class="hscroll-info" id="hscroll-info">
+      <span id="hscroll-pos">col 0</span>
+      <span class="hscroll-track"><span class="hscroll-thumb" id="hscroll-thumb"></span></span>
+      <span id="hscroll-width"></span>
+    </span>
   </div>
   <div class="panel-body" id="panel-body">
     <div class="empty">Load an r2c file, then type or pick a contig name above.</div>
@@ -748,6 +761,10 @@ function renderR2c(cname){
     entry.reads.length + " reads in file, " + nShown + " shown after filters." +
     (selectedBpId ? "  [bp_id=" + selectedBpId + "]" : "") +
     (allPrefixes.size ? "  Click a source tag above to hide/show that source's reads." : "");
+
+  // Horizontal scroll indicator — show when content is wider than viewport.
+  // Uses requestAnimationFrame so the DOM has laid out the <pre> first.
+  requestAnimationFrame(() => updateHScrollInfo());
 }
 
 function renderReadLine(rr, col){
@@ -890,6 +907,56 @@ function revcomp(s){
   }
   return out;
 }
+
+/* ---- Horizontal scroll indicator ---- */
+function updateHScrollInfo(){
+  const body = $("panel-body");
+  const info = $("hscroll-info");
+  const thumb = $("hscroll-thumb");
+  const posEl = $("hscroll-pos");
+  const widthEl = $("hscroll-width");
+  const cw = body.clientWidth, sw = body.scrollWidth;
+  if(sw <= cw + 4){
+    // Content fits — hide indicator
+    info.style.display = "none";
+    return;
+  }
+  info.style.display = "flex";
+  const sl = body.scrollLeft;
+  // Approximate column position (monospace ~6.6px per char at 11px font)
+  const charW = 6.6;
+  const col = Math.round(sl / charW);
+  const totalCols = Math.round(sw / charW);
+  posEl.textContent = "col " + col;
+  widthEl.textContent = totalCols + " cols";
+  // Minimap thumb position
+  const trackW = 120;
+  const ratio = cw / sw;
+  const thumbW = Math.max(8, Math.round(trackW * ratio));
+  const thumbL = Math.round((sl / (sw - cw)) * (trackW - thumbW));
+  thumb.style.width = thumbW + "px";
+  thumb.style.left  = thumbL + "px";
+}
+
+$("panel-body").addEventListener("scroll", function(){
+  requestAnimationFrame(updateHScrollInfo);
+});
+
+// Allow the minimap track to be clicked/dragged to jump horizontally
+(function(){
+  const track = $("hscroll-info").querySelector(".hscroll-track");
+  if(!track) return;
+  function jumpTo(e){
+    const body = $("panel-body");
+    const rect = track.getBoundingClientRect();
+    const frac = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    body.scrollLeft = frac * (body.scrollWidth - body.clientWidth);
+  }
+  let dragging = false;
+  track.addEventListener("mousedown", e => { dragging = true; jumpTo(e); e.preventDefault(); });
+  document.addEventListener("mousemove", e => { if(dragging) jumpTo(e); });
+  document.addEventListener("mouseup", () => { dragging = false; });
+})();
 
 })();
 </script>
