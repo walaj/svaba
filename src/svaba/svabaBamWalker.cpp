@@ -1,6 +1,7 @@
 #include "svabaBamWalker.h"
 #include "svabaRead.h"
 #include "svaba_params.h"
+#include "SvabaDebug.h"
 
 //#define QNAME "H01PEALXX140819:3:2218:11657:19504"
 //#define QFLAG -1
@@ -91,14 +92,25 @@ SeqLib::GRC svabaBamWalker::readBam(std::ofstream * log) {
       this_reads.clear();
     }
 
+    SVABA_READ_TRACE(r.Qname(),
+      "SEEN flag=" << r.AlignmentFlag()
+      << " mapq=" << r.MapQuality()
+      << " pos=" << r.ChrName(tb->GetHeader()) << ":" << r.Position()
+      << " isize=" << r.InsertSize()
+      << " cigar=" << r.CigarString()
+      << " len=" << r.Length());
+
     // check if it passed blacklist
     if (blacklist.size() && blacklist.CountOverlaps(r.AsGenomicRegion())) {
+      SVABA_READ_TRACE(r.Qname(), "SKIP blacklist");
       continue;
     }
 
     // dont even mess with them
-    if (r.CountNBases())
+    if (r.CountNBases()) {
+      SVABA_READ_TRACE(r.Qname(), "SKIP N-bases");
       continue;
+    }
 
     // set some things to check later
     bool is_dup = false;
@@ -110,143 +122,153 @@ SeqLib::GRC svabaBamWalker::readBam(std::ofstream * log) {
 
     // quality score trim read
     QualityTrimRead(s);
-    
+
+    SVABA_READ_TRACE(r.Qname(),
+      "AFTER_TRIM seq_len=" << s.SeqLength());
+
     // if its less than 20, dont even mess with it
-    //if (s.QualitySequence().length() < 20)
-    if (s.SeqLength() < 20)
-      //if (s.QualitySequence().length() < 20)
+    if (s.SeqLength() < 20) {
+      SVABA_READ_TRACE(r.Qname(), "SKIP seq_len < 20");
       continue;
+    }
 
-    s.AddZTag("GV", s.Seq()); 
+    s.AddZTag("GV", s.Seq());
 
-    rule_pass = m_mr->isValid(r); 
-      
+    rule_pass = m_mr->isValid(r);
+
+    SVABA_READ_TRACE(r.Qname(),
+      "RULE_CHECK rule_pass=" << rule_pass
+      << " qcpass=" << qcpass);
+
     DEBUG("SBW read seen", r);
 
     // if hit the limit of reads, log it and try next region
-    //if (countr > m_limit && m_limit > 0) {
     if (this_reads.size() > m_limit && m_limit > 0) {
 
-      std::stringstream ss; 
-      ss << "\tstopping read lookup at " << r.Brief() << " in window " 
+      std::stringstream ss;
+      ss << "\tstopping read lookup at " << r.Brief() << " in window "
 	 << (m_region.size() ? m_region[tb->m_region_idx].ToString(tb->GetHeader()) : " whole BAM")
-	       << " with " << SeqLib::AddCommas(this_reads.size()) 
+	       << " with " << SeqLib::AddCommas(this_reads.size())
 	       << " weird reads. Limit: " << SeqLib::AddCommas(m_limit) << std::endl;
       if (log)
 	(*log) << ss.str();
-      
-      if (m_region.size())  
+
+      if (m_region.size())
 	bad_regions.add(m_region[tb->m_region_idx]);
 
-      // clear these reads out
-      //if ((int)reads.size() - countr > 0)
       this_reads.clear();
-      //reads.erase(reads.begin(), reads.begin() + countr);
-      
-      // force it to try the next region, or return if none left
-      ++tb->m_region_idx; // increment to next region
-      if (tb->m_region_idx >= m_region.size()) {/// no more regions left
+
+      ++tb->m_region_idx;
+      if (tb->m_region_idx >= m_region.size()) {
 	break;
-      } else { // move to next region
+      } else {
 	tb->SetRegion(m_region[tb->m_region_idx]);
 	continue;
       }
       break;
     }
-    
+
     // add to all reads pile for kmer correction
     if (qcpass && get_coverage) {
-      cov.addRead(r, INFORMATIVE_COVERAGE_BUFFER, false); 
+      cov.addRead(r, INFORMATIVE_COVERAGE_BUFFER, false);
     }
-    
+
     // check if in simple-seq
     if (simple_seq->size()) {
-      
-      // check simple sequence overlaps
+
       SeqLib::GRC ovl = simple_seq->FindOverlaps(r.AsGenomicRegion(), true);
-      
+
       int msize = 0;
       for (auto& j: ovl) {
 	int nsize = j.Width() - r.MaxDeletionBases() - 1;
 	if (nsize > msize && nsize > 0)
 	  msize = nsize;
       }
-      
-      if (msize > 30)
+
+      if (msize > 30) {
+        SVABA_READ_TRACE(r.Qname(),
+          "SIMPLE_SEQ overlap=" << msize << " > 30 -> qcpass=false");
         qcpass = false;
+      }
     }
-    
+
     pass_all = pass_all && qcpass && rule_pass;
-    
+
     // check if has adapter
     uint32_t hashed  = __ac_Wang_hash(__ac_X31_hash_string(r.Qname().c_str()));
-    if (hasAdapter(r)) 
+    if (hasAdapter(r)) {
       adapter.insert(hashed);
+      SVABA_READ_TRACE(r.Qname(),
+        "ADAPTER detected isize=" << r.InsertSize()
+        << " len=" << r.Length()
+        << " nclip=" << r.NumClip());
+    }
     pass_all = pass_all && !adapter.count(hashed);
 
     // check if duplicated
-    //is_dup = isDuplicate(r); 
     pass_all = !is_dup && pass_all;
 
+    SVABA_READ_TRACE(r.Qname(),
+      "GATES qcpass=" << qcpass
+      << " rule_pass=" << rule_pass
+      << " adapter=" << adapter.count(hashed)
+      << " dup=" << is_dup
+      << " pass_all=" << pass_all);
+
     // add to weird coverage
-    if (pass_all && get_coverage) 
+    if (pass_all && get_coverage)
       weird_cov.addRead(r, 0, false);
 
     // add to the cigar map for all non-duplicate reads
-    if (pass_all && get_mate_regions) // only add cigar for non-mate regions
-      addCigar(r); 
+    if (pass_all && get_mate_regions)
+      addCigar(r);
 
     DEBUG("SBW read has qcpass?: " + std::to_string(qcpass), r);
     DEBUG("SBW duplicated? " + std::to_string(is_dup), r);
-    DEBUG("SBW rule pass? " + std::to_string(rule_pass), r); 
+    DEBUG("SBW rule pass? " + std::to_string(rule_pass), r);
     DEBUG("SBW pass all? " + std::to_string(pass_all), r);
-   
+
     // add all the reads for kmer correction
     if (qcpass && do_kmer_filtering && all_seqs.size() < (m_limit * 5) && qcpass && !r.NumHardClip()) {
       bool train = pass_all && s.SeqLength() > 40;
 
-      // if not 
       if (!pass_all) {
-	if ((double)(hashed&0xffffff) / 0x1000000 <= kmer_subsample) 
+	if ((double)(hashed&0xffffff) / 0x1000000 <= kmer_subsample)
 	  train = true;
       }
-      
-      // in bfc addsequence, memory is copied. for all_seqs (SGA correction), copy explicitly
+
       if (train) {
 	if (bfc)
-	  assert(bfc->AddSequence(s.Seq().c_str(), ""/*r.Qualities().c_str()*/, s.SR().c_str())); // for BFC correciton
+	  bfc->AddSequence(s.Seq().c_str(), ""/*r.Qualities().c_str()*/, s.SR().c_str());
 	else {
 	  all_seqs.push_back(strdup(s.Seq().c_str()));
 	}
       }
 
     }
-     
-    if (!pass_all)
+
+    if (!pass_all) {
+      SVABA_READ_TRACE(r.Qname(), "SKIP not weird (pass_all=false)");
       continue;
-    
+    }
+
     ++countr;
     if (countr % 10000 == 0 && m_region.size() == 0 && log)
       (*log) << "...read in " << SeqLib::AddCommas<size_t>(countr) << " weird reads for whole genome read-in. At pos " << r.Brief() << std::endl;
-    
+
     // for memory conservation
     s.RemoveTag("BQ");
     s.RemoveTag("OQ");
-    //r.RemoveTag("XT");
-    //r.RemoveTag("XA");
-    //r.RemoveTag("SA");
-    
-    // add the ID tag
-    //std::string srn =  prefix + "_" + std::to_string(r.AlignmentFlag());// + "_" + r.Qname();
-    //r.AddZTag("SR", srn);
-    
+
     DEBUG("SBW read added ", r);
 
-    s.SetSequence(std::string()); // clear out the sequence & qual in the htslib
+    s.SetSequence(std::string());
     s.RemoveTag("GV");
-   
-    this_reads.push_back(s); // adding later because of kmer correctiona 
-    
+
+    this_reads.push_back(s);
+    SVABA_READ_TRACE(r.Qname(),
+      "ADDED as weird read buffer_size=" << this_reads.size());
+
   } // end the read loop
 
   // remove the adapter reads

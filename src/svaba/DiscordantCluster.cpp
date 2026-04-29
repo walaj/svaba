@@ -53,7 +53,7 @@ using namespace SeqLib;
 	if (ff != min_isize_for_disc->end()) {
 	  cutoff = ff->second;
 	} else {
-	  std::cerr << "Couldn't find RG " << RG << " Setting cutoff to default (800) " << std::endl;
+	  //std::cerr << "Couldn't find RG " << RG << " Setting cutoff to default (800) " << std::endl;
 	}
 
       }

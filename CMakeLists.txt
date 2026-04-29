@@ -174,8 +174,25 @@ include_directories(
     src/SGA
 )
 
+# ---------------------------------------------------------------------------
+# Read tracing (compile-time):
+#   cmake .. -DSVABA_TRACE_READ="LH00306:235:22NHGWLT4:6:1329:45742:15246"
+# ---------------------------------------------------------------------------
+set(SVABA_TRACE_READ "" CACHE STRING "Read QNAME to trace (empty=off)")
+option(SVABA_TRACE_ALL_READS "Trace ALL reads (extremely noisy)" OFF)
+
 # Generate the executable
 add_executable(svaba ${SOURCES})
+
+if (NOT "${SVABA_TRACE_READ}" STREQUAL "")
+    message(STATUS "svaba: tracing read '${SVABA_TRACE_READ}'")
+    target_compile_definitions(svaba PRIVATE
+        SVABA_TRACE_READ="${SVABA_TRACE_READ}")
+endif()
+if (SVABA_TRACE_ALL_READS)
+    message(STATUS "svaba: tracing ALL reads (extremely noisy!)")
+    target_compile_definitions(svaba PRIVATE SVABA_TRACE_ALL_READS=1)
+endif()
 
 # If the submodules already have Makefiles, you can use custom commands to invoke make
 # in those directories.

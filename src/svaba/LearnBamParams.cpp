@@ -25,7 +25,8 @@ void LearnBamParams::learnParams(BamParamsMap& p, int max_count) {
   //grv.add(SeqLib::GenomicRegion(0, 1000000,2000000));
   //grv.add(SeqLib::GenomicRegion(1,1000000,2000000));
   SeqLib::BamReader bwalker;
-  assert(bwalker.Open(bam));
+  if (!bwalker.Open(bam))
+    throw std::runtime_error("Failed to open BAM: " + bam);
 
   SeqLib::BamRecord r;
 

@@ -96,7 +96,8 @@ void runToVCF(int argc, char** argv) {
   }
   
   SeqLib::BamReader bwalker;
-  assert(bwalker.Open(opt::bam));
+  if (!bwalker.Open(opt::bam))
+    throw std::runtime_error("Failed to open BAM: " + opt::bam);
   
   // start a new VCF file
   VCFHeader header;

@@ -1093,7 +1093,7 @@ bool runWorkItem(const SeqLib::GenomicRegion& region, svabaThreadUnit& wu, long 
     // retrieve the sequences
     std::string s, name_dum;
     for (auto& r : bav_this) {
-      assert(bfc->GetSequence(s, name_dum));
+      bfc->GetSequence(s, name_dum);
       r.SetSeq(s);
     }
     
@@ -1901,7 +1901,7 @@ CountPair collect_mate_reads(WalkerMap& walkers, const MateRegionVector& mrv, in
     for (auto& s : mrv) 
       gg.add(SeqLib::GenomicRegion(s.chr, s.pos1, s.pos2, s.strand));
 
-    assert(w.second.SetMultipleRegions(gg));
+    w.second.SetMultipleRegions(gg);
     w.second.get_coverage = false;
     w.second.get_mate_regions = (round != MAX_MATE_ROUNDS);
 
