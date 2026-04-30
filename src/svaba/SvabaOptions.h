@@ -218,7 +218,8 @@ class SvabaOptions {
   bool overrideRefCheck  = false;
 
   // numeric thresholds
-  double sdDiscCutoff       = 3.92;
+  double sdDiscCutoff       = 3.92;  // SD multiplier for tumor discordant cutoff
+  double sdDiscCutoffNormal = 3.60;  // SD multiplier for normal (lower = more sensitive)
   int    chunkSize          = 25000;
   int32_t maxReadsPerAssem  = -1;
 
@@ -303,8 +304,6 @@ class SvabaOptions {
 
   void printLogger(SvabaLogger& logger) const;  
 
-  void addFRRule(const std::string &rgName, int N);
-  
   // Parse argc/argv into an SvabaOptions; throws on error
   static SvabaOptions parse(int argc, char** argv);
 

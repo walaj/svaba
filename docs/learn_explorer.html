@@ -95,6 +95,7 @@ td.num{text-align:right;font-variant-numeric:tabular-nums}
   <div class="controls" id="controls">
     <div class="ctrl"><label>RG filter</label><div id="rg-chips" style="display:flex;flex-wrap:wrap;gap:.3rem;max-width:800px"></div></div>
     <div class="ctrl"><label>Bins</label><input id="f-bins" type="number" value="80" min="10" max="500"></div>
+    <div class="ctrl"><label>Trim outliers (%)</label><input id="f-trim" type="number" value="2" min="0" max="20" step="0.5" title="Exclude top N% of isize values from display range"></div>
   </div>
 
   <!-- Combined overlay histogram -->
@@ -243,6 +244,7 @@ function buildUI() {
   renderFacets();
 
   document.getElementById('f-bins').addEventListener('input', () => { renderMainChart(); renderFacets(); });
+  document.getElementById('f-trim').addEventListener('input', () => { renderMainChart(); renderFacets(); });
   document.getElementById('tog-log-main').addEventListener('click', function() {
     logYMain = !logYMain;
     this.classList.toggle('on', logYMain);
@@ -366,6 +368,8 @@ function histogram(values, nBins, lo, hi) {
   return { counts, lo, hi, binW };
 }
 
+function getTrimPct() { return Math.max(0, Math.min(20, parseFloat(document.getElementById('f-trim').value) || 2)); }
+
 function drawHistogram(canvas, datasets, { logY = false, title = '' } = {}) {
   const ctx = canvas.getContext('2d');
   const dpr = window.devicePixelRatio || 1;
@@ -377,16 +381,17 @@ function drawHistogram(canvas, datasets, { logY = false, title = '' } = {}) {
   if (!datasets.length) return;
 
   const nBins = getBins();
-  // global range across all datasets
+  const trimPct = getTrimPct() / 100;  // e.g. 0.02 for 2%
+
+  // global range across all datasets, trimming outliers
   let glo = Infinity, ghi = -Infinity;
   for (const ds of datasets) {
     if (!ds.values.length) continue;
-    // use p01/p99 for range to trim outliers
     const sorted = ds.values; // already sorted
-    const p01 = sorted[Math.floor(sorted.length * 0.005)] || sorted[0];
-    const p99 = sorted[Math.min(Math.floor(sorted.length * 0.995), sorted.length - 1)];
-    glo = Math.min(glo, p01);
-    ghi = Math.max(ghi, p99);
+    const lo = sorted[Math.floor(sorted.length * trimPct)] || sorted[0];
+    const hi = sorted[Math.min(Math.floor(sorted.length * (1 - trimPct)), sorted.length - 1)];
+    glo = Math.min(glo, lo);
+    ghi = Math.max(ghi, hi);
   }
   if (glo >= ghi) return;
 

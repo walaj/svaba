@@ -84,7 +84,10 @@ class svabaBamWalker: public SeqLib::BamReader {
   void calculateMateRegions();
 
   void TagDiscordant(svabaReadPtr& r);
-  
+
+  /// Return the per-RG isize discordant cutoff, lazily cached.
+  int getIsizeCutoff(const std::string& RG);
+
   // should we store the mate regions?
   bool get_mate_regions = true;
 

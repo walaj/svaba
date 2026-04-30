@@ -230,8 +230,21 @@ SeqLib::GRC svabaBamWalker::readBam(svabaThreadUnit& unit) {
     SVABA_READ_TRACE(s->Qname(),
       "AFTER_TRIM corrected_len=" << s->CorrectedSeqLength());
 
-    // this is the main rule check
+    // this is the main rule check (clips, orientation, unmapped mate, etc.)
     bool rule_pass = sc.mr.isValid(*s);
+
+    // FR reads with large isize: per-RG discordant cutoff check.
+    // This replaces the old ReadFilterCollection FR isize rule and uses
+    // the same cutoff as TagDiscordant, so the two are always consistent.
+    if (!rule_pass &&
+        s->PairMappedFlag() &&
+        s->PairOrientation() == SeqLib::Orientation::FR) {
+      std::string rg;
+      if (!s->GetZTag("RG", rg)) rg = "NA";
+      int cutoff = getIsizeCutoff(rg);
+      if (std::abs(s->FullInsertSize()) >= cutoff)
+        rule_pass = true;
+    }
 
     SVABA_READ_TRACE(s->Qname(),
       "RULE_CHECK rule_pass=" << rule_pass);
@@ -564,73 +577,52 @@ void svabaBamWalker::RealignDiscordants(svabaThreadUnit& unit) {
    
 }
 
-void svabaBamWalker::TagDiscordant(svabaReadPtr& r) {
-  
-  // find the bamStats
+int svabaBamWalker::getIsizeCutoff(const std::string& RG) {
+
+  auto cc = isize_cutoff_per_rg.find(RG);
+  if (cc != isize_cutoff_per_rg.end())
+    return cc->second;
+
+  // not cached yet — look up from learned params
   const auto it = sc.bamStats.find(this->prefix_);
-  
-  // get read group
+
+  if (it == sc.bamStats.end()) {
+    if (!sc.warned.count(this->prefix_)) {
+      sc.logger.log(true, true, "SBW: Can't find LearnBamParams for ", this->prefix_);
+      sc.warned.insert(this->prefix_);
+    }
+    isize_cutoff_per_rg[RG] = DEFAULT_ISIZE_THRESHOLD;
+    return DEFAULT_ISIZE_THRESHOLD;
+  }
+
+  const auto rgg = it->second.bam_read_groups.find(RG);
+  if (rgg == it->second.bam_read_groups.end()) {
+    if (!sc.warned.count(RG))
+      sc.warned.insert(RG);
+    isize_cutoff_per_rg[RG] = DEFAULT_ISIZE_THRESHOLD;
+    return DEFAULT_ISIZE_THRESHOLD;
+  }
+
+  bool is_normal = (!prefix_.empty() && prefix_[0] == 'n');
+  double sd_mult = is_normal ? sc.opts.sdDiscCutoffNormal : sc.opts.sdDiscCutoff;
+  int cutoff = static_cast<int>(
+    rgg->second.isize_median + rgg->second.sd_isize * sd_mult);
+  isize_cutoff_per_rg[RG] = cutoff;
+  return cutoff;
+}
+
+void svabaBamWalker::TagDiscordant(svabaReadPtr& r) {
+
   std::string RG;
   if (!r->GetZTag("RG", RG))
     RG = "NA";
 
-  // this is a local cache
-  auto cc = isize_cutoff_per_rg.find(RG);
+  int cutoff = getIsizeCutoff(RG);
 
-  // if not found, go find it 
-  if (cc == isize_cutoff_per_rg.end()) {
-    
-    // check that we learned this bam
-    // emit a warning if didn't find this RG
-    // by putting it here after caching, emits warnings
-    // once per RG. Then get a default size
-    if (it == sc.bamStats.end()) {
-      if (!sc.warned.count(this->prefix_)) {
-	//debug
-	sc.logger.log(true, true, "SBW: TagDiscordant - Can't find ",
-		      "LearnBamParams for ", this->prefix_);
-	sc.warned.insert(this->prefix_);
-      }
-      isize_cutoff_per_rg[RG] = DEFAULT_ISIZE_THRESHOLD;
-      
-      // re-check for calculated cutoff now that we placed it above
-      cc = isize_cutoff_per_rg.find(RG);
-      assert(cc != isize_cutoff_per_rg.end());
-    } 
-    
-    // the bamStats exists for this 
-    else {
-      const auto rgg = it->second.bam_read_groups.find(RG);
-      
-      // check that we learned this read group
-      if (rgg == it->second.bam_read_groups.end()) {
-	if (!sc.warned.count(RG)) {
-	  //debug
-	  //sc.logger.log(true, true, "SBW: TagDiscordant - Can't find ",
-	  //		"read group: ", RG, " for bam ",
-	  //		prefix_, " - setting default isize cutoff ", DEFAULT_ISIZE_THRESHOLD);
-	  sc.warned.insert(RG);
-	} 
-	isize_cutoff_per_rg[RG] = DEFAULT_ISIZE_THRESHOLD;
-
-	// RG is found in this bamStats. Cache the cutoff
-      } else {
-	isize_cutoff_per_rg[RG] =
-	  rgg->second.isize_mean + rgg->second.sd_isize * sc.opts.sdDiscCutoff;
-      }
-      
-      // re-check for calculated cutoff now that we placed it above
-      cc = isize_cutoff_per_rg.find(RG);
-      assert(cc != isize_cutoff_per_rg.end());
-      
-    }
-  } // end isize cutoff calculation
-  
-  // accept as discordant if not FR, has large enough isize, is inter-chromosomal, 
-  // and has both mates mapping. Also dont cluster on weird chr
+  // accept as discordant if not FR, has large enough isize, or is inter-chromosomal
   bool weird_orientation = r->PairOrientation() != SeqLib::Orientation::FR;
   if ( weird_orientation ||
-       abs(r->FullInsertSize()) >= cc->second || // cc-> second is isize cutoff
+       abs(r->FullInsertSize()) >= cutoff ||
        r->Interchromosomal()
        )
     r->dd = 1; // set as discordant

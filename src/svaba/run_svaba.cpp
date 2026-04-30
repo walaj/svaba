@@ -409,14 +409,10 @@ void runsvaba(int argc, char** argv) {
   }
   logger.log(opts.verbose > 0, true, "...seedLength = ", seedLength,", readlen=", globalReadLen, ")" );
 
-  // --- build per-RG discordant size rules ---
-  for (auto const& [sample, pm] : sc.bamStats) {
-    for (auto const& [rg, bp] : pm.bam_read_groups) {
-      double cutoffd = bp.isize_mean + bp.sd_isize * sc.opts.sdDiscCutoff * 3.0;
-      int cutoff = int(std::floor(cutoffd));
-      opts.addFRRule(rg, cutoff);
-    }
-  }
+  // FR isize discordant cutoff is now applied per-RG directly in
+  // svabaBamWalker::readBam (via getIsizeCutoff), using the same
+  // formula as TagDiscordant: median + SD * sdDiscCutoff.
+  // No more per-RG FR rules in ReadFilterCollection.
 
   // set the ReadFilterCollection to be applied to each region
   logger.log(opts.verbose > 1, true, opts.rulesJson);

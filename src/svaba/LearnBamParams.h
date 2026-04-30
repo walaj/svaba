@@ -46,9 +46,10 @@ class BamReadGroup {
   int readlen_max = 0;
   std::vector<uint32_t> isize_vec;
 
-  // statistics
-  double isize_mean = 0;
-  double sd_isize = 0;
+  // statistics (set by computeStats)
+  size_t n_isize_pairs = 0;  // number of FR pairs used (after 98% trim)
+  double isize_median = 0;
+  double sd_isize = 0;      // SD computed around the median
 
 };
 

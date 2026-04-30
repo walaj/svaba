@@ -151,10 +151,10 @@ th.w-gt{cursor:help}
     <input type="file" id="file-input" accept=".txt,.gz,.tsv,text/plain,application/gzip">
   </div>
   <div class="upload-box" id="gtf-zone" onclick="document.getElementById('gtf-input').click()"
-       title="Optional: upload a GTF / GTF.gz of gene annotations (e.g. GENCODE). When loaded, each variant row gets a Genes column listing any gene whose EXONS overlap pos1 or pos2.">
-    Drop or click &mdash; <code>.gtf</code> / <code>.gtf.gz</code> <em>(optional, for gene annotation)</em>
+       title="Optional: upload a BED or GTF of gene annotations. BED (recommended): 4+ column BED with gene name in col 4. GTF: GENCODE-style with exon features. When loaded, each variant row gets a Genes column.">
+    Drop or click &mdash; <code>.bed</code> / <code>.bed.gz</code> / <code>.gtf</code> / <code>.gtf.gz</code> <em>(optional, gene annotation)</em>
     <div class="fn" id="gtf-name" style="display:none"></div>
-    <input type="file" id="gtf-input" accept=".gtf,.gz,text/plain,application/gzip">
+    <input type="file" id="gtf-input" accept=".bed,.gtf,.gz,text/plain,application/gzip">
   </div>
   <button class="btn-ghost btn" id="export-btn" disabled>Export TSV</button>
 </div>
@@ -416,22 +416,31 @@ async function loadBlob(blob,name){
   $("file-input").value="";
 }
 
-/* === GTF (gene annotation) load =======================================
+/* === Gene annotation load (BED or GTF) =================================
  *
- * User uploads a GTF / GTF.gz; we parse EXON features only and build a
- * per-chromosome sorted index of {start, end, gene_name}. When the bps
- * file is (re)loaded or the GTF changes, every row gets annotated with
- * the comma-joined union of gene names whose exons overlap pos1 OR pos2.
+ * User uploads a BED / BED.gz or GTF / GTF.gz; we build a per-chromosome
+ * sorted index of {start, end, gene_name}. For BED we take cols 1-3 as
+ * the interval and col 4 as the gene name (0-based BED coords converted
+ * to 1-based internally). For GTF we parse EXON features only and pull
+ * gene_name from the attributes column.
+ *
+ * When the bps file is (re)loaded or the annotation changes, every row
+ * gets annotated with the comma-joined union of gene names whose intervals
+ * overlap pos1 OR pos2.
  *
  * Index shape per chrom (normalized via normC, i.e. "chr1" and "1"
  * collapse to the same key):
  *   { starts:[], ends:[], genes:[], maxEnd:[] }
  * where maxEnd[i] is the running max of ends[0..i], enabling a bounded
  * walk-back during lookup: once maxEnd[j] < pos we can stop — no
- * earlier exon can still contain pos.
+ * earlier interval can still contain pos.
  *
  * Lookup: binary-search starts for largest index with start<=pos, then
  * walk back checking end>=pos; bail when maxEnd falls below pos.
+ *
+ * BED is recommended over GTF — it's 10-50x smaller and parses in
+ * milliseconds. A typical GENCODE genes.bed is ~2 MB vs ~1.5 GB for the
+ * full GTF.
  */
 const GTF = {
   byChr: new Map(),     // normC(chrom) -> {starts,ends,genes,maxEnd}
@@ -449,7 +458,12 @@ async function loadGtfBlob(blob, name) {
       if (typeof DecompressionStream === "undefined") throw new Error("Browser lacks DecompressionStream");
       text = await new Response(blob.stream().pipeThrough(new DecompressionStream("gzip"))).text();
     } else text = await blob.text();
-    parseGtf(text, name);
+
+    // Auto-detect format by filename (strip .gz first)
+    const base = name.replace(/\.gz$/i, "").toLowerCase();
+    if (base.endsWith(".bed")) parseBed(text, name);
+    else parseGtf(text, name);
+
     annotateAllRowsWithGenes();
     render();
   } catch (e) {
@@ -457,6 +471,69 @@ async function loadGtfBlob(blob, name) {
     console.error(e);
   }
   $("gtf-input").value = "";
+}
+
+function parseBed(text, name) {
+  const t0 = performance.now();
+  const buckets = new Map();
+  const geneIntern = new Map();
+  let nRegions = 0;
+
+  const lines = text.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line || line.charCodeAt(0) === 35 /* # */) continue;
+    // skip browser/track header lines
+    if (line.startsWith("browser ") || line.startsWith("track ")) continue;
+    const tabs = line.split("\t");
+    if (tabs.length < 4) continue;  // need at least chr, start, end, name
+
+    const chr = normC(tabs[0]);
+    const s = +tabs[1] + 1;  // BED is 0-based half-open → convert to 1-based
+    const e = +tabs[2];      // end is already the 1-based inclusive position
+    if (!isFinite(s) || !isFinite(e)) continue;
+
+    let gene = tabs[3].trim();
+    if (!gene) continue;
+    const cached = geneIntern.get(gene);
+    if (cached) gene = cached; else geneIntern.set(gene, gene);
+
+    let buf = buckets.get(chr);
+    if (!buf) { buf = []; buckets.set(chr, buf); }
+    buf.push([s, e, gene]);
+    nRegions++;
+  }
+
+  // Sort per-chrom by start, then flatten into parallel arrays + maxEnd.
+  const byChr = new Map();
+  for (const [chr, buf] of buckets) {
+    buf.sort((a, b) => a[0] - b[0]);
+    const n = buf.length;
+    const starts = new Int32Array(n);
+    const ends   = new Int32Array(n);
+    const genes  = new Array(n);
+    const maxEnd = new Int32Array(n);
+    let running = 0;
+    for (let i = 0; i < n; i++) {
+      starts[i] = buf[i][0];
+      ends[i]   = buf[i][1];
+      genes[i]  = buf[i][2];
+      if (buf[i][1] > running) running = buf[i][1];
+      maxEnd[i] = running;
+    }
+    byChr.set(chr, { starts, ends, genes, maxEnd });
+  }
+
+  GTF.byChr  = byChr;
+  GTF.nExons = nRegions;
+  GTF.loaded = nRegions > 0;
+  GTF.fn     = name;
+
+  const ms = (performance.now() - t0).toFixed(0);
+  $("gtf-zone").classList.add("loaded");
+  $("gtf-name").textContent =
+    name + " — " + nRegions.toLocaleString() + " regions across " +
+    byChr.size + " chromosomes (parsed in " + ms + "ms)";
 }
 
 function parseGtf(text, name) {

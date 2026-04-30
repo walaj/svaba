@@ -52,7 +52,7 @@ std::ostream& operator<<(std::ostream& os, const BamReadGroup& bg) {
      << " mu=" << bg.mate_unmap
      << " MQ=" << bg.mapq_max
      << " RL=" << bg.readlen_max
-     << " mIS=" << bg.isize_mean
+     << " mIS=" << bg.isize_median
      << " sdIS=" << bg.sd_isize
      << " n_isize=" << bg.isize_vec.size();
   return os;
@@ -233,7 +233,42 @@ void LearnBamParams::learnParams() {
     br.second.computeStats();
     readlen_max = std::max(readlen_max, br.second.readlen_max);
     mapq_max = std::max(mapq_max, br.second.mapq_max);
-    isize_max = std::max(isize_max, br.second.isize_mean);
+    isize_max = std::max(isize_max, br.second.isize_median);
+  }
+
+  // Log per-RG insert size stats and the derived discordant cutoff.
+  //
+  // Method:
+  //   1. Sample up to perRgLearnLimit (default 1000) FR read pairs per
+  //      read group from the midpoint of each standard chromosome.
+  //   2. Discard the top 2% of |isize| values as outliers.
+  //   3. Compute median and population SD on the remaining 98%.
+  //   4. Discordant cutoff = median + SD * sdDiscCutoff
+  //      (sdDiscCutoff defaults to 3.92 for tumor, 3.60 for normal).
+  //   5. A read pair with |isize| > cutoff is classified as discordant.
+  //
+  // The cutoff is applied per-RG in svabaBamWalker::getIsizeCutoff(),
+  // used by both readBam (read extraction) and TagDiscordant (read
+  // tagging).  Normal uses a lower multiplier (sdDiscCutoffNormal)
+  // so it's more sensitive to marginal discordant reads, preventing
+  // germline events from being mis-called as somatic.
+  sc.logger.log(true, true,
+                "......insert size learning summary (per read group):");
+  sc.logger.log(true, true,
+                "......  method: median + SD * sdDiscCutoff on bottom 98% of FR pairs");
+  sc.logger.log(true, true,
+                "......  sdDiscCutoff=", sc.opts.sdDiscCutoff,
+                " (tumor), sdDiscCutoffNormal=", sc.opts.sdDiscCutoffNormal,
+                " (normal); up to ", sc.opts.perRgLearnLimit, " pairs/RG");
+  for (const auto& [rg, bp] : bam_read_groups) {
+    double cutoff = bp.isize_median + bp.sd_isize * sc.opts.sdDiscCutoff;
+    sc.logger.log(true, true,
+                  "......  RG='", rg,
+                  "' n_pairs=", bp.n_isize_pairs,
+                  " median=", static_cast<int>(bp.isize_median),
+                  " sd=", static_cast<int>(bp.sd_isize),
+                  " disc_cutoff(tumor)=", static_cast<int>(cutoff),
+                  " readlen=", bp.readlen_max);
   }
 }
 
@@ -294,8 +329,8 @@ void BamReadGroup::addRead(const SeqLib::BamRecord &r)
  void BamReadGroup::computeStats() {
 
    if (isize_vec.empty()) {
-     isize_mean = 0.0;
-     sd_isize   = 0.0;
+     isize_median = 0.0;
+     sd_isize     = 0.0;
      return;
    }
 
@@ -309,13 +344,19 @@ void BamReadGroup::addRead(const SeqLib::BamRecord &r)
    }
    isize_vec.resize(keep);
 
-   // Calculate mean
-   isize_mean = std::accumulate(isize_vec.begin(), isize_vec.end(), 0.0) / keep;
+   n_isize_pairs = keep;
 
-    // Calculate population standard deviation
+   // Calculate median (vector is already sorted)
+   if (keep % 2 == 1) {
+     isize_median = isize_vec[keep / 2];
+   } else {
+     isize_median = (isize_vec[keep / 2 - 1] + isize_vec[keep / 2]) / 2.0;
+   }
+
+    // Calculate population standard deviation around the median
     double sq_sum = 0.0;
     for (uint32_t val : isize_vec) {
-      double diff = val - isize_mean;
+      double diff = val - isize_median;
         sq_sum += diff * diff;
     }
     sd_isize = std::sqrt(sq_sum / keep);
