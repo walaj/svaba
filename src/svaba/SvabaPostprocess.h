@@ -1,39 +1,48 @@
 #pragma once
 
-// Post-process svaba output BAMs: coordinate-sort via samtools, then run a
-// native streaming dedup on the suffixes that can accumulate exact duplicate
-// records from overlapping assembly windows (weird, corrected, discordant).
+// Post-process svaba outputs: merge per-thread files, coordinate-sort BAMs,
+// streaming-dedup, sort/dedup/filter bps.txt.gz, filter r2c.txt.gz, and
+// optionally split BAMs by QNAME source prefix.
 //
-// Replaces the slow path of sort_output.sh, which went through
-// `samtools view | awk | samtools view` — that pipeline decompresses every
-// record to SAM text, maintains a large awk hash, and recompresses on the
-// way out. This module keeps everything in native htslib / SeqLib records
-// and resets the dedup set at every locus boundary, so memory is O(reads
-// per locus) and throughput is close to what the disk+decoder can sustain.
+// Fully replaces svaba_postprocess.sh. Everything runs natively in C++
+// except `samtools sort` (shelled out — htslib doesn't expose its sort
+// as a library call).
 //
-// Scope:
-//   - Sort      → shell out to `samtools sort` (already highly tuned; htslib
-//                 doesn't expose its sort as a library call).
-//   - Dedup     → native streaming, (qname, flag) keyed, per-locus reset.
-//                 Stamps an @PG line onto the output header as a free
-//                 side-effect of rewriting the file.
-//   - Reheader  → for suffixes that don't go through dedup (e.g. `contigs`,
-//                 or anything under --sort-only), shell out to
-//                 `samtools reheader` to stamp the same @PG line. Streams the
-//                 BGZF body as opaque blocks — cheap.
-//   - Index     → native `sam_index_build` (htslib) producing a .bai
-//                 alongside every final BAM.
-//   - Per-suffix parallelism via std::thread; suffixes run independently.
+// Phases (all auto-detect inputs; no-op if absent):
 //
-// End state: ${ID}.${suffix}.bam is the single authoritative output per
-// suffix — sorted, deduped (where applicable), @PG-stamped, and indexed.
-// Intermediate files use a .postprocess.*.tmp.bam suffix and are cleaned up
-// on both success (rename-over) and failure (best-effort unlink).
+//   Phase 0: Merge per-thread outputs.
+//     - BAMs: ${ID}.thread*.${suffix}.bam → ${ID}.${suffix}.bam via native
+//       htslib record streaming. No samtools dependency.
+//     - r2c: ${ID}.thread*.r2c.txt.gz → ${ID}.r2c.txt.gz via binary gzip
+//       concatenation (RFC 1952 concat-safe).
 //
-// Explicitly NOT in scope here (still in sort_output.sh):
-//   - thread-BAM merging (pre-svaba-postprocess step)
-//   - SPLIT_BY_SOURCE qname-prefix demultiplexing
+//   Phase 1: Parallel coordinate-sort of BAMs (samtools sort).
+//     One thread-pool slice per suffix, all suffixes concurrently.
+//
+//   Phase 2: Serial dedup + reheader + index per BAM.
+//     - Streaming dedup: (qname, flag) keyed per-locus, with bi:Z/bz:Z
+//       comma-token union (preserves contig support evidence from
+//       overlapping assembly windows). Full BGZF thread pool per BAM.
+//     - @PG stamp: chained onto existing PG chain.
+//     - .bai index: native sam_index_build.
+//     Idempotent: auto-skips when header already has svaba_postprocess PG.
+//
+//   Phase 3: Sort + dedup + filter bps.txt.gz.
+//     In-memory: contiguous slab + lightweight sort index. Canonical AB==BA
+//     dedup with lowest-somlod winner selection (conservative against false
+//     somatic calls). Outputs: .sorted, .sorted.dedup, .sorted.dedup.pass,
+//     .sorted.dedup.pass.somatic.
+//
+//   Phase 4: Filter r2c.txt.gz to PASS / PASS+somatic contigs.
+//     Single streaming pass writing two gzipped outputs, keyed on the PASS
+//     cname sets collected during Phase 3.
+//
+//   Phase 5: Split-by-source (optional, --split).
+//     For each dedup-eligible suffix (weird/corrected/discordant), reads
+//     the BAM and routes records by the first 4 chars of QNAME into
+//     per-prefix BAMs. Each prefix BAM is then sorted + indexed.
+//     Output: ${ID}.${suffix}.${PREFIX}.bam(.bai).
 //
 // CLI:  svaba postprocess -i <ID> [-t THREADS] [-m MEM] [-v V]
-//                         [--sort-only | --dedup-only]
+//                         [--sort-only | --dedup-only] [--split]
 void runPostprocess(int argc, char** argv);

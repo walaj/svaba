@@ -157,6 +157,7 @@ th.w-gt{cursor:help}
     <input type="file" id="gtf-input" accept=".bed,.gtf,.gz,text/plain,application/gzip">
   </div>
   <button class="btn-ghost btn" id="export-btn" disabled>Export TSV</button>
+  <button class="btn-ghost btn" id="export-html-btn" disabled title="Export a self-contained HTML snapshot with the current filtered data and gene annotations embedded. Recipients can browse it without any files.">Export HTML</button>
 </div>
 
 <div class="controls" id="controls" style="display:none">
@@ -266,6 +267,12 @@ th.w-gt{cursor:help}
 (function(){
 "use strict";
 
+/* Snapshot export needs the original body HTML (before ingest/render mutate
+   the DOM). Capture it once here, at the top of the IIFE, before any event
+   listeners or data loading runs. */
+const _ORIG_BODY = document.body.innerHTML;
+const _ORIG_CSS  = document.querySelector("style").textContent;
+
 /* === Column defs === */
 const LEGACY=[
   "chr1","pos1","strand1","chr2","pos2","strand2","ref","alt_allele",
@@ -348,6 +355,7 @@ $("gtf-input").onchange=e=>{const f=e.target.files[0];if(f)loadGtfBlob(f,f.name)
 $("gtf-zone").addEventListener("drop",e=>{const f=e.dataTransfer.files[0];if(f)loadGtfBlob(f,f.name)});
 
 $("export-btn").onclick=exportTSV;
+$("export-html-btn").onclick=exportHTML;
 $("reset-btn").onclick=()=>{resetF();render()};
 $("pg-prev").onclick=()=>{if(S.pg>1){S.pg--;rTable()}};
 $("pg-next").onclick=()=>{if(S.pg<tPages()){S.pg++;rTable()}};
@@ -848,6 +856,7 @@ function rStats(){
   $("s-indel").textContent=S.filt.filter(r=>r.evidence==="INDEL").length.toLocaleString();
   $("s-sv").textContent=S.filt.filter(r=>r.evidence!=="INDEL").length.toLocaleString();
   $("export-btn").disabled=!S.filt.length;
+  $("export-html-btn").disabled=!S.filt.length;
 }
 
 /* === Chips === */
@@ -1045,6 +1054,69 @@ function exportTSV(){
   a.click();URL.revokeObjectURL(u);
 }
 
+function exportHTML(){
+  if(!S.filt.length)return;
+
+  $("export-html-btn").disabled=true;
+  $("export-html-btn").textContent="Exporting\u2026";
+
+  try{
+    // 1. Serialize filtered BPS data
+    const bpsLines=[S.hdr.join("\t")].concat(S.filt.map(r=>r._c.join("\t")));
+    const bpsTsv=bpsLines.join("\n");
+
+    // 2. Serialize gene annotations
+    let geneTsv="";
+    if(GTF.loaded){
+      const gLines=[];
+      for(const [chr,idx] of GTF.byChr){
+        for(let i=0;i<idx.starts.length;i++){
+          gLines.push(chr+"\t"+idx.starts[i]+"\t"+idx.ends[i]+"\t"+idx.genes[i]);
+        }
+      }
+      geneTsv=gLines.join("\n");
+    }
+
+    // 3. Build the snapshot from parts captured at load time (before any
+    //    DOM mutations). _ORIG_BODY and _ORIG_CSS were grabbed at the top
+    //    of the IIFE. The JS comes from the live <script> tag — its
+    //    textContent is the source code, not affected by DOM mutations.
+    // Get the main IIFE script (not the embedded-data script if present)
+    const scripts = document.querySelectorAll("script:not([id])");
+    const js = scripts[scripts.length - 1].textContent;
+
+    const snapName = S.fn.replace(/\.gz$/i,"").replace(/\.txt$/i,"");
+
+    const src = '<!DOCTYPE html>\n<html lang="en">\n<head>\n' +
+      '<meta charset="UTF-8">\n' +
+      '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n' +
+      '<title>SvABA BPS \u2014 ' + esc(snapName) + ' (snapshot)<\/title>\n' +
+      '<style>\n' + _ORIG_CSS + '\n<\/style>\n' +
+      '<\/head>\n<body>\n' +
+      _ORIG_BODY + '\n' +
+      '<script id="svaba-embedded-data">\n' +
+      'window.__SVABA_EMBEDDED_BPS = ' + JSON.stringify(bpsTsv) + ';\n' +
+      'window.__SVABA_EMBEDDED_GENES = ' + JSON.stringify(geneTsv) + ';\n' +
+      'window.__SVABA_EMBEDDED_FN = ' + JSON.stringify(S.fn) + ';\n' +
+      'window.__SVABA_EMBEDDED_GENE_FN = ' + JSON.stringify(GTF.fn||"") + ';\n' +
+      '<\/script>\n' +
+      '<script>\n' + js + '\n<\/script>\n' +
+      '<\/body>\n<\/html>';
+
+    // 4. Download
+    const blob = new Blob([src], {type:"text/html;charset=utf-8"});
+    const u = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = u;
+    a.download = snapName + ".snapshot.html";
+    a.click();
+    URL.revokeObjectURL(u);
+  }finally{
+    $("export-html-btn").disabled=false;
+    $("export-html-btn").textContent="Export HTML";
+  }
+}
+
 /* === Util === */
 function mNum(s){if(!s||s==="NA"||s==="x"||s==="NOTSET")return null;const v=+s;return isFinite(v)?v:null}
 function nNum(s){if(s===""||s==null)return null;const v=+s;return isFinite(v)?v:null}
@@ -1074,6 +1146,62 @@ function normC(s){return typeof s==="string"?s.replace(/^chr/i,"").toLowerCase()
 function cntBy(rows,k){const m=new Map();rows.forEach(r=>{const v=r[k];m.set(v,(m.get(v)||0)+1)});return m}
 function togSet(set,v){set.has(v)?set.delete(v):set.add(v)}
 function esc(v){return String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;")}
+
+/* === Auto-load embedded data (for exported HTML snapshots) === */
+if(window.__SVABA_EMBEDDED_BPS){
+  // Hide the upload row since data is pre-loaded
+  const ur=document.querySelector(".upload-row");
+  if(ur)ur.style.display="none";
+
+  // Load gene annotations first (if present) so annotateAllRowsWithGenes
+  // picks them up when ingest() calls it at the end.
+  if(window.__SVABA_EMBEDDED_GENES){
+    const gText=window.__SVABA_EMBEDDED_GENES;
+    if(gText.length>0){
+      // Reconstruct the GTF.byChr index from the simple BED TSV
+      // (chr\tstart\tend\tgene — 1-based positions, already normalized chrom)
+      const buckets=new Map();
+      const geneIntern=new Map();
+      let nRegions=0;
+      for(const line of gText.split("\n")){
+        if(!line)continue;
+        const t=line.split("\t");
+        if(t.length<4)continue;
+        const chr=t[0];
+        const s=+t[1], e=+t[2];
+        let gene=t[3];
+        const cached=geneIntern.get(gene);
+        if(cached)gene=cached;else geneIntern.set(gene,gene);
+        let buf=buckets.get(chr);
+        if(!buf){buf=[];buckets.set(chr,buf)}
+        buf.push([s,e,gene]);
+        nRegions++;
+      }
+      const byChr=new Map();
+      for(const [chr,buf] of buckets){
+        buf.sort((a,b)=>a[0]-b[0]);
+        const n=buf.length;
+        const starts=new Int32Array(n), ends=new Int32Array(n);
+        const genes=new Array(n), maxEnd=new Int32Array(n);
+        let running=0;
+        for(let i=0;i<n;i++){
+          starts[i]=buf[i][0];ends[i]=buf[i][1];genes[i]=buf[i][2];
+          if(buf[i][1]>running)running=buf[i][1];
+          maxEnd[i]=running;
+        }
+        byChr.set(chr,{starts,ends,genes,maxEnd});
+      }
+      GTF.byChr=byChr;GTF.nExons=nRegions;GTF.loaded=nRegions>0;
+      GTF.fn=window.__SVABA_EMBEDDED_GENE_FN||"embedded";
+    }
+  }
+
+  // Now ingest the BPS data (this calls annotateAllRowsWithGenes + render)
+  ingest(window.__SVABA_EMBEDDED_BPS, window.__SVABA_EMBEDDED_FN||"snapshot");
+
+  // Update header to indicate snapshot mode
+  $("file-meta").textContent=(window.__SVABA_EMBEDDED_FN||"snapshot")+" (exported snapshot)";
+}
 
 })();
 </script>

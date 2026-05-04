@@ -208,18 +208,19 @@ SeqLib::GRC svabaBamWalker::readBam(svabaThreadUnit& unit) {
       << " cigar=" << s->CigarString()
       << " len=" << s->Length());
 
-    // check if this read passes the rules for potential SV reads
+    // check if this read passes the rules for potential SV reads.
+    // Mate-blacklist is NOT checked here — a clipped/indel read should
+    // still enter assembly even if its mate lands in a blacklisted region.
+    // The mate-blacklist only suppresses discordant tagging (TagDiscordant).
     if (s->DuplicateFlag() ||
 	s->QCFailFlag() ||
 	s->NumHardClip() ||
-	sc.blacklist.CountOverlaps(s->AsGenomicRegionMate()) ||
 	sc.blacklist.CountOverlaps(s->AsGenomicRegion()))
       {
 	SVABA_READ_TRACE(s->Qname(),
 	  "SKIP dup=" << s->DuplicateFlag()
 	  << " qcfail=" << s->QCFailFlag()
 	  << " hardclip=" << s->NumHardClip()
-	  << " blacklist_mate=" << sc.blacklist.CountOverlaps(s->AsGenomicRegionMate())
 	  << " blacklist_self=" << sc.blacklist.CountOverlaps(s->AsGenomicRegion()));
 	continue;
       }

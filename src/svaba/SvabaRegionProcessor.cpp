@@ -277,17 +277,16 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
   // count for this unit
   unit.processed_count++;
   sc.total_regions_done++;
-  if (sc.total_regions_done % 250 == 0) {
+  if (sc.total_regions_done % 1000 == 0) {
     std::ostringstream msg;
     msg << "...processing "
 	<< std::right << std::setw(5) << SeqLib::AddCommas(sc.total_regions_done)
 	<< " of "
 	<< std::right << std::setw(6) << SeqLib::AddCommas(sc.total_regions_to_process)
-	<< " for thread "
-	<< std::right << std::setw(2) << unit.threadId
-	<< " for region "
-	<< region;
-    sc.logger.log(true, true, msg.str()); 
+	<< "  " << SeqLib::displayRuntime(sc.start)
+	<< "  " << sc.header.IDtoName(region.chr)
+	<< ":" << SeqLib::AddCommas(region.pos1);
+    sc.logger.log(true, true, msg.str());
   }
   
   sc.logger.log(sc.opts.verbose > 1, sc.opts.verbose_log,

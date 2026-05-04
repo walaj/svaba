@@ -44,7 +44,9 @@
 
 #include "SvabaPostprocess.h"
 
+#include <fcntl.h>
 #include <getopt.h>
+#include <glob.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -57,6 +59,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <memory>
 #include <mutex>
 #include <set>
 #include <sstream>
@@ -64,9 +67,11 @@
 #include <string_view>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "htslib/sam.h"
+#include "zlib.h"
 
 #include "SeqLib/BamHeader.h"
 #include "SeqLib/BamReader.h"
@@ -76,6 +81,29 @@
 #include "SvabaOptions.h"  // SVABA_VERSION
 
 namespace {
+
+// RAII helper to suppress stderr (htslib's "[E::idx_find_and_load]" messages
+// when opening BAMs without a .bai — expected during merge/dedup phases).
+// Thread-safe: uses a mutex so concurrent Open() calls from parallel workers
+// don't race on the fd-level redirect.
+std::mutex g_suppress_mu;
+
+struct SuppressStderr {
+  int saved_fd_, devnull_;
+  SuppressStderr() : saved_fd_(-1), devnull_(-1) {
+    g_suppress_mu.lock();
+    saved_fd_ = dup(STDERR_FILENO);
+    devnull_  = open("/dev/null", O_WRONLY);
+    if (devnull_ >= 0) dup2(devnull_, STDERR_FILENO);
+  }
+  ~SuppressStderr() {
+    if (devnull_ >= 0) { dup2(saved_fd_, STDERR_FILENO); close(devnull_); }
+    if (saved_fd_ >= 0) close(saved_fd_);
+    g_suppress_mu.unlock();
+  }
+  SuppressStderr(const SuppressStderr&) = delete;
+  SuppressStderr& operator=(const SuppressStderr&) = delete;
+};
 
 // Serialize progress/log output across the per-suffix threads. We intentionally
 // keep the critical section tiny — just the single ostringstream flush — so
@@ -102,11 +130,12 @@ struct Opts {
   int         threads   = 4;
   std::string mem       = "2G";  // per samtools sort thread; matches -m flag
   int         verbose   = 1;
-  bool        sort_only = false;  // skip dedup
-  bool        dedup_only = false; // skip sort (assume sorted)
+  bool        sort_only  = false;  // skip dedup
+  bool        dedup_only = false;  // skip sort (assume sorted)
+  bool        split      = false;  // split BAMs by QNAME source prefix
 };
 
-enum { OPT_SORT_ONLY = 1000, OPT_DEDUP_ONLY, OPT_MEM };
+enum { OPT_SORT_ONLY = 1000, OPT_DEDUP_ONLY, OPT_MEM, OPT_SPLIT };
 
 const char* kShortOpts = "hi:t:m:v:";
 const struct option kLongOpts[] = {
@@ -117,6 +146,7 @@ const struct option kLongOpts[] = {
   { "verbose",    required_argument, nullptr, 'v' },
   { "sort-only",  no_argument,       nullptr, OPT_SORT_ONLY  },
   { "dedup-only", no_argument,       nullptr, OPT_DEDUP_ONLY },
+  { "split",      no_argument,       nullptr, OPT_SPLIT      },
   { nullptr, 0, nullptr, 0 }
 };
 
@@ -138,6 +168,9 @@ void printUsage() {
     "      --sort-only           Only sort; skip dedup.\n"
     "      --dedup-only          Only dedup; skip sort. Assumes input is already\n"
     "                            coord-sorted; output is undefined otherwise.\n"
+    "      --split               Split dedup-eligible BAMs by QNAME source prefix\n"
+    "                            (first 4 chars). Produces ${ID}.${suffix}.${PREFIX}.bam\n"
+    "                            for each observed prefix. Runs after dedup.\n"
     "  -v, --verbose <0-3>       Verbosity. [1]\n"
     "  -h, --help                This message.\n";
 }
@@ -156,6 +189,7 @@ Opts parseOpts(int argc, char** argv) {
       case 'v': arg >> o.verbose; break;
       case OPT_SORT_ONLY:  o.sort_only  = true; break;
       case OPT_DEDUP_ONLY: o.dedup_only = true; break;
+      case OPT_SPLIT:      o.split      = true; break;
       default: printUsage(); std::exit(EXIT_FAILURE);
     }
   }
@@ -183,6 +217,50 @@ off_t fileSize(const std::string& p) {
   struct stat st{};
   if (::stat(p.c_str(), &st) != 0) return 0;
   return st.st_size;
+}
+
+// ---------- glob helper ----------
+
+// Return all paths matching a glob pattern, sorted. Uses POSIX glob(3).
+// Returns empty vector on no match or error. Caller owns the result.
+std::vector<std::string> globPaths(const std::string& pattern) {
+  std::vector<std::string> result;
+  glob_t g{};
+  const int rc = ::glob(pattern.c_str(), GLOB_NOSORT, nullptr, &g);
+  if (rc == 0) {
+    result.reserve(g.gl_pathc);
+    for (size_t i = 0; i < g.gl_pathc; ++i)
+      result.emplace_back(g.gl_pathv[i]);
+    std::sort(result.begin(), result.end());
+  }
+  ::globfree(&g);
+  return result;
+}
+
+// Extract the numeric thread index from a filename like
+// "${ID}.thread${N}.${suffix}.bam" or "${ID}.thread${N}.r2c.txt.gz".
+// Returns -1 if parsing fails.
+int extractThreadIndex(const std::string& path) {
+  // Find ".thread" then parse the number after it.
+  auto pos = path.find(".thread");
+  if (pos == std::string::npos) return -1;
+  pos += 7;  // skip ".thread"
+  int idx = 0;
+  bool found_digit = false;
+  while (pos < path.size() && std::isdigit(static_cast<unsigned char>(path[pos]))) {
+    idx = idx * 10 + (path[pos] - '0');
+    found_digit = true;
+    ++pos;
+  }
+  return found_digit ? idx : -1;
+}
+
+// Sort paths by their embedded thread index (ascending). Thread 1 first.
+void sortByThreadIndex(std::vector<std::string>& paths) {
+  std::sort(paths.begin(), paths.end(),
+    [](const std::string& a, const std::string& b) {
+      return extractThreadIndex(a) < extractThreadIndex(b);
+    });
 }
 
 // Thread-safe stderr log. Accepts anything streamable into an ostringstream.
@@ -213,6 +291,786 @@ std::string shQuote(const std::string& s) {
 // Declared here so the reheader helper below can use std::rename via the same
 // diagnostics-rich wrapper the dedup path uses.
 void renameOrThrow(const std::string& from, const std::string& to);
+
+// ---------- Phase 0: merge per-thread outputs ----------
+//
+// svaba run with -p N produces per-thread BAMs (${ID}.thread${N}.${suffix}.bam)
+// and per-thread r2c TSVs (${ID}.thread${N}.r2c.txt.gz). This phase coalesces
+// each family into a single ${ID}.${suffix}.bam / ${ID}.r2c.txt.gz.
+//
+// BAM merge: open all per-thread BAMs, concatenate records into one writer.
+// The output is NOT coordinate-sorted (Phase 1 handles that), so we do a
+// simple sequential dump — no priority queue needed. We use the header from
+// the first input (all per-thread BAMs share the same ref/RG/PG header
+// because they're all opened from the same SvabaSharedConfig).
+//
+// r2c merge: binary byte-copy of gzip streams. Gzip is concatenation-safe
+// per RFC 1952, so cat(a.gz, b.gz) → valid .gz whose decompressed content
+// is decompressed(a) + decompressed(b). Thread 1's file is placed first
+// (it contains the TSV column-header line).
+
+// Merge per-thread BAMs for a single suffix. Returns number of records merged,
+// or 0 if nothing to merge (no per-thread files found). Removes per-thread
+// inputs on success.
+size_t mergeThreadBams(const std::string& id,
+                       const std::string& suffix,
+                       int threads,
+                       int verbose) {
+  const std::string pattern = id + ".thread*." + suffix + ".bam";
+  std::vector<std::string> inputs = globPaths(pattern);
+  if (inputs.empty()) return 0;
+
+  const std::string target = id + "." + suffix + ".bam";
+
+  // Single file — just rename.
+  if (inputs.size() == 1) {
+    logLine("[merge] mv ", inputs[0], " -> ", target);
+    renameOrThrow(inputs[0], target);
+    return 0;  // no records actually streamed
+  }
+
+  sortByThreadIndex(inputs);
+
+  logLine("[merge] merging ", inputs.size(), " thread BAMs for '", suffix,
+          "' -> ", target);
+
+  const auto t0 = std::chrono::steady_clock::now();
+
+  // Open all readers; use header from the first.
+  // Suppress htslib "[E::idx_find_and_load]" — per-thread BAMs have no .bai.
+  std::vector<SeqLib::BamReader> readers(inputs.size());
+  {
+    SuppressStderr quiet;
+    for (size_t i = 0; i < inputs.size(); ++i) {
+      if (!readers[i].Open(inputs[i]))
+        throw std::runtime_error("merge: cannot open " + inputs[i]);
+    }
+  }
+
+  SeqLib::BamWriter writer;
+  const std::string tmp = target + ".postprocess.merge.tmp.bam";
+  if (!writer.Open(tmp))
+    throw std::runtime_error("merge: cannot open output " + tmp);
+  writer.SetHeader(readers[0].Header());
+  if (!writer.WriteHeader())
+    throw std::runtime_error("merge: WriteHeader failed on " + tmp);
+  // Enable BGZF thread pool on the writer for throughput.
+  writer.SetThreads(std::max(1, threads));
+
+  size_t total = 0;
+  for (size_t i = 0; i < readers.size(); ++i) {
+    while (auto rec = readers[i].Next()) {
+      if (!writer.WriteRecord(*rec))
+        throw std::runtime_error("merge: WriteRecord failed on " + tmp);
+      ++total;
+    }
+  }
+
+  if (!writer.Close())
+    throw std::runtime_error("merge: Close failed on " + tmp);
+
+  renameOrThrow(tmp, target);
+
+  // Remove per-thread inputs.
+  for (const auto& f : inputs)
+    ::unlink(f.c_str());
+
+  const double elapsed = std::chrono::duration<double>(
+      std::chrono::steady_clock::now() - t0).count();
+  logLine("[merge] ", suffix, ": ", total, " records from ", inputs.size(),
+          " files in ", std::fixed, std::setprecision(1), elapsed, "s");
+  return total;
+}
+
+// Merge per-thread r2c.txt.gz files via binary concatenation.
+// Returns number of files merged, or 0 if nothing to merge.
+// Removes per-thread inputs on success.
+size_t mergeThreadR2c(const std::string& id, int verbose) {
+  const std::string pattern = id + ".thread*.r2c.txt.gz";
+  std::vector<std::string> inputs = globPaths(pattern);
+  if (inputs.empty()) return 0;
+
+  const std::string target = id + ".r2c.txt.gz";
+
+  // Single file — just rename.
+  if (inputs.size() == 1) {
+    logLine("[merge] mv ", inputs[0], " -> ", target);
+    renameOrThrow(inputs[0], target);
+    return 1;
+  }
+
+  // Sort by thread index so thread 1 (which has the header line) is first.
+  sortByThreadIndex(inputs);
+
+  logLine("[merge] merging ", inputs.size(), " thread r2c files -> ", target);
+
+  const auto t0 = std::chrono::steady_clock::now();
+  const std::string tmp = target + ".postprocess.merge.tmp.gz";
+
+  // Binary byte-copy — gzip concatenation.
+  {
+    std::ofstream out(tmp, std::ios::binary);
+    if (!out)
+      throw std::runtime_error("merge: cannot open " + tmp + " for writing");
+
+    constexpr size_t BUF_SIZE = 256 * 1024;  // 256 KB copy buffer
+    std::vector<char> buf(BUF_SIZE);
+
+    for (const auto& f : inputs) {
+      std::ifstream in(f, std::ios::binary);
+      if (!in)
+        throw std::runtime_error("merge: cannot open " + f + " for reading");
+      while (in.read(buf.data(), BUF_SIZE) || in.gcount() > 0) {
+        out.write(buf.data(), in.gcount());
+        if (!out)
+          throw std::runtime_error("merge: write error on " + tmp);
+      }
+    }
+  }
+
+  renameOrThrow(tmp, target);
+
+  // Remove per-thread inputs.
+  for (const auto& f : inputs)
+    ::unlink(f.c_str());
+
+  const double elapsed = std::chrono::duration<double>(
+      std::chrono::steady_clock::now() - t0).count();
+  logLine("[merge] r2c: ", inputs.size(), " files -> ", target,
+          " in ", std::fixed, std::setprecision(1), elapsed, "s");
+  return inputs.size();
+}
+
+// Run Phase 0: merge all per-thread outputs for all suffixes + r2c.
+void runMergePhase(const std::string& id, int threads, int verbose) {
+  // BAM suffixes that svaba emits per-thread (contigs is NOT per-thread).
+  const std::vector<std::string> merge_suffixes = {
+    "discordant", "weird", "corrected"
+  };
+
+  bool did_anything = false;
+  for (const auto& suffix : merge_suffixes) {
+    // Check if per-thread files exist BEFORE merging (since merge removes them).
+    const std::string pat = id + ".thread*." + suffix + ".bam";
+    if (!globPaths(pat).empty()) {
+      mergeThreadBams(id, suffix, threads, verbose);
+      did_anything = true;
+    }
+  }
+
+  {
+    const std::string pat = id + ".thread*.r2c.txt.gz";
+    if (!globPaths(pat).empty()) {
+      mergeThreadR2c(id, verbose);
+      did_anything = true;
+    }
+  }
+
+  if (!did_anything && verbose >= 1)
+    logLine("[merge] no per-thread files found; nothing to merge");
+}
+
+// ---------- bps.txt.gz sort / dedup / PASS filter ----------
+//
+// Replaces the GNU sort + awk pipeline from svaba_postprocess.sh step 3.
+//
+// Approach:
+//   1. Decompress bps.txt.gz into a contiguous slab (one big vector<char>).
+//   2. Build a lightweight index: one BpsSortEntry per line with parsed sort
+//      keys (chr1_id, pos1, strand1, chr2_id, pos2, strand2, maxlod) plus
+//      offset/length into the slab. ~28 bytes per entry.
+//   3. std::sort the index by the same key order as the shell script:
+//      chr1(V), pos1(n), strand1, chr2(V), pos2(n), strand2, maxlod(desc).
+//   4. Single pass over the sorted index to write three gzipped outputs:
+//      - .bps.sorted.txt.gz         (all rows, sorted)
+//      - .bps.sorted.dedup.txt.gz   (first row per unique breakpoint pair)
+//      - .bps.sorted.dedup.pass.txt.gz (PASS only from the dedup set)
+//      - .bps.sorted.dedup.pass.somatic.txt.gz (PASS + somatic)
+//
+// Memory: slab ≈ uncompressed size of bps.txt.gz (typically 25-500 MB for WGS),
+//         index ≈ 28 bytes × N_lines (typically 1-30 MB). Well within modern
+//         machine RAM for even the noisiest runs.
+//
+// Version-sort (V) for chromosome names: we parse chrN → numeric ID using the
+// standard human convention (chr1=1..chr22=22, chrX=23, chrY=24, chrM=25,
+// other=1000+lexicographic). This matches GNU sort -V on chr-prefixed names
+// and sorts non-standard contigs at the end.
+
+// Column indices (0-based) in bps.txt.gz. From BreakPoint::header():
+//   0=chr1, 1=pos1, 2=strand1, 3=chr2, 4=pos2, 5=strand2
+//   29=contig_and_region (cname), 31=conf, 35=somatic, 36=somlod, 37=maxlod
+// Note: the shell script uses 1-based cols (30,32,36,37,38).
+constexpr int kBpsCol_Chr1   = 0;
+constexpr int kBpsCol_Pos1   = 1;
+constexpr int kBpsCol_Strand1= 2;
+constexpr int kBpsCol_Chr2   = 3;
+constexpr int kBpsCol_Pos2   = 4;
+constexpr int kBpsCol_Strand2= 5;
+constexpr int kBpsCol_Cname  = 29;  // contig_and_region (join key for r2c)
+constexpr int kBpsCol_Conf   = 31;  // "PASS" / "LOWMAPQ" / etc
+constexpr int kBpsCol_Somatic= 35;  // "0" or "1"
+constexpr int kBpsCol_Somlod = 36;  // somatic log-odds (lower = more conservative)
+constexpr int kBpsCol_Maxlod = 37;
+
+// Parse a chromosome name to a numeric sort key matching GNU sort -V behavior:
+// chr1..chr22 → 1..22, chrX → 23, chrY → 24, chrM → 25.
+// Anything else → 1000 + first 8 chars as a stable hash-like key (for
+// lexicographic ordering among unknowns).
+int chrSortKey(std::string_view name) {
+  // Strip "chr" prefix if present.
+  std::string_view base = name;
+  if (base.size() > 3 && base[0] == 'c' && base[1] == 'h' && base[2] == 'r')
+    base = base.substr(3);
+
+  if (base == "X") return 23;
+  if (base == "Y") return 24;
+  if (base == "M" || base == "MT") return 25;
+
+  // Try parsing as integer.
+  int val = 0;
+  bool is_num = true;
+  for (char c : base) {
+    if (c >= '0' && c <= '9') val = val * 10 + (c - '0');
+    else { is_num = false; break; }
+  }
+  if (is_num && val >= 1 && val <= 22) return val;
+
+  // Unknown chromosome — use a stable ordering based on the string.
+  // We want deterministic sort so use a simple djb2-ish hash that
+  // preserves lexicographic ordering for short strings.
+  // Actually just use 1000 + lexicographic comparison in the comparator.
+  return 1000;  // all unknowns tie here; comparator breaks tie lexicographically
+}
+
+struct BpsSortEntry {
+  int32_t  chr1_key;    // chrSortKey(chr1)
+  int32_t  pos1;
+  int32_t  chr2_key;
+  int32_t  pos2;
+  char     strand1;
+  char     strand2;
+  float    maxlod;      // for descending sort; float precision is fine
+  float    somlod;      // somatic LOD; used for dedup tie-breaking (keep lowest)
+  uint32_t offset;      // byte offset into slab
+  uint32_t length;      // line length (excl newline)
+  // For tie-breaking unknown chromosomes lexicographically, we store
+  // short views. These point into the slab, so they're valid as long as
+  // the slab is alive.
+  std::string_view chr1_name;
+  std::string_view chr2_name;
+};
+
+// Comparator: chr1(V asc), pos1(n asc), strand1(asc), chr2(V asc), pos2(n asc),
+//             strand2(asc), maxlod(desc).
+struct BpsSortCmp {
+  bool operator()(const BpsSortEntry& a, const BpsSortEntry& b) const {
+    if (a.chr1_key != b.chr1_key) return a.chr1_key < b.chr1_key;
+    // Tie-break unknowns lexicographically.
+    if (a.chr1_key >= 1000 && a.chr1_name != b.chr1_name)
+      return a.chr1_name < b.chr1_name;
+    if (a.pos1 != b.pos1) return a.pos1 < b.pos1;
+    if (a.strand1 != b.strand1) return a.strand1 < b.strand1;
+    if (a.chr2_key != b.chr2_key) return a.chr2_key < b.chr2_key;
+    if (a.chr2_key >= 1000 && a.chr2_name != b.chr2_name)
+      return a.chr2_name < b.chr2_name;
+    if (a.pos2 != b.pos2) return a.pos2 < b.pos2;
+    if (a.strand2 != b.strand2) return a.strand2 < b.strand2;
+    // maxlod descending (so highest comes first within same breakpoint pair).
+    return a.maxlod > b.maxlod;
+  }
+};
+
+// Get the Nth tab-separated field from a line (0-based). Returns empty view
+// if col is out of range.
+std::string_view getField(const char* line, uint32_t len, int col) {
+  const char* p = line;
+  const char* end = line + len;
+  int cur = 0;
+  while (cur < col && p < end) {
+    if (*p == '\t') ++cur;
+    ++p;
+  }
+  if (cur < col) return {};
+  const char* start = p;
+  while (p < end && *p != '\t') ++p;
+  return std::string_view(start, p - start);
+}
+
+// Parse an integer from a string_view. Returns 0 on failure.
+int32_t parseInt(std::string_view sv) {
+  int32_t val = 0;
+  bool neg = false;
+  size_t i = 0;
+  if (!sv.empty() && sv[0] == '-') { neg = true; i = 1; }
+  for (; i < sv.size(); ++i) {
+    char c = sv[i];
+    if (c < '0' || c > '9') break;
+    val = val * 10 + (c - '0');
+  }
+  return neg ? -val : val;
+}
+
+// Parse a float from a string_view. Returns 0 on failure or "NA".
+float parseFloat(std::string_view sv) {
+  if (sv.empty() || sv == "NA" || sv == "na") return -1e30f;  // sorts last
+  // Use strtof on a null-terminated copy (string_view isn't guaranteed null-term).
+  char buf[32];
+  size_t n = std::min(sv.size(), size_t(31));
+  std::memcpy(buf, sv.data(), n);
+  buf[n] = '\0';
+  return std::strtof(buf, nullptr);
+}
+
+// Main bps sort/dedup/filter. Returns number of data lines processed.
+// Writes up to 4 output files:
+//   ${id}.bps.sorted.txt.gz
+//   ${id}.bps.sorted.dedup.txt.gz
+//   ${id}.bps.sorted.dedup.pass.txt.gz
+//   ${id}.bps.sorted.dedup.pass.somatic.txt.gz
+// Populates pass_cnames / som_cnames with cnames of PASS / PASS+somatic
+// winners (for downstream r2c filtering).
+size_t sortDedupFilterBps(const std::string& id, int verbose,
+                          std::unordered_set<std::string>& pass_cnames,
+                          std::unordered_set<std::string>& som_cnames) {
+  // Find the input: try .bps.txt.gz first, then .bps.txt
+  const std::string gz_path  = id + ".bps.txt.gz";
+  const std::string txt_path = id + ".bps.txt";
+
+  std::string in_path;
+  bool is_gzipped = false;
+  if (fileExists(gz_path))       { in_path = gz_path;  is_gzipped = true; }
+  else if (fileExists(txt_path)) { in_path = txt_path; is_gzipped = false; }
+  else {
+    if (verbose >= 1)
+      logLine("[bps] skipping: neither ", gz_path, " nor ", txt_path, " found");
+    return 0;
+  }
+
+  logLine("[bps] sort + dedup + filter: ", in_path);
+  const auto t0 = std::chrono::steady_clock::now();
+
+  // --- Step 1: decompress into slab + build index --------------------------
+  // Read the file line by line. We use gzFile (from zlib/htslib) for .gz,
+  // or plain ifstream for .txt.
+  std::vector<char> slab;
+  std::vector<BpsSortEntry> index;
+  std::string header_line;
+
+  // Reserve a rough estimate. Typical bps: 200k lines × 500 bytes = 100 MB.
+  slab.reserve(64 * 1024 * 1024);  // 64 MB initial
+  index.reserve(200000);
+
+  // Use zlib's gzFile for reading (available via htslib linkage).
+  gzFile gz = nullptr;
+  if (is_gzipped) {
+    gz = gzopen(in_path.c_str(), "rb");
+    if (!gz) throw std::runtime_error("bps: cannot gzopen " + in_path);
+    // Set a large internal buffer for better decompression throughput.
+    gzbuffer(gz, 256 * 1024);
+  }
+  std::ifstream plain_in;
+  if (!is_gzipped) {
+    plain_in.open(in_path, std::ios::binary);
+    if (!plain_in) throw std::runtime_error("bps: cannot open " + in_path);
+  }
+
+  // Line reading buffer.
+  std::vector<char> linebuf(8192);
+  size_t n_lines = 0;
+
+  auto readLine = [&](std::string& out) -> bool {
+    out.clear();
+    if (is_gzipped) {
+      while (true) {
+        if (!gzgets(gz, linebuf.data(), static_cast<int>(linebuf.size())))
+          return !out.empty();
+        out.append(linebuf.data());
+        if (!out.empty() && out.back() == '\n') { out.pop_back(); return true; }
+        // Line longer than buffer — keep reading.
+      }
+    } else {
+      if (!std::getline(plain_in, out)) return false;
+      // Strip trailing \r if present (Windows line endings).
+      if (!out.empty() && out.back() == '\r') out.pop_back();
+      return true;
+    }
+  };
+
+  std::string line;
+  while (readLine(line)) {
+    // Header line (starts with #) — save and skip.
+    if (n_lines == 0 && !line.empty() && line[0] == '#') {
+      header_line = line;
+      continue;
+    }
+    ++n_lines;
+
+    // Append line to slab.
+    uint32_t offset = static_cast<uint32_t>(slab.size());
+    uint32_t length = static_cast<uint32_t>(line.size());
+    slab.insert(slab.end(), line.begin(), line.end());
+
+    // Parse sort key fields from the slab (points into slab are stable because
+    // we reserved upfront — but actually vector can realloc. We'll fix views
+    // after loading is done. For now store offset/length and parse at the end.)
+    // Actually: parse from `line` directly for key extraction, then store
+    // offset/length. The string_view fields (chr names) will be fixed up
+    // to point into the slab after all lines are loaded.
+    BpsSortEntry entry{};
+    entry.offset = offset;
+    entry.length = length;
+
+    // Parse fields from `line` (still alive).
+    auto f_chr1   = getField(line.data(), length, kBpsCol_Chr1);
+    auto f_pos1   = getField(line.data(), length, kBpsCol_Pos1);
+    auto f_strand1= getField(line.data(), length, kBpsCol_Strand1);
+    auto f_chr2   = getField(line.data(), length, kBpsCol_Chr2);
+    auto f_pos2   = getField(line.data(), length, kBpsCol_Pos2);
+    auto f_strand2= getField(line.data(), length, kBpsCol_Strand2);
+    auto f_maxlod = getField(line.data(), length, kBpsCol_Maxlod);
+    auto f_somlod = getField(line.data(), length, kBpsCol_Somlod);
+
+    entry.chr1_key = chrSortKey(f_chr1);
+    entry.pos1     = parseInt(f_pos1);
+    entry.strand1  = f_strand1.empty() ? '+' : f_strand1[0];
+    entry.chr2_key = chrSortKey(f_chr2);
+    entry.pos2     = parseInt(f_pos2);
+    entry.strand2  = f_strand2.empty() ? '+' : f_strand2[0];
+    entry.maxlod   = parseFloat(f_maxlod);
+    entry.somlod   = parseFloat(f_somlod);
+    // chr_name views will be set after slab is finalized (no more reallocs).
+    entry.chr1_name = {};
+    entry.chr2_name = {};
+
+    index.push_back(entry);
+  }
+
+  if (gz) gzclose(gz);
+
+  // Fix up string_view fields to point into the finalized slab.
+  for (auto& e : index) {
+    const char* base = slab.data() + e.offset;
+    e.chr1_name = getField(base, e.length, kBpsCol_Chr1);
+    e.chr2_name = getField(base, e.length, kBpsCol_Chr2);
+  }
+
+  if (verbose >= 1)
+    logLine("[bps] loaded ", n_lines, " data lines (",
+            slab.size() / (1024 * 1024), " MB slab, ",
+            index.size() * sizeof(BpsSortEntry) / (1024 * 1024), " MB index)");
+
+  // --- Step 2: sort --------------------------------------------------------
+  {
+    const auto ts = std::chrono::steady_clock::now();
+    std::sort(index.begin(), index.end(), BpsSortCmp{});
+    const double sort_sec = std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - ts).count();
+    if (verbose >= 1)
+      logLine("[bps] sorted in ", std::fixed, std::setprecision(2), sort_sec, "s");
+  }
+
+  // --- Step 3: write outputs (sorted, dedup, pass, somatic) ----------------
+  const std::string out_sorted  = id + ".bps.sorted.txt.gz";
+  const std::string out_dedup   = id + ".bps.sorted.dedup.txt.gz";
+  const std::string out_pass    = id + ".bps.sorted.dedup.pass.txt.gz";
+  const std::string out_som     = id + ".bps.sorted.dedup.pass.somatic.txt.gz";
+
+  gzFile gz_sorted = gzopen(out_sorted.c_str(), "wb");
+  gzFile gz_dedup  = gzopen(out_dedup.c_str(),  "wb");
+  gzFile gz_pass   = gzopen(out_pass.c_str(),   "wb");
+  gzFile gz_som    = gzopen(out_som.c_str(),    "wb");
+
+  if (!gz_sorted || !gz_dedup || !gz_pass || !gz_som)
+    throw std::runtime_error("bps: cannot open one or more output gz files");
+
+  // Write header to all outputs.
+  auto writeHeader = [&](gzFile f) {
+    if (!header_line.empty()) {
+      gzwrite(f, header_line.data(), static_cast<unsigned>(header_line.size()));
+      gzwrite(f, "\n", 1);
+    }
+  };
+  writeHeader(gz_sorted);
+  writeHeader(gz_dedup);
+  writeHeader(gz_pass);
+  writeHeader(gz_som);
+
+  // Dedup: keep one representative per breakpoint PAIR, canonicalized so
+  // that AB == BA. An SV at chr1:100+ ↔ chr5:900- can be emitted from two
+  // overlapping assembly windows with the breakends in either order:
+  //   row A: chr1 100 + chr5 900 -
+  //   row B: chr5 900 - chr1 100 +
+  // The old shell-script dedup used adjacent-comparison on the raw key and
+  // missed this. We canonicalize: always put the "lesser" breakend first
+  // (compare chr_key, then pos, then strand), then pick the representative
+  // with the LOWEST somlod — conservative against calling germline events
+  // as somatic. If somlod ties, prefer higher maxlod.
+  //
+  // Two-pass approach:
+  //   Pass 1: for each canonical pair, find the index of the winner (lowest
+  //           somlod) and store it in a set.
+  //   Pass 2: walk sorted index, write all rows to sorted output; write
+  //           only winners to dedup/pass/somatic outputs.
+
+  struct CanonicalKey {
+    int32_t chr_a_key, pos_a, chr_b_key, pos_b;
+    char strand_a, strand_b;
+
+    bool operator==(const CanonicalKey& o) const {
+      return chr_a_key == o.chr_a_key && pos_a == o.pos_a &&
+             strand_a == o.strand_a &&
+             chr_b_key == o.chr_b_key && pos_b == o.pos_b &&
+             strand_b == o.strand_b;
+    }
+  };
+
+  struct CanonicalKeyHash {
+    size_t operator()(const CanonicalKey& k) const {
+      size_t h = std::hash<int32_t>{}(k.chr_a_key);
+      h ^= std::hash<int32_t>{}(k.pos_a) + 0x9e3779b9 + (h << 6) + (h >> 2);
+      h ^= std::hash<int32_t>{}(k.chr_b_key) + 0x9e3779b9 + (h << 6) + (h >> 2);
+      h ^= std::hash<int32_t>{}(k.pos_b) + 0x9e3779b9 + (h << 6) + (h >> 2);
+      h ^= std::hash<char>{}(k.strand_a) + 0x9e3779b9 + (h << 6) + (h >> 2);
+      h ^= std::hash<char>{}(k.strand_b) + 0x9e3779b9 + (h << 6) + (h >> 2);
+      return h;
+    }
+  };
+
+  // Canonicalize: put the "lesser" breakend as A.
+  auto makeCanonical = [](const BpsSortEntry& e) -> CanonicalKey {
+    bool swap = false;
+    if (e.chr1_key != e.chr2_key)
+      swap = e.chr1_key > e.chr2_key;
+    else if (e.pos1 != e.pos2)
+      swap = e.pos1 > e.pos2;
+    else
+      swap = e.strand1 > e.strand2;
+
+    if (!swap)
+      return {e.chr1_key, e.pos1, e.chr2_key, e.pos2, e.strand1, e.strand2};
+    else
+      return {e.chr2_key, e.pos2, e.chr1_key, e.pos1, e.strand2, e.strand1};
+  };
+
+  // --- Pass 1: select winners (lowest somlod per canonical pair) -----------
+  // Map canonical key → index into `index` vector of the best row.
+  std::unordered_map<CanonicalKey, size_t, CanonicalKeyHash> winners;
+  winners.reserve(index.size() / 2);
+
+  for (size_t i = 0; i < index.size(); ++i) {
+    CanonicalKey ckey = makeCanonical(index[i]);
+    auto [it, inserted] = winners.try_emplace(ckey, i);
+    if (!inserted) {
+      // Already have a candidate — replace if this row has lower somlod,
+      // or same somlod but higher maxlod (better evidence it's real).
+      const auto& cur_best = index[it->second];
+      const auto& challenger = index[i];
+      if (challenger.somlod < cur_best.somlod ||
+          (challenger.somlod == cur_best.somlod &&
+           challenger.maxlod > cur_best.maxlod)) {
+        it->second = i;
+      }
+    }
+  }
+
+  // Build a fast lookup: is index[i] a winner?
+  std::vector<bool> is_winner(index.size(), false);
+  for (const auto& [key, idx] : winners)
+    is_winner[idx] = true;
+
+  if (verbose >= 1)
+    logLine("[bps] dedup: ", index.size(), " rows -> ", winners.size(),
+            " unique canonical pairs (lowest-somlod selection)");
+
+  // --- Pass 2: write outputs -----------------------------------------------
+  size_t n_sorted = 0, n_dedup = 0, n_pass = 0, n_som = 0;
+
+  for (size_t i = 0; i < index.size(); ++i) {
+    const auto& e = index[i];
+    const char* line_ptr = slab.data() + e.offset;
+    uint32_t line_len = e.length;
+
+    // Write to sorted output (all rows, no dedup).
+    gzwrite(gz_sorted, line_ptr, static_cast<unsigned>(line_len));
+    gzwrite(gz_sorted, "\n", 1);
+    ++n_sorted;
+
+    // Only winners go to dedup/pass/somatic.
+    if (!is_winner[i])
+      continue;
+
+    // Write to dedup output.
+    gzwrite(gz_dedup, line_ptr, static_cast<unsigned>(line_len));
+    gzwrite(gz_dedup, "\n", 1);
+    ++n_dedup;
+
+    // Check PASS.
+    auto conf = getField(line_ptr, line_len, kBpsCol_Conf);
+    if (conf != "PASS")
+      continue;
+
+    gzwrite(gz_pass, line_ptr, static_cast<unsigned>(line_len));
+    gzwrite(gz_pass, "\n", 1);
+    ++n_pass;
+
+    // Collect cname for r2c filtering.
+    auto cname = getField(line_ptr, line_len, kBpsCol_Cname);
+    if (!cname.empty())
+      pass_cnames.emplace(cname);
+
+    // Check somatic.
+    auto somatic = getField(line_ptr, line_len, kBpsCol_Somatic);
+    if (somatic == "1") {
+      gzwrite(gz_som, line_ptr, static_cast<unsigned>(line_len));
+      gzwrite(gz_som, "\n", 1);
+      ++n_som;
+      if (!cname.empty())
+        som_cnames.emplace(cname);
+    }
+  }
+
+  gzclose(gz_sorted);
+  gzclose(gz_dedup);
+  gzclose(gz_pass);
+  gzclose(gz_som);
+
+  const double elapsed = std::chrono::duration<double>(
+      std::chrono::steady_clock::now() - t0).count();
+  logLine("[bps] done in ", std::fixed, std::setprecision(1), elapsed, "s: ",
+          n_sorted, " sorted, ", n_dedup, " dedup, ",
+          n_pass, " pass, ", n_som, " somatic");
+
+  return n_lines;
+}
+
+// ---------- r2c.txt.gz PASS / somatic filter ----------
+//
+// Streams ${id}.r2c.txt.gz and writes two filtered outputs:
+//   ${id}.r2c.pass.txt.gz          — rows for PASS contigs
+//   ${id}.r2c.pass.somatic.txt.gz  — rows for PASS+somatic contigs
+//
+// The r2c TSV has record_type in col 0 and contig_name in col 1.
+// Both "contig" and "read" rows share the same contig_name (col 1),
+// so filtering on col 1 membership in the cname set keeps contig+read
+// rows together. The header row (first line) goes to both outputs.
+
+constexpr int kR2cCol_RecordType = 0;
+constexpr int kR2cCol_ContigName = 1;
+
+size_t filterR2c(const std::string& id,
+                 const std::unordered_set<std::string>& pass_cnames,
+                 const std::unordered_set<std::string>& som_cnames,
+                 int verbose) {
+  const std::string in_path = id + ".r2c.txt.gz";
+  if (!fileExists(in_path)) {
+    if (verbose >= 1)
+      logLine("[r2c] skipping: ", in_path, " not found");
+    return 0;
+  }
+
+  if (pass_cnames.empty()) {
+    if (verbose >= 1)
+      logLine("[r2c] skipping: no PASS cnames to filter on");
+    return 0;
+  }
+
+  logLine("[r2c] filtering ", in_path, " (",
+          pass_cnames.size(), " PASS cnames, ",
+          som_cnames.size(), " somatic cnames)");
+  const auto t0 = std::chrono::steady_clock::now();
+
+  const std::string out_pass = id + ".r2c.pass.txt.gz";
+  const std::string out_som  = id + ".r2c.pass.somatic.txt.gz";
+
+  gzFile gz_in   = gzopen(in_path.c_str(), "rb");
+  gzFile gz_pass = gzopen(out_pass.c_str(), "wb1");  // level 1: ~3x faster compress
+  gzFile gz_som  = gzopen(out_som.c_str(),  "wb1");
+
+  if (!gz_in || !gz_pass || !gz_som)
+    throw std::runtime_error("r2c filter: cannot open input/output gz files");
+
+  gzbuffer(gz_in,   256 * 1024);
+  gzbuffer(gz_pass, 256 * 1024);
+  gzbuffer(gz_som,  256 * 1024);
+
+  // Line reading with arbitrary-length support.
+  std::vector<char> linebuf(8192);
+  std::string line;
+
+  auto readLine = [&]() -> bool {
+    line.clear();
+    while (true) {
+      if (!gzgets(gz_in, linebuf.data(), static_cast<int>(linebuf.size())))
+        return !line.empty();
+      line.append(linebuf.data());
+      if (!line.empty() && line.back() == '\n') { line.pop_back(); return true; }
+    }
+  };
+
+  size_t n_in = 0, n_pass = 0, n_som = 0;
+  bool first_line = true;
+
+  // Cache: r2c rows are grouped by contig (one contig row then its read rows).
+  // Avoid repeated hash lookups for the same cname by caching the last result.
+  std::string last_cname;
+  bool last_in_pass = false;
+  bool last_in_som  = false;
+
+  while (readLine()) {
+    ++n_in;
+
+    // Header line — write to both outputs.
+    if (first_line) {
+      first_line = false;
+      // Detect header: starts with "record_type" or "#"
+      if (!line.empty() && (line[0] == '#' || line.rfind("record_type", 0) == 0)) {
+        gzwrite(gz_pass, line.data(), static_cast<unsigned>(line.size()));
+        gzwrite(gz_pass, "\n", 1);
+        gzwrite(gz_som, line.data(), static_cast<unsigned>(line.size()));
+        gzwrite(gz_som, "\n", 1);
+        continue;
+      }
+      // Not a header — fall through to normal processing.
+    }
+
+    // Get contig_name (col 1).
+    auto cname_sv = getField(line.data(), static_cast<uint32_t>(line.size()),
+                             kR2cCol_ContigName);
+    if (cname_sv.empty())
+      continue;
+
+    // Check cache — avoid hash lookup when consecutive rows share a cname
+    // (which they almost always do: one contig row + N read rows).
+    if (cname_sv != last_cname) {
+      last_cname.assign(cname_sv);
+      last_in_pass = pass_cnames.count(last_cname) > 0;
+      last_in_som  = last_in_pass && som_cnames.count(last_cname) > 0;
+    }
+
+    if (last_in_pass) {
+      gzwrite(gz_pass, line.data(), static_cast<unsigned>(line.size()));
+      gzwrite(gz_pass, "\n", 1);
+      ++n_pass;
+
+      if (last_in_som) {
+        gzwrite(gz_som, line.data(), static_cast<unsigned>(line.size()));
+        gzwrite(gz_som, "\n", 1);
+        ++n_som;
+      }
+    }
+  }
+
+  gzclose(gz_in);
+  gzclose(gz_pass);
+  gzclose(gz_som);
+
+  const double elapsed = std::chrono::duration<double>(
+      std::chrono::steady_clock::now() - t0).count();
+  logLine("[r2c] done in ", std::fixed, std::setprecision(1), elapsed, "s: ",
+          n_in, " rows in, ", n_pass, " pass, ", n_som, " somatic");
+
+  return n_in;
+}
 
 // ---------- @PG stamping ----------
 //
@@ -331,8 +1189,10 @@ SeqLib::BamHeader stampedHeader(const SeqLib::BamHeader& src,
 // SeqLib::BamHeader. The BamReader is closed on scope exit.
 SeqLib::BamHeader readHeaderOnly(const std::string& bam) {
   SeqLib::BamReader r;
-  if (!r.Open(bam))
-    throw std::runtime_error("reheader: cannot open " + bam);
+  { SuppressStderr quiet;
+    if (!r.Open(bam))
+      throw std::runtime_error("reheader: cannot open " + bam);
+  }
   return r.Header();
 }
 
@@ -581,8 +1441,10 @@ DedupStats streamDedup(const std::string& in_bam,
   const off_t in_size = fileSize(in_bam);
 
   SeqLib::BamReader r;
-  if (!r.Open(in_bam))
-    throw std::runtime_error("dedup: cannot open input " + in_bam);
+  { SuppressStderr quiet;
+    if (!r.Open(in_bam))
+      throw std::runtime_error("dedup: cannot open input " + in_bam);
+  }
   // Enable BGZF decompression thread pool on the reader. Must happen
   // after Open() (where fp_ is populated) and before the first Next().
   // Typical 3–5x end-to-end speedup at threads=4..8 on dense BAMs,
@@ -933,6 +1795,127 @@ void processSuffix(const std::string& id,
   }
 }
 
+// ==========================================================================
+// Phase 5: split-by-source — demux each dedup-eligible BAM by the first 4
+// characters of QNAME into per-prefix BAMs, then sort + index each.
+// ==========================================================================
+
+void splitBySource(const std::string& id, const std::string& suffix,
+                   int threads, const std::string& mem, int verbose) {
+  const std::string input_bam = id + "." + suffix + ".bam";
+  if (!fileExists(input_bam)) {
+    if (verbose >= 1)
+      std::cerr << "  [split/" << suffix << "] no input BAM, skipping"
+                << std::endl;
+    return;
+  }
+
+  if (verbose >= 1)
+    std::cerr << "  [split/" << suffix << "] reading " << input_bam
+              << std::endl;
+
+  // Open input (suppress missing-index warning — we only need sequential access)
+  SeqLib::BamReader reader;
+  { SuppressStderr quiet;
+    if (!reader.Open(input_bam)) {
+      std::cerr << "  [split/" << suffix << "] ERROR: cannot open " << input_bam
+                << std::endl;
+      return;
+    }
+  }
+  const SeqLib::BamHeader& hdr = reader.Header();
+
+  // Single-pass approach: open writers on-demand as new prefixes are
+  // encountered. Each prefix gets its own unsorted tmp BAM.
+  std::unordered_map<std::string, std::unique_ptr<SeqLib::BamWriter>> writers;
+  std::unordered_map<std::string, std::string> tmp_paths;  // prefix -> tmp path
+
+  size_t n_records = 0;
+  while (auto rec = reader.Next()) {
+    std::string qname = rec->Qname();
+    std::string prefix = qname.substr(0, std::min<size_t>(4, qname.size()));
+
+    auto it = writers.find(prefix);
+    if (it == writers.end()) {
+      // Open a new writer for this prefix
+      std::string out_path = id + "." + suffix + "." + prefix
+                             + ".postprocess.split.tmp.bam";
+      auto w = std::make_unique<SeqLib::BamWriter>();
+      w->Open(out_path);
+      w->SetHeader(hdr);
+      w->WriteHeader();
+      writers[prefix] = std::move(w);
+      tmp_paths[prefix] = out_path;
+    }
+    writers[prefix]->WriteRecord(*rec);
+    ++n_records;
+
+    if (verbose >= 2 && (n_records % 5000000) == 0)
+      std::cerr << "  [split/" << suffix << "] " << n_records
+                << " records routed to " << writers.size()
+                << " prefixes" << std::endl;
+  }
+  reader.Close();
+
+  if (verbose >= 1)
+    std::cerr << "  [split/" << suffix << "] " << n_records
+              << " records -> " << writers.size() << " prefixes" << std::endl;
+
+  // Close all writers
+  for (auto& [pfx, w] : writers)
+    w->Close();
+  writers.clear();
+
+  // Sort + index each prefix BAM
+  int n_sorted = 0;
+  for (auto& [prefix, tmp_path] : tmp_paths) {
+    const std::string final_path = id + "." + suffix + "." + prefix + ".bam";
+
+    // Sort via samtools
+    std::ostringstream cmd;
+    cmd << "samtools sort"
+        << " -@ " << threads
+        << " -m " << mem
+        << " -o " << final_path
+        << " " << tmp_path;
+
+    if (verbose >= 2)
+      std::cerr << "  [split/" << suffix << "/" << prefix << "] "
+                << cmd.str() << std::endl;
+
+    int rc = std::system(cmd.str().c_str());
+    if (rc != 0) {
+      std::cerr << "  [split/" << suffix << "/" << prefix
+                << "] ERROR: samtools sort failed (rc=" << rc << ")"
+                << std::endl;
+      // Clean up tmp and skip indexing
+      std::remove(tmp_path.c_str());
+      continue;
+    }
+
+    // Remove tmp
+    std::remove(tmp_path.c_str());
+
+    // Index
+    int idx_rc = sam_index_build(final_path.c_str(), 0);
+    if (idx_rc != 0) {
+      std::cerr << "  [split/" << suffix << "/" << prefix
+                << "] WARNING: index build failed for " << final_path
+                << std::endl;
+    }
+
+    ++n_sorted;
+    if (verbose >= 2)
+      std::cerr << "  [split/" << suffix << "/" << prefix << "] done -> "
+                << final_path << std::endl;
+  }
+
+  if (verbose >= 1)
+    std::cerr << "  [split/" << suffix << "] sorted+indexed "
+              << n_sorted << "/" << tmp_paths.size() << " prefix BAMs"
+              << std::endl;
+}
+
 }  // namespace
 
 void runPostprocess(int argc, char** argv) {
@@ -944,6 +1927,12 @@ void runPostprocess(int argc, char** argv) {
   for (int i = 0; i < argc; ++i) { cl.push_back(' '); cl += argv[i]; }
 
   const Opts o = parseOpts(argc, argv);
+
+  // --- Phase 0: merge per-thread outputs ---------------------------------
+  // Must run BEFORE active-suffix detection, since merge creates the single
+  // ${ID}.${suffix}.bam files that the subsequent phases operate on.
+  // Auto-detects per-thread files by glob; no-ops if none found.
+  runMergePhase(o.id, o.threads, o.verbose);
 
   // Pick active suffixes — only the ones whose BAM actually exists. No point
   // reserving a thread budget slice for a missing file.
@@ -986,22 +1975,6 @@ void runPostprocess(int argc, char** argv) {
               << "\n  active: " << act.str() << std::endl;
   }
 
-  // One-shot note so users don't chase the htslib "[E::idx_find_and_load]"
-  // lines that will appear below. Those come from SeqLib::BamReader::Open
-  // (called by streamDedup and by readHeaderOnly inside reheaderBamWithPg)
-  // eagerly trying to load a .bai that doesn't exist yet — we sort first,
-  // then rewrite (dedup or reheader), then build the .bai at the very end.
-  // Every read path here is sequential, so the missing index is irrelevant
-  // to correctness. We print this once, before spawning workers, and leave
-  // htslib's own logging alone so genuine warnings (corrupt records,
-  // permission errors, out-of-space, etc.) still surface visibly.
-  std::cerr << "svaba postprocess: NOTE — the following "
-               "\"[E::idx_find_and_load] Could not retrieve index file ...\" "
-               "lines from htslib are expected and can be ignored. "
-               ".bai files are built as the final step of each suffix's "
-               "pipeline, not before the read passes that produce them."
-            << std::endl;
-
   // Two-phase execution:
   //
   //   Phase 1 (PARALLEL): run samtools sort across all active suffixes
@@ -1027,7 +2000,7 @@ void runPostprocess(int argc, char** argv) {
   // --- Phase 1: parallel sort ----------------------------------------
   if (!o.dedup_only) {
     if (o.verbose >= 1)
-      std::cerr << "svaba postprocess: phase 1/2 — parallel sort across "
+      std::cerr << "svaba postprocess: phase 1 — parallel sort across "
                 << active.size() << " suffixes ("
                 << per_job_sort_t << " threads each)" << std::endl;
     std::vector<std::thread> workers;
@@ -1051,7 +2024,7 @@ void runPostprocess(int argc, char** argv) {
   // --- Phase 2: serial dedup + reheader + index ----------------------
   // `o.threads` per invocation — one BAM at a time gets the whole budget.
   if (o.verbose >= 1)
-    std::cerr << "svaba postprocess: phase 2/2 — serial dedup+reheader+index"
+    std::cerr << "svaba postprocess: phase 2 — serial dedup+reheader+index"
               << " (" << o.threads << " threads per BAM)" << std::endl;
   for (const auto& suffix : active) {
     processSuffix(
@@ -1067,7 +2040,30 @@ void runPostprocess(int argc, char** argv) {
   }
 
   if (o.verbose >= 1)
-    std::cerr << "svaba postprocess: all suffixes done (sorted"
+    std::cerr << "svaba postprocess: BAM processing done (sorted"
               << (o.sort_only ? "" : ", deduped where applicable")
               << ", PG-stamped, indexed)" << std::endl;
+
+  // --- Phase 3: sort + dedup + filter bps.txt.gz -------------------------
+  // Auto-detects bps.txt.gz (or .bps.txt); no-ops if absent.
+  // Collects PASS/somatic cname sets for Phase 4 r2c filtering.
+  std::unordered_set<std::string> pass_cnames, som_cnames;
+  sortDedupFilterBps(o.id, o.verbose, pass_cnames, som_cnames);
+
+  // --- Phase 4: filter r2c.txt.gz to PASS / PASS+somatic contigs ----------
+  // Auto-detects r2c.txt.gz; no-ops if absent or no PASS cnames.
+  filterR2c(o.id, pass_cnames, som_cnames, o.verbose);
+
+  // --- Phase 5: split-by-source (optional, --split) --------------------------
+  // Demux each dedup-eligible BAM by the first 4 chars of QNAME.
+  if (o.split) {
+    if (o.verbose >= 1)
+      std::cerr << "svaba postprocess: phase 5 — split-by-source" << std::endl;
+    for (const auto& suffix : kDedupSuffixes) {
+      splitBySource(o.id, suffix, o.threads, o.mem, o.verbose);
+    }
+  }
+
+  if (o.verbose >= 1)
+    std::cerr << "svaba postprocess: done" << std::endl;
 }
