@@ -165,42 +165,109 @@ void R2CDatabase::commit() {
   }
 }
 
+void R2CDatabase::checkpoint_truncate() {
+  if (!open_ || !db_) return;
+  // PRAGMA wal_checkpoint(TRUNCATE):
+  //   1. flush every committed WAL frame into the main .db file, then
+  //   2. truncate the -wal file to zero bytes.
+  // Should be called outside any active transaction (a transaction
+  // would block step 1 the same way it blocks DETACH). The postprocess
+  // merge calls commit() afterward to close the outer txn before
+  // close(); checkpoint -> commit -> close is the safe sequence.
+  //
+  // We need the txn closed before the pragma — open one if we don't
+  // already have one closed, then re-begin so commit() afterward is
+  // still a valid call. Pragmatic approach: temporarily commit, run
+  // checkpoint, leave the txn closed (caller's commit() will be a
+  // no-op since the txn is already gone — but exec("COMMIT;") on a
+  // db with no open txn errors. So we re-begin to keep commit()
+  // valid.)
+  exec("COMMIT;");
+  exec("PRAGMA wal_checkpoint(TRUNCATE);");
+  exec("BEGIN TRANSACTION;");
+}
+
 void R2CDatabase::merge_from(const std::string& other_path) {
   if (!open_ || !db_)
     throw std::runtime_error("R2CDatabase::merge_from: database not open");
 
-  // ATTACH the other database under a fixed alias `src`. We always
-  // detach in a finally-style cleanup so a partial INSERT failure
-  // doesn't leave stray attachments on the connection.
+  // SQLite restriction worth knowing about: DETACH DATABASE fails while
+  // there's an active transaction that has touched the attached
+  // database. The R2CDatabase ctor opens a long-running transaction
+  // (great for the per-thread insert path's bulk binds, but it
+  // conflicts here). If we just ATTACH/INSERT/DETACH inside the outer
+  // txn, the DETACH silently fails and the next iteration's
+  // `ATTACH ... AS src` collides with the still-attached alias —
+  // producing "database src is already in use" on the second merge.
+  //
+  // Fix: bracket the merge in COMMIT / BEGIN so the DETACH happens
+  // outside any txn that read from src:
+  //
+  //   COMMIT  (close the outer txn the ctor or previous merge_from
+  //            opened)
+  //   ATTACH ... AS src
+  //   BEGIN  (fresh txn for the bulk INSERT...SELECT — same
+  //           write-throughput benefit as the ctor's outer txn)
+  //   INSERT INTO main.contigs SELECT * FROM src.contigs
+  //   INSERT INTO main.reads   SELECT * FROM src.reads
+  //   COMMIT  (close the merge txn — DETACH allowed now)
+  //   DETACH DATABASE src
+  //   BEGIN   (restore outer txn so callers see the same post-ctor
+  //            state regardless of how many merges happened)
+  //
+  // The final BEGIN is what makes a chain of merge_from() calls
+  // composable; the explicit commit() at the end of the merge
+  // ultimately closes that last outer txn. With synchronous=OFF
+  // (set by the ctor) the per-merge fsync cost is negligible.
+
+  exec("COMMIT;");
+
   std::string attach = "ATTACH DATABASE '";
-  // Single-quote escaping for SQL string literal: double any embedded '.
   for (char c : other_path) {
     attach.push_back(c);
-    if (c == '\'') attach.push_back('\'');
+    if (c == '\'') attach.push_back('\'');     // SQL-quote any embedded '
   }
   attach += "' AS src;";
-  exec(attach.c_str());
 
+  bool attached    = false;
   bool inserted_ok = false;
   try {
-    // INSERT OR IGNORE on contigs because cname is the PRIMARY KEY:
-    // duplicates only arise from accidental re-runs and dropping them
-    // is safe (each contig is owned by exactly one worker).
-    exec("INSERT OR IGNORE INTO main.contigs SELECT * FROM src.contigs;");
-    // reads has no uniqueness constraint, so a plain INSERT is fine.
-    exec("INSERT INTO main.reads SELECT * FROM src.reads;");
-    inserted_ok = true;
+    exec(attach.c_str());
+    attached = true;
+
+    exec("BEGIN TRANSACTION;");
+    try {
+      // INSERT OR IGNORE on contigs because cname is the PRIMARY KEY:
+      // duplicates only arise from accidental re-runs and dropping
+      // them is safe (each contig is owned by exactly one worker).
+      exec("INSERT OR IGNORE INTO main.contigs SELECT * FROM src.contigs;");
+      // reads has no uniqueness constraint, so a plain INSERT is fine.
+      exec("INSERT INTO main.reads SELECT * FROM src.reads;");
+      exec("COMMIT;");
+      inserted_ok = true;
+    } catch (...) {
+      try { exec("ROLLBACK;"); } catch (...) { /* ignore */ }
+      throw;
+    }
+
+    exec("DETACH DATABASE src;");
+    attached = false;
   } catch (...) {
-    // Fall through to DETACH; rethrow after cleanup so the caller still
-    // gets the original error.
+    if (attached) {
+      try { exec("DETACH DATABASE src;"); } catch (...) { /* ignore */ }
+    }
+    // Restore the outer txn before bubbling out so the caller's invariant
+    // ("a transaction is open between merges and until commit()") holds
+    // regardless of failure mode.
+    try { exec("BEGIN TRANSACTION;"); } catch (...) { /* ignore */ }
+    if (!inserted_ok)
+      throw std::runtime_error("R2CDatabase::merge_from: insert failed for " +
+                               other_path);
+    throw;
   }
 
-  // Always detach, even on failure.
-  try { exec("DETACH DATABASE src;"); } catch (...) { /* ignore */ }
-
-  if (!inserted_ok)
-    throw std::runtime_error("R2CDatabase::merge_from: insert failed for " +
-                             other_path);
+  // Reopen the outer txn for any subsequent merge_from / commit() call.
+  exec("BEGIN TRANSACTION;");
 }
 
 void R2CDatabase::close() {
@@ -329,6 +396,7 @@ void R2CDatabase::insert_read(const std::string&, const std::string&,
                               const std::string&, const std::string&,
                               double, double, const std::string&) {}
 void R2CDatabase::commit() {}
+void R2CDatabase::checkpoint_truncate() {}
 void R2CDatabase::merge_from(const std::string&) {}
 void R2CDatabase::close() {}
 void R2CDatabase::exec(const char*) {}

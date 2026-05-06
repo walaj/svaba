@@ -96,6 +96,13 @@ public:
   // Commits the open transaction.
   void commit();
 
+  // Force any committed WAL frames into the main .db and truncate the
+  // -wal file to zero bytes. Run before close() on a write-once
+  // database (the postprocess merge target) so the on-disk .db is
+  // self-contained and the -wal / -shm sidecars are content-free,
+  // letting cleanup scripts safely remove them. No-op in stub mode.
+  void checkpoint_truncate();
+
   // Merge another R2CDatabase file (path) into this one. Used by
   // postprocess to coalesce the per-thread .r2c.db files into the final
   // ${ID}.r2c.db. Implementation: ATTACH DATABASE the other file, INSERT

@@ -400,6 +400,17 @@ size_t mergeThreadBams(const std::string& id,
 // (~hundreds of MB/s on local SSD).
 //
 // Per-thread inputs are unlinked on success.
+// Best-effort cleanup of SQLite WAL/SHM sidecars for a given .db path.
+// In WAL mode (PRAGMA journal_mode=WAL), SQLite maintains -wal and -shm
+// sibling files alongside the main .db. After a clean close + checkpoint
+// these only contain coordination state — no real data — so they're
+// safe to remove. We unlink them defensively (errno EACCES / ENOENT are
+// both fine) so a renamed or unlinked main .db doesn't leave orphans.
+void unlinkWalShm(const std::string& db_path) {
+  ::unlink((db_path + "-wal").c_str());
+  ::unlink((db_path + "-shm").c_str());
+}
+
 size_t mergeThreadR2cDbs(const std::string& id, int verbose) {
   if (!R2CDatabase::available()) {
     if (verbose >= 2)
@@ -412,10 +423,15 @@ size_t mergeThreadR2cDbs(const std::string& id, int verbose) {
 
   const std::string target = id + ".r2c.db";
 
-  // Single file — just rename. (No need for SQLite to even open it.)
+  // Single file — just rename. Also clean up any leftover sidecars from
+  // the per-thread run; SQLite will recreate them next time the .db is
+  // opened (and they don't carry data because the worker close()'d
+  // cleanly + checkpointed).
   if (inputs.size() == 1) {
     logLine("[merge] mv ", inputs[0], " -> ", target);
     renameOrThrow(inputs[0], target);
+    unlinkWalShm(inputs[0]);   // orphans of the renamed file
+    unlinkWalShm(target);      // any pre-existing target sidecars
     return 1;
   }
 
@@ -434,6 +450,9 @@ size_t mergeThreadR2cDbs(const std::string& id, int verbose) {
   // R2CDatabase which begins a fresh transaction over the existing
   // tables and runs merge_from() per remaining input.
   renameOrThrow(inputs[0], target);
+  // The renamed file's old -wal/-shm siblings now point at a path that
+  // doesn't exist anymore. Drop them so SQLite starts fresh on `target`.
+  unlinkWalShm(inputs[0]);
 
   R2CDatabase out(target);
   for (size_t k = 1; k < inputs.size(); ++k) {
@@ -441,12 +460,28 @@ size_t mergeThreadR2cDbs(const std::string& id, int verbose) {
       logLine("[merge] r2c: attaching ", inputs[k]);
     out.merge_from(inputs[k]);
   }
+  // PRAGMA wal_checkpoint(TRUNCATE) forces all WAL frames into the main
+  // .db and shrinks the WAL to zero bytes. Without this, on macOS the
+  // -wal file sometimes persists at non-zero size after close even
+  // though the .db is self-contained — confusing for users who copy
+  // the .db elsewhere.
+  out.checkpoint_truncate();
   out.commit();
   out.close();
 
-  // Unlink the per-thread inputs we copied in (the first was renamed).
-  for (size_t k = 1; k < inputs.size(); ++k)
+  // Unlink the per-thread inputs we copied in (the first was renamed
+  // above). Also clean up their -wal/-shm sidecars so the working dir
+  // doesn't accumulate stale sqlite coordination files.
+  for (size_t k = 1; k < inputs.size(); ++k) {
     ::unlink(inputs[k].c_str());
+    unlinkWalShm(inputs[k]);
+  }
+
+  // Final cleanup of the merged target's sidecars. After
+  // wal_checkpoint(TRUNCATE) + commit + close, both files are content-
+  // free and removable. Re-opening the .db (sqlite3 CLI, sql.js, etc.)
+  // will recreate them as needed.
+  unlinkWalShm(target);
 
   const double elapsed = std::chrono::duration<double>(
       std::chrono::steady_clock::now() - t0).count();

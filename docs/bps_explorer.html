@@ -61,10 +61,27 @@ body{font-family:'SF Mono','Fira Code','Consolas',monospace;background:var(--bg)
 
 /* Table */
 .table-wrap{overflow:auto;background:var(--surface);border:1px solid var(--border);border-radius:6px;margin:.5rem 1rem;flex:1}
+/* table-layout:fixed lets explicit th widths actually pin column widths
+   instead of being treated as suggestions. The downside is that columns
+   without a set width need a sensible default — handled by the
+   td/th `max-width` rules further down for the .w-* helper classes. */
 table{width:100%;border-collapse:collapse;white-space:nowrap;table-layout:auto}
-th{background:var(--surface2);color:var(--text2);text-align:left;padding:.25rem .4rem;position:sticky;top:0;cursor:pointer;user-select:none;z-index:1;font-size:.72rem;text-transform:uppercase;letter-spacing:.03em}
+th{background:var(--surface2);color:var(--text2);text-align:left;padding:.25rem .4rem;position:sticky;top:0;cursor:pointer;user-select:none;z-index:1;font-size:.72rem;text-transform:uppercase;letter-spacing:.03em;position:sticky}
 th:hover{color:var(--accent)}
 th .sa{font-size:.6em;margin-left:.15rem;opacity:.5}
+/* Resize-handle on the right edge of every header cell. Drag it to
+   change the column width; the new width is persisted in localStorage
+   per column key so it survives reloads. The handle is a 6px wide
+   transparent strip that turns visible-blue on hover so users notice
+   it. Sits above the sort-arrow's stacking context. */
+th{position:sticky;position:relative}
+th .col-resize{position:absolute;top:0;right:0;width:6px;height:100%;cursor:col-resize;user-select:none;z-index:2;background:transparent;transition:background .12s}
+th .col-resize:hover,th .col-resize.dragging{background:var(--accent);opacity:.7}
+/* While dragging, suppress text selection across the page and force the
+   col-resize cursor everywhere — without this, dragging past the th
+   triggers selection of unrelated text. */
+body.col-resizing{cursor:col-resize !important;user-select:none !important}
+body.col-resizing *{cursor:col-resize !important}
 td{padding:.25rem .4rem;border-top:1px solid rgba(46,49,64,.5);font-size:.75rem;user-select:text;-webkit-user-select:text}
 tr:hover td{background:var(--surface2)}
 tr.sel td{background:#1e3a5f !important}
@@ -114,6 +131,47 @@ th.w-gt{cursor:help}
 
 /* Detail panel */
 .detail-panel{margin:.5rem 1rem;background:var(--surface);border:1px solid var(--border);border-radius:6px;overflow:hidden}
+
+/* Inline alignment-plot panel — rendered below the detail panel when an
+   r2c.db is loaded and a bps row is selected. Visual styling lifted
+   from r2c_explorer.html so the look is identical; the underlying
+   render function is also ported (renderR2c) so any rendering bug fixes
+   should be applied to both files until/unless we factor into a shared
+   module. */
+.aln-panel{margin:.5rem 1rem;background:var(--surface);border:1px solid var(--border);border-radius:6px;overflow:hidden}
+.aln-panel-header{background:var(--surface2);padding:.4rem .8rem;font-size:.72rem;color:var(--text2);text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:.6rem;flex-wrap:wrap}
+.aln-panel-header strong{color:var(--text);text-transform:none;letter-spacing:0;font-family:inherit}
+.aln-panel-header .ctl{display:flex;gap:.3rem;align-items:center;font-size:.7rem}
+.aln-panel-header .ctl input[type=checkbox]{accent-color:var(--accent)}
+.aln-status{padding:.3rem .8rem;font-size:.7rem;color:var(--text2);background:var(--surface);border-bottom:1px solid var(--border)}
+.aln-status .err{color:var(--red)}
+.aln-source-legend{display:flex;flex-wrap:wrap;gap:.4rem;padding:.3rem .8rem;font-size:.7rem;color:var(--text2);background:var(--surface2);border-bottom:1px solid var(--border)}
+.aln-source-legend .sw{padding:1px 6px;border-radius:3px;cursor:pointer;user-select:none}
+.aln-source-legend .sw[data-on="0"]{opacity:.3}
+.aln-body{max-height:65vh;overflow:auto;padding:.4rem .6rem;background:#0b0d13}
+.aln-body::-webkit-scrollbar{width:10px;height:10px}
+.aln-body::-webkit-scrollbar-track{background:#0b0d13}
+.aln-body::-webkit-scrollbar-thumb{background:var(--border);border-radius:5px}
+.aln-body::-webkit-scrollbar-thumb:hover{background:var(--text2)}
+.aln-body::-webkit-scrollbar-corner{background:#0b0d13}
+.aln-body .empty{padding:.8rem;text-align:center;color:var(--text2);font-size:.78rem}
+/* min-width: max-content forces the <pre> to grow to its content's
+   natural width (the longest row), which is what makes .aln-body's
+   `overflow:auto` actually produce a horizontal scrollbar instead of
+   silently clipping. Without it, the <pre>'s display:block default
+   means it fills parent width and overflows are invisible. */
+.r2c-pre{font-family:'SF Mono','Fira Code','Consolas',monospace;font-size:11px;line-height:1.15;white-space:pre;color:var(--text);margin:0;min-width:max-content}
+.r2c-pre .row{display:block;padding:0 2px;border-left:3px solid transparent}
+.r2c-pre .row.contig{background:#16321a;color:#b6e8c0;font-weight:600}
+.r2c-pre .row.frag{background:#1f2a3a;color:#d0dbf2}
+.r2c-pre .row.bp{background:#2d1b1b;color:#f1c2c2}
+.r2c-pre .row.marker{color:#f1c2c2;background:#1a0f0f}
+.r2c-pre .row.ruler{color:var(--text2);opacity:.5}
+.r2c-pre .row.read.support-split{border-left-color:var(--green)}
+.r2c-pre .row.read.support-disc{border-left-color:var(--blue)}
+.r2c-pre .row.read.support-both{border-left-color:var(--purple)}
+.r2c-pre .row.read.support-none{border-left-color:#555}
+.r2c-pre .row.read .meta{color:var(--text2);margin-left:1ch}
 .dp-header{background:var(--surface2);padding:.4rem .8rem;font-size:.72rem;color:var(--text2);text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid var(--border);display:flex;justify-content:space-between}
 .dp-header strong{color:var(--text);text-transform:none;letter-spacing:0}
 .dp-body{max-height:350px;overflow:auto}
@@ -155,6 +213,12 @@ th.w-gt{cursor:help}
     Drop or click &mdash; <code>.bed</code> / <code>.bed.gz</code> / <code>.gtf</code> / <code>.gtf.gz</code> <em>(optional, gene annotation)</em>
     <div class="fn" id="gtf-name" style="display:none"></div>
     <input type="file" id="gtf-input" accept=".bed,.gtf,.gz,text/plain,application/gzip">
+  </div>
+  <div class="upload-box" id="r2c-zone" onclick="document.getElementById('r2c-input').click()"
+       title="Optional: upload the r2c.db SQLite file produced by `svaba run --dump-reads` + `svaba postprocess`. When loaded, selecting a row in the table renders an inline alignment plot below the detail panel for that row's contig — same visualization as r2c_db_explorer.html but driven by the bps row you click.">
+    Drop or click &mdash; <code>.r2c.db</code> <em>(optional, per-read alignments)</em>
+    <div class="fn" id="r2c-name" style="display:none"></div>
+    <input type="file" id="r2c-input" accept=".db,.sqlite">
   </div>
   <button class="btn-ghost btn" id="export-btn" disabled>Export TSV</button>
   <button class="btn-ghost btn" id="export-html-btn" disabled title="Export a self-contained HTML snapshot with the current filtered data and gene annotations embedded. Recipients can browse it without any files.">Export HTML</button>
@@ -238,8 +302,28 @@ th.w-gt{cursor:help}
     <span>Selected row detail</span>
     <strong id="dp-locus">-</strong>
   </div>
-  <div class="format-key">FORMAT (per-sample): <code>GT:AD:DP:SR:DR:GQ:PL:LO:LO_n</code> &mdash; SV uses DR=disc, INDEL uses DR=cigar. For per-read alignment re-plots, use the standalone <code>r2c_explorer.html</code>.</div>
+  <div class="format-key">FORMAT (per-sample): <code>GT:AD:DP:SR:DR:GQ:PL:LO:LO_n</code> &mdash; SV uses DR=disc, INDEL uses DR=cigar. To inline the per-read alignment plot below this panel, also load the <code>.r2c.db</code> in the upload row above.</div>
   <div class="dp-body" id="dp-body"><div class="dp-empty">Click a table row</div></div>
+</div>
+
+<!-- Alignment plot panel — visible only when an r2c.db is loaded AND a bps
+     row is selected. Mirrors the r2c_explorer.html plot layout (ruler,
+     contig sequence, fragments, BP summary, indel markers, per-read
+     CIGAR rendering) but driven by SQL queries against the .db rather
+     than parsing a TSV file. -->
+<div class="aln-panel" id="aln-panel" style="display:none">
+  <div class="aln-panel-header">
+    <span>Alignments &mdash;</span>
+    <strong id="aln-cname">-</strong>
+    <div class="ctl"><label><input type="checkbox" id="aln-show-split" checked>split</label></div>
+    <div class="ctl"><label><input type="checkbox" id="aln-show-disc"  checked>disc</label></div>
+    <div class="ctl"><label><input type="checkbox" id="aln-show-both"  checked>both</label></div>
+    <div class="ctl"><label><input type="checkbox" id="aln-show-none"  checked>none</label></div>
+    <div class="ctl"><label><input type="checkbox" id="aln-imperfect-only">imperfect-only (I/D in CIGAR)</label></div>
+  </div>
+  <div class="aln-source-legend" id="aln-source-legend"></div>
+  <div class="aln-body" id="aln-body"><div class="empty">Loading r2c.db&hellip;</div></div>
+  <div class="aln-status" id="aln-status"></div>
 </div>
 
 <div id="gt-legend" role="dialog" aria-label="Genotype and FORMAT field legend">
@@ -263,6 +347,10 @@ th.w-gt{cursor:help}
   <div class="row"><span class="k" style="color:var(--text2)">Tip</span><span class="v">Click outside this box or press <kbd style="background:var(--surface2);padding:1px 5px;border-radius:3px;border:1px solid var(--border)">Esc</kbd> to dismiss</span></div>
 </div>
 
+<!-- sql.js (SQLite compiled to WASM). Loaded unconditionally so the
+     alignment-plot integration below can call initSqlJs() the moment a
+     user drops in an r2c.db file. ~600 KB; harmless if unused. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.js"></script>
 <script>
 (function(){
 "use strict";
@@ -331,6 +419,26 @@ const S={fn:"",hdr:[],sampHdr:[],coreCnt:0,rows:[],filt:[],selId:null,
 /* === DOM === */
 const $=id=>document.getElementById(id);
 
+/* === Column-width persistence ===
+   Per-column widths are stored in localStorage so the user's manual
+   resizes survive reloads. Key is namespaced ("svaba_bps_explorer.colw")
+   so this file's preferences don't collide with anything else stored
+   for the same origin. */
+const COLW_KEY = "svaba_bps_explorer.colw";
+function loadSavedColWidths() {
+  try {
+    const raw = localStorage.getItem(COLW_KEY);
+    if (!raw) return {};
+    const obj = JSON.parse(raw);
+    return obj && typeof obj === "object" ? obj : {};
+  } catch (_) { return {}; }
+}
+function saveColWidths(widths) {
+  try { localStorage.setItem(COLW_KEY, JSON.stringify(widths)); }
+  catch (_) { /* quota / private-mode — ignore */ }
+}
+const SAVED_COLW = loadSavedColWidths();
+
 /* === Init table header === */
 TCOLS.forEach(c=>{
   const th=document.createElement("th"); th.dataset.k=c.k;
@@ -340,8 +448,53 @@ TCOLS.forEach(c=>{
   th.onclick=e=>{
     // GT header: clicking opens the legend instead of sorting.
     if(c.help){e.stopPropagation();showGtLegend(th);return}
+    // Don't fire sort when the click was on the resize handle.
+    if(e.target && e.target.classList && e.target.classList.contains("col-resize")) return;
     toggleSort(c.k);render();
   };
+
+  // Apply any previously-saved width before the resize handle is added.
+  if (SAVED_COLW[c.k]) th.style.width = SAVED_COLW[c.k] + "px";
+
+  // Resize handle on the right edge of the header. Mousedown captures
+  // the pointer; mousemove/up are added to window so the drag still
+  // works if the cursor leaves the th. The .dragging class stays on
+  // the active handle until mouseup so styling stays consistent even
+  // while the cursor is far from the original handle.
+  const handle = document.createElement("span");
+  handle.className = "col-resize";
+  handle.title = "Drag to resize column";
+  handle.addEventListener("mousedown", ev => {
+    ev.preventDefault();
+    ev.stopPropagation();   // don't trigger sort
+    const startX = ev.clientX;
+    const startW = th.getBoundingClientRect().width;
+    handle.classList.add("dragging");
+    document.body.classList.add("col-resizing");
+    function onMove(e) {
+      // Hard floor at 24px so a column can't be hidden entirely by
+      // an over-zealous drag (would trap users with no way back).
+      const newW = Math.max(24, Math.round(startW + (e.clientX - startX)));
+      th.style.width = newW + "px";
+      // Mirror onto live state so refresh on render() doesn't reset it.
+      SAVED_COLW[c.k] = newW;
+    }
+    function onUp() {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      handle.classList.remove("dragging");
+      document.body.classList.remove("col-resizing");
+      saveColWidths(SAVED_COLW);
+    }
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  });
+  // Suppress the default click-to-sort behavior on the handle by
+  // catching the click event too (mousedown stop alone isn't quite
+  // enough on some browsers).
+  handle.addEventListener("click", ev => { ev.stopPropagation(); });
+  th.appendChild(handle);
+
   $("thead").appendChild(th);
 });
 
@@ -985,6 +1138,13 @@ function rDetail(){
   });
   h+='</table>';
   $("dp-body").innerHTML=h;
+
+  // If the user has loaded an r2c.db, render the per-read alignment
+  // plot for this row's contig in the panel below the detail panel.
+  // No-op when the .db hasn't been loaded yet — the alignment panel
+  // stays hidden in that case so the explorer behaves identically to
+  // the bps-only workflow.
+  if (r.contig_and_region) renderAlignmentsForCname(r.contig_and_region);
 }
 
 /* === Charts === */
@@ -1209,6 +1369,612 @@ if(window.__SVABA_EMBEDDED_BPS){
   // Update header to indicate snapshot mode
   $("file-meta").textContent=(window.__SVABA_EMBEDDED_FN||"snapshot")+" (exported snapshot)";
 }
+
+/* ===========================================================
+   ALIGNMENT-PLOT INTEGRATION (r2c.db, sql.js)
+   ===========================================================
+   Rendering logic ported wholesale from docs/r2c_explorer.html so a
+   user clicking a bps row gets the same alignment plot inline. The
+   data path is different (sql.js queries against an r2c.db instead
+   of TSV parsing), but the render output is byte-identical to what
+   r2c_explorer produces for the same contig.
+   =========================================================== */
+
+// State for the alignment integration. Kept on a sub-namespace of the
+// IIFE-local scope so it doesn't pollute the bps state machine above.
+const ALN = {
+  sqlReady:    false,         // initSqlJs() has resolved
+  db:          null,          // sql.js Database handle
+  fname:       "",            // file name for the upload-box label
+  currentCname: null,         // most recently rendered cname (for re-render on filter change)
+  prefixColor:  new Map(),    // sample-prefix → color (memoized so re-renders are stable)
+  prefixCounter: 0,
+  palette:     ["#4ade80","#60a5fa","#a855f7","#f87171","#fbbf24",
+                "#34d399","#818cf8","#f472b6","#fb923c","#22d3ee"]
+};
+
+// ---- sql.js bootstrap ---------------------------------------------------
+
+async function ensureSql() {
+  if (ALN.sqlReady) return;
+  if (typeof initSqlJs !== "function")
+    throw new Error("sql.js failed to load (network error?)");
+  await initSqlJs({
+    locateFile: f => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/${f}`
+  }).then(SQL => { window.__SQL = SQL; ALN.sqlReady = true; });
+}
+
+// ---- r2c.db file upload -------------------------------------------------
+
+async function loadR2cDb(file) {
+  try {
+    $("aln-status").innerHTML = "loading sql.js&hellip;";
+    await ensureSql();
+    const buf = await file.arrayBuffer();
+    if (ALN.db) { try { ALN.db.close(); } catch (_) {} }
+    ALN.db = new window.__SQL.Database(new Uint8Array(buf));
+    ALN.fname = file.name;
+    $("r2c-zone").classList.add("loaded");
+    $("r2c-name").style.display = "";
+    $("r2c-name").textContent = file.name + "  —  " + (file.size/1024/1024).toFixed(1) + " MB";
+    $("aln-status").textContent = "r2c.db loaded — click a bps row to render its contig.";
+    // Render the currently-selected row immediately, if any.
+    if (S.selId != null) {
+      const r = (S.filt.find(x => x.id === S.selId) ||
+                 S.rows.find(x => x.id === S.selId));
+      if (r && r.contig_and_region) renderAlignmentsForCname(r.contig_and_region);
+    }
+  } catch (e) {
+    $("aln-status").innerHTML = '<span class="err">load failed: ' + esc(e.message) + '</span>';
+  }
+}
+
+// File-input wiring (mirrors the bps and gtf zones above).
+$("r2c-input").onchange = e => { const f = e.target.files[0]; if (f) loadR2cDb(f); };
+["dragenter","dragover"].forEach(ev =>
+  $("r2c-zone").addEventListener(ev, e => { e.preventDefault(); $("r2c-zone").classList.add("over"); }));
+["dragleave","drop"].forEach(ev =>
+  $("r2c-zone").addEventListener(ev, e => { e.preventDefault(); $("r2c-zone").classList.remove("over"); }));
+$("r2c-zone").addEventListener("drop", e => {
+  const f = e.dataTransfer.files[0]; if (f) loadR2cDb(f);
+});
+
+// Re-render when the user toggles a filter (support kinds / imperfect-only).
+["aln-show-split","aln-show-disc","aln-show-both","aln-show-none","aln-imperfect-only"]
+  .forEach(id => $(id).addEventListener("change", () => {
+    if (ALN.currentCname) renderAlignmentsForCname(ALN.currentCname);
+  }));
+
+// ---- SQL → entry shape (mirrors r2c_explorer's parsed-TSV structure) ----
+//
+// renderR2c expects `entry.contig` to be a row array and `entry.reads`
+// to be an array of row arrays, indexed via the COL map. We synthesize
+// rows of that shape from SQL results so the rendering function below
+// (lifted verbatim from r2c_explorer with only minor signature tweaks)
+// works without changes.
+
+const COL = {
+  // Field names match r2cTsvHeader's column names from the legacy TSV;
+  // indices are arbitrary but consistent with how we build pseudo-rows
+  // in buildEntryFromDb below.
+  record_type: 0, contig_name: 1, contig_len: 2, contig_seq: 3, frags: 4, bps: 5, n_reads: 6,
+  read_id: 7, read_chrom: 8, read_pos: 9, read_flag: 10, r2c_cigar: 11, r2c_start: 12,
+  r2c_rc: 13, r2c_nm: 14, support: 15, split_bps: 16, disc_bps: 17,
+  r2c_score: 18, native_score: 19, read_seq: 20
+};
+
+function buildEntryFromDb(db, cname) {
+  // Contig row: one query.
+  let contigRow = null;
+  {
+    const stmt = db.prepare(
+      "SELECT cname, contig_len, seq, frags, bps, n_reads " +
+      "FROM contigs WHERE cname = ?"
+    );
+    stmt.bind([cname]);
+    if (stmt.step()) {
+      const c = stmt.get();
+      contigRow = ["contig", c[0], c[1] != null ? String(c[1]) : "",
+                   c[2] || "", c[3] || "", c[4] || "",
+                   c[5] != null ? String(c[5]) : "0",
+                   "NA","NA","NA","NA","NA","NA","NA","NA",
+                   "NA","NA","NA","NA","NA","NA"];
+    }
+    stmt.free();
+  }
+  if (!contigRow) return null;
+
+  // Read rows: one query, ordered by r2c_start so renderR2c's stable
+  // sort (which it does internally) gets a head start.
+  const reads = [];
+  {
+    const stmt = db.prepare(
+      "SELECT cname, read_id, chrom, pos, flag, r2c_cigar, r2c_start, " +
+      "       r2c_rc, r2c_nm, support, split_bps, disc_bps, " +
+      "       r2c_score, native_score, seq " +
+      "FROM reads WHERE cname = ? ORDER BY r2c_start"
+    );
+    stmt.bind([cname]);
+    while (stmt.step()) {
+      const r = stmt.get();
+      // Map db columns to TSV-shaped row indexed by COL.
+      reads.push([
+        "read",
+        r[0],                                              // contig_name
+        "NA","NA","NA","NA","NA",                          // contig-only fields
+        r[1] || "",                                        // read_id
+        r[2] != null ? String(r[2]) : "*",                 // read_chrom
+        r[3] != null ? String(r[3]) : "0",                 // read_pos
+        r[4] != null ? String(r[4]) : "0",                 // read_flag
+        r[5] || "",                                        // r2c_cigar
+        r[6] != null ? String(r[6]) : "0",                 // r2c_start
+        r[7] != null ? String(r[7]) : "0",                 // r2c_rc
+        r[8] != null ? String(r[8]) : "0",                 // r2c_nm
+        r[9] || "none",                                    // support
+        r[10] || "",                                       // split_bps
+        r[11] || "",                                       // disc_bps
+        (r[12] != null ? r[12].toFixed(1) : "NA"),         // r2c_score
+        (r[13] != null ? r[13].toFixed(1) : "NA"),         // native_score
+        r[14] || ""                                        // read_seq
+      ]);
+    }
+    stmt.free();
+  }
+
+  return { contig: contigRow, reads };
+}
+
+// ---- Rendering helpers (ported from r2c_explorer.html) -----------------
+
+function alnPrefixColor(p) {
+  if (!ALN.prefixColor.has(p)) {
+    ALN.prefixColor.set(p, ALN.palette[ALN.prefixCounter % ALN.palette.length]);
+    ALN.prefixCounter++;
+  }
+  return ALN.prefixColor.get(p);
+}
+
+function alnParseCigar(s) {
+  const ops = [];
+  const re = /(\d+)([MIDNSHP=X])/g;
+  let m;
+  while ((m = re.exec(s)) !== null) ops.push({ len: +m[1], op: m[2] });
+  return ops;
+}
+
+function alnRevcomp(s) {
+  let out = "";
+  for (let i = s.length - 1; i >= 0; i--) {
+    const ch = s.charAt(i);
+    switch (ch) {
+      case "A": out += "T"; break; case "a": out += "t"; break;
+      case "T": out += "A"; break; case "t": out += "a"; break;
+      case "C": out += "G"; break; case "c": out += "g"; break;
+      case "G": out += "C"; break; case "g": out += "c"; break;
+      default:  out += ch;
+    }
+  }
+  return out;
+}
+
+function alnRenderFragCigar(cigStr, strand, flipped) {
+  const ops = alnParseCigar(cigStr);
+  const ordered = flipped ? ops.slice().reverse() : ops;
+  const sign = strand === "-" ? "<" : ">";
+  let s = "";
+  for (const o of ordered) {
+    if (o.op === "M") s += sign.repeat(o.len);
+    else if (o.op === "I") s += "I".repeat(o.len);
+    else if (o.op === "S" || o.op === "H") s += ".".repeat(o.len);
+  }
+  return s;
+}
+
+function alnComputeIndelMarksForFrag(cigStr, strand, flipped, chr, fragStartGpos) {
+  const ops = alnParseCigar(cigStr);
+  const ordered = flipped ? ops.slice().reverse() : ops;
+  const marks = [];
+  let cpos = 0;
+  let rpos = +fragStartGpos;
+  for (const o of ordered) {
+    if (o.op === "M" || o.op === "=" || o.op === "X") {
+      cpos += o.len; rpos += o.len;
+    } else if (o.op === "D" || o.op === "N") {
+      if (o.len >= 1) marks.push({ kind:"del", col:cpos, len:o.len,
+        chr, refStart:rpos - 1, refEnd:rpos + o.len - 1 });
+      rpos += o.len;
+    } else if (o.op === "I") {
+      if (o.len >= 1) marks.push({ kind:"ins", col1:cpos, col2:cpos + o.len - 1, len:o.len,
+        chr, refStart:rpos - 1, refEnd:rpos });
+      cpos += o.len;
+    } else if (o.op === "S" || o.op === "H") {
+      cpos += o.len;
+    }
+  }
+  return marks;
+}
+
+function alnRenderReadLine(rr) {
+  const rawSeq = rr[COL.read_seq] || "";
+  const cigStr = rr[COL.r2c_cigar] || "";
+  const rc     = rr[COL.r2c_rc] === "1" || rr[COL.r2c_rc] === 1;
+  if (!cigStr || cigStr === "NA" || cigStr === "") return null;
+
+  const seq = rc ? alnRevcomp(rawSeq) : rawSeq;
+  const ops = alnParseCigar(cigStr);
+  if (!ops.length) return null;
+
+  let lead = 0, trail = 0;
+  if (ops[0].op === "S") lead = ops[0].len;
+  if (ops.length > 1 && ops[ops.length-1].op === "S") trail = ops[ops.length-1].len;
+
+  const leadClip  = seq.substr(0, lead).toLowerCase();
+  const trailClip = trail > 0 ? seq.substr(seq.length - trail).toLowerCase() : "";
+
+  let p = 0, body = "";
+  for (const o of ops) {
+    if (o.op === "M") { body += seq.substr(p, o.len); p += o.len; }
+    else if (o.op === "D") { body += "-".repeat(o.len); }
+    else if (o.op === "I" || o.op === "S" || o.op === "H") { p += o.len; }
+  }
+
+  let startCol = (+rr[COL.r2c_start]) - lead;
+  let text = leadClip + body + trailClip;
+  if (startCol < 0) {
+    const drop = -startCol;
+    text = drop >= text.length ? "" : text.substr(drop);
+    startCol = 0;
+  }
+  return { startCol, text };
+}
+
+// ---- Main render --------------------------------------------------------
+//
+// renderAlignmentsForCname(cname) is called from:
+//   1. rDetail() when a bps row is clicked
+//   2. The aln-* filter-checkbox change handlers (re-render on toggle)
+//   3. loadR2cDb() once a fresh db is loaded if a row is already selected
+//
+// If the .db isn't loaded, the alignment panel stays hidden — clicking
+// a bps row in that case behaves identically to the bps-only workflow.
+
+function renderAlignmentsForCname(cname) {
+  if (!ALN.db) {
+    $("aln-panel").style.display = "none";
+    return;
+  }
+  $("aln-panel").style.display = "";
+  ALN.currentCname = cname;
+  $("aln-cname").textContent = cname;
+
+  const body = $("aln-body");
+  body.innerHTML = "";
+
+  let entry;
+  try {
+    entry = buildEntryFromDb(ALN.db, cname);
+  } catch (e) {
+    body.innerHTML = '<div class="empty err">SQL error: ' + esc(e.message) + '</div>';
+    return;
+  }
+  if (!entry || !entry.contig) {
+    body.innerHTML = '<div class="empty">No <code>contigs</code> row for cname <code>' +
+                     esc(cname) + '</code> in the loaded r2c.db. (The contig may not have been variant-bearing — only those get written.)</div>';
+    $("aln-status").textContent = "";
+    $("aln-source-legend").innerHTML = "";
+    return;
+  }
+
+  const contig = entry.contig;
+  const contig_seq = contig[COL.contig_seq] || "";
+  const contig_len = +(contig[COL.contig_len] || contig_seq.length);
+
+  const imperfectOnly = $("aln-imperfect-only").checked;
+  const showSupport = {
+    split: $("aln-show-split").checked,
+    disc:  $("aln-show-disc").checked,
+    both:  $("aln-show-both").checked,
+    none:  $("aln-show-none").checked
+  };
+
+  // Tabulate source prefixes for the legend.
+  const allPrefixes = new Map();
+  for (const rr of entry.reads) {
+    const id = rr[COL.read_id] || "";
+    const m  = id.match(/^([a-z]\d{3})_/i);
+    const p  = m ? m[1] : "";
+    if (p) allPrefixes.set(p, (allPrefixes.get(p) || 0) + 1);
+  }
+  for (const p of Array.from(allPrefixes.keys()).sort()) alnPrefixColor(p);
+
+  const pre = document.createElement("pre");
+  pre.className = "r2c-pre";
+
+  // --- Ruler + contig row ---
+  {
+    const ruler = document.createElement("span");
+    ruler.className = "row ruler";
+    const marks = [];
+    for (let i = 0; i < contig_len; i += 10) marks.push(String(i).padEnd(10, " "));
+    ruler.textContent = marks.join("").slice(0, contig_len) + "  (contig 0-based)";
+    pre.appendChild(ruler);
+
+    const c = document.createElement("span");
+    c.className = "row contig";
+    c.textContent = contig_seq + "    " + cname;
+    pre.appendChild(c);
+  }
+
+  // --- Fragment rows + indel marks ---
+  const fragsRaw = contig[COL.frags] || "";
+  const indelMarks = [];
+  const fragJunctionCpos = [];
+  if (fragsRaw && fragsRaw !== "NA") {
+    for (const f of fragsRaw.split("|")) {
+      const parts = f.split(":");
+      if (parts.length < 10) continue;
+      const [chr,pos,strand,cigar,mapq,br1,br2,gbr1,gbr2,flipped] = parts;
+      const rendered = alnRenderFragCigar(cigar, strand, flipped === "1");
+      const el = document.createElement("span");
+      el.className = "row frag";
+      el.textContent = rendered + "\tC[" + br1 + "," + br2 + "] G[" + gbr1 + "," + gbr2 + "] -> " +
+                       chr + ":" + pos + "(" + strand + ") CIG:" + cigar + " MAPQ:" + mapq;
+      pre.appendChild(el);
+
+      const frMarks = alnComputeIndelMarksForFrag(cigar, strand, flipped === "1", chr, pos);
+      for (const m of frMarks) indelMarks.push(m);
+
+      const b1v = +br1, b2v = +br2;
+      if (b1v > 0 && b1v < contig_len) fragJunctionCpos.push(b1v);
+      if (b2v > 0 && b2v < contig_len) fragJunctionCpos.push(b2v);
+    }
+  }
+
+  // --- BP summary rows + bp_id ↔ cpos matching ---
+  const bpsRaw = contig[COL.bps] || "";
+  const bpsList = [];
+  if (bpsRaw && bpsRaw !== "NA") {
+    for (const b of bpsRaw.split("|")) {
+      const parts = b.split(":");
+      if (parts.length < 9) continue;
+      let kind, bpId, c1, p1, s1, c2, p2, sp2, span, ins;
+      const hasBpId = parts.length >= 10 &&
+                      (parts[1].startsWith("bp") || parts[1] === ".");
+      if (hasBpId) {
+        [kind, bpId, c1, p1, s1, c2, p2, sp2, span, ins] = parts;
+      } else {
+        bpId = null;
+        [kind, c1, p1, s1, c2, p2, sp2, span, ins] = parts;
+      }
+      const idTag = bpId && bpId !== "." ? " [" + bpId + "]" : "";
+      let line;
+      if (kind === "indel") {
+        line = (ins === "." ? "Del " + span + "bp" : "Ins " + ins.length + "bp (" + ins + ")") +
+               " at " + c1 + ":" + p1 + "(" + s1 + ") - " + c2 + ":" + p2 + "(" + sp2 + ")" + idTag;
+      } else {
+        line = (kind === "global" ? "Global" : "Multi") + " BP: " +
+               c1 + ":" + p1 + "(" + s1 + ") → " + c2 + ":" + p2 + "(" + sp2 + ") SPAN " + span +
+               (ins !== "." ? " INS:" + ins : "") + idTag;
+      }
+      bpsList.push({ kind, bpId, span, line,
+                     chr1: c1, pos1: +p1, chr2: c2, pos2: +p2, cpos: null });
+    }
+  }
+  for (const bp of bpsList) {
+    if (bp.kind === "indel") {
+      for (const mk of indelMarks) {
+        if (mk.chr === bp.chr1 &&
+            Math.min(mk.refStart, mk.refEnd) === Math.min(bp.pos1, bp.pos2) &&
+            Math.max(mk.refStart, mk.refEnd) === Math.max(bp.pos1, bp.pos2)) {
+          bp.cpos = (mk.kind === "del") ? mk.col : mk.col1;
+          mk.bpId = bp.bpId;
+          break;
+        }
+      }
+    } else if (fragJunctionCpos.length > 0) {
+      const uniq = Array.from(new Set(fragJunctionCpos)).sort((a, b) => a - b);
+      if (uniq.length === 1) bp.cpos = uniq[0];
+    }
+  }
+
+  // BP index row (compact navigation aid)
+  {
+    const labeled = bpsList.filter(b => b.bpId && b.bpId !== ".");
+    if (labeled.length) {
+      const chunks = labeled.map(b => {
+        const where = (b.cpos != null) ? "@ cpos " + b.cpos : "@ " + b.chr1 + ":" + b.pos1;
+        let kindShort;
+        if (b.kind === "indel") {
+          kindShort = (b.line.indexOf("Ins ") >= 0) ? "Ins " + b.span + "bp" : "Del " + b.span + "bp";
+        } else {
+          kindShort = (b.kind === "global" ? "global" : "multi") + " SV";
+        }
+        return b.bpId + " " + where + " [" + kindShort + "]";
+      });
+      const el = document.createElement("span");
+      el.className = "row bp";
+      el.textContent = "BP index: " + chunks.join("  |  ");
+      pre.appendChild(el);
+    }
+  }
+
+  // Indel marker rows
+  for (const m of indelMarks) {
+    const idTag = m.bpId ? "  [" + m.bpId + "]" : "";
+    let line;
+    if (m.kind === "del") {
+      const lead = " ".repeat(Math.max(0, m.col - 1));
+      line = lead + "||  Del " + m.len + "bp at " + m.chr + ":" + m.refStart + "-" + m.refEnd + idTag;
+    } else {
+      const lead  = " ".repeat(m.col1);
+      const inner = " ".repeat(Math.max(0, m.col2 - m.col1 - 1));
+      line = lead + "|" + inner + "|  Ins " + m.len + "bp at " + m.chr + ":" + m.refStart + "-" + m.refEnd + idTag;
+    }
+    const el = document.createElement("span");
+    el.className = "row marker";
+    el.textContent = line;
+    pre.appendChild(el);
+  }
+
+  // BP detail rows
+  for (const b of bpsList) {
+    const el = document.createElement("span");
+    el.className = "row bp";
+    el.textContent = b.line;
+    pre.appendChild(el);
+  }
+
+  // --- Read rows ---
+  const reads = entry.reads.slice().sort((a, b) =>
+    (+a[COL.r2c_start]) - (+b[COL.r2c_start]));
+  const shownPrefixes = new Map();
+  let nShown = 0;
+  for (const rr of reads) {
+    const supp = rr[COL.support] || "none";
+    if (!showSupport[supp]) continue;
+    const cig = rr[COL.r2c_cigar] || "";
+    if (imperfectOnly && !/[ID]/.test(cig)) continue;
+
+    const id = rr[COL.read_id] || "";
+    const m  = id.match(/^([a-z]\d{3})_/i);
+    const prefix = m ? m[1] : "";
+
+    const line = alnRenderReadLine(rr);
+    if (line === null) continue;
+
+    const el = document.createElement("span");
+    el.className = "row read support-" + supp;
+    if (prefix) el.dataset.prefix = prefix;
+    const color = prefix ? alnPrefixColor(prefix) : "#555";
+    el.style.borderLeftColor = color;
+    el.style.background = color + "11";
+
+    const pad = " ".repeat(Math.max(0, line.startCol));
+    const splitBps = rr[COL.split_bps] || "";
+    const discBps  = rr[COL.disc_bps] || "";
+    const metaParts = [
+      id,
+      "r2c POS:" + rr[COL.r2c_start],
+      "FLAG:"   + (rr[COL.r2c_rc] === "1" || rr[COL.r2c_rc] === 1 ? "16" : "0"),
+      "NM:"     + rr[COL.r2c_nm],
+      "support:" + supp,
+      "split_bps:" + (splitBps || "NA"),
+      "disc_bps:"  + (discBps  || "NA"),
+      "r2cScore:" + (rr[COL.r2c_score] || "NA"),
+      "nativeScore:" + (rr[COL.native_score] || "NA"),
+      "CIGAR:" + (cig || "NA")
+    ];
+    const meta = document.createElement("span");
+    meta.className = "meta";
+    meta.textContent = "  " + metaParts.join(" ");
+    el.appendChild(document.createTextNode(pad + line.text));
+    el.appendChild(meta);
+    pre.appendChild(el);
+    nShown++;
+    if (prefix) shownPrefixes.set(prefix, (shownPrefixes.get(prefix) || 0) + 1);
+  }
+
+  body.appendChild(pre);
+
+  // --- Source-prefix legend ---
+  const legEl = $("aln-source-legend");
+  legEl.innerHTML = "";
+  if (allPrefixes.size) {
+    for (const p of Array.from(allPrefixes.keys()).sort()) {
+      const shown = shownPrefixes.get(p) || 0;
+      const total = allPrefixes.get(p);
+      const isFiltered = (shown < total);
+      const sw = document.createElement("span");
+      sw.className = "sw";
+      const c = alnPrefixColor(p);
+      sw.style.background = c + "33";
+      sw.style.border = "1px solid " + c;
+      if (shown === 0) sw.style.opacity = "0.4";
+      sw.textContent = p + " (" + shown + (isFiltered ? "/" + total : "") + ")";
+      sw.dataset.on = "1";
+      sw.dataset.prefix = p;
+      sw.addEventListener("click", () => {
+        const on = sw.dataset.on === "1";
+        sw.dataset.on = on ? "0" : "1";
+        body.querySelectorAll('span.row.read[data-prefix="' + p + '"]').forEach(el => {
+          el.style.display = on ? "none" : "";
+        });
+      });
+      legEl.appendChild(sw);
+    }
+  }
+
+  $("aln-status").textContent =
+    cname + "  —  contig " + contig_len + "bp, " +
+    entry.reads.length + " reads in db, " + nShown + " shown after filters." +
+    (allPrefixes.size ? "  Click a source tag to hide/show that source's reads." : "");
+}
+
+/* ===========================================================
+   AUTO-LOAD via URL params
+   ===========================================================
+   Lets a CLI wrapper (`scripts/svaba_explore.sh`) launch the explorer
+   with both files preloaded:
+     bps_explorer.html?bps=<rel-or-abs-url>&db=<rel-or-abs-url>
+   The wrapper serves the files over a localhost http.server (so the
+   fetch()s succeed without same-origin shenanigans) and opens the URL
+   in the browser. Manual same-origin invocations work too — drop a
+   bps file + db alongside this HTML on any web server and pass them
+   as query params.
+
+   Falls back silently to the manual upload-zone UX when params aren't
+   present or fetch() fails (network error, file moved, etc).
+   =========================================================== */
+(async function autoLoadFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  const bpsParam   = params.get("bps");
+  const dbParam    = params.get("db");
+  const genesParam = params.get("genes");   // .bed / .gtf gene-annotation file
+  if (!bpsParam && !dbParam && !genesParam) return;
+
+  // Helper: fetch a URL into a File so it slots cleanly into the
+  // existing loaders (which are written for HTMLInputElement files
+  // / drag-drop drops, both of which are File objects).
+  async function fetchAsFile(url) {
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error("HTTP " + resp.status + " for " + url);
+    const blob = await resp.blob();
+    const name = decodeURIComponent(url.split("/").pop().split("?")[0]);
+    return new File([blob], name);
+  }
+
+  // Load bps first — its parser triggers the rest of the UI to come
+  // up (controls, table, etc), so the user sees something fast even
+  // if the .db is large and still streaming.
+  if (bpsParam) {
+    try {
+      const f = await fetchAsFile(bpsParam);
+      await loadBlob(f, f.name);
+    } catch (e) {
+      console.warn("autoload bps failed:", e);
+      $("file-meta").textContent = "autoload bps failed: " + e.message;
+    }
+  }
+  // Genes go second so the table is already up — the GTF loader
+  // back-annotates existing rows once it finishes parsing, so order
+  // matters here.
+  if (genesParam) {
+    try {
+      const f = await fetchAsFile(genesParam);
+      await loadGtfBlob(f, f.name);
+    } catch (e) {
+      console.warn("autoload genes failed:", e);
+    }
+  }
+  if (dbParam) {
+    try {
+      const f = await fetchAsFile(dbParam);
+      await loadR2cDb(f);
+    } catch (e) {
+      console.warn("autoload r2c.db failed:", e);
+    }
+  }
+})();
 
 })();
 </script>
