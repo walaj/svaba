@@ -78,6 +78,7 @@
 #include "SeqLib/BamRecord.h"
 #include "SeqLib/BamWriter.h"
 
+#include "R2CDatabase.h"     // SQLite merge for per-thread r2c.db files (v4)
 #include "SvabaOptions.h"  // SVABA_VERSION
 
 namespace {
@@ -382,57 +383,70 @@ size_t mergeThreadBams(const std::string& id,
   return total;
 }
 
-// Merge per-thread r2c.txt.gz files via binary concatenation.
-// Returns number of files merged, or 0 if nothing to merge.
-// Removes per-thread inputs on success.
-size_t mergeThreadR2c(const std::string& id, int verbose) {
-  const std::string pattern = id + ".thread*.r2c.txt.gz";
+// Merge per-thread r2c.db files into a single ${ID}.r2c.db. Returns the
+// number of input files merged, or 0 if nothing to merge OR if svaba was
+// built without sqlite3 support (in which case there are no .db files
+// to merge anyway — SvabaThreadUnit didn't create them).
+//
+// Strategy: pick one input as the "base" (rename it to the final target
+// path), then ATTACH each remaining input one at a time and run
+// `INSERT INTO ... SELECT * FROM` for both tables. This is far cheaper
+// than rebuilding from scratch — the base file's data is reused
+// in-place, only the additional N-1 files' rows are copied.
+//
+// All work happens inside a single transaction (R2CDatabase's ctor opens
+// one) and gets committed at close. With WAL + synchronous=OFF on the
+// merged db, the bulk INSERTs run at SQLite's full bind-bound speed
+// (~hundreds of MB/s on local SSD).
+//
+// Per-thread inputs are unlinked on success.
+size_t mergeThreadR2cDbs(const std::string& id, int verbose) {
+  if (!R2CDatabase::available()) {
+    if (verbose >= 2)
+      logLine("[merge] r2c.db merge skipped: svaba built without sqlite3");
+    return 0;
+  }
+  const std::string pattern = id + ".thread*.r2c.db";
   std::vector<std::string> inputs = globPaths(pattern);
   if (inputs.empty()) return 0;
 
-  const std::string target = id + ".r2c.txt.gz";
+  const std::string target = id + ".r2c.db";
 
-  // Single file — just rename.
+  // Single file — just rename. (No need for SQLite to even open it.)
   if (inputs.size() == 1) {
     logLine("[merge] mv ", inputs[0], " -> ", target);
     renameOrThrow(inputs[0], target);
     return 1;
   }
 
-  // Sort by thread index so thread 1 (which has the header line) is first.
+  // Sort by thread index for deterministic output order. Doesn't affect
+  // SQL semantics (no row order guarantees in INSERT-from-SELECT) but
+  // makes log lines repeatable.
   sortByThreadIndex(inputs);
 
-  logLine("[merge] merging ", inputs.size(), " thread r2c files -> ", target);
-
+  logLine("[merge] merging ", inputs.size(), " thread r2c.db files -> ", target);
   const auto t0 = std::chrono::steady_clock::now();
-  const std::string tmp = target + ".postprocess.merge.tmp.gz";
 
-  // Binary byte-copy — gzip concatenation.
-  {
-    std::ofstream out(tmp, std::ios::binary);
-    if (!out)
-      throw std::runtime_error("merge: cannot open " + tmp + " for writing");
+  // Promote the first input to the target path. Subsequent inputs are
+  // ATTACHed and copied in. We don't open the base file via R2CDatabase's
+  // ctor — that would re-CREATE TABLE IF NOT EXISTS (harmless but
+  // wasteful) and re-set pragmas. Instead: rename, then open with
+  // R2CDatabase which begins a fresh transaction over the existing
+  // tables and runs merge_from() per remaining input.
+  renameOrThrow(inputs[0], target);
 
-    constexpr size_t BUF_SIZE = 256 * 1024;  // 256 KB copy buffer
-    std::vector<char> buf(BUF_SIZE);
-
-    for (const auto& f : inputs) {
-      std::ifstream in(f, std::ios::binary);
-      if (!in)
-        throw std::runtime_error("merge: cannot open " + f + " for reading");
-      while (in.read(buf.data(), BUF_SIZE) || in.gcount() > 0) {
-        out.write(buf.data(), in.gcount());
-        if (!out)
-          throw std::runtime_error("merge: write error on " + tmp);
-      }
-    }
+  R2CDatabase out(target);
+  for (size_t k = 1; k < inputs.size(); ++k) {
+    if (verbose >= 2)
+      logLine("[merge] r2c: attaching ", inputs[k]);
+    out.merge_from(inputs[k]);
   }
+  out.commit();
+  out.close();
 
-  renameOrThrow(tmp, target);
-
-  // Remove per-thread inputs.
-  for (const auto& f : inputs)
-    ::unlink(f.c_str());
+  // Unlink the per-thread inputs we copied in (the first was renamed).
+  for (size_t k = 1; k < inputs.size(); ++k)
+    ::unlink(inputs[k].c_str());
 
   const double elapsed = std::chrono::duration<double>(
       std::chrono::steady_clock::now() - t0).count();
@@ -459,9 +473,9 @@ void runMergePhase(const std::string& id, int threads, int verbose) {
   }
 
   {
-    const std::string pat = id + ".thread*.r2c.txt.gz";
+    const std::string pat = id + ".thread*.r2c.db";
     if (!globPaths(pat).empty()) {
-      mergeThreadR2c(id, verbose);
+      mergeThreadR2cDbs(id, verbose);
       did_anything = true;
     }
   }
@@ -943,133 +957,63 @@ size_t sortDedupFilterBps(const std::string& id, int verbose,
   return n_lines;
 }
 
-// ---------- r2c.txt.gz PASS / somatic filter ----------
+// ---------- r2c.db PASS / somatic flagging ----------
 //
-// Streams ${id}.r2c.txt.gz and writes two filtered outputs:
-//   ${id}.r2c.pass.txt.gz          — rows for PASS contigs
-//   ${id}.r2c.pass.somatic.txt.gz  — rows for PASS+somatic contigs
+// Replaces the old TSV-era filterR2c, which produced two derived files
+// (${id}.r2c.pass.txt.gz / ${id}.r2c.pass.somatic.txt.gz). In the v4
+// SQLite world we don't need separate output files — the merged
+// ${id}.r2c.db gets a small `pass_cnames` lookup table containing
+// every cname that passed Phase 3's bps.txt.gz filtering, with a
+// boolean `somatic` column. Downstream queries get filtering for free:
 //
-// The r2c TSV has record_type in col 0 and contig_name in col 1.
-// Both "contig" and "read" rows share the same contig_name (col 1),
-// so filtering on col 1 membership in the cname set keeps contig+read
-// rows together. The header row (first line) goes to both outputs.
-
-constexpr int kR2cCol_RecordType = 0;
-constexpr int kR2cCol_ContigName = 1;
+//   SELECT r.* FROM reads r JOIN pass_cnames p USING(cname);
+//   SELECT r.* FROM reads r JOIN pass_cnames p USING(cname) WHERE p.somatic = 1;
+//
+// This is much smaller than the redundant filtered files (one ~50-byte
+// row per pass cname vs. potentially gigabytes of duplicated rows) and
+// strictly more powerful — viewers and CLI users can filter on any
+// arbitrary predicate, not just the two we anticipated upfront.
 
 size_t filterR2c(const std::string& id,
                  const std::unordered_set<std::string>& pass_cnames,
                  const std::unordered_set<std::string>& som_cnames,
                  int verbose) {
-  const std::string in_path = id + ".r2c.txt.gz";
-  if (!fileExists(in_path)) {
+  if (!R2CDatabase::available()) {
+    if (verbose >= 2)
+      logLine("[r2c] pass_cnames stamp skipped: svaba built without sqlite3");
+    return 0;
+  }
+
+  const std::string db_path = id + ".r2c.db";
+  if (!fileExists(db_path)) {
     if (verbose >= 1)
-      logLine("[r2c] skipping: ", in_path, " not found");
+      logLine("[r2c] skipping pass_cnames stamp: ", db_path, " not found");
     return 0;
   }
 
   if (pass_cnames.empty()) {
     if (verbose >= 1)
-      logLine("[r2c] skipping: no PASS cnames to filter on");
+      logLine("[r2c] skipping pass_cnames stamp: no PASS cnames");
     return 0;
   }
 
-  logLine("[r2c] filtering ", in_path, " (",
+  logLine("[r2c] stamping pass_cnames into ", db_path, " (",
           pass_cnames.size(), " PASS cnames, ",
           som_cnames.size(), " somatic cnames)");
   const auto t0 = std::chrono::steady_clock::now();
 
-  const std::string out_pass = id + ".r2c.pass.txt.gz";
-  const std::string out_som  = id + ".r2c.pass.somatic.txt.gz";
-
-  gzFile gz_in   = gzopen(in_path.c_str(), "rb");
-  gzFile gz_pass = gzopen(out_pass.c_str(), "wb1");  // level 1: ~3x faster compress
-  gzFile gz_som  = gzopen(out_som.c_str(),  "wb1");
-
-  if (!gz_in || !gz_pass || !gz_som)
-    throw std::runtime_error("r2c filter: cannot open input/output gz files");
-
-  gzbuffer(gz_in,   256 * 1024);
-  gzbuffer(gz_pass, 256 * 1024);
-  gzbuffer(gz_som,  256 * 1024);
-
-  // Line reading with arbitrary-length support.
-  std::vector<char> linebuf(8192);
-  std::string line;
-
-  auto readLine = [&]() -> bool {
-    line.clear();
-    while (true) {
-      if (!gzgets(gz_in, linebuf.data(), static_cast<int>(linebuf.size())))
-        return !line.empty();
-      line.append(linebuf.data());
-      if (!line.empty() && line.back() == '\n') { line.pop_back(); return true; }
-    }
-  };
-
-  size_t n_in = 0, n_pass = 0, n_som = 0;
-  bool first_line = true;
-
-  // Cache: r2c rows are grouped by contig (one contig row then its read rows).
-  // Avoid repeated hash lookups for the same cname by caching the last result.
-  std::string last_cname;
-  bool last_in_pass = false;
-  bool last_in_som  = false;
-
-  while (readLine()) {
-    ++n_in;
-
-    // Header line — write to both outputs.
-    if (first_line) {
-      first_line = false;
-      // Detect header: starts with "record_type" or "#"
-      if (!line.empty() && (line[0] == '#' || line.rfind("record_type", 0) == 0)) {
-        gzwrite(gz_pass, line.data(), static_cast<unsigned>(line.size()));
-        gzwrite(gz_pass, "\n", 1);
-        gzwrite(gz_som, line.data(), static_cast<unsigned>(line.size()));
-        gzwrite(gz_som, "\n", 1);
-        continue;
-      }
-      // Not a header — fall through to normal processing.
-    }
-
-    // Get contig_name (col 1).
-    auto cname_sv = getField(line.data(), static_cast<uint32_t>(line.size()),
-                             kR2cCol_ContigName);
-    if (cname_sv.empty())
-      continue;
-
-    // Check cache — avoid hash lookup when consecutive rows share a cname
-    // (which they almost always do: one contig row + N read rows).
-    if (cname_sv != last_cname) {
-      last_cname.assign(cname_sv);
-      last_in_pass = pass_cnames.count(last_cname) > 0;
-      last_in_som  = last_in_pass && som_cnames.count(last_cname) > 0;
-    }
-
-    if (last_in_pass) {
-      gzwrite(gz_pass, line.data(), static_cast<unsigned>(line.size()));
-      gzwrite(gz_pass, "\n", 1);
-      ++n_pass;
-
-      if (last_in_som) {
-        gzwrite(gz_som, line.data(), static_cast<unsigned>(line.size()));
-        gzwrite(gz_som, "\n", 1);
-        ++n_som;
-      }
-    }
-  }
-
-  gzclose(gz_in);
-  gzclose(gz_pass);
-  gzclose(gz_som);
+  // R2CDatabase::stamp_pass_cnames does the SQL work directly, keeping
+  // raw sqlite3 calls confined to R2CDatabase.cpp. This module then
+  // doesn't need to include sqlite3.h, which keeps the build clean
+  // when SVABA_HAS_SQLITE3 isn't defined.
+  R2CDatabase::stamp_pass_cnames(db_path, pass_cnames, som_cnames);
 
   const double elapsed = std::chrono::duration<double>(
       std::chrono::steady_clock::now() - t0).count();
-  logLine("[r2c] done in ", std::fixed, std::setprecision(1), elapsed, "s: ",
-          n_in, " rows in, ", n_pass, " pass, ", n_som, " somatic");
-
-  return n_in;
+  logLine("[r2c] pass_cnames stamped in ",
+          std::fixed, std::setprecision(1), elapsed, "s (",
+          pass_cnames.size(), " entries)");
+  return pass_cnames.size();
 }
 
 // ---------- @PG stamping ----------

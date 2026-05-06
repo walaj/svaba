@@ -1,6 +1,7 @@
 #include "AlignedContig.h"
 #include "SvabaUtils.h"
 #include "ContigAlignmentScore.h"
+#include "R2CDatabase.h"
 
 #include <cctype>
 #include <iomanip>
@@ -8,9 +9,11 @@
 #include <unordered_set>
 
 // SvABA2.0: the old ASCII emitter (printToAlignmentsFile → alignments.txt.gz)
-// and its support header PlottedRead.h have been removed. All alignment-dump
-// data now goes through the structured r2c TSV (printToR2CTsv /
-// r2cTsvHeader), which viewers parse and re-plot on demand.
+// and its support header PlottedRead.h have been removed. The intermediate
+// TSV emitter (printToR2CTsv / r2cTsvHeader) is also gone in v4 — r2c data
+// now writes directly into per-thread SQLite databases via writeToR2cDb,
+// which postprocess merges into ${ID}.r2c.db. The viewer is
+// docs/r2c_db_explorer.html (sql.js, runs queries client-side).
 
 // bav is all of the alignments of the contig to the reference
 AlignedContig::AlignedContig(BamRecordPtrVector& bav,
@@ -175,36 +178,30 @@ void AlignedContig::splitCoverage() {
 // ---------------------------------------------------------------------------
 // SvABA2.0: structured re-plot format.
 //
-// printToR2CTsv emits this contig's info in a tab-separated form that
-// downstream tools (e.g. viewer/bps_explorer.html) parse and re-plot on
-// demand. It's the successor to the old printToAlignmentsFile() /
-// alignments.txt.gz pre-rendered ASCII output, which has been removed.
+// writeToR2cDb persists this contig's info into a SQLite database via
+// the per-thread R2CDatabase emitter. Schema (defined in R2CDatabase.cpp):
 //
-// The schema is record-type discriminated: one "contig" row per contig,
-// then one "read" row per r2c-aligned read, all sharing a `contig_name`
-// key. Contig-only fields (sequence, fragments, BPs, read count) are
-// populated on the contig row and "NA" on read rows; read-only fields
-// are populated on read rows and "NA" on the contig row.
+//   contigs(cname PK, contig_len, seq, frags, bps, n_reads)
+//   reads  (cname FK, read_id, chrom, pos, flag, r2c_cigar, r2c_start,
+//           r2c_rc, r2c_nm, support, split_bps, disc_bps, r2c_score,
+//           native_score, seq)
 //
-// Anything that was encoded only implicitly in the old ASCII art (e.g.
-// fragment orientation via '>' vs '<', or leading/trailing soft-clip
-// bases via lowercase letters) is here available as an explicit field
-// so viewers don't have to reverse-engineer it.
+// `frags` and `bps` retain the same nested-string encoding the older TSV
+// used (so viewers can decode them with the same parser) — `|`-separated
+// rows, `:`-separated fields within a row. We could promote those to
+// proper relational tables in a follow-up, but the current shape works
+// well for the typical query "give me everything on this contig".
+//
+// Per-thread isolation: this is called with the worker's own R2CDatabase,
+// so SQLite never sees cross-thread access. Postprocess later merges the
+// per-thread .db files via R2CDatabase::merge_from() (ATTACH + INSERT).
+//
+// Replaces the older printToR2CTsv emitter (which produced gzipped TSV
+// rows for an ogzstream) and the even older printToAlignmentsFile ASCII
+// art; same information content, just in a queryable form.
 // ---------------------------------------------------------------------------
 
 namespace {
-// TSV-escape: replace tab/CR/LF with spaces so a single column value can't
-// break row parsing. Used everywhere we emit free-form text into a cell.
-std::string r2cEscape(const std::string& s) {
-  std::string out;
-  out.reserve(s.size());
-  for (char c : s) {
-    if (c == '\t' || c == '\n' || c == '\r') out.push_back(' ');
-    else out.push_back(c);
-  }
-  return out;
-}
-
 // Serialize a SeqLib::Cigar to the standard string form (e.g. "30M1D15M")
 // without relying on the overload of operator<< (which is fine but writes
 // through a stream; we want a plain std::string for cell composition).
@@ -216,65 +213,26 @@ std::string r2cCigarString(const SeqLib::Cigar& c) {
 }
 }  // namespace
 
-// Header line for the r2c TSV. Callers should write this once before any
-// rows. Not a row itself — do not prefix with a comment char.
-std::string AlignedContig::r2cTsvHeader() {
-  static const char* const kCols[] = {
-    "record_type",        // "contig" or "read"
-    "contig_name",        // shared key: group reads back to their contig
-    "contig_len",         // set on both row types for convenience
-    "contig_seq",         // assembled sequence     [contig only; NA on read]
-    "frags",              // BWA hits of contig vs. ref [contig only]
-    "bps",                // breakpoints on this contig  [contig only]
-    "n_reads",            // # read rows that follow this contig [contig only]
-    // read-only:
-    "read_id",            // svabaRead UniqueName (sample-prefixed qname)
-    "read_chrom",         // chromosome the read originally mapped to (BAM)
-    "read_pos",           // BAM alignment position
-    "read_flag",          // 0 if r2c forward, 16 if reverse-complemented
-    "r2c_cigar",          // read-to-contig CIGAR (e.g. "24M1D15M7I1M7D103M")
-    "r2c_start",          // start_on_contig (0-based)
-    "r2c_rc",             // 0/1: was r2c alignment reverse-complemented?
-    "r2c_nm",             // NM (mismatch count) from r2c alignment
-    "support",            // "split" | "disc" | "both" | "none" (categorical)
-    // SvABA2.0: unambiguous per-BP support lists. The categorical
-    // `support` above is the OR over these — use these columns when
-    // you need to know *which* BP(s) a read supports on this contig.
-    // Both are comma-joined lists of bp_id; "NA" if no match.
-    "split_bps",          // bp_ids where this read is a split-supporter
-    "disc_bps",           // bp_ids where this read (or its mate) is in a
-                          // discordant cluster associated with the BP
-    "r2c_score",          // alignment score under r2c CIGAR
-    "native_score",       // alignment score under BAM CIGAR (or corrected)
-    "read_seq"            // raw read sequence (pre-rc, pre-gap-expand)
-  };
-  std::ostringstream oss;
-  for (size_t i = 0; i < sizeof(kCols) / sizeof(kCols[0]); ++i) {
-    if (i) oss << '\t';
-    oss << kCols[i];
-  }
-  return oss.str();
-}
-
-std::string AlignedContig::printToR2CTsv(const SeqLib::BamHeader& h) const {
-  std::ostringstream out;
+void AlignedContig::writeToR2cDb(R2CDatabase& db,
+                                 const SeqLib::BamHeader& h) const {
   const std::string cname = this->getContigName();
-  const std::string NA    = "NA";
 
   // --- per-contig fields ------------------------------------------------
 
-  // frags: "|"-separated; within a frag, ":"-separated:
+  // frags: "|"-separated rows; within a row, ":"-separated 10 fields:
   //   chr:pos:strand:cigar:mapq:cpos_break1:cpos_break2:gpos_break1:gpos_break2:flipped
+  // Same encoding the legacy TSV used so existing viewer-side parsers
+  // (frag chips in r2c_db_explorer / bps_explorer) work unchanged.
   std::string frags;
   for (size_t i = 0; i < m_frag_v.size(); ++i) {
     const auto& frag = m_frag_v[i];
     const auto& a = frag.m_align;
     if (!a) continue;
     if (!frags.empty()) frags.push_back('|');
-    frags += r2cEscape(a->ChrName(sc->header));
+    frags += a->ChrName(sc->header);
     frags += ':'; frags += std::to_string(a->Position());
     frags += ':'; frags += (a->ReverseFlag() ? '-' : '+');
-    frags += ':'; frags += r2cEscape(a->CigarString());
+    frags += ':'; frags += a->CigarString();
     frags += ':'; frags += std::to_string(a->MapQuality());
     frags += ':'; frags += std::to_string(frag.break1);
     frags += ':'; frags += std::to_string(frag.break2);
@@ -282,24 +240,22 @@ std::string AlignedContig::printToR2CTsv(const SeqLib::BamHeader& h) const {
     frags += ':'; frags += std::to_string(frag.gbreak2);
     frags += ':'; frags += (frag.flipped ? '1' : '0');
   }
-  if (frags.empty()) frags = NA;
 
-  // bps: "|"-separated; within a bp, ":"-separated (10 fields):
+  // bps: "|"-separated rows; within a row, ":"-separated 10 fields:
   //   kind:bp_id:chr1:pos1:strand1:chr2:pos2:strand2:span:insertion
   // kind ∈ {global, multi, indel}. bp_id is the unique BP identifier
-  // assigned by svabaThreadUnit::next_bp_id() ("." if unset — should
-  // not happen in normal runs). insertion is "." if none. All fields
-  // fixed-position so the field count stays at 10 regardless of row.
+  // assigned by svabaThreadUnit::next_bp_id() ("." if unset). insertion
+  // is "." if none. Field count stays fixed at 10 regardless of row.
   auto bpCell = [&](const char* kind, const BreakPoint& bp) -> std::string {
     std::ostringstream os;
     os << kind << ':'
-       << (bp.id.empty() ? std::string(".") : r2cEscape(bp.id)) << ':'
-       << r2cEscape(bp.b1.gr.ChrName(h)) << ':' << bp.b1.gr.pos1 << ':'
+       << (bp.id.empty() ? std::string(".") : bp.id) << ':'
+       << bp.b1.gr.ChrName(h) << ':' << bp.b1.gr.pos1 << ':'
        << (bp.b1.gr.strand ? bp.b1.gr.strand : '.') << ':'
-       << r2cEscape(bp.b2.gr.ChrName(h)) << ':' << bp.b2.gr.pos1 << ':'
+       << bp.b2.gr.ChrName(h) << ':' << bp.b2.gr.pos1 << ':'
        << (bp.b2.gr.strand ? bp.b2.gr.strand : '.') << ':'
        << bp.getSpan() << ':'
-       << (bp.insertion.empty() ? std::string(".") : r2cEscape(bp.insertion));
+       << (bp.insertion.empty() ? std::string(".") : bp.insertion);
     return os.str();
   };
 
@@ -313,49 +269,27 @@ std::string AlignedContig::printToR2CTsv(const SeqLib::BamHeader& h) const {
   for (const auto& frag : m_frag_v)
     for (const auto& b : frag.m_indel_breaks)
       if (b) appendBp(bpCell("indel", *b));
-  if (bps.empty()) bps = NA;
-
-  const size_t n_reads = m_bamreads.size();
 
   // --- contig row -------------------------------------------------------
-  //
-  // Fields in order (21 total, mirroring r2cTsvHeader):
-  //   record_type contig_name contig_len contig_seq frags bps n_reads
-  //   read_id read_chrom read_pos read_flag r2c_cigar r2c_start r2c_rc
-  //   r2c_nm support split_bps disc_bps r2c_score native_score read_seq
-  // On the contig row, all read-specific fields are NA.
-  out << "contig\t"
-      << r2cEscape(cname)   << '\t'
-      << m_seq.length()     << '\t'
-      << r2cEscape(m_seq)   << '\t'
-      << frags              << '\t'
-      << bps                << '\t'
-      << n_reads            << '\t'
-      // read-only columns, 14 of them:
-      << NA << '\t' << NA << '\t' << NA << '\t' << NA << '\t' << NA << '\t'
-      << NA << '\t' << NA << '\t' << NA << '\t' << NA << '\t' << NA << '\t'
-      << NA << '\t' << NA << '\t' << NA << '\t' << NA << '\n';
+  db.insert_contig(cname,
+                   static_cast<int>(m_seq.length()),
+                   m_seq,
+                   frags,
+                   bps,
+                   static_cast<int>(m_bamreads.size()));
 
   // --- per-BP support tracking -----------------------------------------
   //
-  // Replaces the older flat split_supporters / disc_supporters sets.
   // For each BP on this contig we collect:
-  //   - bp_id: the unique identifier (may be "." if unset — shouldn't
-  //     happen in a normal svaba run, but we don't block emission on it)
+  //   - bp_id: the unique identifier (may be "." if unset)
   //   - split_reads: UniqueNames credited as split-supporters for this
   //     specific BP by BreakPoint::splitCoverage
   //   - disc_reads:  UniqueNames (of reads or mates) appearing in this
   //     BP's own DiscordantCluster (populated by
-  //     CombineWithDiscordantClusterMap). Note the scope is per-BP, not
-  //     per-contig — a contig can have multiple BPs, and a discordant
-  //     cluster may be attributed to only some of them.
+  //     CombineWithDiscordantClusterMap)
   //
-  // Per-read output then walks this vector and concatenates the bp_ids
-  // this read shows up under into `split_bps` / `disc_bps`. A read
-  // supporting two different BPs on the same contig (e.g. a multi-map
-  // contig with a global + a local BP) will show both ids, comma-
-  // joined, instead of the previous unambiguous "split" tag that hid
-  // which BP it actually supported.
+  // Per-read insertion then walks this vector and concatenates the
+  // bp_ids this read shows up under into `split_bps` / `disc_bps`.
   struct BpSupportEntry {
     std::string bp_id;
     std::unordered_set<std::string> split_reads;
@@ -373,32 +307,26 @@ std::string AlignedContig::printToR2CTsv(const SeqLib::BamHeader& h) const {
     per_bp_support.push_back(std::move(e));
   }
 
-  auto fmt_score = [](double s) {
-    std::ostringstream os;
-    os << std::fixed << std::setprecision(1) << s;
-    return os.str();
-  };
-
   // --- read rows --------------------------------------------------------
   for (const auto& i : m_bamreads) {
     const std::string sr       = i->UniqueName();
     const r2c         this_r2c = i->GetR2C(getContigName());
 
-    // r2c CIGAR: empty if no r2c alignment (shouldn't happen for reads
-    // listed here, but guard anyway).
-    std::string r2c_cig_str = r2cCigarString(this_r2c.cig);
-    if (r2c_cig_str.empty()) r2c_cig_str = NA;
+    // r2c CIGAR: empty when no r2c alignment is present (shouldn't
+    // happen for reads listed here, but guard anyway). We emit empty
+    // string rather than a sentinel so SQL queries can filter via
+    // `WHERE r2c_cigar != ''`.
+    const std::string r2c_cig_str = r2cCigarString(this_r2c.cig);
 
-    // Scores: same source-of-truth precedence BreakPoint::splitCoverage
-    // uses for its "r2c better than native" gate — we reproduce it here
-    // so the TSV lets you diagnose split-coverage decisions by field
-    // inspection alone.
-    std::string r2c_score_str = NA;
-    if (this_r2c.cig.size() > 0) {
-      r2c_score_str = fmt_score(
-          svaba::readAlignmentScore(this_r2c.cig, this_r2c.nm));
-    }
-    std::string native_score_str = NA;
+    // Scores: same precedence BreakPoint::splitCoverage uses for its
+    // "r2c better than native" gate — reproduced here so the database
+    // lets you diagnose split-coverage decisions by row inspection.
+    // 0.0 when the underlying CIGAR is empty (no alignment to score).
+    double r2c_score = 0.0;
+    if (this_r2c.cig.size() > 0)
+      r2c_score = svaba::readAlignmentScore(this_r2c.cig, this_r2c.nm);
+
+    double native_score = 0.0;
     {
       SeqLib::Cigar native_cig;
       int32_t       native_nm = -1;
@@ -409,18 +337,15 @@ std::string AlignedContig::printToR2CTsv(const SeqLib::BamHeader& h) const {
         native_cig = i->GetCigar();
         i->GetIntTag("NM", native_nm);
       }
-      if (native_cig.size() > 0) {
-        native_score_str = fmt_score(
-            svaba::readAlignmentScore(native_cig, native_nm));
-      }
+      if (native_cig.size() > 0)
+        native_score = svaba::readAlignmentScore(native_cig, native_nm);
     }
 
     // Build the per-BP support lists for this specific read. Comma-
-    // joined bp_ids, "NA" if this read doesn't support any BP in that
-    // category on this contig. The categorical `support` is derived
-    // from whether either list is non-empty, so the new columns are
-    // a strict superset of the old info — downstream code keying on
-    // `support == "split"` still works.
+    // joined bp_ids, empty string if this read doesn't support any BP
+    // in that category on this contig. The categorical `support` is
+    // derived from whether either list is non-empty, so the support
+    // tag remains consistent with the old TSV semantics.
     std::string split_bps_str;
     std::string disc_bps_str;
     bool any_split = false, any_disc = false;
@@ -436,43 +361,32 @@ std::string AlignedContig::printToR2CTsv(const SeqLib::BamHeader& h) const {
         any_disc = true;
       }
     }
-    if (split_bps_str.empty()) split_bps_str = NA;
-    if (disc_bps_str.empty())  disc_bps_str  = NA;
 
     const char* support_kind = any_split && any_disc ? "both"
                              : any_split             ? "split"
                              : any_disc              ? "disc"
                              :                         "none";
 
-    // read_chrom: BAM-native chromosome; may be empty for unmapped mates.
-    std::string read_chrom =
+    // read_chrom: BAM-native chromosome; "*" for unmapped reads/mates.
+    const std::string read_chrom =
         (i->ChrID() >= 0) ? i->ChrName(h) : std::string("*");
 
-    out << "read\t"
-        << r2cEscape(cname)     << '\t'
-        << m_seq.length()       << '\t'
-        << NA                   << '\t'   // contig_seq
-        << NA                   << '\t'   // frags
-        << NA                   << '\t'   // bps
-        << NA                   << '\t'   // n_reads
-        // read fields:
-        << r2cEscape(sr)            << '\t'
-        << r2cEscape(read_chrom)    << '\t'
-        << i->Position()            << '\t'
-        << (this_r2c.rc ? 16 : 0)   << '\t'
-        << r2c_cig_str              << '\t'
-        << this_r2c.start_on_contig << '\t'
-        << (this_r2c.rc ? 1 : 0)    << '\t'
-        << this_r2c.nm              << '\t'
-        << support_kind             << '\t'
-        << split_bps_str            << '\t'
-        << disc_bps_str             << '\t'
-        << r2c_score_str            << '\t'
-        << native_score_str         << '\t'
-        << r2cEscape(i->Sequence()) << '\n';
+    db.insert_read(cname,
+                   sr,
+                   read_chrom,
+                   i->Position(),
+                   this_r2c.rc ? 16 : 0,         // synthetic flag mirroring TSV
+                   r2c_cig_str,
+                   this_r2c.start_on_contig,
+                   this_r2c.rc ? 1 : 0,
+                   this_r2c.nm,
+                   support_kind,
+                   split_bps_str,
+                   disc_bps_str,
+                   r2c_score,
+                   native_score,
+                   i->Sequence());
   }
-
-  return out.str();
 }
 
 void AlignedContig::setMultiMapBreakPairs() {

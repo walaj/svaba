@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SvABA r2c.db Explorer</title>
+<!--
+  Standalone client-side SQL explorer for ${ID}.r2c.db (svaba 2.0 v4).
+  Loads the SQLite file via sql.js (SQLite compiled to WASM) and runs
+  arbitrary queries in the browser — no server, no infrastructure.
+
+  Companion page to bps_explorer.html and r2c_explorer.html. Same
+  drop-the-file-and-go UX. The .db is produced by `svaba run --dump-reads`
+  + `svaba postprocess` (the latter merges per-thread .db files and
+  stamps a `pass_cnames` lookup table).
+
+  Schema (as built by R2CDatabase.cpp / postprocess):
+
+    contigs(cname PK, contig_len, seq, frags, bps, n_reads)
+    reads  (cname FK, read_id, chrom, pos, flag, r2c_cigar, r2c_start,
+            r2c_rc, r2c_nm, support, split_bps, disc_bps,
+            r2c_score REAL, native_score REAL, seq)
+    pass_cnames(cname PK, somatic INT)   -- present iff postprocess ran
+
+  No external dependencies beyond sql.js + Grid.js (CDN) — kept inline
+  for everything else so the file works opened-from-disk (file://) too.
+-->
+<style>
+:root {
+  --bg: #0f1117; --surface: #1a1d27; --surface2: #252833;
+  --border: #2e3140; --text: #e1e4ed; --text2: #8b8fa3;
+  --accent: #6c8cff; --green: #4ade80; --red: #f87171; --amber: #fbbf24;
+  --blue: #60a5fa; --purple: #a855f7;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'SF Mono','Fira Code','Consolas',monospace;background:var(--bg);color:var(--text);min-height:100vh;font-size:12px}
+.header{display:flex;align-items:center;justify-content:space-between;padding:.6rem 1rem;border-bottom:1px solid var(--border);background:var(--surface)}
+.header h1{font-size:1rem;font-weight:600}
+.header h1 span{color:var(--accent)}
+.header .meta{font-size:.75rem;color:var(--text2)}
+.btn{background:var(--accent);color:#fff;border:none;border-radius:5px;padding:.35rem .8rem;font-size:.78rem;font-weight:600;cursor:pointer;font-family:inherit}
+.btn:hover{opacity:.9}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn-ghost{background:transparent;border:1px solid var(--border);color:var(--text2)}
+.btn-ghost:hover{border-color:var(--accent);color:var(--text)}
+
+.upload-row{display:flex;gap:.8rem;align-items:center;padding:.6rem 1rem;background:var(--surface);border-bottom:1px solid var(--border)}
+.upload-box{background:var(--surface2);border:2px dashed var(--border);border-radius:6px;padding:.6rem 1rem;cursor:pointer;transition:border-color .2s;font-size:.78rem;color:var(--text2);flex:1;text-align:center;max-width:520px}
+.upload-box:hover,.upload-box.over{border-color:var(--accent)}
+.upload-box.loaded{border-color:var(--green);border-style:solid}
+.upload-box input{display:none}
+.upload-box .fn{color:var(--green);font-size:.72rem;margin-top:.2rem;word-break:break-all}
+
+.layout{display:grid;grid-template-columns:280px 1fr;gap:.6rem;padding:.6rem;height:calc(100vh - 120px)}
+.sidebar{background:var(--surface);border:1px solid var(--border);border-radius:6px;overflow-y:auto;padding:.6rem}
+.sidebar h3{font-size:.7rem;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);margin:.6rem 0 .3rem 0}
+.sidebar h3:first-child{margin-top:0}
+.sidebar .preset{display:block;width:100%;text-align:left;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:.4rem .5rem;border-radius:4px;cursor:pointer;font-family:inherit;font-size:.72rem;margin-bottom:.3rem}
+.sidebar .preset:hover{border-color:var(--accent)}
+.sidebar .preset .label{color:var(--accent);font-weight:600;display:block;margin-bottom:.15rem}
+.sidebar .schema{font-size:.7rem;color:var(--text2);line-height:1.5}
+.sidebar .schema .tbl{color:var(--green);font-weight:600;display:block;margin-top:.3rem}
+.sidebar .schema .col{color:var(--text);margin-left:.6rem;display:inline-block;width:11ch}
+.sidebar .schema .ty{color:var(--text2);margin-left:.4rem}
+
+.main{display:grid;grid-template-rows:auto auto 1fr;gap:.6rem;min-height:0}
+.editor-wrap{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:.5rem;display:flex;flex-direction:column;gap:.4rem}
+.editor-wrap textarea{background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:.5rem;color:var(--text);font-family:inherit;font-size:.78rem;resize:vertical;min-height:120px;width:100%;outline:none}
+.editor-wrap textarea:focus{border-color:var(--accent)}
+.editor-actions{display:flex;gap:.4rem;align-items:center}
+.editor-actions .info{margin-left:auto;font-size:.7rem;color:var(--text2)}
+.editor-actions .err{color:var(--red);font-size:.72rem;font-family:inherit;font-weight:600}
+
+.results-wrap{background:var(--surface);border:1px solid var(--border);border-radius:6px;overflow:hidden;display:flex;flex-direction:column;min-height:0}
+.results-wrap .results-meta{padding:.4rem .8rem;background:var(--surface2);border-bottom:1px solid var(--border);font-size:.7rem;color:var(--text2);display:flex;gap:.8rem;align-items:center}
+.results-wrap .results-meta .count{color:var(--text)}
+.results-wrap .results-body{flex:1;overflow:auto;padding:.4rem .6rem}
+
+table.r{border-collapse:collapse;font-size:.72rem;font-family:inherit;width:100%}
+table.r th, table.r td{border:1px solid var(--border);padding:.25rem .5rem;text-align:left;vertical-align:top}
+table.r th{background:var(--surface2);color:var(--text2);text-transform:uppercase;letter-spacing:.04em;font-size:.65rem;position:sticky;top:0;z-index:1}
+table.r tr:nth-child(even) td{background:rgba(255,255,255,.015)}
+table.r td{max-width:520px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+table.r td:hover{white-space:normal;word-break:break-all}
+
+.empty{padding:1.2rem;color:var(--text2);text-align:center;font-size:.8rem}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>SvABA <span>r2c.db</span> Explorer</h1>
+  <div class="meta" id="db-meta">no database loaded</div>
+</div>
+
+<div class="upload-row">
+  <label class="upload-box" id="db-zone">
+    <input type="file" id="db-input" accept=".db,.sqlite,.r2c-db">
+    <div>Drop ${ID}.r2c.db here, or click to browse</div>
+    <div class="fn" id="db-fn"></div>
+  </label>
+  <button class="btn btn-ghost" id="reload-btn" disabled>Re-run query</button>
+</div>
+
+<div class="layout">
+
+  <div class="sidebar">
+    <h3>Quick queries</h3>
+    <button class="preset" data-q="SELECT cname, n_reads, contig_len FROM contigs ORDER BY n_reads DESC LIMIT 200;">
+      <span class="label">Top contigs by read count</span>
+      contigs ordered by n_reads desc, top 200
+    </button>
+    <button class="preset" data-q="SELECT c.cname, c.n_reads&#10;FROM contigs c&#10;JOIN pass_cnames p USING(cname)&#10;ORDER BY c.n_reads DESC LIMIT 200;">
+      <span class="label">PASS contigs only</span>
+      requires postprocess to have run
+    </button>
+    <button class="preset" data-q="SELECT c.cname, c.n_reads&#10;FROM contigs c&#10;JOIN pass_cnames p USING(cname)&#10;WHERE p.somatic = 1&#10;ORDER BY c.n_reads DESC LIMIT 200;">
+      <span class="label">PASS + somatic contigs</span>
+      tumor-specific calls only
+    </button>
+    <button class="preset" data-q="SELECT split_bps, COUNT(*) AS n_supporters&#10;FROM reads&#10;WHERE split_bps != ''&#10;GROUP BY split_bps&#10;ORDER BY n_supporters DESC LIMIT 100;">
+      <span class="label">Top BPs by split-supporter count</span>
+      groups bp_id (or comma-list) by row count
+    </button>
+    <button class="preset" data-q="-- replace BP_ID with the bp_id you want&#10;SELECT *&#10;FROM reads&#10;WHERE ',' || split_bps || ',' LIKE '%,bp00100000042,%';">
+      <span class="label">Reads supporting one BP</span>
+      use the bp_id from bps.txt's col 52
+    </button>
+    <button class="preset" data-q="-- replace CNAME with the contig you want&#10;SELECT * FROM reads WHERE cname = 'c_fermi_chr2_215869501_215894501_13C';">
+      <span class="label">All reads on one contig</span>
+      svaba_grep_contig equivalent
+    </button>
+    <button class="preset" data-q="SELECT support, COUNT(*) AS n FROM reads GROUP BY support ORDER BY n DESC;">
+      <span class="label">Read support breakdown</span>
+      split / disc / both / none
+    </button>
+    <button class="preset" data-q="SELECT cname,&#10;       COUNT(*) AS n_reads,&#10;       SUM(CASE WHEN support='split' OR support='both' THEN 1 ELSE 0 END) AS n_split,&#10;       SUM(CASE WHEN support='disc'  OR support='both' THEN 1 ELSE 0 END) AS n_disc&#10;FROM reads&#10;GROUP BY cname&#10;ORDER BY n_reads DESC LIMIT 200;">
+      <span class="label">Per-contig support summary</span>
+      n_split / n_disc rolled up per contig
+    </button>
+
+    <h3>Schema</h3>
+    <div class="schema" id="schema-box">
+      <span class="tbl">contigs</span>
+      <span class="col">cname</span><span class="ty">TEXT PK</span><br>
+      <span class="col">contig_len</span><span class="ty">INT</span><br>
+      <span class="col">seq</span><span class="ty">TEXT</span><br>
+      <span class="col">frags</span><span class="ty">TEXT</span><br>
+      <span class="col">bps</span><span class="ty">TEXT</span><br>
+      <span class="col">n_reads</span><span class="ty">INT</span><br>
+      <span class="tbl">reads</span>
+      <span class="col">cname</span><span class="ty">TEXT FK</span><br>
+      <span class="col">read_id</span><span class="ty">TEXT</span><br>
+      <span class="col">chrom</span><span class="ty">TEXT</span><br>
+      <span class="col">pos</span><span class="ty">INT</span><br>
+      <span class="col">flag</span><span class="ty">INT</span><br>
+      <span class="col">r2c_cigar</span><span class="ty">TEXT</span><br>
+      <span class="col">r2c_start</span><span class="ty">INT</span><br>
+      <span class="col">r2c_rc</span><span class="ty">INT</span><br>
+      <span class="col">r2c_nm</span><span class="ty">INT</span><br>
+      <span class="col">support</span><span class="ty">TEXT</span><br>
+      <span class="col">split_bps</span><span class="ty">TEXT</span><br>
+      <span class="col">disc_bps</span><span class="ty">TEXT</span><br>
+      <span class="col">r2c_score</span><span class="ty">REAL</span><br>
+      <span class="col">native_</span><span class="ty">REAL</span><br>
+      <span class="col">seq</span><span class="ty">TEXT</span><br>
+      <span class="tbl">pass_cnames</span>
+      <span class="col">cname</span><span class="ty">TEXT PK</span><br>
+      <span class="col">somatic</span><span class="ty">INT 0/1</span><br>
+    </div>
+  </div>
+
+  <div class="main">
+
+    <div class="editor-wrap">
+      <textarea id="query" placeholder="-- Load a .db file, then write SQL here. Cmd/Ctrl+Enter to run."></textarea>
+      <div class="editor-actions">
+        <button class="btn" id="run-btn" disabled>Run query</button>
+        <button class="btn btn-ghost" id="clear-btn">Clear</button>
+        <span class="info" id="run-info"></span>
+        <span class="err" id="run-err"></span>
+      </div>
+    </div>
+
+    <div class="results-wrap" style="display:none" id="results-wrap">
+      <div class="results-meta">
+        <span class="count" id="row-count"></span>
+        <span id="run-time"></span>
+        <span id="trunc-note"></span>
+      </div>
+      <div class="results-body" id="results-body"></div>
+    </div>
+
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.js"></script>
+<script>
+// ---------------------------------------------------------------------------
+// State
+// ---------------------------------------------------------------------------
+let SQL = null;
+let DB  = null;
+let LAST_QUERY = "";
+const MAX_ROWS_RENDERED = 5000;  // cap UI render — sql.js can return more
+                                 // but the DOM chokes past ~10k cells
+
+// ---------------------------------------------------------------------------
+// sql.js bootstrap
+// ---------------------------------------------------------------------------
+async function initSql() {
+  if (SQL) return SQL;
+  SQL = await initSqlJs({
+    locateFile: f => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/${f}`
+  });
+  return SQL;
+}
+
+// ---------------------------------------------------------------------------
+// File upload — drag/drop + click-to-browse, identical UX to bps_explorer
+// ---------------------------------------------------------------------------
+const dbZone  = document.getElementById("db-zone");
+const dbInput = document.getElementById("db-input");
+const dbFn    = document.getElementById("db-fn");
+const dbMeta  = document.getElementById("db-meta");
+
+dbInput.addEventListener("change", e => {
+  if (e.target.files[0]) loadDbFile(e.target.files[0]);
+});
+["dragenter","dragover"].forEach(ev =>
+  dbZone.addEventListener(ev, e => { e.preventDefault(); dbZone.classList.add("over"); }));
+["dragleave","drop"].forEach(ev =>
+  dbZone.addEventListener(ev, e => { e.preventDefault(); dbZone.classList.remove("over"); }));
+dbZone.addEventListener("drop", e => {
+  if (e.dataTransfer.files[0]) loadDbFile(e.dataTransfer.files[0]);
+});
+
+async function loadDbFile(file) {
+  try {
+    document.getElementById("run-err").textContent = "";
+    await initSql();
+    const buf = await file.arrayBuffer();
+    DB = new SQL.Database(new Uint8Array(buf));
+
+    dbZone.classList.add("loaded");
+    dbFn.textContent = file.name + " — " + (file.size/1024/1024).toFixed(1) + " MB";
+
+    const meta = describeDb(DB);
+    dbMeta.textContent = meta;
+
+    document.getElementById("run-btn").disabled = false;
+    document.getElementById("reload-btn").disabled = false;
+
+    // Default query: top 100 contigs by read count.
+    const ta = document.getElementById("query");
+    if (!ta.value.trim()) {
+      ta.value = "SELECT cname, n_reads, contig_len FROM contigs ORDER BY n_reads DESC LIMIT 100;";
+      runQuery();
+    }
+  } catch (e) {
+    document.getElementById("run-err").textContent = "load failed: " + e.message;
+  }
+}
+
+// Probe the DB for table/row counts to display in the header. We use
+// COUNT(*) here; on a large reads table this scans the table, but it's
+// a one-time cost on load and indexes make it fast for contigs/pass.
+function describeDb(db) {
+  const parts = [];
+  for (const tbl of ["contigs","reads","pass_cnames"]) {
+    try {
+      const r = db.exec("SELECT COUNT(*) FROM " + tbl);
+      const n = r[0].values[0][0];
+      parts.push(tbl + ": " + n.toLocaleString());
+    } catch(e) { /* table missing — skip */ }
+  }
+  return parts.join("  ·  ");
+}
+
+// ---------------------------------------------------------------------------
+// Query execution
+// ---------------------------------------------------------------------------
+const queryEl   = document.getElementById("query");
+const runBtn    = document.getElementById("run-btn");
+const reloadBtn = document.getElementById("reload-btn");
+const clearBtn  = document.getElementById("clear-btn");
+const runErr    = document.getElementById("run-err");
+const runInfo   = document.getElementById("run-info");
+
+runBtn.addEventListener("click", runQuery);
+reloadBtn.addEventListener("click", runQuery);
+clearBtn.addEventListener("click", () => {
+  queryEl.value = ""; queryEl.focus();
+  document.getElementById("results-wrap").style.display = "none";
+  runErr.textContent = ""; runInfo.textContent = "";
+});
+
+// Cmd/Ctrl+Enter to run.
+queryEl.addEventListener("keydown", e => {
+  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+    e.preventDefault();
+    runQuery();
+  }
+});
+
+// Sidebar preset buttons populate the editor and run.
+document.querySelectorAll(".preset").forEach(btn => {
+  btn.addEventListener("click", () => {
+    queryEl.value = btn.getAttribute("data-q");
+    runQuery();
+  });
+});
+
+function runQuery() {
+  if (!DB) {
+    runErr.textContent = "no database loaded";
+    return;
+  }
+  const sql = queryEl.value.trim();
+  if (!sql) { runErr.textContent = "empty query"; return; }
+  runErr.textContent = "";
+  LAST_QUERY = sql;
+
+  const t0 = performance.now();
+  let res;
+  try {
+    res = DB.exec(sql);
+  } catch (e) {
+    runErr.textContent = "sql error: " + e.message;
+    document.getElementById("results-wrap").style.display = "none";
+    return;
+  }
+  const ms = (performance.now() - t0).toFixed(0);
+
+  // exec returns an array of result-sets (one per statement). For our
+  // typical use we get exactly one; render the last one if multiple.
+  if (!res || !res.length) {
+    runInfo.textContent = "ok (no rows) — " + ms + "ms";
+    document.getElementById("results-wrap").style.display = "none";
+    return;
+  }
+  renderResult(res[res.length - 1], ms);
+}
+
+function renderResult(r, ms) {
+  document.getElementById("results-wrap").style.display = "";
+  const cols = r.columns || [];
+  const rows = r.values  || [];
+
+  document.getElementById("row-count").textContent =
+    rows.length.toLocaleString() + " row" + (rows.length === 1 ? "" : "s");
+  document.getElementById("run-time").textContent = ms + " ms";
+  document.getElementById("trunc-note").textContent =
+    rows.length > MAX_ROWS_RENDERED
+      ? "(showing first " + MAX_ROWS_RENDERED.toLocaleString() + " — query LIMIT to fetch fewer)"
+      : "";
+
+  const body = document.getElementById("results-body");
+  body.innerHTML = "";
+  if (!rows.length) {
+    body.innerHTML = '<div class="empty">no rows</div>';
+    return;
+  }
+
+  // Build table manually — avoids the Grid.js dependency for a simple grid
+  // and keeps render time linear in rows-shown.
+  const table = document.createElement("table");
+  table.className = "r";
+  const thead = document.createElement("thead");
+  const trh = document.createElement("tr");
+  for (const c of cols) {
+    const th = document.createElement("th");
+    th.textContent = c;
+    trh.appendChild(th);
+  }
+  thead.appendChild(trh);
+  table.appendChild(thead);
+
+  const tbody = document.createElement("tbody");
+  const limit = Math.min(rows.length, MAX_ROWS_RENDERED);
+  for (let i = 0; i < limit; i++) {
+    const tr = document.createElement("tr");
+    for (const v of rows[i]) {
+      const td = document.createElement("td");
+      // null / undefined → blank cell. Numbers → toLocaleString for
+      // visual breathing room; strings render as-is.
+      if (v === null || v === undefined) td.textContent = "";
+      else if (typeof v === "number")    td.textContent = v.toLocaleString();
+      else                                td.textContent = String(v);
+      tr.appendChild(td);
+    }
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  body.appendChild(table);
+}
+
+runInfo.textContent = "load a .db file to begin";
+</script>
+
+</body>
+</html>

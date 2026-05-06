@@ -223,7 +223,18 @@ Column numbers are 1-indexed (awk $1 == chr1).
                               contig a given read actually supports.
                               ("." on very old v2 files rewritten
                               through a v3 emitter that left id unset.)
-  53+  per-sample blocks      FORMAT: GT:AD:DP:SR:DR:GQ:PL:LO:LO_n
+  53   jxn_kmer               v4 only — 20bp contig-native sequence
+                              spanning the breakend junction (10bp
+                              ending at the boundary, 10bp starting
+                              after). Useful as a read-search query —
+                              feed `svaba extract-pairs -f bps.txt.gz`
+                              and it'll pull every read pair that
+                              carries this kmer or its reverse
+                              complement. "." when no precise junction
+                              exists (DSCRD-only clusters, imprecise
+                              BPs, or contigs too short to fit the
+                              window).
+  54+  per-sample blocks      FORMAT: GT:AD:DP:SR:DR:GQ:PL:LO:LO_n
                               (one block per BAM, order from the header row)
 EOF
 }

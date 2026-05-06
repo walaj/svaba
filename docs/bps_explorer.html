@@ -286,6 +286,10 @@ const V2=["cpos1","cpos2","lmatch","rmatch","scov1","scov2","local1","local2","c
 // src/svaba/BreakPoint.h). Used to cross-reference to the r2c file's
 // split_bps / disc_bps columns.
 const V3=["bp_id"];
+// SvABA2.0 v4: +1 trailing core column. jxn_kmer is a 20-bp slice of
+// the contig spanning the breakend junction; "." when no precise
+// junction exists. Useful as a primary-key for `svaba extract-pairs`.
+const V4=["jxn_kmer"];
 const NUM=new Set(["pos1","pos2","span","split","alt_count","cov","cigar","cigar_near","dmq1","dmq2","dcn","dct","mapq1","mapq2","nm1","nm2","as1","as2","sub1","sub2","naln","qual","secondary","somlod","maxlod","cpos1","cpos2","lmatch","rmatch","scov1","scov2","ctglen"]);
 
 const TCOLS=[
@@ -675,10 +679,11 @@ function ingest(text,name){
   if(lines.length<2)throw new Error("Need header + rows");
   const hdr=lines[0].split("\t");
 
-  // detect core col count. Three possible shapes:
+  // detect core col count. Four possible shapes:
   //   LEGACY (41 cols)
   //   V2     (51 cols = LEGACY + 10 refilter cols)
   //   V3     (52 cols = V2 + bp_id)
+  //   V4     (53 cols = V3 + jxn_kmer)
   // We snap `cc` down to the largest known shape that fits. Anything
   // between two known sizes is treated as the smaller one (safer —
   // extra unnamed columns just get ignored in the detail panel).
@@ -687,8 +692,10 @@ function ingest(text,name){
   const LEG_N = LEGACY.length;              // 41
   const V2_N  = LEG_N + V2.length;          // 51
   const V3_N  = V2_N  + V3.length;          // 52
+  const V4_N  = V3_N  + V4.length;          // 53
   let coreCols;
-  if      (cc >= V3_N) { cc = V3_N; coreCols = LEGACY.concat(V2).concat(V3); }
+  if      (cc >= V4_N) { cc = V4_N; coreCols = LEGACY.concat(V2).concat(V3).concat(V4); }
+  else if (cc >= V3_N) { cc = V3_N; coreCols = LEGACY.concat(V2).concat(V3); }
   else if (cc >= V2_N) { cc = V2_N; coreCols = LEGACY.concat(V2); }
   else                 { cc = LEG_N; coreCols = LEGACY; }
   const isV2 = cc >= V2_N;   // kept for any downstream code that still reads it

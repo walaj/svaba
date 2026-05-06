@@ -309,17 +309,14 @@ continue):
    - Column positions hard-coded: `col 30 = cname (contig_and_region)`,
      `col 32 = confidence`, `col 38 = maxlod`. These come from
      `BreakPoint::toFileString` — change there and the script breaks.
-4. **Filter `r2c.txt.gz` to PASS contigs (+ PASS-somatic subset)** —
-   resolves PASS cnames from `bps.txt.gz` (col 32 == "PASS") and the
-   PASS-somatic subset (also col 37, `somlod`, >= 1) in one pass. Then
-   one pass over `r2c.txt.gz` writes two outputs via awk pipe-to-command
-   (gzip compressors run in parallel as child processes):
-     - `${ID}.r2c.pass.txt.gz`           (all PASS)
-     - `${ID}.r2c.pass.somatic.txt.gz`   (PASS ∩ somlod >= 1)
-   Both are cname-keyed; contig and read rows survive together since
-   they share col 2. Either is suitable for `bps_explorer.html`'s
-   alignments sub-panel; the somatic subset is the lighter load when
-   you only care about the tumor-specific calls.
+4. **Stamp `pass_cnames` table into `${ID}.r2c.db`** — resolves PASS
+   cnames from `bps.txt.gz` (col 32 == "PASS") and the somatic subset
+   (col 37, `somlod`, >= 1), then writes a small `pass_cnames(cname,
+   somatic)` table into the merged r2c.db so consumers can do
+   `SELECT r.* FROM reads r JOIN pass_cnames p USING(cname)` (add
+   `WHERE p.somatic = 1` for tumor-specific). Replaces the v3-era
+   step that wrote duplicate `.r2c.pass.txt.gz` /
+   `.r2c.pass.somatic.txt.gz` files — same information, no copies.
 5. **Optional split-by-source** — `--split-by-source` (or env
    `SPLIT_BY_SOURCE=1`) demuxes the deduped BAMs by the first 4 chars of
    each QNAME into `${ID}.${suffix}.${prefix}.bam`.
@@ -410,6 +407,158 @@ correctly). For now, pipe through `bcftools sort -Oz` + `tabix -p vcf`
 after. If this becomes painful, revisit with htslib's `hts_open` +
 `vcf_write` path instead of ogzstream.
 
+## `svaba extract-pairs` subcommand
+
+BAM-native replacement for `scripts/extract_pairs_by_seq.sh`. Pulls
+every read pair from a BAM where either mate's SEQ contains any of the
+given query sequences (or, by default, their reverse complements).
+Lives in `src/svaba/SvabaExtractPairs.cpp`; dispatch wired in
+`src/svaba/svaba.cpp`.
+
+Two-pass design, both passes BAM-native:
+
+- **Pass 1 — QNAME collection.** Stream input via `SeqLib::BamReader`
+  with a BGZF decompression thread pool (`SetThreads`). For each
+  record we walk `bam_get_seq(rec.raw())` directly through an
+  Aho-Corasick automaton (5-letter alphabet `{A,C,G,T,N}`) using a
+  16-entry nibble→alphabet lookup table — no `std::string` allocation
+  per record, no SAM text, no regex engine. Patterns containing
+  non-ACGTN bases are silently rejected at insertion (they would never
+  match an htslib-stored sequence anyway). On any pattern hit the
+  read's QNAME goes into a hash set.
+- **Pass 2 — pair extraction.** Re-stream input. Every record whose
+  QNAME is in the set gets written to the output BAM. Both mates plus
+  any supplementary/secondary alignments survive together because they
+  share the QNAME. BGZF write pool on the writer.
+- **Sort.** Skipped iff input declares `@HD SO:coordinate` (the common
+  case). Output preserves input record order, so coord-sorted in →
+  coord-sorted out. For unsorted input we shell out to `samtools sort`
+  — same fallback as `svaba postprocess`. The legacy shell script
+  unconditionally sorted, which on a large already-sorted BAM is a
+  wasted full read+write of the output.
+- **Index.** `sam_index_build(out, 0)` directly — no `samtools index`
+  fork.
+- **@PG stamp.** A bare `@PG ID:svaba_extract_pairs PN:svaba VN:<ver>
+  CL:<argv>` line is appended to the output header. Unlike
+  `svaba postprocess`, we do NOT uniquify the ID — extract-pairs
+  produces a fresh output BAM, so a duplicate ID only appears if the
+  user piped extract output through extract again, where a duplicate
+  trace is informative rather than wrong.
+
+CLI:
+```
+svaba extract-pairs -i IN.bam -o OUT.bam (-s SEQ ... | -f FILE) [options]
+  -s, --seq SEQ           Query sequence; repeatable.
+  -f, --seq-file FILE     File of query sequences, one per line
+                          ('#' comments and empty lines ignored).
+  -t, --threads N         BGZF reader+writer threads. [4]
+      --no-rc             Skip reverse-complement augmentation.
+      --no-pairs          Single-pass mode: emit only records whose own
+                          SEQ matched. Skips the mate / supplementary
+                          pickup that the default two-pass mode does;
+                          ~2x faster (one BAM pass instead of two, no
+                          QNAME hash set). Use when you just want to
+                          inspect which reads contain a motif.
+  -v, --verbose 0-3
+  -h, --help
+```
+
+Why this is faster than `extract_pairs_by_seq.sh`:
+- No `samtools view → awk → samtools view -b` SAM-text round-trip.
+  The legacy script is bottlenecked on a single-threaded awk consumer
+  of decompressed SAM text; `samtools view -@ N`'s decompression
+  threads can't help past the pipe.
+- No regex alternation per read. Aho-Corasick gives O(read_len) per
+  read regardless of pattern count.
+- No third pass for `samtools sort` when input is already coord-sorted
+  (skipped via `@HD SO:coordinate` header check).
+- BGZF thread pools on both reader and writer.
+
+Useful jump points:
+- Entry point: `src/svaba/SvabaExtractPairs.cpp::runExtractPairs`
+- Aho-Corasick (5-letter alphabet, nibble-direct search):
+  `class AhoCorasick` in same file.
+- Coord-sort detection helper: `isCoordinateSorted()` in same file
+  (kept local rather than pulling in `SvabaPostprocess.h`).
+
+## Homology / insertion strand convention (v4)
+
+For SVs (ASSMB / ASDIS), `BreakPoint::set_homologies_insertions` reads
+the homology and inserted-sequence bytes out of `seq` (= the contig
+`m_seq` in assembly-native orientation) by slicing between `b1.cpos`
+and `b2.cpos`. m_seq has no inherent strand — it's whatever bytes the
+assembler emitted — so when BWA reports the left fragment with
+`ReverseFlag=true`, those bytes are the reverse-complement of side 1's
+forward-strand reference.
+
+Convention: **homology and insertion are always stored on side 1's
+forward strand.** When `b1.gr.strand == '-'` (which the
+`isleft=true` branch of `BreakEnd::transferContigAlignmentData` sets to
+match `ReverseFlag` directly), the slice is reverse-complemented before
+being assigned to `homology` / `insertion`. The fix kicks in only when
+the contig happens to come off the assembler in the reverse-of-side-1
+orientation — for the common cases (deletions, tandem dups, contigs
+that align forward to side 1) it's a no-op.
+
+Implications:
+- `bps.txt.gz` cols 27 (homol) and 28 (insert) are unambiguous
+  forward-strand spellings. Users can grep the reference + strand for
+  the value directly and find the insert.
+- `extract-pairs -f bps.txt.gz` (which already searches both forward
+  and reverse-complement of every query by default) is unaffected —
+  the canonicalization just changes which orientation gets searched
+  first; the result set is identical.
+- `tovcf`'s INFO/HOMSEQ and INFO/INSSEQ inherit the canonical form
+  through `BreakPoint`'s fields.
+- Indels (the indel BreakPoint ctor at line ~890) read insertion bytes
+  from `m_align->Sequence()`, which is BAM SEQ — already
+  reference-forward by SAM convention. So the indel path needs no fix
+  and gets none.
+
+## Junction kmer (v4 schema)
+
+Col 53 of `bps.txt.gz` is `jxn_kmer` — a 20-bp slice of the contig
+sequence that spans the breakend junction. Lives in
+`BreakPoint::junctionKmer()` (BreakPoint.cpp). Window definition: 10 bp
+ending at `cpos_on_m_seq().first` + 10 bp starting at `+1`. So for SVs
+without inserted novel sequence (the common case where `c2 == c1+1`),
+the kmer is exactly the contig spelling that split-supporting reads
+carry verbatim. For indels with an insertion, the right half lands
+inside the inserted bases — a deliberate compromise to keep the kmer
+contig-contiguous (matches reads that cross the upstream junction).
+
+Same forward-strand canonicalization as homology / insertion: when
+`b1.gr.strand == '-'` (frag_left reverse-aligned), the kmer is
+reverse-complemented before storage so cols 27, 28, and 53 are all
+in side 1's forward-strand spelling. For `extract-pairs` queries this
+is functionally a no-op (the AC matcher already runs both
+orientations), but it keeps the on-disk strings consistent and
+greppable against the reference + strand.
+
+Emitted as "." when no clean kmer is definable: imprecise BPs,
+DSCRD-only clusters, missing/unset cpos, empty contig, or contig too
+short to fit the window.
+
+The kmer round-trips through refilter via a parsed-cache field
+(`BreakPoint::jxn_kmer`) so re-emission preserves the original value
+even when `seq` is empty post-parse.
+
+Primary downstream consumer: `svaba extract-pairs -f bps.txt.gz`.
+That command auto-detects bps input by sniffing the `#chr1\t` header
+prefix and pulls the kmer column out of each row, skipping "." rows.
+Both forward and reverse-complement searches are run by default
+(`--no-rc` to disable).
+
+Readers updated for the v4 schema:
+- `BreakPoint::header()` and the bps parser (`BreakPoint.cpp`,
+  same colon-test heuristic used for col 52 → col 53).
+- `docs/bps_explorer.html` (new `V4` constant + version-detection
+  branch in `ingest()`).
+- `scripts/svaba_local_function.sh::svaba_bps_cols` reference text.
+- `scripts/svaba_postprocess.sh` and `SvabaPostprocess.cpp` need
+  no changes — sort/dedup keys (cols 30/32/37/38/52) are unaffected
+  and the dedup logic preserves whole lines via byte slabs.
+
 ## BreakPoint IDs (v3 schema)
 
 Every BP gets a unique stable identifier of the form `bpTTTNNNNNNNN`
@@ -460,77 +609,82 @@ identifier namespaces — choose the right one for the join you want:
 reads for a contig; set `TAG=bi` and pass a bp_id instead of a
 cname if you want the ALT-supporter subset for a specific variant.
 
-## r2c TSV format (re-plot-able alignments)
+## r2c SQLite database (v4)
 
-`${ID}.r2c.txt.gz` is the structured, re-plot-able alignment dump. It
-replaces the old pre-rendered `${ID}.alignments.txt.gz` ASCII output,
-which has been removed entirely — anything that lived implicitly in the
-ASCII art (fragment orientation, leading/trailing soft-clip bases, etc.)
-is now available as an explicit field in the TSV, and
-`viewer/r2c_explorer.html` re-plots it in-browser on demand.
+`${ID}.r2c.db` is the queryable r2c alignment dump. It replaces the v3
+TSV (`${ID}.r2c.txt.gz`), which itself replaced the v2 ASCII output —
+same information content, written directly into SQLite instead of going
+through a TSV intermediate. No build-string-then-gzip round trip on the
+hot path; arbitrary SQL on the back end via `sqlite3` CLI / `sql.js` /
+`DuckDB.attach`.
 
-**Per-thread emission + postprocess merge.** Each svaba worker writes its
-own `${ID}.thread${N}.r2c.txt.gz` during the run (stream lives in
-`svabaThreadUnit::r2c_out_`; opened in the ctor, closed in the dtor,
-gated on `opts.dump_alignments`). The write happens in
-`SvabaOutputWriter::writeUnit` **before** `writeMutex_` is acquired —
-each thread's gzip stream is independent, so deflate runs in parallel
-across all workers. The first worker (threadId == 1; the worker pool in
-`threadpool.h` numbers threads 1..N, so there is no thread 0) writes the
-column-header line on open; other threads start with data.
-`scripts/svaba_postprocess.sh` step 1 merges the per-thread files via
-`cat`: gzip is concatenation-safe per RFC 1952, and the postprocess step
-numerically sorts `.threadN.r2c.txt.gz` so thread 1 is first in the cat,
-which means the merged file has exactly one header at the top. This is
-the same architectural pattern as the per-thread BAM writers; for the
-rationale, see "Perf notes" — in short, a mutex-shared gzip stream
-serializes `deflate()` across all threads, losing ~15/16 of compression
-parallelism at `-p 16`.
+The legacy `r2c_explorer.html` still loads old `.r2c.txt.gz` files for
+historical outputs; the new viewer is `docs/r2c_db_explorer.html`
+(sql.js, runs queries client-side).
 
-Gotcha: the header-writing branch is keyed to `threadId == 1` in
-`SvabaThreadUnit::svabaThreadUnit`. Older revisions checked
-`threadId == 0`; that never fired because the pool hands out 1..N,
-which silently produced headerless `r2c.txt.gz` files. If you ever
-change the worker-numbering base, that line must change with it.
+**Per-thread emission + postprocess merge.** Each svaba worker writes
+its own `${ID}.thread${N}.r2c.db` during the run via
+`svabaThreadUnit::r2c_db_` (a `std::unique_ptr<R2CDatabase>`; opened in
+the ctor, closed in the dtor, gated on `opts.dump_alignments`).
+`SvabaOutputWriter::writeUnit` calls `alc.writeToR2cDb(...)`
+**before** `writeMutex_` is acquired — each thread has its own SQLite
+handle, so inserts run in parallel across all workers with no cross-
+thread locking. Postprocess merges the per-thread `.db` files via
+`R2CDatabase::merge_from()` (ATTACH the source as `src`, then
+`INSERT OR IGNORE INTO main.contigs SELECT * FROM src.contigs;
+INSERT INTO main.reads SELECT * FROM src.reads;`, then DETACH). The
+first input is renamed in-place to the target so most of the data is
+reused without copy.
 
-Schema (documented by `AlignedContig::r2cTsvHeader()` in
-`src/svaba/AlignedContig.cpp`) — 21 tab-separated columns, record-type
-discriminated:
+Schema (built by `R2CDatabase::R2CDatabase()` in
+`src/svaba/R2CDatabase.cpp`):
 
 ```
-record_type  contig_name  contig_len  contig_seq  frags  bps  n_reads
-             # contig-only fields above — NA on read rows
-
-             read_id  read_chrom  read_pos  read_flag  r2c_cigar  r2c_start
-             r2c_rc  r2c_nm  support  split_bps  disc_bps  r2c_score
-             native_score  read_seq
-             # read-only fields — NA on the contig row
+contigs(cname TEXT PK, contig_len INT, seq TEXT, frags TEXT, bps TEXT, n_reads INT)
+reads  (cname TEXT FK, read_id TEXT, chrom TEXT, pos INT, flag INT,
+        r2c_cigar TEXT, r2c_start INT, r2c_rc INT, r2c_nm INT,
+        support TEXT, split_bps TEXT, disc_bps TEXT,
+        r2c_score REAL, native_score REAL, seq TEXT)
+        -- index: idx_reads_cname ON reads(cname)
+pass_cnames(cname TEXT PK, somatic INT)   -- stamped by postprocess Phase 4
 ```
 
-`split_bps` / `disc_bps` are comma-joined `bp_id` lists — the unambiguous
-per-BP attribution of each read. The categorical `support` field
-(`split` / `disc` / `both` / `none`) is derived from these (whichever is
-non-NA) and kept for grep-friendliness. The `bps` field on the contig
-row also carries each BP's id as the 2nd subfield so viewers can join
-back without a second file. On older r2c files without these columns
-(pre-v3 emitter) the viewer falls back to the categorical support only.
+`pass_cnames` is the SQL-friendly equivalent of the v3 TSV-era
+`.r2c.pass.txt.gz` / `.r2c.pass.somatic.txt.gz` filtered subsets:
+`SELECT r.* FROM reads r JOIN pass_cnames p USING(cname);` for the
+PASS subset, add `WHERE p.somatic = 1` for tumor-specific. One small
+lookup table replaces gigabytes of duplicated rows.
 
-One `contig` row per variant-bearing contig, followed by one `read` row per
-r2c-aligned read. `contig_name` is the shared join key (same value as
-bps.txt's col-30 `cname`), so grouping reads back to their contig is O(n).
+`split_bps` / `disc_bps` are comma-joined `bp_id` lists — the
+unambiguous per-BP attribution of each read. The categorical `support`
+field (`split` / `disc` / `both` / `none`) is derived from these and
+kept for query-friendliness. The `bps` column on the contig row also
+carries each BP's id as the 2nd subfield, so viewers can join back
+without a second table.
 
-Format details:
+`frags` and `bps` retain their nested-string encoding from the TSV:
 - `frags`: `|`-separated per fragment; within a frag, `:`-separated
   `chr:pos:strand:cigar:mapq:cpos_break1:cpos_break2:gpos_break1:gpos_break2:flipped`.
-- `bps`: `|`-separated; within a bp, `:`-separated
-  `kind:chr1:pos1:strand1:chr2:pos2:strand2:span:insertion`. `kind ∈ {global, multi, indel}`.
-  Insertion is `.` when absent so the field count stays fixed at 9.
-- All cell values are TSV-escaped (tab/CR/LF → space) via `r2cEscape`.
-- Per-sample support classification (`split`/`disc`/`both`/`none`) and the
-  scores are computed **identically** to the ASCII emitter — same
-  `r2c_score > native_score` gate, same `corrected_native_cig` precedence,
-  same `split_supporters`/`disc_supporters` sets. The two emitters share
-  enough code to prevent drift.
+- `bps`: `|`-separated; within a row, `:`-separated 10 fields:
+  `kind:bp_id:chr1:pos1:strand1:chr2:pos2:strand2:span:insertion`.
+  `kind ∈ {global, multi, indel}`. Insertion is `.` when absent.
+
+These could be promoted to proper relational tables (`contig_frags`,
+`contig_bps`) in a follow-up — viewers parse them client-side today
+because the TSV used the same encoding and there's value in keeping
+the parser portable.
+
+**Sentinels.** Empty `r2c_cigar` / `seq` (rather than NULL) when no
+r2c alignment is available; score columns are `0.0` in that case.
+SQL queries can filter via `WHERE r2c_cigar != ''` or
+`WHERE r2c_score > 0`.
+
+Performance: per-thread inserts run inside a single open transaction
+(committed in `svabaThreadUnit::clear`) with `journal_mode=WAL` and
+`synchronous=OFF`. This is faster than gzip-text emission was — the
+TSV had to format a string for every row; SQLite binds primitives
+directly. On WGS data we measured ~1.7× speedup on the dump path
+end-to-end (build + write).
 
 ## Blacklist-aware region pruning
 

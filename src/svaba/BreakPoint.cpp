@@ -21,6 +21,7 @@
 #include "SeqLib/GenomicRegionCollection.h"
 #include "SeqLib/GenomicRegion.h"
 #include "SeqLib/BamHeader.h"
+#include "SeqLib/SeqLibUtils.h"  // rcomplement (in-place reverse-complement)
 #include "AlignmentFragment.h"
 #include "AlignedContig.h"
 #include "SvabaModels.h"
@@ -189,6 +190,51 @@ BreakPoint::BreakPoint(const SvabaSharedConfig* _sc,
 }
 
 // make the file string
+std::string BreakPoint::junctionKmer(int window) const {
+  // Conservative gates — return "." (the documented "no kmer" sentinel)
+  // anywhere the data isn't sufficient for a clean window.
+  if (window <= 0)    return ".";
+  if (imprecise == 1) return ".";       // DSCRD-only / no precise junction
+  if (seq.empty())    return ".";       // no backing contig
+  if (b1.cpos < 0)    return ".";       // cpos unset
+
+  // cpos_on_m_seq() converts b1.cpos / b2.cpos from BAM/genome-forward
+  // coords to assembly-native coords matching `seq` (== m_seq), handling
+  // flipped contigs.
+  const auto [c1, c2] = cpos_on_m_seq();
+  if (c1 < 0) return ".";
+  (void)c2;  // not used here — see comment below for why we center on c1
+
+  // Window definition: half bases ending at c1 + half bases starting at
+  // c1+1. For SVs without inserted novel sequence (the common case)
+  // c2 == c1+1, so the window is the contiguous junction kmer that
+  // split-supporting reads carry verbatim. For indels with an
+  // insertion (c2 > c1+1) the right half lands inside the inserted
+  // bases — a deliberate compromise: the kmer stays contig-contiguous
+  // and still appears in reads that cross the upstream junction.
+  const int half  = window / 2;
+  const int start = c1 - half + 1;
+  const int end   = start + window;       // exclusive
+
+  if (start < 0 || end > static_cast<int>(seq.size())) return ".";
+  std::string kmer = seq.substr(start, window);
+
+  // SvABA2.0 v4: canonicalize to side 1's forward-strand spelling,
+  // matching the convention enforced for homology / insertion in
+  // set_homologies_insertions(). Same signal — `b1.gr.strand == '-'`
+  // means frag_left was reverse-aligned, so the m_seq bytes around
+  // c1 are reverse-complement relative to side 1's forward reference.
+  // Rev-comp here so the stored kmer is what you'd see scanning the
+  // reference + strand at side 1's pos. (Functionally a no-op for
+  // extract-pairs queries, which search both orientations anyway —
+  // but it keeps cols 27, 28, and 53 of bps.txt internally consistent
+  // and grep-friendly.)
+  if (b1.gr.strand == '-')
+    SeqLib::rcomplement(kmer);
+
+  return kmer;
+}
+
 std::string BreakPoint::toFileString(const BamHeader& header) const {
   
   // make sure we already ran scoring
@@ -272,7 +318,14 @@ std::string BreakPoint::toFileString(const BamHeader& header) const {
     // SvABA2.0: unique BP identifier. Unset (shouldn't happen if
     // SvabaRegionProcessor hooked next_bp_id() properly) emits "."
     // so the column count stays fixed and awk scripts don't skew.
-     << (id.empty() ? "." : id);
+     << (id.empty() ? "." : id) << sep
+    // SvABA2.0 v4: 20-mer contig sequence spanning the breakend
+    // junction. "." when no precise junction exists (imprecise BPs,
+    // discordant-only clusters, or contigs too short to fit the
+    // window). When this BP was hydrated from a bps.txt row (refilter
+    // / tovcf), `seq` is empty so we prefer the cached parsed value
+    // over recomputing — see BreakPoint::junctionKmer() for the rule.
+     << (!jxn_kmer.empty() ? jxn_kmer : junctionKmer(20));
 
   for (const auto& [_,al] : allele)
     ss << sep << al.toFileString(svtype);
@@ -784,15 +837,40 @@ void BreakPoint::checkBlacklist(GRC &grv) {
 }
 
 void BreakPoint::set_homologies_insertions() {
-  try { 
+  try {
     if (b1.cpos > b2.cpos)
       homology = seq.substr(b2.cpos, b1.cpos-b2.cpos);
     else if (b2.cpos > b1.cpos)
       insertion = seq.substr(b1.cpos, b2.cpos-b1.cpos);
-    //if (insertion.length() == 0)
-    //	;//insertion = "x";
-    //if (homology.length() == 0)
-    //;//homology = "x";
+
+    // SvABA2.0 v4: canonicalize to side 1's forward-strand spelling.
+    //
+    // `seq` is m_seq — the contig as the assembler emitted it, with no
+    // inherent strand. When BWA aligns the contig and reports the left
+    // fragment with ReverseFlag=true, the bytes of m_seq covering that
+    // fragment's region are the reverse-complement of side 1's forward-
+    // strand reference. The homology / insertion bytes we just sliced
+    // sit at the junction inside that region, so they inherit the same
+    // orientation.
+    //
+    // BreakEnd::transferContigAlignmentData (isleft=true branch, line
+    // ~880) sets `b1.gr.strand = ReverseFlag ? '-' : '+'` directly, so
+    // `b1.gr.strand == '-'` is exactly the "frag_left was reverse-
+    // aligned" signal. Reverse-complement to canonicalize.
+    //
+    // After this the stored homology/insertion is always the spelling
+    // you'd see scanning the reference forward strand at side 1.
+    // Downstream consumers (extract-pairs queries, bps_explorer,
+    // tovcf's INFO/HOMSEQ + INFO/INSSEQ) get a single unambiguous
+    // representation regardless of which way the contig happened to
+    // come off the assembler. For SVs where both ends share a strand
+    // (deletions, tandem dups, simple inversions where contig aligns
+    // forward) this is a no-op; the fix kicks in for SVs where the
+    // contig was reverse-aligned to side 1.
+    if (b1.gr.strand == '-') {
+      if (!homology.empty())  SeqLib::rcomplement(homology);
+      if (!insertion.empty()) SeqLib::rcomplement(insertion);
+    }
   } catch (...) {
     std::cerr << "cname: " << cname << " b1.cpos " << b1.cpos << " b2.cpos " << b2.cpos << " seq.length " << seq.length() << std::endl;
     std::cerr << "Caught error with contig on global-getBreakPairs: " << cname << std::endl;
@@ -2642,6 +2720,24 @@ BreakPoint::BreakPoint(const std::string& line, const SvabaSharedConfig* _sc)
             (maybe_bp_id.size() >= 2 && maybe_bp_id[0] == 'b' && maybe_bp_id[1] == 'p')) {
           id = (maybe_bp_id == "." ? std::string() : maybe_bp_id);  // 52
           ++i;
+
+          // SvABA2.0 v4: optional col 53 = jxn_kmer. Same colon-test:
+          // a 20bp ACGTN string (or ".") never contains ':'. Cached
+          // verbatim onto bp->jxn_kmer so re-emission round-trips
+          // correctly (we don't have `seq` post-parse, so we can't
+          // recompute the window).
+          if (static_cast<size_t>(i) < tok.size() &&
+              tok[static_cast<size_t>(i)].find(':') == std::string::npos) {
+            const std::string& maybe_kmer = tok[static_cast<size_t>(i)];
+            const bool looks_like_kmer = (maybe_kmer == ".") ||
+              std::all_of(maybe_kmer.begin(), maybe_kmer.end(),
+                          [](char c){ return c == 'A' || c == 'C' ||
+                                              c == 'G' || c == 'T' || c == 'N'; });
+            if (looks_like_kmer) {
+              jxn_kmer = (maybe_kmer == ".") ? std::string() : maybe_kmer;
+              ++i;
+            }
+          }
         }
       }
     } else {

@@ -98,30 +98,21 @@ svabaThreadUnit::svabaThreadUnit(SvabaSharedConfig& sc_,
     it->second->WriteHeader();
   }
 
-  // SvABA2.0: setup the per-thread r2c.txt.gz stream. Same pattern as the
-  // per-thread BAM writers — each thread writes its own file with no
-  // coordination, postprocess merges them via cat. Exactly one thread
-  // owns the column-header row so the merged file has one header at
-  // the top. r2c_out_ is unique_ptr<ogzstream> (see header for why);
-  // heap-allocate only when the flag is on, keep null otherwise.
+  // SvABA2.0 v4: setup the per-thread r2c SQLite database. Same pattern
+  // as the per-thread BAM writers — each thread owns its own .db file,
+  // no shared handle, no mutex; postprocess later merges them via
+  // R2CDatabase::merge_from (ATTACH + INSERT).
   //
-  // We key the header-writing thread to threadId == 1 (NOT 0) because
-  // the worker pool in `threadpool.h` constructs units with `i + 1`
-  // where `i` is the 0-based worker index — so the first worker's
-  // threadId is 1, and there is no thread 0. This also matches the
-  // lexicographic / numeric sort order postprocess step-1 imposes via
-  // `awk | sort -k1,1n`, which places `${ID}.thread1.r2c.txt.gz`
-  // first in the cat merge. If the worker numbering convention ever
-  // changes, this line must change with it (there is no reader unit
-  // test that catches a missing header — empirically, ad-hoc runs do).
-  if (sc.opts.dump_alignments) {
-    std::string r2cname = sc.opts.analysisId +
-      ".thread" + std::to_string(threadId) + ".r2c.txt.gz";
-    r2c_out_ = std::make_unique<ogzstream>();
-    svabaUtils::fopen(r2cname, *r2c_out_);
-    if (threadId == 1) {
-      *r2c_out_ << AlignedContig::r2cTsvHeader() << "\n";
-    }
+  // Gated on R2CDatabase::available() so the no-sqlite build path
+  // (svaba compiled without -DSVABA_HAS_SQLITE3) skips the allocation
+  // and the r2c.db file isn't produced. SvabaOptions emits a single
+  // startup warning in that case, so users know up front. Other
+  // --dump-reads outputs (corrected.bam / weird.bam / discordant.bam)
+  // are unaffected — they go through the BamWriter paths above.
+  if (sc.opts.dump_alignments && R2CDatabase::available()) {
+    const std::string r2cname = sc.opts.analysisId +
+      ".thread" + std::to_string(threadId) + ".r2c.db";
+    r2c_db_ = std::make_unique<R2CDatabase>(r2cname);
   }
 }
 
@@ -220,12 +211,14 @@ svabaThreadUnit::~svabaThreadUnit() {
     it->second->Close();
   }
 
-  // SvABA2.0: close the per-thread r2c stream if it was opened. The
-  // unique_ptr is null when dump_alignments was off, so guard on it
-  // rather than only on the flag (belt-and-braces in case the flag's
-  // value ever gets out of sync with what the ctor actually did).
-  if (r2c_out_) {
-    r2c_out_->close();
+  // SvABA2.0 v4: commit + close the per-thread r2c SQLite database if
+  // it was opened. The unique_ptr is null when dump_alignments was off.
+  // commit() flushes the open transaction; the dtor (called when the
+  // unique_ptr goes out of scope) finalizes prepared statements and
+  // closes the sqlite3 handle.
+  if (r2c_db_) {
+    r2c_db_->commit();
+    r2c_db_->close();
   }
 
 }

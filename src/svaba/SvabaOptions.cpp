@@ -8,6 +8,7 @@
 
 #include "SvabaLogger.h"
 #include "SvabaAssemblerConfig.h"  // SVABA_ASSEMBLER_FERMI for SGA guards
+#include "R2CDatabase.h"           // R2CDatabase::available() for the --dump-reads warning
 
 void SvabaOptions::printUsage() {
   std::cout << R"(
@@ -217,10 +218,27 @@ SvabaOptions SvabaOptions::parse(int argc, char** argv) {
       // reading these fields after parse() sees a consistent state.
       // See SvabaOptions.h for the comment on why these are separate
       // fields instead of a single bool.
+      //
+      // The r2c.db emission (gated separately by dump_alignments) needs
+      // sqlite3 at build time. When svaba was built without SQLite
+      // support, R2CDatabase::available() returns false and we emit a
+      // single startup warning here, leaving the BAM-side outputs
+      // (corrected/weird/discordant) on. SvabaThreadUnit::ctor +
+      // SvabaOutputWriter::writeUnit both gate on availability so the
+      // run still completes cleanly without an .r2c.db file.
       case 1800:
         o.dump_discordant_reads = true;
         o.dump_corrected_reads  = true;
         o.dump_alignments       = true;
+        if (!R2CDatabase::available()) {
+          std::cerr <<
+            "WARNING: --dump-reads requested but svaba was built without\n"
+            "         sqlite3 support; r2c.db output will be skipped.\n"
+            "         Other --dump-reads BAMs (corrected/weird/discordant)\n"
+            "         will still be produced. To enable r2c.db, install\n"
+            "         libsqlite3-dev / sqlite-devel / `brew install sqlite`\n"
+            "         and rebuild.\n";
+        }
         break;
 
       case 1801:

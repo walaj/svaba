@@ -157,7 +157,7 @@ public:
 		       "somatic\tsomlod\tmaxlod\tdbsnp\tcontig_conf1\tcontig_conf2\t"
 		       "cpos1\tcpos2\tlmatch\trmatch\tscov1\tscov2\t"
 		       "local1\tlocal2\tctglen\tflipped\t"
-		       "bp_id"
+		       "bp_id\tjxn_kmer"
 		       );
   }
   
@@ -166,6 +166,13 @@ public:
   std::string seq, cname, rs,
     insertion, homology, repeat_seq,
     confidence, ref, alt;
+
+  // SvABA2.0 v4: parsed-from-file junction kmer cache. When this BreakPoint
+  // was hydrated from a bps.txt.gz row (refilter, tovcf), `seq` is empty
+  // and junctionKmer() can't recompute the window — but we know what the
+  // emitter wrote, so we keep it here and let toFileString prefer it on
+  // re-emission. Empty (== "") means "not parsed; compute from seq".
+  std::string jxn_kmer;
 
   // SvABA2.0: unique stable identifier for this BreakPoint, assigned
   // exactly once per BP in SvabaRegionProcessor::process() via
@@ -331,6 +338,27 @@ public:
   bool isEmpty() const { return (b1.gr.pos1 == 0 && b2.gr.pos1 == 0); }
   
   std::string toFileString(const BamHeader& header) const;
+
+  /** SvABA2.0 v4: contig-native sequence spanning the breakend junction.
+   *
+   * Returns a `window`-bp string from the contig (`seq`, == m_seq) centered
+   * on the c1 boundary in cpos_on_m_seq() coordinates: `window/2` bases
+   * ending at c1, plus `window/2` bases starting at c1+1. Suitable as a
+   * read-search query — reads supporting the junction (split-supporters
+   * and unmapped-mate inserts) will contain this string verbatim or its
+   * reverse complement.
+   *
+   * Returns "." for any case where the kmer can't be cleanly defined:
+   *   - imprecise breakpoints (DSCRD-only clusters with no contig)
+   *   - missing or unset cpos
+   *   - empty contig sequence
+   *   - boundary too close to the contig end to fit `window` bases
+   *
+   * Emitted as col 53 of bps.txt.gz so downstream tools (svaba
+   * extract-pairs, the bps_explorer viewer, custom awks) can read it
+   * positionally without parsing the contig sequence themselves.
+   */
+  std::string junctionKmer(int window = 20) const;
   
   bool hasDiscordant() const;
   

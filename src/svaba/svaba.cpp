@@ -18,6 +18,7 @@ void runToVCF(int argc, char** argv);
 void runsvaba(int argc, char** argv);
 void runRefilterBreakpoints(int argc, char** argv);
 void runPostprocess(int argc, char** argv);
+void runExtractPairs(int argc, char** argv);
 // "Secret" benchmark subcommand: deliberately NOT listed in printUsage()
 // below so it doesn't show up in the user-facing --help. Invoke with
 // `svaba test -h` to see its own usage. Used to isolate the per-phase
@@ -35,10 +36,11 @@ static void printUsage() {
               << "Version: " << SVABA_VERSION << " - " << SVABA_DATE << "\n\n"
               << "Usage: svaba <command> [options]\n\n"
               << "Commands:\n"
-              << "  run          Run SV and indel detection on BAM(s)\n"
-              << "  refilter     Re-run LOD/PASS filtering on an existing bps.txt.gz\n"
-              << "  postprocess  Sort + streaming-dedup per-suffix output BAMs\n"
-              << "  tovcf        Convert a deduped bps.txt.gz into VCFv4.5 output\n\n"
+              << "  run            Run SV and indel detection on BAM(s)\n"
+              << "  refilter       Re-run LOD/PASS filtering on an existing bps.txt.gz\n"
+              << "  postprocess    Sort + streaming-dedup per-suffix output BAMs\n"
+              << "  tovcf          Convert a deduped bps.txt.gz into VCFv4.5 output\n"
+              << "  extract-pairs  Extract read pairs from a BAM by SEQ match (+ rev-comp)\n\n"
               << "Report issues at https://github.com/walaj/svaba/issues\n";
 }
 
@@ -66,6 +68,9 @@ int main(int argc, char* argv[]) {
     }
     else if (cmd == "tovcf") {
         return (runToVCF(argc - 1, argv + 1), EXIT_SUCCESS);
+    }
+    else if (cmd == "extract-pairs") {
+        return (runExtractPairs(argc - 1, argv + 1), EXIT_SUCCESS);
     }
     // Secret benchmark subcommand — intentionally not in the user-facing
     // command list. Entry point: `svaba test -h` for its own usage.

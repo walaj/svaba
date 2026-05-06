@@ -12,6 +12,8 @@
 #include "AlignmentFragment.h"
 #include "SvabaRead.h"
 
+class R2CDatabase;  // forward decl; full def in R2CDatabase.h
+
 /*! Contains the mapping of an aligned contig to the reference genome,
  * along with pointer to all of the reads aligned to this contig, and a 
  * store of all of the breakpoints associated with this contig
@@ -79,22 +81,20 @@ class AlignedContig {
   //! return the contig sequence as it came off the assembler
   //std::string getSequence() const; 
 
-  // SvABA2.0: emit this contig's info as a structured TSV that can be
-  // re-plotted later, rather than pre-rendered into ASCII. One "contig"
-  // row followed by one "read" row per r2c-aligned read. The companion
-  // viewer is bps_explorer.html's r2c re-plot sub-panel. Rows share a
-  // `contig_name` key so reads can be grouped back to their parent contig
-  // without a sorted file.
+  // SvABA2.0 v4: emit this contig's r2c info directly into a SQLite
+  // database (one row in `contigs`, plus one row per r2c-aligned read in
+  // `reads`). Replaces the older printToR2CTsv() emitter — instead of
+  // building a tab-separated string we'd then write to a per-thread
+  // gzip stream, we bind values directly into prepared statements on
+  // the per-thread R2CDatabase. Saves the build-string-then-parse-string
+  // round trip (which was ~half the per-record cost of the TSV path)
+  // and lets queries run on the file directly via sqlite3 / sql.js.
   //
-  // Replaced the old printToAlignmentsFile() / alignments.txt.gz output
-  // entirely — same information content, just not pre-formatted. The
-  // header line is emitted once per file by r2cTsvHeader(); for per-thread
-  // streams, only the first worker (threadId == 1; workers are numbered
-  // 1..N by threadpool.h) writes it — see svabaThreadUnit ctor.
-  std::string printToR2CTsv(const SeqLib::BamHeader& h) const;
-
-  // Column header for the r2c TSV; call once per file, before any rows.
-  static std::string r2cTsvHeader();
+  // The R2CDatabase passed in is the worker-local instance owned by
+  // svabaThreadUnit::r2c_db_; per-thread isolation means no cross-thread
+  // SQLite locking. Postprocess merges the per-thread .db files into
+  // ${ID}.r2c.db via R2CDatabase::merge_from() (ATTACH + INSERT).
+  void writeToR2cDb(R2CDatabase& db, const SeqLib::BamHeader& h) const;
   
   // Return if this contig contains a potential variant (indel or multi-map)
   bool hasVariant() const;

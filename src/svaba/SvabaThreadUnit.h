@@ -16,7 +16,7 @@
 #include "DiscordantCluster.h"
 #include "BreakPoint.h"
 #include "SvabaUtils.h"
-#include "gzstream.h"  // ogzstream for the per-thread r2c.txt.gz
+#include "R2CDatabase.h"  // per-thread r2c SQLite emitter (v4)
 
 #include "SeqLib/RefGenome.h"
 #include "SeqLib/BFC.h"
@@ -128,25 +128,23 @@ public:
     return std::string(buf);
   }
 
-  // SvABA2.0: per-thread r2c TSV stream. Mirrors the per-thread BAM
-  // writers above — when --dump-reads is set (opts.dump_alignments),
+  // SvABA2.0 v4: per-thread r2c SQLite database. Mirrors the per-thread
+  // BAM writers above — when --dump-reads is set (opts.dump_alignments),
   // each thread writes its variant-bearing contigs + r2c-aligned reads
-  // into ${ID}.thread${N}.r2c.txt.gz directly, no shared handle, no
-  // mutex. Postprocess merges the per-thread files via
-  //   cat ${ID}.thread*.r2c.txt.gz > ${ID}.r2c.txt.gz
-  // which produces a valid gzip (gzip is concatenation-safe per
-  // RFC 1952). The first worker (threadId == 1; the pool numbers
-  // workers 1..N) writes the column-header line once at open time
-  // so the merged file has exactly one header at the top.
+  // into ${ID}.thread${N}.r2c.db directly, no shared handle, no mutex.
+  // Postprocess merges the per-thread files via R2CDatabase::merge_from
+  // (ATTACH + INSERT) into a single ${ID}.r2c.db.
   //
-  // Held via unique_ptr because ogzstream inherits from std::ios (which
-  // has deleted copy/move). Embedding it by value would implicitly
-  // delete svabaThreadUnit's move constructor and produce
-  // -Wdefaulted-function-deleted. unique_ptr is trivially movable, so
-  // the `svabaThreadUnit(svabaThreadUnit&&) noexcept = default;`
-  // below stays valid. Same reason the BAM writers live in
-  // shared_ptr<SeqLib::BamWriter> inside the `writers` map above.
-  std::unique_ptr<ogzstream>           r2c_out_;
+  // Replaces the older per-thread r2c.txt.gz stream — saves the
+  // build-string-then-write-gzip round trip (which was about half the
+  // per-record cost of the TSV path) and produces a queryable database
+  // directly. Sql.js / sqlite3-CLI / DuckDB-via-sqlite_scanner all read
+  // it without conversion.
+  //
+  // unique_ptr because R2CDatabase is non-copyable, non-movable (owns
+  // sqlite3 handles + prepared stmts). Heap-allocated only when the
+  // flag is on, null otherwise.
+  std::unique_ptr<R2CDatabase>         r2c_db_;
   
   // non-copyable, movable
   svabaThreadUnit(const svabaThreadUnit&) = delete;

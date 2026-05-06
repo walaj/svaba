@@ -241,26 +241,28 @@ void SvabaOutputWriter::writeUnit(svabaThreadUnit& unit,
     }
   }
 
-  // SvABA2.0: per-thread r2c.txt.gz write path.
+  // SvABA2.0 v4: per-thread r2c.db write path.
   //
-  // Happens BEFORE writeMutex_ is acquired because unit.r2c_out_ is a
-  // thread-local gzip stream (not shared across threads) — no coordination
-  // needed, and keeping the gzip deflate out from under the shared mutex
-  // lets all 16 threads compress in parallel, which is the whole point of
-  // the per-thread split (see CLAUDE.md for the full rationale). Mirrors
-  // the per-thread BAM writes above, which also run outside the lock.
+  // Happens BEFORE writeMutex_ is acquired because unit.r2c_db_ is a
+  // thread-local SQLite handle (not shared across threads) — no
+  // coordination needed, and keeping the inserts out from under the
+  // shared mutex lets all N threads insert in parallel into their own
+  // .db files. Mirrors the per-thread BAM writes above, which also run
+  // outside the lock.
   //
-  // Gated on opts.dump_alignments (--dump-reads) — without it no stream
-  // was opened and we skip both the serialization and the write.
-  if (opts.dump_alignments) {
+  // Two gates: (1) opts.dump_alignments must be on; (2) unit.r2c_db_
+  // must actually be allocated. The second gate covers the
+  // build-without-sqlite case — SvabaThreadUnit's ctor checks
+  // R2CDatabase::available() before allocating, so the unique_ptr stays
+  // null and we silently skip r2c.db writes. (The user already got a
+  // one-line startup warning when --dump-reads was parsed.)
+  if (opts.dump_alignments && unit.r2c_db_) {
     for (const auto& alc : unit.master_alc) {
       if (alc.hasVariant()) {
-        // printToR2CTsv emits a contig row followed by one row per
-        // r2c-aligned read (already newline-terminated internally),
-        // so no trailing newline here.
-        // r2c_out_ is unique_ptr<ogzstream>, so dereference. It's non-null
-        // here because opts.dump_alignments implies ctor already allocated.
-        *unit.r2c_out_ << alc.printToR2CTsv(bam_header_);
+        // writeToR2cDb binds values directly into prepared statements
+        // on the per-thread R2CDatabase — no string formatting, no
+        // intermediate gzip buffer.
+        alc.writeToR2cDb(*unit.r2c_db_, bam_header_);
       }
     }
   }

@@ -136,6 +136,8 @@ src/svaba/SvabaRegionProcessor.cpp
 src/svaba/SvabaBamWalker.cpp
 src/svaba/refilter.cpp
 src/svaba/SvabaPostprocess.cpp
+src/svaba/SvabaExtractPairs.cpp
+src/svaba/R2CDatabase.cpp
 src/svaba/LearnBamParams.cpp
 src/svaba/STCoverage.cpp
 src/svaba/SvabaModels.cpp
@@ -299,6 +301,74 @@ if (USE_JEMALLOC)
     endif()
 endif()
 
+# ---------------------------------------------------------------------------
+# SQLite3 — OPTIONAL dependency for the r2c.db emitter (R2CDatabase.cpp).
+#
+# When found, svaba is built with -DSVABA_HAS_SQLITE3 and the
+# `--dump-reads` flag produces ${ID}.thread${N}.r2c.db files which
+# postprocess merges into ${ID}.r2c.db (the queryable output viewers
+# load via sql.js). When NOT found, svaba builds successfully but
+# `--dump-reads` skips r2c.db emission with a single startup warning;
+# all other --dump-reads outputs (BAMs, runtime.txt) are unaffected.
+#
+# r2c.db is debug/exploration output — useful but not required for
+# variant calling — so a missing sqlite3 is a degraded mode, not a
+# build failure.
+#
+# Linkage strategy: prefer find_package(SQLite3) (CMake's standard
+# module), fall back to pkg-config, then to find_library(sqlite3) for
+# ancient toolchains. Pre-installed on macOS; libsqlite3-dev on
+# Debian/Ubuntu; sqlite-devel on Fedora.
+# ---------------------------------------------------------------------------
+find_package(SQLite3 QUIET)
+set(SVABA_HAS_SQLITE3 FALSE)
+if (SQLite3_FOUND)
+    message(STATUS "sqlite3: found via find_package() at ${SQLite3_LIBRARIES}")
+    set(SVABA_SQLITE3_LIBRARIES SQLite::SQLite3)
+    set(SVABA_HAS_SQLITE3 TRUE)
+else()
+    find_package(PkgConfig QUIET)
+    if (PkgConfig_FOUND)
+        pkg_check_modules(SQLITE3_PC QUIET sqlite3)
+    endif()
+    if (SQLITE3_PC_FOUND)
+        message(STATUS "sqlite3: found via pkg-config (version ${SQLITE3_PC_VERSION})")
+        set(SVABA_SQLITE3_LIBRARIES ${SQLITE3_PC_LIBRARIES})
+        include_directories(${SQLITE3_PC_INCLUDE_DIRS})
+        link_directories(${SQLITE3_PC_LIBRARY_DIRS})
+        set(SVABA_HAS_SQLITE3 TRUE)
+    else()
+        find_library(SQLITE3_LIBRARY NAMES sqlite3
+                     DOC "Path to the sqlite3 library")
+        find_path(SQLITE3_INCLUDE_DIR NAMES sqlite3.h
+                  DOC "Directory containing sqlite3.h")
+        if (SQLITE3_LIBRARY AND SQLITE3_INCLUDE_DIR)
+            message(STATUS "sqlite3: found via find_library() at ${SQLITE3_LIBRARY}")
+            set(SVABA_SQLITE3_LIBRARIES ${SQLITE3_LIBRARY})
+            include_directories(${SQLITE3_INCLUDE_DIR})
+            set(SVABA_HAS_SQLITE3 TRUE)
+        else()
+            message(WARNING
+                "sqlite3 NOT found — building without r2c.db support.\n"
+                "  --dump-reads will still produce BAM outputs but skip the\n"
+                "  r2c.db file (sql.js viewer in docs/r2c_db_explorer.html\n"
+                "  will have nothing to load). To enable, install:\n"
+                "    libsqlite3-dev   (Debian/Ubuntu)\n"
+                "    sqlite-devel     (Fedora/RHEL)\n"
+                "    brew install sqlite  (macOS)\n"
+                "  then re-run cmake.")
+        endif()
+    endif()
+endif()
+
+# SVABA_HAS_SQLITE3 compile flag — gates the body of R2CDatabase.cpp and
+# the r2c.db emission code paths in SvabaThreadUnit / SvabaOutputWriter /
+# SvabaPostprocess. The SOURCES list always includes R2CDatabase.cpp;
+# when the flag is off, that translation unit compiles to a stub.
+if (SVABA_HAS_SQLITE3)
+    target_compile_definitions(svaba PRIVATE SVABA_HAS_SQLITE3=1)
+endif()
+
 # Linking
 target_link_libraries(svaba
     seqlib
@@ -306,6 +376,7 @@ target_link_libraries(svaba
     ${CMAKE_CURRENT_SOURCE_DIR}/SeqLib/fermi-lite/libfml.a
     Threads::Threads
     ${SVABA_HTSLIB_LIBRARIES}
+    ${SVABA_SQLITE3_LIBRARIES}  # empty list when sqlite3 wasn't found
     ZLIB::ZLIB
     ${CURL_LIBRARY}
     ${LZMA_LIBRARY}

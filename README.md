@@ -12,9 +12,35 @@ BAM I/O, BWA-MEM alignment, interval trees, and the assembly front-end.
 
 ## Install
 
-CMake is required; htslib is an external dependency (no bundled
-copy). If htslib is installed system-wide, svaba auto-detects it
-via pkg-config or the default include/lib search paths:
+### Dependencies
+
+| Package    | Required? | Purpose                                                      |
+|------------|-----------|--------------------------------------------------------------|
+| CMake ≥ 3.14 | yes     | build system                                                 |
+| htslib     | yes       | BAM/CRAM/VCF I/O                                             |
+| zlib       | yes       | gzip in/out                                                  |
+| pthread    | yes       | worker threads                                               |
+| BZip2, lzma | yes      | htslib compression deps                                      |
+| sqlite3    | optional  | enables `--dump-reads` r2c.db output (see below)             |
+| jemalloc   | optional  | recommended on Linux at `-p 16+` (allocator contention)      |
+
+When sqlite3 isn't found, svaba builds successfully but `--dump-reads`
+skips the `${ID}.r2c.db` file with a single startup warning; other
+`--dump-reads` outputs (`corrected.bam`, `weird.bam`, `discordant.bam`)
+are unaffected. If you don't use `--dump-reads`, sqlite3 isn't
+exercised at all and you can ignore it. To enable r2c.db (so the
+`docs/r2c_db_explorer.html` viewer has something to load), install:
+
+- macOS: `brew install sqlite` (also pre-installed)
+- Debian/Ubuntu: `sudo apt install libsqlite3-dev`
+- Fedora/RHEL: `sudo dnf install sqlite-devel`
+
+…then re-run cmake.
+
+### Building
+
+CMake auto-detects htslib via pkg-config or the default include/lib
+search paths:
 
 ```bash
 git clone --recursive https://github.com/walaj/svaba
