@@ -449,15 +449,38 @@ void runsvaba(int argc, char** argv) {
   logger.log(true, true, stars);
   logger.log(true, true, "  svaba run complete for: ", opts.analysisId);
   logger.log(true, true, "");
-  logger.log(true, true, "  Next step — sort, dedup, and filter outputs:");
+  logger.log(true, true, "  Next step — sort, dedup, and filter outputs (and merge");
+  logger.log(true, true, "  per-thread BAMs / r2c.db files into the final outputs):");
   logger.log(true, true, "");
-  logger.log(true, true, "    svaba_postprocess.sh -t 8 -m 4G ", opts.analysisId);
+  logger.log(true, true, "    svaba postprocess -i ", opts.analysisId, " -t 8 -m 4G");
   logger.log(true, true, "");
   logger.log(true, true, "  Then convert to VCF:");
   logger.log(true, true, "");
   logger.log(true, true, "    svaba tovcf -i ", opts.analysisId,
              ".bps.sorted.dedup.txt.gz -b ",
              opts.main_bam, " -a ", opts.analysisId);
+  // Interactive explorer recipe. The r2c.db is OPTIONAL — `svaba_explore.sh`
+  // launches the bps table viewer with whatever inputs you give it. When
+  // `--dump-reads` was set, the per-read alignment plot panel also lights
+  // up; without it, you still get the full filterable bps table.
+  logger.log(true, true, "");
+  logger.log(true, true, "  Then open the interactive explorer in your browser");
+  logger.log(true, true, "  (filterable bps table, histograms, IGV-linked):");
+  logger.log(true, true, "");
+  if (opts.dump_alignments) {
+    logger.log(true, true, "    svaba_explore.sh \\");
+    logger.log(true, true, "        ", opts.analysisId, ".bps.sorted.dedup.pass.txt.gz \\");
+    logger.log(true, true, "        ", opts.analysisId, ".r2c.db");
+    logger.log(true, true, "");
+    logger.log(true, true, "  (the .r2c.db enables the per-read alignment-plot panel;");
+    logger.log(true, true, "   add `-g GENES.bed[.gz]` to annotate variants with gene names)");
+  } else {
+    logger.log(true, true, "    svaba_explore.sh ", opts.analysisId, ".bps.sorted.dedup.pass.txt.gz");
+    logger.log(true, true, "");
+    logger.log(true, true, "  (rerun with `--dump-reads` to also emit a .r2c.db — pass it");
+    logger.log(true, true, "   as a second arg to light up the per-read alignment panel;");
+    logger.log(true, true, "   add `-g GENES.bed[.gz]` to annotate variants with gene names)");
+  }
   logger.log(true, true, stars);
   logger.log(true, true, "");
 }

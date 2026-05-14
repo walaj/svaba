@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
-# svaba_explore — one-shot launcher for the combined bps + r2c.db viewer.
+# svaba_explore — one-shot launcher for the bps explorer (+ optional r2c.db).
 #
 # Spins up a tiny localhost HTTP server in a temp directory containing
 # symlinks to:
 #   * docs/bps_explorer.html  (the viewer)
 #   * the bps.txt[.gz] you passed
-#   * the r2c.db you passed
+#   * the r2c.db you passed (OPTIONAL)
 # …then opens the browser at
-#   http://localhost:<PORT>/bps_explorer.html?bps=...&db=...
+#   http://localhost:<PORT>/bps_explorer.html?bps=...[&db=...]
 # The viewer's auto-loader picks the query params up and `fetch()`s
-# both files into its existing upload pipelines. No drag-and-drop, no
-# config — one command, viewer comes up with everything pre-loaded.
+# whatever's present. With just bps you get the full filterable bps
+# table, histograms, IGV links. With r2c.db too you also get the
+# per-read alignment-plot side panel.
 #
 # Why an HTTP server (and not a self-contained file:// HTML)?
 # bps.txt files are usually tiny but r2c.db can be 10s–100s of MB even
@@ -20,12 +21,17 @@
 # and lets us stream the .db lazily.
 #
 # Usage:
-#   svaba_explore [-p PORT] [--browser BIN] [-g GENES] <bps.txt[.gz]> <r2c.db>
+#   svaba_explore [-p PORT] [--browser BIN] [-g GENES] <bps.txt[.gz]> [r2c.db]
 #
 # Examples:
+#   # bps table only — works without --dump-reads outputs:
+#   svaba_explore sample.bps.sorted.dedup.pass.txt.gz
+#
+#   # bps table + per-read alignment plot (requires --dump-reads):
 #   svaba_explore sample.somatic.bps.txt.gz sample.r2c.db
+#
 #   svaba_explore -p 9000 sample.bps.txt sample.r2c.db
-#   svaba_explore --browser 'Google Chrome' sample.bps.txt.gz sample.r2c.db
+#   svaba_explore --browser 'Google Chrome' sample.bps.txt.gz
 #   svaba_explore -g gencode.basic.bed.gz sample.bps.txt.gz sample.r2c.db
 #
 # When the wrapper is launched the URL is also printed to stdout so you
@@ -44,7 +50,16 @@ GENES=""      # optional .bed / .gtf gene annotation
 
 usage() {
   cat >&2 <<'EOF'
-Usage: svaba_explore [options] <bps.txt[.gz]> <r2c.db>
+Usage: svaba_explore [options] <bps.txt[.gz]> [r2c.db]
+
+  <bps.txt[.gz]>        Required. The bps file to explore — typically
+                        ${ID}.bps.sorted.dedup.pass.txt.gz from
+                        `svaba postprocess`.
+  [r2c.db]              Optional. The merged r2c SQLite database
+                        produced when svaba was run with --dump-reads.
+                        When provided, the viewer's per-read alignment
+                        plot side-panel lights up. When omitted, you
+                        still get the full filterable bps table.
 
   -p, --port  N         Localhost port to serve on. [8765]
       --browser BIN     Open in this browser specifically. macOS-friendly:
@@ -79,9 +94,13 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-[ -n "$BPS" ] && [ -n "$DB" ] || usage
+# bps is required; r2c.db is optional (when omitted, the explorer comes
+# up without the per-read alignment-plot panel — bps table still works).
+[ -n "$BPS" ] || usage
 [ -f "$BPS" ] || { echo "Error: bps file not found: $BPS" >&2; exit 1; }
-[ -f "$DB" ]  || { echo "Error: r2c.db not found: $DB"   >&2; exit 1; }
+if [ -n "$DB" ]; then
+  [ -f "$DB" ] || { echo "Error: r2c.db not found: $DB" >&2; exit 1; }
+fi
 if [ -n "$GENES" ]; then
   [ -f "$GENES" ] || { echo "Error: genes file not found: $GENES" >&2; exit 1; }
 fi
@@ -128,7 +147,7 @@ abspath() {
 }
 HTML="$(abspath "$HTML")"
 BPS="$(abspath "$BPS")"
-DB="$(abspath "$DB")"
+[ -n "$DB" ]    && DB="$(abspath "$DB")"
 [ -n "$GENES" ] && GENES="$(abspath "$GENES")"
 
 # -------- python3 + free-port handling -------------------------------------
@@ -178,17 +197,21 @@ trap cleanup EXIT INT TERM
 
 ln -s "$HTML" "$SERVE_DIR/bps_explorer.html"
 ln -s "$BPS"  "$SERVE_DIR/$(basename "$BPS")"
-ln -s "$DB"   "$SERVE_DIR/$(basename "$DB")"
+if [ -n "$DB" ]; then
+  ln -s "$DB" "$SERVE_DIR/$(basename "$DB")"
+fi
 if [ -n "$GENES" ]; then
   ln -s "$GENES" "$SERVE_DIR/$(basename "$GENES")"
 fi
 
 BPS_FN="$(basename "$BPS")"
-DB_FN="$(basename "$DB")"
 url_encode() {
   python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$1"
 }
-URL="http://localhost:${PORT}/bps_explorer.html?bps=$(url_encode "$BPS_FN")&db=$(url_encode "$DB_FN")"
+URL="http://localhost:${PORT}/bps_explorer.html?bps=$(url_encode "$BPS_FN")"
+if [ -n "$DB" ]; then
+  URL="${URL}&db=$(url_encode "$(basename "$DB")")"
+fi
 if [ -n "$GENES" ]; then
   URL="${URL}&genes=$(url_encode "$(basename "$GENES")")"
 fi
@@ -207,7 +230,11 @@ sleep 0.3
 echo "─────────────────────────────────────────────"
 echo " svaba_explore"
 echo "   bps:    $BPS"
-echo "   db:     $DB"
+if [ -n "$DB" ]; then
+  echo "   db:     $DB"
+else
+  echo "   db:     (none — alignment-plot panel will be inactive)"
+fi
 [ -n "$GENES" ] && echo "   genes:  $GENES"
 echo "   url:    $URL"
 echo "─────────────────────────────────────────────"
