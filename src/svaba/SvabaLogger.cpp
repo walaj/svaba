@@ -1,5 +1,6 @@
 #include "SvabaLogger.h"
 #include "SvabaOptions.h"
+#include "SvabaGitVersion.h"   // generated: SVABA_GIT_DESCRIBE / HASH
 
 SvabaLogger::~SvabaLogger() {
   if (logFile_.is_open()) logFile_.close();
@@ -18,7 +19,8 @@ void SvabaLogger::welcome(SvabaOptions& opts) {
 	    "-----------------------------------------------------------\n",
 	    "---  Running svaba SV and indel detection on ",
 	    " threads ---", (opts.numThreads >= 10 ? "\n" : "-\n"),
-	    "---  Version: ", SVABA_VERSION, " - ", SVABA_DATE, "                           ---\n",
+	    "---  Version: ", SVABA_VERSION, " - ", SVABA_DATE, "\n",
+	    "---  Commit:  ", SVABA_GIT_DESCRIBE, "\n",
 	    "---    (inspect *.log for real-time progress updates)   ---\n",
 	    "-----------------------------------------------------------");
   

@@ -11,8 +11,10 @@
 
 // svaba.cpp
 #include <iostream>
+#include <string>
 #include <string_view>
 #include "SvabaOptions.h"
+#include "SvabaGitVersion.h"   // generated: SVABA_GIT_HASH / DESCRIBE / DIRTY
 
 void runToVCF(int argc, char** argv);
 void runsvaba(int argc, char** argv);
@@ -41,7 +43,22 @@ static void printUsage() {
               << "  postprocess    Sort + streaming-dedup per-suffix output BAMs\n"
               << "  tovcf          Convert a deduped bps.txt.gz into VCFv4.5 output\n"
               << "  extract-pairs  Extract read pairs from a BAM by SEQ match (+ rev-comp)\n\n"
+              << "Run 'svaba --version' to print the version and build commit.\n"
               << "Report issues at https://github.com/walaj/svaba/issues\n";
+}
+
+// Print the semantic version (from SvabaOptions.h) plus the git provenance
+// of this build (from the CMake-generated SvabaGitVersion.h). The commit
+// lines are omitted when svaba wasn't built from a git checkout.
+static void printVersion() {
+    std::cout << "svaba " << SVABA_VERSION << " (" << SVABA_DATE << ")\n";
+    if (std::string_view(SVABA_GIT_HASH) != "unknown") {
+        std::cout << "  commit:   " << SVABA_GIT_HASH
+                  << (SVABA_GIT_DIRTY ? " (dirty)" : "") << "\n"
+                  << "  describe: " << SVABA_GIT_DESCRIBE << "\n";
+    }
+    std::cout << "  built:    " << __DATE__ << " " << __TIME__ << "\n"
+              << "  source:   https://github.com/walaj/svaba\n";
 }
 
 int main(int argc, char* argv[]) {
@@ -54,6 +71,10 @@ int main(int argc, char* argv[]) {
 
     if (cmd == "help" || cmd == "--help") {
         printUsage();
+        return EXIT_SUCCESS;
+    }
+    else if (cmd == "--version" || cmd == "-v" || cmd == "version") {
+        printVersion();
         return EXIT_SUCCESS;
     }
     else if (cmd == "run") {
