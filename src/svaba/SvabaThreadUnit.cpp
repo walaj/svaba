@@ -140,7 +140,15 @@ void svabaThreadUnit::clear() {
   ss.str("");       // Clear the string content
   ss.clear();
   
-#if defined(__GLIBC__)
+#if defined(__GLIBC__) && !defined(SVABA_USE_JEMALLOC)
+  // glibc-only RSS reclaim: ptmalloc caches freed chunks in its arenas
+  // instead of returning pages to the OS, so after a per-region flush we
+  // trim to keep resident memory tracking live memory (matters on
+  // memory-capped nodes / 10X coverage / centromeres). Skipped under
+  // jemalloc (SVABA_USE_JEMALLOC): malloc_trim is a glibc symbol that
+  // can't trim jemalloc-held memory and only drags glibc's arena
+  // machinery into every flush. jemalloc reclaims via its own
+  // dirty_decay_ms / background_thread instead.
   malloc_trim(0);
 #endif
 }
@@ -156,7 +164,15 @@ void svabaThreadUnit::flush() {
   for (auto& [_, walker] : walkers) {
     walker->clear();
   }
-#if defined(__GLIBC__)
+#if defined(__GLIBC__) && !defined(SVABA_USE_JEMALLOC)
+  // glibc-only RSS reclaim: ptmalloc caches freed chunks in its arenas
+  // instead of returning pages to the OS, so after a per-region flush we
+  // trim to keep resident memory tracking live memory (matters on
+  // memory-capped nodes / 10X coverage / centromeres). Skipped under
+  // jemalloc (SVABA_USE_JEMALLOC): malloc_trim is a glibc symbol that
+  // can't trim jemalloc-held memory and only drags glibc's arena
+  // machinery into every flush. jemalloc reclaims via its own
+  // dirty_decay_ms / background_thread instead.
   malloc_trim(0);
 #endif
 }

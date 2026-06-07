@@ -369,6 +369,18 @@ if (SVABA_HAS_SQLITE3)
     target_compile_definitions(svaba PRIVATE SVABA_HAS_SQLITE3=1)
 endif()
 
+# SVABA_USE_JEMALLOC compile flag — set when jemalloc is the linked
+# allocator. Gates the manual malloc_trim(0) calls in SvabaThreadUnit:
+# those are a glibc-only RSS-reclaim measure (ptmalloc doesn't return
+# freed pages to the OS on its own), but they're useless and wasteful
+# under jemalloc — malloc_trim is a glibc symbol that can't trim
+# jemalloc's heap and only exercises glibc's arena machinery on every
+# flush. With this flag the trim calls compile out; jemalloc handles
+# reclaim itself (tune via MALLOC_CONF=background_thread:true,dirty_decay_ms:...).
+if (USE_JEMALLOC AND JEMALLOC_LIB)
+    target_compile_definitions(svaba PRIVATE SVABA_USE_JEMALLOC=1)
+endif()
+
 # Linking
 target_link_libraries(svaba
     seqlib

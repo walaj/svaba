@@ -23,20 +23,33 @@ Top-level layout:
   alignment, and assembly primitives. See "Build system" for how its flags
   get set.
 - `bin/`, `build/` — build artifacts; don't edit by hand.
-- `R/`, `viewer/`, `tracks/` — downstream analysis/visualization helpers.
+- `R/`, `docs/`, `tracks/` — downstream analysis/visualization helpers. The
+  HTML viewer suite now lives in `docs/` (it used to be `viewer/`; see the
+  "Viewer suite" section).
 - `tests/`, `example_data/` — test fixtures.
 - `scripts/` — post-processing and utility shell helpers, all kept here
-  (not at the repo root): `svaba_postprocess.sh`, `combine_blacklists.sh`,
+  (not at the repo root). Current set: `svaba_postprocess.sh`,
+  `combine_blacklists.sh`, `mosdepth_lowmapq_blacklist.sh`,
   `extract_discordants.sh`, `filter_contig_supporting_reads.sh`,
-  `r2c_for_contig.sh`, `sort_bps.sh`, `svaba_cloud.sh`. Profiling
-  helpers (`memprof*.sh`) live under `opt/` (the user's ad-hoc tooling
-  dir).
-- `somlod_maxlod_analysis.html` — deep-dive writeup of the somatic log-odds
-  scoring model. See "Statistical model" below.
+  `r2c_for_contig.sh`, `extract_by_qname.sh`, `search_sequence.sh`,
+  `sort_bps.sh`, `sort_and_dedupe_bps_old.sh` (legacy standalone sorter,
+  kept for reference; the live path is `svaba postprocess`),
+  `svaba_cloud.sh`, `gcloud_teardown.sh`, `update_svaba_image.sh`,
+  `plot_learn.sh`, `svaba_explore.sh` (one-shot launcher for the bps
+  explorer), `svaba_local_function.sh` (sourceable bash helpers, incl.
+  `svaba_bps_cols`). Profiling helpers (`memprof*.sh`) live under `opt/`
+  (the user's ad-hoc tooling dir).
 
-Scripts that used to live here and are gone, in case you're looking for them:
-`sort_output.sh` and `sort_and_deduplicate_bps.sh` were subsumed into the
-unified `svaba_postprocess.sh`.
+The somatic-model deep-dive writeup is documented inline in the
+"Statistical model" and "somlod / maxlod investigation" sections below;
+the standalone `somlod_maxlod_analysis.html` it used to live in is no
+longer in the tree.
+
+Scripts that used to live here and are gone, in case you're looking for
+them: `sort_output.sh` and `sort_and_deduplicate_bps.sh` were subsumed into
+the postprocess pipeline (now the `svaba postprocess` subcommand);
+`extract_pairs_by_seq.sh` was subsumed
+into the `svaba extract-pairs` subcommand.
 
 ## Build system
 
@@ -83,39 +96,62 @@ error model), the two files to read first are:
     `p_alt = f(1-e_rev) + (1-f)*e_fwd`. Returns log10 likelihood of observing
     `a` alt reads out of `d`. This is the primitive every higher-level score
     is built from.
-  - `SomaticLOD(...)` (~lines 70-83) — public wrapper; forwards to the
-    split-error implementation.
-  - `SomaticLOD_withSplitErrors(...)` (~lines 86-189) — the active somatic
-    model. Enumerates sub-hypotheses: `SOM_true`, `SOM_art`, `GERM_het`,
-    `GERM_hom`, `GERM_art`, `GERM_shared`. Returns
-    `log10( P(somatic) / P(any non-somatic) )`.
+  - `SomaticLOD(...)` (~lines 70-83) — public wrapper; sets the per-sample
+    forward-error caps (`eN_fwd`, `eT_fwd`) and forwards to the split-error
+    implementation.
+  - `SomaticLOD_withSplitErrors(...)` (~lines 86-335) — the active somatic
+    model. Returns `log10( P(somatic) / P(any non-somatic) )` from the max
+    over these sub-hypotheses:
+      - SOMATIC (H1) = max of `SOM_true` (clean normal, tumor at its MLE VAF)
+        and `SOM_art` (shared low-VAF artifact).
+      - GERMLINE (H0) = max of `GERM_het` (0.5), `GERM_hom` (~1.0),
+        `GERM_art` (low-VAF artifact), `GERM_shared` (pooled MLE; see below),
+        and `GERM_free` (independent MLE; see below).
+    (This note previously listed only `GERM_shared` on the germline side and
+    capped the function at line ~189 — the model has since gained `GERM_free`
+    and the `GERM_shared` shaping terms, and the function now runs to ~335.)
   - Line ~79: `const double eN_fwd = std::min(e_art_fwd, 0.005);` — hard cap
     on the normal-sample forward error rate. This cap is important: it means
     even in regions where the artifact model infers a high error rate, the
     normal sample is assumed to be clean. That's the knob you'd relax if you
-    want somlod to be "artifact-aware" on the normal side.
-  - Lines ~138-147: `GERM_shared` free-MLE branch. This is the sub-hypothesis
-    that fits a single pooled allele fraction across tumor+normal. It exists
-    to catch LOH (loss of heterozygosity) germline events where tumor VAF can
-    be much higher than 0.5 while normal is still ~0.5. It is also the main
-    reason `somlod` asymptotes slowly as tumor alt-support grows (see below).
+    want somlod to be "artifact-aware" on the normal side. (`eT_fwd` is capped
+    to `[1e-4, 0.02]` on line ~80.)
+  - `GERM_shared` (~lines 143-231): pooled-MLE allele fraction across
+    tumor+normal, to catch LOH germline events where tumor VAF can be much
+    higher than 0.5 while normal is still ~0.5. No longer a plain free-MLE
+    branch — the old 0.15 floor is gone and three shaping terms ride on top
+    of the raw pooled-MLE log-likelihood: (1) a "cleanliness" penalty,
+    `kCleanPenalty·exp(-3·excess_alt_N)`, that holds the branch back when the
+    normal looks clean so a low-VAF tumor can still win as somatic; (2) a
+    VAF-similarity bonus gated by `(1 - cleanliness)`; (3) a both-samples-
+    low-VAF shared-artifact bonus. Still a main reason `somlod` approaches its
+    ceiling slowly at sub-clonal tumor VAFs (see below).
+  - `GERM_free` (~lines 238-277): NEW relative to the original writeup. MLEs
+    `f_N` and `f_T` *independently* (not tied like `GERM_shared`), filling the
+    gap where the normal carries low-but-real evidence while the tumor is
+    near-clonal (LOH, clonal hematopoiesis, tumor-in-normal contamination,
+    mosaic germline). Charges a BIC penalty `0.5·log10(dN+dT)` for the extra
+    free parameter, and only activates when `aN > expected_errors_N + 1`
+    (where `expected_errors_N = dN·eN_fwd`) so it doesn't degenerate to
+    "SOM_true minus BIC" on every clean-normal event.
 
 - `src/svaba/BreakPoint.cpp` / `.h` — per-breakpoint scoring glue. Points of
   interest:
-  - `BreakPoint::score_somatic()` at ~line 975 is the entry point that sets
+  - `BreakPoint::score_somatic()` at ~line 1341 is the entry point that sets
     `LO_s` (the somatic LOD). Calls
     `SvabaModels::SomaticLOD(scaled_alt_n, a_cov_n, scaled_alt_t, a_cov_t, error_fwd, error_rev)`
-    around lines 1028-1031.
-  - `SampleInfo::modelSelection()` (~lines 1562-1674) computes the per-sample
-    `LO = ll_alt - ll_err` at line ~1610. These are unnormalized log10
+    around line ~1394.
+  - `SampleInfo::modelSelection()` (starts ~line 1954) computes the per-sample
+    `LO = ll_alt - ll_err` at line ~2002. These are unnormalized log10
     likelihoods — absolute value is not meaningful, the difference is.
-  - `max_lod` is computed at lines ~198-200 and ~1196-1198 as the max of
+  - `max_lod` is computed at lines ~247-249 and ~1567-1569 as the max of
     `al.LO` across samples. This is the "is this artifact or not" score; it
     does grow with additional supporting reads because it compares a variant
     hypothesis to a pure-error hypothesis with no germline branch.
-  - Lines ~1072-1073: the current INDEL somatic gate only tests `somlod` —
-    it does not use `maxlod` as a co-gate. This is one of the levers in the
-    proposed fixes.
+  - Lines ~1434-1439: the current INDEL somatic gate only tests `somlod`
+    (`LO_s > cutoff`) — it does not use `maxlod` as a co-gate. This is one of
+    the levers in the proposed fixes. (The SV gate is the sibling branch at
+    ~1449.)
 
 ## The somlod / maxlod investigation (still open)
 
@@ -142,18 +178,24 @@ climbing as tumor evidence accumulates, but it asymptotes around ~9 for
   by real signal) and limiting (prevents somatic calls where the artifact
   model really does explain the normal reads).
 
-**Proposed fixes (see `somlod_maxlod_analysis.html` for the full writeup).**
-- Fix 1 — disjunction gate on `GERM_shared`: only let the free-MLE pooled
-  branch influence somlod when `shared_is_germline_plausible || normal_evidence > 1.0`,
-  where `normal_evidence = LL_N(dN, aN, f_n_mle) - LL_N(dN, aN, 0)`. This is
-  error-rate aware and is the fix I'd land first.
-- Fix 2 — loosen `eN_fwd` cap in known high-artifact regions.
-- Fix 3 — BIC penalty on the free-MLE branch (1 free parameter costs
-  ~`0.5 log10(dN+dT)` nats ≈ bits of evidence).
-- Fix 4 — joint `maxlod` + `somlod` gate for INDELs (require both above
-  threshold), since `maxlod` moves freely with tumor depth.
-- Fix 5 — debug dump of sub-hypothesis LLs when `somlod` is within some
-  epsilon of the gate, to make future failures diagnosable.
+**Proposed fixes — current status.** (The standalone `somlod_maxlod_analysis.html`
+writeup this list used to point at is no longer in the tree; this section is
+now the reference, and `SvabaModels.cpp` has moved past the original proposal.)
+- Fix 1 — error-rate-aware gate on the free-MLE pooled branch. **Partly
+  landed.** Instead of a disjunction gate on `GERM_shared`, the model now
+  (a) shapes `GERM_shared` with a cleanliness penalty keyed on
+  `expected_errors_N = dN·eN_fwd`, and (b) added a separate `GERM_free`
+  branch whose activation gate is `aN > expected_errors_N + 1` — both
+  error-rate aware in the spirit of this fix.
+- Fix 2 — loosen `eN_fwd` cap in known high-artifact regions. **Not landed**
+  (cap still hard-coded at 0.005, `SvabaModels.cpp:79`).
+- Fix 3 — BIC penalty on the free-MLE branch. **Landed** as `GERM_free`'s
+  `kGermFreeBIC = 0.5·log10(dN+dT)`.
+- Fix 4 — joint `maxlod` + `somlod` gate for INDELs. **Not landed** — the
+  INDEL gate still tests only `LO_s` (`BreakPoint.cpp` ~1434-1439).
+- Fix 5 — debug dump of sub-hypothesis LLs. **Present but disabled** — a full
+  sub-hypothesis dump exists in `SomaticLOD_withSplitErrors` guarded by
+  `if (false)` (`SvabaModels.cpp` ~284); flip it to debug a specific call.
 
 **Related fix landed already (SvABA2.0 v3 split-coverage gate):** the
 old `both_split && homlen > 0` / `one_split && homlen == 0` branching
@@ -210,24 +252,36 @@ always 0. The somatic/germline distinction is the LOD model's job.
 
 ## Postprocess pipeline
 
-Everything post-`svaba run` is orchestrated by `scripts/svaba_postprocess.sh`.
-It's the unified replacement for the old `sort_output.sh` +
-`sort_and_deduplicate_bps.sh` pair, which no longer exist.
+Everything post-`svaba run` is now done by the **`svaba postprocess` C++
+subcommand** (`src/svaba/SvabaPostprocess.cpp::runPostprocess`). It used to be
+orchestrated by `scripts/svaba_postprocess.sh` (itself the replacement for the
+old `sort_output.sh` + `sort_and_deduplicate_bps.sh` pair); the subcommand has
+since absorbed every step that wrapper did -- per-thread merge, BAM sort/dedup,
+the `bps.txt.gz` sort/dedup (formerly GNU `gsort`), and the r2c stamping -- so
+the shell wrapper is now legacy/superseded. One command:
 
-Five steps per invocation, all idempotent (missing inputs log a one-liner and
-continue):
+```bash
+svaba postprocess -i ${ID} -t 8 -m 4G
+```
 
-1. **Merge per-thread BAMs** — `${ID}.thread*.${suffix}.bam` → `${ID}.${suffix}.bam`
-   for `discordant` / `weird` / `corrected`. Single-file inputs are moved;
-   no-file inputs silently skipped.
-2. **`svaba postprocess`** — the C++ subcommand in `src/svaba/SvabaPostprocess.cpp`.
-   For each suffix (`weird`, `corrected`, `discordant`, `contigs`):
+Six phases per invocation, all idempotent (each auto-skips when its work is
+already done, so reruns are near-instant):
+
+0. **Merge per-thread outputs** (`mergeThreadBams` + `R2CDatabase::merge_from`)
+   -- `${ID}.thread*.${suffix}.bam` -> `${ID}.${suffix}.bam` for `discordant`
+   / `corrected` (open all, concatenate records, header from the first input;
+   not yet coordinate-sorted -- Phase 1 does that), and per-thread
+   `${ID}.thread${N}.r2c.db` -> `${ID}.r2c.db` via SQLite ATTACH + INSERT.
+   Single-file inputs are renamed; no-file inputs skipped.
+1. **Parallel sort** + **2. serial dedup / reheader / index** -- the BAM half
+   of the job, structured exactly as before but now Phases 1-2 of the
+   subcommand. For each suffix (`corrected`, `discordant`, `contigs`):
    - `samtools sort -@ per_job_threads -m MEM` (shell out — htslib doesn't
      expose its sort as a library call). **Auto-skipped** when the BAM
      already declares `@HD SO:coordinate` — `isCoordinateSorted()`
      inspects the header via `readHeaderOnly()` and logs
      "already coordinate-sorted; skipping sort" so reruns are a no-op.
-   - Native streaming dedup (only for `weird`/`corrected`/`discordant`):
+   - Native streaming dedup (only for `corrected`/`discordant`):
      reads BAM via SeqLib::BamReader, collapses exact (qname, flag)
      duplicates at each locus, and **unions their `bi:Z` / `bz:Z` comma-token
      lists** so alt-supporting-contig evidence isn't lost when the same read
@@ -284,11 +338,10 @@ continue):
        present, dedup AND the subsequent reheader step are both skipped
        (only the `.bai` is rebuilt, which is cheap and covers the
        missing-index case). The first successful `streamDedup` stamps
-       the PG line, so a second `svaba_postprocess.sh` run on the same
+       the PG line, so a second `svaba postprocess` run on the same
        outputs no-ops almost entirely.
-     - The shell-layer merge step (`scripts/svaba_postprocess.sh` step 1)
-       is already a no-op when per-thread `.thread*.bam` files aren't
-       present (nothing to merge), so all three steps compose naturally.
+     - The Phase 0 merge is itself a no-op when no per-thread `.thread*`
+       files are present (nothing to merge), so all phases compose naturally.
    - **@PG stamp**: writes an `@PG ID:svaba_postprocess PN:svaba VN:<ver> CL:<argv> PP:<prev chain tail>`
      line into the output header. For dedup-eligible suffixes this is free
      (done in the writer during dedup); for `contigs` (no dedup) it's done
@@ -299,44 +352,49 @@ continue):
    - Intermediate filenames use a `.postprocess.*.tmp.bam` suffix and are
      renamed over on success / unlinked on failure. End state per suffix is
      exactly `${ID}.${suffix}.bam(.bai)`; no `.sorted` / `.deduped` flotsam.
-3. **Sort + dedup + PASS-filter `bps.txt.gz`** — external-memory sort via
-   GNU sort (`gsort` on macOS from homebrew coreutils). Sort keys:
-   `chr1(V), pos1(n), strand1, chr2(V), pos2(n), strand2, maxlod(gr)` —
-   maxlod descending so the "best SV per junction" survives the dedup.
-   Produces three files: `.bps.sorted.txt.gz`, `.bps.sorted.dedup.txt.gz`
-   (one row per unique breakpoint pair), `.bps.sorted.dedup.pass.txt.gz`
-   (col 32 == "PASS" only).
-   - Column positions hard-coded: `col 30 = cname (contig_and_region)`,
-     `col 32 = confidence`, `col 38 = maxlod`. These come from
-     `BreakPoint::toFileString` — change there and the script breaks.
-4. **Stamp `pass_cnames` table into `${ID}.r2c.db`** — resolves PASS
-   cnames from `bps.txt.gz` (col 32 == "PASS") and the somatic subset
-   (col 37, `somlod`, >= 1), then writes a small `pass_cnames(cname,
-   somatic)` table into the merged r2c.db so consumers can do
-   `SELECT r.* FROM reads r JOIN pass_cnames p USING(cname)` (add
-   `WHERE p.somatic = 1` for tumor-specific). Replaces the v3-era
-   step that wrote duplicate `.r2c.pass.txt.gz` /
-   `.r2c.pass.somatic.txt.gz` files — same information, no copies.
-5. **Optional split-by-source** — `--split-by-source` (or env
-   `SPLIT_BY_SOURCE=1`) demuxes the deduped BAMs by the first 4 chars of
-   each QNAME into `${ID}.${suffix}.${prefix}.bam`.
+3. **Sort + dedup + PASS/somatic filter of `bps.txt.gz`** -- fully in-process
+   now (replaces the GNU `sort` + awk pipeline the shell script used).
+   Decompress `bps.txt.gz` into one contiguous slab, build a lightweight
+   index, and `std::sort` by `chr1(V), pos1, strand1, chr2(V), pos2, strand2,
+   maxlod(desc)` (chr key matches GNU `sort -V`: chr1..22 -> 1..22, X -> 23,
+   Y -> 24, M -> 25, non-standard -> end). **Dedup is by canonical breakpoint
+   pair**: each pair is canonicalized (lesser breakend first) so reciprocal
+   `A/B` and `B/A` rows collapse -- the old shell adjacency-sort dedup missed
+   that. Per canonical pair the surviving row is the one with the **LOWEST
+   somlod** (tie-break: higher maxlod) -- deliberately conservative against
+   promoting a germline event to somatic. Emits FOUR files:
+   `.bps.sorted.txt.gz` (all rows, sorted), `.bps.sorted.dedup.txt.gz` (one
+   winner per canonical pair), `.bps.sorted.dedup.pass.txt.gz` (winners with
+   `confidence == PASS`), and `.bps.sorted.dedup.pass.somatic.txt.gz` (PASS
+   winners with the somatic flag set). `svaba tovcf` consumes
+   `.bps.sorted.dedup.txt.gz`.
+   - Column indices are hard-coded from `BreakPoint::header()` (0-based in
+     the C++): `0 chr1 .. 5 strand2`, `29 cname`, `31 confidence`, `35 somatic
+     flag`, `36 somlod`, `37 maxlod` (= 1-based cols 30/32/36/37/38). Change
+     `toFileString`/`header` and these break.
+4. **Stamp `pass_cnames` into `${ID}.r2c.db`** -- from the Phase-3 winner sets,
+   `R2CDatabase::stamp_pass_cnames` writes a small `pass_cnames(cname,
+   somatic)` table: every PASS winner's cname, with `somatic = 1` when the
+   bps **somatic flag** (col 36, 1-based) is set -- NOT when `somlod >= 1`.
+   Consumers then do `SELECT r.* FROM reads r JOIN pass_cnames p USING(cname)`
+   (add `WHERE p.somatic = 1` for tumor-specific). Replaces the v3-era
+   `.r2c.pass.txt.gz` / `.r2c.pass.somatic.txt.gz` copies -- same info, one
+   lookup table.
+5. **Optional split-by-source** (`--split`) -- demuxes the dedup-eligible
+   BAMs by the first 4 chars of each QNAME into `${ID}.${suffix}.${prefix}.bam`.
 
-CLI: `scripts/svaba_postprocess.sh -t THREADS -m MEM [other flags] <ID>`. Flags:
-`-t/--threads`, `-m/--mem`, `--sort-buffer`, `--split-by-source`,
-`--input-dir`, `--output-dir`, `--svaba`, `--keep-tmp`, `--skip-bam`,
-`--skip-dedup`, `--skip-bps`, `--skip-r2c`, `--skip-split`, `-h/--help`.
-`--skip-dedup` maps to `--sort-only` on the C++ CLI: keeps sort + @PG +
-index but skips the dedup pass. Combined with the C++'s auto-skip of
-sort when the BAM header already declares `@HD SO:coordinate`
-(`isCoordinateSorted()` in `SvabaPostprocess.cpp`), a rerun on
-already-postprocessed files is effectively instant — useful for
-refreshing just the index or PG stamp. Env fallbacks for
-backward compat: `THREADS`, `MEM`, `BUFFER_SIZE`, `SVABA`, `SAM`,
-`INPUT_DIR`, `OUTPUT_DIR`, `SPLIT_BY_SOURCE`, `KEEP_TMP`.
+CLI: `svaba postprocess -i <ID> [options]`. Flags: `-t/--threads`,
+`-m/--mem` (per samtools-sort thread, e.g. `4G`), `--sort-only` (sort + @PG +
+index, skip dedup), `--dedup-only` (skip sort, assume already coordinate-
+sorted), `--split`, `-v/--verbose`, `-h/--help`. With the per-phase
+auto-skips, a rerun on already-postprocessed files is effectively instant --
+handy for refreshing just the index or the bps subsets.
 
-Gotcha: `zcat` on macOS is BSD zcat (looks for `.Z`), not GNU. This script
-uses `gzip -dc` everywhere for portability — if you add a new decompression
-step, do the same or it'll fail on Mac.
+The legacy `scripts/svaba_postprocess.sh` wrapper still exists and works, but
+it predates the subcommand absorbing the merge / bps-sort / r2c steps and is
+no longer the recommended path. Its old gotchas -- needing GNU `gsort` on
+macOS for the bps step, and `gzip -dc` rather than BSD `zcat` -- don't apply
+to `svaba postprocess`, whose bps sort is in-process.
 
 ## `svaba tovcf` subcommand
 
@@ -368,7 +426,7 @@ now this is the reference):
   `classify_symbolic_kind()` in `vcf.cpp`.
 - **EVENT grouping:** both BND records of a pair get `EVENT=<bp_id>`
   (taken from col 52 of bps.txt.gz, the v3 per-BP identifier). This
-  uses the same namespace as `r2c.txt.gz`'s `split_bps`/`disc_bps` and
+  uses the same namespace as `r2c.db`'s `split_bps`/`disc_bps` and
   the BAM `bi:Z` tag, so a user can follow a single variant across all
   svaba outputs with one key.
 - **QUAL column:** defaults to `.` (missing). QUAL was historically the
@@ -409,11 +467,12 @@ after. If this becomes painful, revisit with htslib's `hts_open` +
 
 ## `svaba extract-pairs` subcommand
 
-BAM-native replacement for `scripts/extract_pairs_by_seq.sh`. Pulls
-every read pair from a BAM where either mate's SEQ contains any of the
-given query sequences (or, by default, their reverse complements).
-Lives in `src/svaba/SvabaExtractPairs.cpp`; dispatch wired in
-`src/svaba/svaba.cpp`.
+BAM-native pair extractor. Pulls every read pair from a BAM where either
+mate's SEQ contains any of the given query sequences (or, by default,
+their reverse complements). Lives in `src/svaba/SvabaExtractPairs.cpp`;
+dispatch wired in `src/svaba/svaba.cpp`. The old
+`scripts/extract_pairs_by_seq.sh` is gone — this subcommand fully
+subsumes it (BAM-native pipeline, no SAM-text round-trip).
 
 Two-pass design, both passes BAM-native:
 
@@ -425,7 +484,10 @@ Two-pass design, both passes BAM-native:
   per record, no SAM text, no regex engine. Patterns containing
   non-ACGTN bases are silently rejected at insertion (they would never
   match an htslib-stored sequence anyway). On any pattern hit the
-  read's QNAME goes into a hash set.
+  read's QNAME goes into a hash set. In `--counts` mode (see below) the
+  AC search is `searchNibblesCollect` instead of the early-exit
+  `searchNibbles`, so every pattern hit in the SEQ gets attributed back
+  to the bp_id(s) that emitted that kmer.
 - **Pass 2 — pair extraction.** Re-stream input. Every record whose
   QNAME is in the set gets written to the output BAM. Both mates plus
   any supplementary/secondary alignments survive together because they
@@ -449,8 +511,12 @@ CLI:
 ```
 svaba extract-pairs -i IN.bam -o OUT.bam (-s SEQ ... | -f FILE) [options]
   -s, --seq SEQ           Query sequence; repeatable.
-  -f, --seq-file FILE     File of query sequences, one per line
-                          ('#' comments and empty lines ignored).
+  -f, --seq-file FILE     File of query sequences. Two formats accepted,
+                          auto-detected by content: a plain one-seq-per-line
+                          list (# / blank lines ignored), or a svaba
+                          bps.txt[.gz] dump (the `jxn_kmer` column,
+                          col 53, is used as the query; rows with kmer
+                          == "." are skipped).
   -t, --threads N         BGZF reader+writer threads. [4]
       --no-rc             Skip reverse-complement augmentation.
       --no-pairs          Single-pass mode: emit only records whose own
@@ -459,15 +525,26 @@ svaba extract-pairs -i IN.bam -o OUT.bam (-s SEQ ... | -f FILE) [options]
                           ~2x faster (one BAM pass instead of two, no
                           QNAME hash set). Use when you just want to
                           inspect which reads contain a motif.
+      --counts FILE       Emit a per-bp_id TSV of unique-non-dup reads
+                          carrying each bp's kmer. Header is
+                          `bp_id<TAB>n_unique_reads`. "Unique" = primary
+                          alignments only (excludes flag 256 secondary,
+                          2048 supplementary, 1024 duplicate), dedup'd
+                          by (bp_id, qname, mate). Requires `-f` to be
+                          a bps.txt[.gz] file (the only source of the
+                          kmer↔bp_id map); incompatible with --no-pairs.
+                          The counts file is written even when zero
+                          reads matched — you get a header-only TSV in
+                          that case.
   -v, --verbose 0-3
   -h, --help
 ```
 
-Why this is faster than `extract_pairs_by_seq.sh`:
+Why this is faster than the old shell script (now deleted):
 - No `samtools view → awk → samtools view -b` SAM-text round-trip.
-  The legacy script is bottlenecked on a single-threaded awk consumer
+  The legacy script was bottlenecked on a single-threaded awk consumer
   of decompressed SAM text; `samtools view -@ N`'s decompression
-  threads can't help past the pipe.
+  threads couldn't help past the pipe.
 - No regex alternation per read. Aho-Corasick gives O(read_len) per
   read regardless of pattern count.
 - No third pass for `samtools sort` when input is already coord-sorted
@@ -476,8 +553,17 @@ Why this is faster than `extract_pairs_by_seq.sh`:
 
 Useful jump points:
 - Entry point: `src/svaba/SvabaExtractPairs.cpp::runExtractPairs`
-- Aho-Corasick (5-letter alphabet, nibble-direct search):
+- Aho-Corasick (5-letter alphabet, nibble-direct search; carries
+  `pattern_id` + `output_link` per node so `searchNibblesCollect` can
+  enumerate every hit for the per-bp_id counting path):
   `class AhoCorasick` in same file.
+- bps reader (kmer + bp_id extraction): `readJxnKmersFromBps` in same
+  file. Returns a `LoadedSeqs` with both the kmer list and the
+  `bp_ids_by_kmer` map.
+- Per-bp_id tally: lives inside `collectQnames` when the
+  `pattern_to_bp_ids` / `bp_id_counts` args are non-null. Dedup key
+  is `bp_id + qname + mate`. TSV is written out of
+  `runExtractPairs` after pass 1.
 - Coord-sort detection helper: `isCoordinateSorted()` in same file
   (kept local rather than pulling in `SvabaPostprocess.h`).
 
@@ -510,7 +596,7 @@ Implications:
   first; the result set is identical.
 - `tovcf`'s INFO/HOMSEQ and INFO/INSSEQ inherit the canonical form
   through `BreakPoint`'s fields.
-- Indels (the indel BreakPoint ctor at line ~890) read insertion bytes
+- Indels (the indel BreakPoint ctor at line ~931) read insertion bytes
   from `m_align->Sequence()`, which is BAM SEQ — already
   reference-forward by SAM convention. So the indel path needs no fix
   and gets none.
@@ -573,7 +659,7 @@ through every reference (global, multi-map, indel breaks).
 
 The id lands as the 52nd core column of `bps.txt.gz` (right after
 `flipped`, before per-sample blocks — this is the v3 schema; v2 had
-51 cols, LEGACY had 41). It's also carried into `r2c.txt.gz` (see
+51 cols, LEGACY had 41). It's also carried into `r2c.db` (see
 next section) so a read's support attribution is unambiguously
 linked to the exact BP row in bps.txt, eliminating the old "which BP
 on this contig did this read actually support?" puzzle.
@@ -586,7 +672,7 @@ on weird/discordant/corrected BAM outputs now live in *different*
 identifier namespaces — choose the right one for the join you want:
 
 - `bi:Z` — comma-joined list of **bp_ids** this read supports as
-  ALT. Matches the per-BP resolution of `r2c.txt.gz`'s `split_bps`
+  ALT. Matches the per-BP resolution of `r2c.db`'s `split_bps`
   / `disc_bps` columns and `bps.txt.gz`'s col 52. Pre-v3 this
   carried cnames (contig-level), which couldn't disambiguate a
   contig that hosted multiple BPs (global + multi + indel). To pull
@@ -699,16 +785,17 @@ This was a measured win. Previously each fully-blacklisted chunk (e.g. a
 `QueryRegion` on the ref, `walker->SetRegion` + `readBam` (which
 decompresses every BGZF block overlapping the region, parses each
 bam1_t, allocates an `svabaRead`) — only to have `sc.blacklist.CountOverlaps`
-drop every read at `SvabaBamWalker.cpp:181-182`. Now those regions never
+drop every read at `SvabaBamWalker.cpp:218`. Now those regions never
 hit a thread.
 
 Safe because `sc.blacklist` has had `MergeOverlappingIntervals()` +
 `CreateTreeMap()` called, so `FindOverlapWidth` can't double-count and
 wrongly drop a partially-callable region.
 
-The per-read and per-BP blacklist checks at `SvabaRegionProcessor.cpp:74,
-818` still run for regions that **partially** overlap — this prune only
-short-circuits the 100%-covered case.
+The per-read blacklist check (`SvabaBamWalker.cpp:218`) and the per-BP
+check (`SvabaRegionProcessor.cpp:1262`, `checkBlacklist`) still run for
+regions that **partially** overlap — this prune only short-circuits the
+100%-covered case.
 
 Pruned regions don't get a `runtime.txt` row. That's intentional and
 actually makes the runtime file cleaner (only regions that did work).
@@ -728,31 +815,36 @@ actually makes the runtime file cleaner (only regions that did work).
   They control, respectively:
     - `${ID}.discordant.bam`
     - `${ID}.corrected.bam`
-    - `${ID}.r2c.txt.gz` (per-thread; merged by the postprocess step)
+    - per-thread `${ID}.thread${N}.r2c.db` (merged into `${ID}.r2c.db` by
+      the postprocess step; see "r2c SQLite database")
   The fields are kept separate so individual callsites can key off
-  their own concern (e.g. `svabaThreadUnit` gates `r2c_out_` opening
+  their own concern (e.g. `svabaThreadUnit` gates `r2c_db_` opening
   on `dump_alignments` only), but there's no runtime path to toggle
   them individually — all three flip as a unit under `--dump-reads`.
+  (Heads-up: the `--help` text and a comment in `SvabaOptions.{h,cpp}`
+  still say `r2c.txt.gz` — stale strings; the actual emission is the
+  SQLite `.r2c.db`.)
 - Without `--dump-reads`, svaba produces the lean output set only:
   `bps.txt.gz`, VCFs, `contigs.bam`, `runtime.txt`, `discordant.txt.gz`
-  (cluster-level, tiny). No per-thread `r2c.txt.gz`, no `corrected.bam`,
+  (cluster-level, tiny). No per-thread `r2c.db`, no `corrected.bam`,
   no `discordant.bam`. This is the production default because the gated
   outputs can run to tens of gigabytes on deep samples.
 - **`alignments.txt.gz` is gone.** The pre-rendered ASCII viewer output
-  was replaced in full by `r2c.txt.gz` (same information, not
-  pre-formatted). `AlignedContig::printToAlignmentsFile` and
+  was replaced by the structured r2c dump (first `r2c.txt.gz`, now the
+  SQLite `r2c.db` — same information, not pre-formatted).
+  `AlignedContig::printToAlignmentsFile` and
   `BreakPoint::printDeletionMarksForAlignmentsFile` were removed; the
   surviving `AlignmentFragment::printToAlignmentsFile` is kept only
   because one `std::cerr` debug print in `BreakPoint.cpp` still calls
-  it. `viewer/alignments_viewer.html` still exists and still works on
+  it. `docs/alignments_viewer.html` still exists and still works on
   old `.alignments.txt.gz` files from previous runs, but new runs don't
-  produce that file — use the r2c sub-panel in `viewer/bps_explorer.html`
-  instead.
+  produce that file — use `docs/r2c_db_explorer.html` instead.
 
-## Viewer suite (`viewer/`)
+## Viewer suite (`docs/`)
 
-Entry point is `viewer/index.html`, a card grid pointing at the
-sub-viewers. All client-side, no server required.
+Entry point is `docs/index.html`, a card grid pointing at the
+sub-viewers (the suite moved from `viewer/` to `docs/`). All
+client-side, no server required.
 
 - **`bps_explorer.html`** — primary viewer. Sortable table of bps rows,
   numeric filters (somlod/maxlod/qual/span/etc.), chip filters (counts
@@ -763,9 +855,12 @@ sub-viewers. All client-side, no server required.
   requires IGV running with port 60151 enabled). r2c re-plot sub-panel
   was removed — that capability now lives in the standalone
   `r2c_explorer.html` below.
-- **`r2c_explorer.html`** — standalone re-plotter for the structured
-  r2c TSV (emitted by `svaba run --dump-reads`, or filtered to
-  PASS / PASS-somatic by `scripts/svaba_postprocess.sh`). Upload an
+- **`r2c_db_explorer.html`** — current r2c viewer. Loads a `${ID}.r2c.db`
+  (sql.js, runs SQL client-side) and renders the alignment plots for
+  v4 SQLite-path runs. Reach for this one first.
+- **`r2c_explorer.html`** — legacy re-plotter for the structured
+  r2c TSV (`.r2c.txt.gz` from older runs, or filtered to
+  PASS / PASS-somatic by `svaba postprocess`). Upload an
   `.r2c.txt.gz` / `.r2c.pass.txt.gz` / `.r2c.pass.somatic.txt.gz`,
   type or pick a contig name in the search box (browser `<datalist>`
   autocomplete, capped at 5000 entries), and get the alignment plot
@@ -790,6 +885,9 @@ sub-viewers. All client-side, no server required.
   distributions are always long-tailed — see "Perf notes"). 17-column
   schema hardcoded from `SvabaUtils.cpp::svabaTimer::header`.
 - **`comparison.html`** — side-by-side of two bps runs.
+- **`learn_explorer.html`** — explorer for svaba's insert-size learning
+  output (per-read-group insert-size / read-length distributions, learned
+  inside `svaba run`; pairs with `scripts/plot_learn.sh`).
 - **`bps_viewer.html`** — legacy light-theme viewer, uses external
   `app.js` + `styles.css`.
 
@@ -878,7 +976,7 @@ RelWithDebInfo build.
 per chromosome partition — sharing a single read-only persistent disk.
 Each VM runs `svaba run -k <partition>` independently; outputs go to a
 GCS bucket; an optional `--merge` step concatenates the per-partition
-`bps.txt.gz` files and runs `svaba_postprocess.sh`.
+`bps.txt.gz` files and runs `svaba postprocess`.
 
 Architecture rationale: svaba's bottleneck is BWA FM-index random
 lookups, which are latency-bound and NUMA-hostile. Multi-socket servers
@@ -899,7 +997,7 @@ is fine.
 
 Interchromosomal SVs: both breakends get assembled independently by
 whichever partition contains the discordant read pileup. The merge +
-dedup step in `svaba_postprocess.sh` pairs them. No calls are lost.
+dedup step in `svaba postprocess` pairs them. No calls are lost.
 
 ## Conventions
 
@@ -918,8 +1016,8 @@ dedup step in `svaba_postprocess.sh` pairs them. No calls are lost.
 - **LL/LOD values in this codebase are always log10**, not natural log.
 - **`aN, dN, aT, dT`** = alt count / depth in normal and tumor; **`f`** =
   allele fraction; **`e_fwd`/`e_rev`** = forward/reverse error rates from
-  the artifact model. These names are used consistently in the analysis
-  HTML too.
+  the artifact model. These names are used consistently throughout this
+  file.
 - **Option codes** in `SvabaOptions.cpp::longOpts`: 1001-1099 = mode,
   1100s = assembly, 1200s = EC, 1300s = discordant, 1400s = filter,
   1500 = chunking, 1600s = bwa-mem tuning, 1700s = output/DBs, 1800 =
@@ -995,16 +1093,17 @@ definitions and `README.md` for full recipes.
 ## Useful jump points
 
 - Somatic LOD calc: `src/svaba/SvabaModels.cpp:86`
-- Per-sample LO: `src/svaba/BreakPoint.cpp:1610`
-- Somatic LOD entry: `src/svaba/BreakPoint.cpp:975`
-- INDEL somatic gate: `src/svaba/BreakPoint.cpp:1072`
+- Per-sample LO: `src/svaba/BreakPoint.cpp:2002`
+- Somatic LOD entry: `src/svaba/BreakPoint.cpp:1341`
+- INDEL somatic gate: `src/svaba/BreakPoint.cpp:1434`
 - Region-queue blacklist prune: `src/svaba/run_svaba.cpp` (right after
   `loader.countJobs(regionsToRun)`)
-- Per-read blacklist filter: `src/svaba/SvabaBamWalker.cpp:181-182`
-- r2c TSV emitter: `src/svaba/AlignedContig.cpp::printToR2CTsv` +
-  `::r2cTsvHeader`
-- Postprocess (C++): `src/svaba/SvabaPostprocess.cpp`
-- Postprocess (shell orchestration): `scripts/svaba_postprocess.sh`
+- Per-read blacklist filter: `src/svaba/SvabaBamWalker.cpp:218`
+- r2c SQLite writer: `src/svaba/AlignedContig.cpp::writeToR2cDb` +
+  `src/svaba/R2CDatabase.cpp` (old `printToR2CTsv`/`r2cTsvHeader` TSV
+  emitter is gone)
+- Postprocess driver: `src/svaba/SvabaPostprocess.cpp::runPostprocess`
+- Postprocess (legacy shell wrapper): `scripts/svaba_postprocess.sh`
 - `svaba tovcf` driver: `src/svaba/tovcf.cpp::runToVCF`
 - VCF engine (parse + dedup + emit): `src/svaba/vcf.cpp` + `vcf.h`
 - Symbolic SV classifier: `vcf.cpp::classify_symbolic_kind`
@@ -1012,9 +1111,10 @@ definitions and `README.md` for full recipes.
 - Blacklist combiner: `scripts/combine_blacklists.sh`
 - Runtime-file schema: `src/svaba/SvabaUtils.cpp::svabaTimer::header`
 - Options parsing: `src/svaba/SvabaOptions.cpp::SvabaOptions::parse`
-- Analysis writeup (somlod/maxlod): `somlod_maxlod_analysis.html`
+- Somlod/maxlod analysis: the "Statistical model" + "somlod / maxlod
+  investigation" sections of this file (the standalone HTML writeup is gone)
 - Mate-region lookup: `src/svaba/SvabaBamWalker.cpp::calculateMateRegions`
-- Mate-region constants: `src/svaba/SvabaOptions.h` (lines 126-141)
+- Mate-region constants: `src/svaba/SvabaOptions.h` (lines 113, 122-143)
 - Read trace macro: `src/svaba/SvabaDebug.h`
 - Read trace (BFC/r2c/native): `src/svaba/SvabaRegionProcessor.cpp`
 - Read trace (splitCoverage): `src/svaba/BreakPoint.cpp`

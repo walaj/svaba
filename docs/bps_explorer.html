@@ -64,8 +64,11 @@ body{font-family:'SF Mono','Fira Code','Consolas',monospace;background:var(--bg)
 /* table-layout:fixed lets explicit th widths actually pin column widths
    instead of being treated as suggestions. The downside is that columns
    without a set width need a sensible default — handled by the
-   td/th `max-width` rules further down for the .w-* helper classes. */
-table{width:100%;border-collapse:collapse;white-space:nowrap;table-layout:auto}
+   td/th `width` rules further down for the .w-* helper classes (each
+   class declares an explicit width so fixed mode has something to lock
+   onto; max-width is kept on td so overflow:ellipsis still trims when
+   the user drags a column narrower than its content). */
+table{width:100%;border-collapse:collapse;white-space:nowrap;table-layout:fixed}
 th{background:var(--surface2);color:var(--text2);text-align:left;padding:.25rem .4rem;position:sticky;top:0;cursor:pointer;user-select:none;z-index:1;font-size:.72rem;text-transform:uppercase;letter-spacing:.03em;position:sticky}
 th:hover{color:var(--accent)}
 th .sa{font-size:.6em;margin-left:.15rem;opacity:.5}
@@ -88,22 +91,31 @@ tr.sel td{background:#1e3a5f !important}
 tr{cursor:pointer}
 td.num{text-align:right;font-variant-numeric:tabular-nums}
 /* Per-column width/wrap rules. `nowrap` is the table default; we only loosen
-   where it makes sense (ref/alt soft-wrap at ~10ch, contig soft-wrap). */
-td.w-loc,th.w-loc{max-width:14ch}
-td.w-strand,th.w-strand{width:2.6ch;padding-left:.3rem;padding-right:.3rem;text-align:center}
+   where it makes sense (ref/alt soft-wrap at ~10ch, contig soft-wrap).
+   Each class declares BOTH `width` (so table-layout:fixed has a target)
+   and `max-width` (so when the user drags a column narrower than its
+   content, overflow:hidden + text-overflow:ellipsis still trim cleanly).
+   Resize handler in JS overrides all three of width/min-width/max-width
+   inline so the class caps can't fight the drag. */
+td.w-loc,th.w-loc{width:14ch;max-width:14ch}
+td.w-strand,th.w-strand{width:2.6ch;max-width:2.6ch;padding-left:.3rem;padding-right:.3rem;text-align:center}
 td.w-strand{font-weight:600}
-td.w-tiny,th.w-tiny{max-width:8ch;overflow:hidden;text-overflow:ellipsis}
-td.w-num,th.w-num{max-width:7ch}
-td.w-seq,th.w-seq{max-width:10ch;white-space:normal;word-break:break-all;font-family:'SF Mono','Consolas',monospace;line-height:1.1}
-td.w-wrap,th.w-wrap{max-width:22ch;white-space:normal;word-break:break-all;line-height:1.1}
+td.w-tiny,th.w-tiny{width:8ch;max-width:8ch;overflow:hidden;text-overflow:ellipsis}
+/* bp_id column — wider than w-tiny because the ids are ~13 chars
+   (bpTTTNNNNNNNN). 16ch leaves a little breathing room and the cell
+   still has overflow:ellipsis if the user drags it narrower. */
+td.w-bpid,th.w-bpid{width:16ch;max-width:16ch;overflow:hidden;text-overflow:ellipsis}
+td.w-num,th.w-num{width:7ch;max-width:7ch}
+td.w-seq,th.w-seq{width:10ch;max-width:10ch;white-space:normal;word-break:break-all;font-family:'SF Mono','Consolas',monospace;line-height:1.1}
+td.w-wrap,th.w-wrap{width:22ch;max-width:22ch;white-space:normal;word-break:break-all;line-height:1.1}
 /* Genes column — comma-joined gene symbols from the user-uploaded GTF;
    soft-wrap so multi-gene hits don't blow the row height out. */
-td.w-genes,th.w-genes{max-width:16ch;white-space:normal;word-break:break-word;line-height:1.15;color:var(--green)}
+td.w-genes,th.w-genes{width:16ch;max-width:16ch;white-space:normal;word-break:break-word;line-height:1.15;color:var(--green)}
 /* Samples column — shows the full per-sample FORMAT value
    (GT:AD:DP:SR:DR:GQ:PL:LO:LO_n), one sample per line, monospace so the
    colon-separated fields stack column-wise visually. white-space:pre
    preserves the embedded \n that mkRow puts between samples. */
-td.w-gt,th.w-gt{max-width:46ch;white-space:pre;line-height:1.25;font-size:.7rem}
+td.w-gt,th.w-gt{width:46ch;max-width:46ch;white-space:pre;line-height:1.25;font-size:.7rem}
 td.strand-plus{color:var(--green)}
 td.strand-minus{color:var(--red)}
 ::selection{background:#3b5bdb;color:#fff}
@@ -384,7 +396,9 @@ const TCOLS=[
   // bp_id pinned to the leftmost column — it's the primary join key back
   // to r2c.txt.gz / the bi:Z BAM tag, so keeping it in a fixed, easy-to-
   // find position matters more than adjacency to other variant metadata.
-  {k:"bp_id",l:"bp_id",w:"tiny"},
+  // Uses w-bpid (16ch) instead of w-tiny (8ch) because bp_ids are 13
+  // chars (bpTTTNNNNNNNN) and would otherwise ellipsis-truncate.
+  {k:"bp_id",l:"bp_id",w:"bpid"},
   {k:"igvPos1",l:"IGV1",w:"loc"},{k:"strand1",l:"S1",w:"strand"},
   {k:"igvPos2",l:"IGV2",w:"loc"},{k:"strand2",l:"S2",w:"strand"},
   // span sits next to the pos2/strand2 pair since it's a property of
@@ -454,7 +468,13 @@ TCOLS.forEach(c=>{
   };
 
   // Apply any previously-saved width before the resize handle is added.
-  if (SAVED_COLW[c.k]) th.style.width = SAVED_COLW[c.k] + "px";
+  // Pin all three of width/min-width/max-width because the .w-* class for
+  // this column declares its own max-width that would otherwise cap us at
+  // the default size and block any user-grown width from taking effect.
+  if (SAVED_COLW[c.k]) {
+    const w = SAVED_COLW[c.k] + "px";
+    th.style.width = w; th.style.minWidth = w; th.style.maxWidth = w;
+  }
 
   // Resize handle on the right edge of the header. Mousedown captures
   // the pointer; mousemove/up are added to window so the drag still
@@ -475,7 +495,11 @@ TCOLS.forEach(c=>{
       // Hard floor at 24px so a column can't be hidden entirely by
       // an over-zealous drag (would trap users with no way back).
       const newW = Math.max(24, Math.round(startW + (e.clientX - startX)));
-      th.style.width = newW + "px";
+      // Pin width AND min/max-width — the .w-* CSS class caps max-width
+      // at its default size, so setting width alone would do nothing
+      // once the drag tries to push past that cap.
+      const wpx = newW + "px";
+      th.style.width = wpx; th.style.minWidth = wpx; th.style.maxWidth = wpx;
       // Mirror onto live state so refresh on render() doesn't reset it.
       SAVED_COLW[c.k] = newW;
     }

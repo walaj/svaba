@@ -25,8 +25,8 @@ BAM I/O, BWA-MEM alignment, interval trees, and the assembly front-end.
 | jemalloc   | optional  | recommended on Linux at `-p 16+` (allocator contention)      |
 
 When sqlite3 isn't found, svaba builds successfully but `--dump-reads`
-skips the `${ID}.r2c.db` file with a single startup warning; other
-`--dump-reads` outputs (`corrected.bam`, `weird.bam`, `discordant.bam`)
+skips the `${ID}.r2c.db` file with a single startup warning; the other
+`--dump-reads` outputs (`corrected.bam`, `discordant.bam`)
 are unaffected. If you don't use `--dump-reads`, sqlite3 isn't
 exercised at all and you can ignore it. To enable r2c.db (so the
 `docs/r2c_db_explorer.html` viewer has something to load), install:
@@ -152,9 +152,9 @@ svaba run -t tumor.bam -n normal.bam -G ref.fa -a my_run -p 4 \
           -k chr22 \
           --blacklist tracks/hg38.combined_blacklist.bed
 
-# 2. Post-process: merge per-thread BAMs, sort+dedup+index,
-#    sort+dedup bps.txt.gz, filter r2c to PASS.
-scripts/svaba_postprocess.sh -t 8 -m 4G my_run
+# 2. Post-process (one command): merge per-thread BAMs, sort+dedup+index,
+#    sort+dedup bps.txt.gz, stamp PASS reads into r2c.db.
+svaba postprocess -i my_run -t 8 -m 4G
 
 # 3. Convert the deduped bps.txt.gz to VCFv4.5 (SV + indel)
 svaba tovcf -i my_run.bps.sorted.dedup.txt.gz -b tumor.bam -a my_run
@@ -173,18 +173,20 @@ ones:
 Takes a BAM (or many) plus a reference, a blacklist, and an output ID.
 Emits `bps.txt.gz`, per-sample VCFs, `contigs.bam`, `runtime.txt`, and
 (with `--dump-reads`) per-thread `*.discordant.bam`,
-`*.corrected.bam`, `*.weird.bam`, and `*.r2c.txt.gz`.
+`*.corrected.bam`, and `*.r2c.db`.
 
-`svaba postprocess` sorts, deduplicates, @PG-stamps, and indexes the
-per-thread BAMs and the `bps.txt.gz` emitted by `svaba run`. Typically
-invoked via `scripts/svaba_postprocess.sh` which also merges per-thread
-files and builds the PASS / PASS-somatic r2c subsets.
+`svaba postprocess` is the one-command post-processing step. It merges
+the per-thread BAMs and `r2c.db` files, coordinate-sorts + stream-dedups
++ @PG-stamps + indexes the BAMs, sorts and dedups `bps.txt.gz` (writing
+the PASS / PASS-somatic subsets), and stamps the PASS reads into
+`r2c.db`. (The older `scripts/svaba_postprocess.sh` wrapper predates the
+subcommand absorbing all of this and is now superseded.)
 
 `svaba tovcf` converts a deduplicated `bps.txt.gz` into VCFv4.5 output
 (one SV VCF, one indel VCF; somatic distinguished by the `SOMATIC`
 INFO flag). Clean intrachrom events emit as symbolic `<DEL>`/`<DUP>`/
 `<INV>`; everything else stays paired BND. Input is assumed already
-sorted/deduped by `svaba_postprocess.sh` — use `--dedup` to opt back
+sorted/deduped by `svaba postprocess` — use `--dedup` to opt back
 into the legacy internal dedup.
 
 The `SOMATIC` flag is stamped when a record's somatic LOD
@@ -211,10 +213,11 @@ the fact.
 ## Output files
 
 `${ID}.bps.txt.gz` is the primary output — one row per breakpoint,
-with a v3 schema of 52 core columns + per-sample blocks (see
-`BreakPoint::header` for column names). The 52nd column is a unique
+with a v4 schema of 53 core columns + per-sample blocks (see
+`BreakPoint::header` for column names). Column 52 is a unique
 `bp_id` of the form `bpTTTNNNNNNNN` that joins back to the BAM aux
-tags and the VCF `EVENT=` field. `${ID}.contigs.bam` holds every
+tags and the VCF `EVENT=` field; column 53 is the junction kmer
+(`jxn_kmer`) consumed by `svaba extract-pairs`. `${ID}.contigs.bam` holds every
 assembled contig, `${ID}.runtime.txt` holds per-region timing, and
 `${ID}.log` carries the run log.
 
@@ -226,42 +229,48 @@ max), `SOMLOD` (somatic LLR), `SOMATIC` (flag), and `SVCLAIM`
 or the two LOD fields, not QUAL. See `CLAUDE.md` for the full scoring
 model.
 
-Opt-in outputs (gated behind `--dump-reads`): `${ID}.r2c.txt.gz` is a
-structured, re-plottable dump of every contig + its r2c-aligned reads;
-`${ID}.corrected.bam` / `${ID}.weird.bam` / `${ID}.discordant.bam`
+Opt-in outputs (gated behind `--dump-reads`): `${ID}.r2c.db` is a
+queryable SQLite database of every contig + its r2c-aligned reads;
+`${ID}.corrected.bam` / `${ID}.discordant.bam`
 carry per-read evidence streams. These can run to tens of GB on deep
 samples, so they're off by default.
 
 ## Post-processing pipeline
 
-`svaba run` emits per-thread, unsorted BAMs and a raw per-thread
-`r2c.txt.gz`. Merge + sort + dedup + filter them with one command:
+`svaba run` emits per-thread, unsorted BAMs, a per-thread `bps.txt.gz`,
+and (with `--dump-reads`) per-thread `r2c.db` files. `svaba postprocess`
+folds all of that into the final outputs in one command:
 
 ```bash
-scripts/svaba_postprocess.sh -t 8 -m 4G my_run
+svaba postprocess -i my_run -t 8 -m 4G
 ```
 
-Five idempotent steps: merge per-thread BAMs and r2c files, run
-`svaba postprocess` (sort + stream-dedup + @PG-stamp + index), sort
-and dedup `bps.txt.gz` with PASS filter, emit PASS / PASS-somatic
-subsets of `r2c.txt.gz`, and (optional) demux the BAMs by source
-prefix. See `CLAUDE.md` for the full flag surface.
+Six idempotent phases: (0) merge per-thread BAMs and `r2c.db` files;
+(1) coordinate-sort the BAMs in parallel; (2) stream-dedup + @PG-stamp +
+index them; (3) sort + dedup `bps.txt.gz` and write the PASS /
+PASS-somatic subsets (`my_run.bps.sorted.dedup.txt.gz` is the file
+`svaba tovcf` consumes); (4) stamp the PASS / PASS-somatic cnames into
+`r2c.db`; (5, optional, `--split`) demux the BAMs by source prefix.
+Every phase auto-skips work that's already done, so reruns are
+near-instant. See `CLAUDE.md` for the full flag surface.
 
 ## Viewers
 
 All-HTML, no server, drop files in from `file://`. Entry point:
-`viewer/index.html`. The primary viewer is `bps_explorer.html` —
+`docs/index.html`. The primary viewer is `bps_explorer.html` —
 sortable `bps.txt.gz` table with chip filters, per-sample detail
 panel, log10 histograms for somlod/maxlod/span, and click-to-IGV
-navigation. `r2c_explorer.html` re-plots the structured r2c TSV in
-browser (contig ruler, fragment rows, indel `||` marker rows with
-labels, per-read gap-expanded CIGAR, bp_id filter dropdown).
+navigation. `r2c_db_explorer.html` loads a `${ID}.r2c.db` and plots
+each contig + its r2c-aligned reads (contig ruler, fragment rows,
+indel marker rows, per-read gap-expanded CIGAR, bp_id filter); the
+legacy `r2c_explorer.html` does the same for old `.r2c.txt.gz` dumps.
 `runtime_explorer.html` visualizes `runtime.txt`; `comparison.html`
-does side-by-side diffs of two runs.
+does side-by-side diffs of two runs; `learn_explorer.html` plots
+per-read-group insert-size distributions (pairs with `scripts/plot_learn.sh`).
 
-`viewer/alignments_viewer.html` still renders the legacy
+`docs/alignments_viewer.html` still renders the legacy
 `alignments.txt.gz` ASCII output, but new runs don't produce that
-file — `r2c_explorer.html` is the replacement.
+file — `r2c_db_explorer.html` is the replacement.
 
 ## Blacklists
 
@@ -365,8 +374,8 @@ zcat results.bps.txt.gz | awk -F'\t' '$1=="chr2" && $2 > 215869000 && $2 < 21587
 # From the corrected BAM — reads tagged with a specific bp_id
 samtools view results.corrected.bam chr2:215869000-215870000 | grep "bi:Z:.*bp00100000042"
 
-# From the r2c TSV — all reads for a contig
-zcat results.r2c.txt.gz | awk -F'\t' '$2 == "c_fermi_chr2_215869501_215894501_13C" && $1 == "read"' | cut -f8
+# From the r2c.db — all reads for a contig
+sqlite3 results.r2c.db "SELECT read_id FROM reads WHERE cname='c_fermi_chr2_215869501_215894501_13C';"
 ```
 
 ### Restrict assembly to reads containing a specific kmer
@@ -472,7 +481,7 @@ specific call):
 
 ```bash
 svaba run -t sample.bam -G ref.fa -a debug_run --dump-reads
-scripts/svaba_postprocess.sh -t 8 -m 4G debug_run
+svaba postprocess -i debug_run -t 8 -m 4G
 ```
 
 Non-human genome (e.g. mouse, zebrafish, _C. elegans_). By default
