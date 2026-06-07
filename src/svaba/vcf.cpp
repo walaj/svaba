@@ -230,11 +230,13 @@ std::string VCFEntry::getAltString(const SeqLib::BamHeader& header) const {
   // SV breakends get the BND-style `N]chr:pos]` mate notation.
   const std::string ref = getRefString();
 
+  // +1: positions are 0-based internally (htslib); the mate locus in BND
+  // notation is 1-based per the VCF spec, matching POS in toFileString.
   std::stringstream ptag;
   if (id_num == 1) {
-    ptag << bp->b2.gr.ChrName(header) << ':' << bp->b2.gr.pos1;
+    ptag << bp->b2.gr.ChrName(header) << ':' << (bp->b2.gr.pos1 + 1);
   } else {
-    ptag << bp->b1.gr.ChrName(header) << ':' << bp->b1.gr.pos1;
+    ptag << bp->b1.gr.ChrName(header) << ':' << (bp->b1.gr.pos1 + 1);
   }
 
   std::stringstream alt;
@@ -435,17 +437,20 @@ std::string VCFEntry::toFileString(const SeqLib::BamHeader& header,
   // positions (the event's 5' anchor); the INFO/END field carries the
   // other boundary. For BND records, POS is just the breakend this
   // entry represents (legacy behavior).
+  // +1: breakend positions are stored 0-based internally (htslib
+  // convention); VCF POS is 1-based. This mirrors BreakPoint::toFileString
+  // (bps.txt.gz) and the END INFO field below, both of which add +1.
   int pos;
   std::string chr_name;
   if (symbolic_rep) {
-    const int p1 = bp->b1.gr.pos1;
-    const int p2 = bp->b2.gr.pos1;
+    const int p1 = bp->b1.gr.pos1 + 1;
+    const int p2 = bp->b2.gr.pos1 + 1;
     pos      = std::min(p1, p2);
     // Both breakends live on the same chrom when symbolic; use b1's.
     chr_name = bp->b1.gr.ChrName(header);
   } else {
     const BreakEnd* be = (id_num == 1) ? &bp->b1 : &bp->b2;
-    pos      = be->gr.pos1;
+    pos      = be->gr.pos1 + 1;
     chr_name = be->gr.ChrName(header);
   }
 

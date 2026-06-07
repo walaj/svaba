@@ -459,6 +459,17 @@ Gotcha: the BAM is required only for the chromosome name/length table
 BreakPoint parser to turn chrom-name strings into chr IDs). No reads are
 actually read from it — any BAM that shares the reference is fine.
 
+POS convention (fixed): breakend positions are stored 0-based internally
+(htslib), 1-based in bps.txt.gz (`BreakPoint::toFileString` adds +1) and
+1-based in the VCF. `VCFEntry::toFileString` / `getAltString` (`vcf.cpp`)
+previously emitted the raw 0-based `gr.pos1` for the POS column and the
+BND mate locus, so tovcf VCFs were off by one (one *less* than bps.txt) —
+even though the symbolic `END` INFO field already added +1, so symbolic
+records had a POS/END mismatch too. All three now add +1 and agree. The
+*internal* `gr.pos1` uses in `vcf.cpp` (dedup interval tree, id-hash
+strings, the entry sort comparator) stay 0-based on purpose — only the
+emitted POS / ALT-mate / END are 1-based.
+
 Not-yet-done on this subcommand: bgzip-proper (current `--plain=false`
 output is plain gzip, which bcftools accepts but tabix doesn't index
 correctly). For now, pipe through `bcftools sort -Oz` + `tabix -p vcf`
