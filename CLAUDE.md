@@ -485,11 +485,44 @@ dispatch wired in `src/svaba/svaba.cpp`. The old
 `scripts/extract_pairs_by_seq.sh` is gone — this subcommand fully
 subsumes it (BAM-native pipeline, no SAM-text round-trip).
 
+**Region targeting (v5, default for bps-file input).** A 20-mer is short
+enough that some breakpoint kmers occur at unrelated, non-variant sites
+elsewhere in the reference, so a whole-BAM scan over-matches badly (esp.
+low-complexity kmers in deep RNA-seq). When `-f` is a bps.txt[.gz], the
+default now restricts **pass 1** to reads within `±--pad` bp (default
+1000) of any breakend. Both breakends of every kmer-bearing row are
+collected (`readJxnKmersFromBps` reads cols chr1/pos1/chr2/pos2 by NAME
+via `findBpsCol`, so it's robust to column-count drift across schema
+versions), turned into windows, and merged
+(`buildBreakpointRegions` → `GRC::MergeOverlappingIntervals`). ALL kmers
+are searched within that merged window set (not just the kmer owned by
+each window's breakpoint), so cross-breakpoint connections are still
+found — only distant unrelated reference hits are dropped.
+`BamReader::SetRegions` drives the index-based fetch; if the BAM has no
+`.bai`, pass 1 logs a warning and falls back to a whole-BAM scan.
+`--whole-bam` forces the old behavior; it's also the only option for `-s`
+/ plain-seq-list queries (no coordinates available). **Pass 2 is
+deliberately left whole-BAM** — it still streams the entire file to pull
+in mates/supplementaries anywhere, so the speedup is in pass 1 only.
+Because `SetRegions` queries each merged window sequentially (no
+cross-region htslib dedup), a read straddling the sub-read-length gap
+between two adjacent windows can be returned twice; matched reads are
+deduped by `(tid, pos, qname, flag)` so counts/output aren't doubled.
+
 Two-pass design, both passes BAM-native:
 
 - **Pass 1 — QNAME collection.** Stream input via `SeqLib::BamReader`
   with a BGZF decompression thread pool (`SetThreads`). For each
   record we walk `bam_get_seq(rec.raw())` directly through an
+  Aho-Corasick automaton (5-letter alphabet `{A,C,G,T,N}`) using a
+  16-entry nibble→alphabet lookup table — no `std::string` allocation
+  per record, no SAM text, no regex engine. Patterns containing
+  non-ACGTN bases are silently rejected at insertion (they would never
+  match an htslib-stored sequence anyway). On any pattern hit the
+  read's QNAME goes into a hash set. In `--counts` mode (see below) the
+  AC search is `searchNibblesCollect` instead of the early-exit
+  `searchNibbles`, so every pattern hit in the SEQ gets attributed back
+  to the bp_id(s) that emitted that kmer.
   Aho-Corasick automaton (5-letter alphabet `{A,C,G,T,N}`) using a
   16-entry nibble→alphabet lookup table — no `std::string` allocation
   per record, no SAM text, no regex engine. Patterns containing
@@ -529,6 +562,12 @@ svaba extract-pairs -i IN.bam -o OUT.bam (-s SEQ ... | -f FILE) [options]
                           col 53, is used as the query; rows with kmer
                           == "." are skipped).
   -t, --threads N         BGZF reader+writer threads. [4]
+      --whole-bam         Scan the entire BAM in pass 1 instead of just the
+                          breakpoint windows (the pre-region-targeting
+                          behavior). Required when queries come from -s or a
+                          plain seq-list (no breakend coordinates exist).
+      --pad N             Half-width (bp) of the window placed around each
+                          breakend in region-targeted mode. [1000]
       --no-rc             Skip reverse-complement augmentation.
       --no-pairs          Single-pass mode: emit only records whose own
                           SEQ matched. Skips the mate / supplementary
@@ -536,17 +575,23 @@ svaba extract-pairs -i IN.bam -o OUT.bam (-s SEQ ... | -f FILE) [options]
                           ~2x faster (one BAM pass instead of two, no
                           QNAME hash set). Use when you just want to
                           inspect which reads contain a motif.
-      --counts FILE       Emit a per-bp_id TSV of unique-non-dup reads
-                          carrying each bp's kmer. Header is
-                          `bp_id<TAB>n_unique_reads`. "Unique" = primary
-                          alignments only (excludes flag 256 secondary,
-                          2048 supplementary, 1024 duplicate), dedup'd
-                          by (bp_id, qname, mate). Requires `-f` to be
-                          a bps.txt[.gz] file (the only source of the
-                          kmer↔bp_id map); incompatible with --no-pairs.
-                          The counts file is written even when zero
-                          reads matched — you get a header-only TSV in
-                          that case.
+      --counts FILE       Emit a per-bp_id TSV of reads carrying each bp's
+                          kmer. Header (4 cols):
+                          `bp_id<TAB>jxn_kmer<TAB>n_total_hits<TAB>n_unique_reads`,
+                          sorted by `n_total_hits` DESC (tiebreak bp_id
+                          ASC) so the worst over-matchers are at the top.
+                          `jxn_kmer` is the forward-strand 20-mer (bps col
+                          53) — low-complexity kmers (poly-A/T, simple
+                          repeats) jump out here as the over-match
+                          culprits. `n_total_hits` = every matching
+                          alignment (incl. flag 256 secondary, 2048
+                          supplementary, 1024 duplicate); `n_unique_reads`
+                          = primary non-dup reads dedup'd by (bp_id,
+                          qname, mate). Requires `-f` to be a bps.txt[.gz]
+                          file (the only source of the kmer↔bp_id map);
+                          incompatible with --no-pairs. The counts file is
+                          written even when zero reads matched — you get a
+                          header-only TSV in that case.
   -v, --verbose 0-3
   -h, --help
 ```
@@ -568,13 +613,22 @@ Useful jump points:
   `pattern_id` + `output_link` per node so `searchNibblesCollect` can
   enumerate every hit for the per-bp_id counting path):
   `class AhoCorasick` in same file.
-- bps reader (kmer + bp_id extraction): `readJxnKmersFromBps` in same
-  file. Returns a `LoadedSeqs` with both the kmer list and the
-  `bp_ids_by_kmer` map.
+- bps reader (kmer + bp_id + breakend-coord extraction):
+  `readJxnKmersFromBps` in same file. Returns a `LoadedSeqs` with the
+  kmer list, the `bp_ids_by_kmer` map, and `breakends` (both ends of
+  every kmer-bearing row, for region targeting).
+- Breakpoint-window builder: `buildBreakpointRegions` in same file
+  (breakends + header + pad → merged `SeqLib::GRC`). Region fetch is
+  armed in `collectQnames` / `extractMatchedOnly` via
+  `BamReader::SetRegions`; `--whole-bam` / empty-breakends skip it.
 - Per-bp_id tally: lives inside `collectQnames` when the
-  `pattern_to_bp_ids` / `bp_id_counts` args are non-null. Dedup key
-  is `bp_id + qname + mate`. TSV is written out of
-  `runExtractPairs` after pass 1.
+  `pattern_to_bp_ids` / `bp_id_counts` / `bp_id_total` args are
+  non-null. `bp_id_total` counts every matching alignment (raw
+  magnitude); `bp_id_counts` is the unique-primary tally with dedup
+  key `bp_id + qname + mate`. The 4-col TSV (bp_id, jxn_kmer,
+  n_total_hits, n_unique_reads), sorted by n_total_hits desc, is
+  written out of `runExtractPairs` after pass 1 — `bp_id→kmer` is
+  recovered there by inverting `pattern_to_bp_ids` against `seqs`.
 - Coord-sort detection helper: `isCoordinateSorted()` in same file
   (kept local rather than pulling in `SvabaPostprocess.h`).
 
