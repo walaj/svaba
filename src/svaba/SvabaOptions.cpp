@@ -108,6 +108,11 @@ Output & DBs:
                           reuse the input BAM's CIGAR/NM (valid when the
                           BAM was aligned with BWA). Use this flag when
                           the input was aligned with a non-BWA aligner.
+      --r2c-min-somlod N  With --dump-reads, only write a contig's r2c reads
+                          to ${ID}.r2c.db if its max breakpoint SOMLOD is
+                          strictly > N. Shrinks the r2c.db dramatically on
+                          deep samples. Default: write all. Use 0 to keep
+                          only somlod>0 (~somatic) events.
 )" << "\n";
 }
 
@@ -158,6 +163,7 @@ SvabaOptions SvabaOptions::parse(int argc, char** argv) {
     // Weird-reads BAM is deliberately not on this flag (compile-time only).
     {"dump-reads", no_argument,            nullptr,  1800},
     {"always-realign-corrected", no_argument, nullptr, 1801},
+    {"r2c-min-somlod", required_argument,   nullptr,  1802},
     {nullptr,0,nullptr,0}
   };
 
@@ -243,6 +249,10 @@ SvabaOptions SvabaOptions::parse(int argc, char** argv) {
 
       case 1801:
         o.alwaysRealignCorrected = true;
+        break;
+
+      case 1802:
+        o.r2cMinSomlod = std::stod(optarg);
         break;
 
       case '?':

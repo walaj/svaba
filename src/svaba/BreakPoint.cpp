@@ -108,6 +108,7 @@ BreakPoint::SampleInfo operator+(const BreakPoint::SampleInfo& a1, const BreakPo
   a.cigar = a1.cigar + a2.cigar;
   a.cigar_near = a1.cigar_near + a2.cigar_near;
   a.cov = a1.cov + a2.cov;
+  a.kmer_alt = a1.kmer_alt + a2.kmer_alt; // somatic-safety net kmer reads
   
   // add the reads
   for (auto& i : a1.supporting_reads)
@@ -325,7 +326,14 @@ std::string BreakPoint::toFileString(const BamHeader& header) const {
     // window). When this BP was hydrated from a bps.txt row (refilter
     // / tovcf), `seq` is empty so we prefer the cached parsed value
     // over recomputing — see BreakPoint::junctionKmer() for the rule.
-     << (!jxn_kmer.empty() ? jxn_kmer : junctionKmer(20));
+     << (!jxn_kmer.empty() ? jxn_kmer : junctionKmer(20))
+    // SvABA2.0 v5: discordant-cluster id as its own column. Prefer the live
+    // cluster (dc.ID()); on a hydrated BP (live dc gone) prefer the parsed
+    // cache; "." when this BP has no associated discordant cluster (e.g.
+    // pure-assembly ASSMB, or an indel).
+     << sep
+     << (!dc.ID().empty() ? dc.ID()
+                          : (!disc_cluster.empty() ? disc_cluster : "."));
 
   for (const auto& [_,al] : allele)
     ss << sep << al.toFileString(svtype);
@@ -1059,9 +1067,13 @@ BreakPoint::BreakPoint(const AlignmentFragment* f,
       if (i.Type() != 'I' && i.Type() != 'D')
 	throw std::runtime_error("BreakPoint indel parsing - unexpected to get non del/ins CIGAR field");
       
-      // here again the -1 is to get htslib position 0-based to SAM format (1-based), since e.g. for
-      //        140M5D, we want the genome position of the start based to be the first
-      //        matching base before the deletion, so again have to -1
+      // Stays 0-based (the +1 to 1-based happens only at emission in
+      // toFileString / tovcf). r->Position() is the 0-based alignment start;
+      // gcurrlen is the reference bases consumed up to this CIGAR field, so
+      // Position()+gcurrlen is the first base OF the indel; the -1 steps back to
+      // the last matching base BEFORE it (the anchor), e.g. for 140M5D the
+      // anchor is the last M base before the deletion. (-1 is NOT a 0->1
+      // conversion — it just picks the anchor base.)
       b1.gr.pos1 = r->Position() + gcurrlen - 1;
 
       // for deletions, it's the opposite to contig, so deletion consumes the genome
@@ -1217,11 +1229,29 @@ void BreakPoint::CombineWithDiscordantClusterMap(DiscordantClusterMap& dmap)
   }
 
 
-  // make sure not claiming discordant + assembly for small spans
-  if (  (getSpan() < 2 * sc->insertsize && getSpan() >= 0)  && b1.gr.strand == '+' && b2.gr.strand == '-')
-    svtype = SVType::ASSMB;
-  else
-    svtype = SVType::ASDIS;
+  // Only label ASDIS if a discordant cluster was actually associated above
+  // (dc has real read support, tcount+ncount > 0). Otherwise the contig is
+  // assembly-only → ASSMB. The small forward-deletion case stays ASSMB even
+  // when a cluster matched, since at < ~2 insert sizes a +/- "discordant"
+  // pair isn't distinguishable from a concordant one.
+  //
+  // BUGFIX: this previously set ASDIS unconditionally for any non-small span,
+  // so every assembly breakpoint was labeled ASDIS even with zero supporting
+  // discordant reads (DR=0 in the genotype, nothing discordant in IGV).
+  const bool has_disc = (dc.tcount + dc.ncount) > 0;
+  const bool small_fwd_del =
+    (getSpan() < 2 * sc->insertsize && getSpan() >= 0) &&
+    b1.gr.strand == '+' && b2.gr.strand == '-';
+  svtype = (has_disc && !small_fwd_del) ? SVType::ASDIS : SVType::ASSMB;
+
+  // Contig-keyed trace (SVABA_TRACE_CONTIG): the discordant cluster's final
+  // per-sample counts on this BP. If ncount==0 here but you see normal
+  // discordant reads in IGV, the normal reads were lost upstream — trace the
+  // specific read with SVABA_TRACE_READ to see whether TagDiscordant gave it
+  // dd=0 (per-sample isize cutoff) or clustering dropped it.
+  SVABA_TRACE(cname, "TP-DISC combine: dc.id=" << dc.ID()
+    << " dc.tcount=" << dc.tcount << " dc.ncount=" << dc.ncount
+    << " svtype=" << static_cast<int>(svtype));
 
 }
 
@@ -1286,9 +1316,13 @@ void BreakPoint::score_assembly_only() {
     confidence = "NODISC";
   else if ((int)seq.length() < sc->readlen + 30)
     confidence = "TOOSHORT";
-  else if (a.split < 7 && (span > 1500 || span == -1))  // large and inter chrom need 7+
-    confidence = "NODISC";
-  else if (std::max(b1.mapq, b2.mapq) <= 40 || std::min(b1.mapq, b2.mapq) <= 10) 
+  // REMOVED hard read-count gate: `a.split < 7 && (span > 1500 || span == -1)`
+  // → NODISC. Whether there are "enough" split reads is the LOD model's job
+  // (somlod/maxlod), which the user titrates downstream; svaba shouldn't veto a
+  // large/interchrom assembly-only event to non-PASS purely on split count.
+  // The alignment-quality gates below (mapq / NM / AS / matchlen / homology /
+  // contig-confidence) still apply, since those flag artifacts the LOD can't.
+  else if (std::max(b1.mapq, b2.mapq) <= 40 || std::min(b1.mapq, b2.mapq) <= 10)
     confidence = "LOWMAPQ";
   else if ( std::min(b1.mapq, b2.mapq) <= 30 && a.split <= 8 ) 
     confidence = "LOWMAPQ";
@@ -1302,14 +1336,23 @@ void BreakPoint::score_assembly_only() {
     confidence = "LOWMAPQ";
   else if ( std::min(b1.nm, b2.nm) >= 10)
     confidence = "LOWMAPQ";
-  else if (a.split <= 3 && span <= 1500 && span != -1) // small with little split
-    confidence = "LOWSPLITSMALL";
+  // REMOVED hard read-count gate: `a.split <= 3 && span <= 1500` → LOWSPLITSMALL
+  // (small SV with few split reads). Read-count sufficiency is the LOD's job
+  // (somlod/maxlod), titrated downstream — not a hard PASS veto.
   else if (b1.gr.chr != b2.gr.chr && std::min(b1.matchlen, b2.matchlen) < 60) // inter-chr, but no disc reads, weird alignment
     confidence = "LOWICSUPPORT";
   else if (b1.gr.chr != b2.gr.chr && std::max(b1.nm, b2.nm) >= 3 && std::min(b1.matchlen, b2.matchlen) < 150) // inter-chr, but no disc reads, and too many nm
     confidence = "LOWICSUPPORT";
-  else if (std::min(b1.matchlen, b2.matchlen) < 0.6 * sc->readlen)
-    confidence = "LOWICSUPPORT";      
+  // Strong-anchor floor for INTERCHROM assembly-only SVs (no discordant
+  // support, two different chromosomes → need a long unique anchor on both
+  // ends). This used to lack the `b1.gr.chr != b2.gr.chr` guard, so it fired
+  // on intra-chrom events too and mislabeled them LOWICSUPPORT (inter-chrom
+  // support) even though no chromosome boundary was crossed — vetoing real
+  // intra-chrom SVs whose anchor was merely < 0.6*readlen. Intra-chrom anchor
+  // sufficiency is handled by the LOWMATCHLEN gates below (< 40), with read-
+  // count adequacy left to the downstream LOD (somlod/maxlod).
+  else if (b1.gr.chr != b2.gr.chr && std::min(b1.matchlen, b2.matchlen) < 0.6 * sc->readlen)
+    confidence = "LOWICSUPPORT";
   else if (std::min(b1.mapq, b2.mapq) < 50 && b1.gr.chr != b2.gr.chr) // interchr need good mapq for assembly only
     confidence = "LOWMAPQ";
   else if (std::min(b1.matchlen, b2.matchlen) < 40 ||
@@ -1360,10 +1403,21 @@ void BreakPoint::score_somatic(double error_fwd) {
   //   }
   //}
 
+  // SvABA2 somatic-safety net: fold junction-kmer-spanning normal reads that
+  // were EXCLUDED from assembly/r2c (adapter read-through, blacklist-self)
+  // into the normal alt count before it feeds the somatic LOD. These are
+  // unique reads disjoint from n.alt (never r2c-counted), so the sum is
+  // net-new. A normal read that spans the junction can thus never be
+  // invisible to the somatic decision; over-counting the normal can only
+  // make a call LESS somatic, which is the safe direction. n.alt is a
+  // post-aggregation local here (the emitted core `a.alt`/per-sample AD are
+  // already fixed before score_somatic), so this does not corrupt AD.
+  n.alt += n.kmer_alt;
+
   // this is a more conservative approach - if any normal BAM shows evidence for
   // variant, then get the somatic score from that
   int thiscov_n = n.cov;
-  if (n.alt >= n.cov)  
+  if (n.alt >= n.cov)
     thiscov_n = n.alt;
   int thiscov_t = t.cov;
   if (t.alt >= t.cov)  
@@ -1464,33 +1518,16 @@ void BreakPoint::score_assembly_dscrd() {
 
   int this_mapq1 = b1.mapq;
   int this_mapq2 = b2.mapq;
-  int span = getSpan();
-  bool germ = dc.ncount > 0 || n.split > 0;
-  
   int max_a_mapq = std::max(this_mapq1, dc.mapq1);
   int max_b_mapq = std::max(this_mapq2, dc.mapq2);
 
   const double min_cc = std::min(b1.contig_conf, b2.contig_conf);
-  
-  
-  // how much of contig is covered by split reads
-  int cov_span = split_cov_bounds.second - split_cov_bounds.first ;
-  
-  // set the total number of supporting reads for tumor / normal
-  // these alt counts should already be one qname per alt (ie no dupes)
-  int t_reads = 0;
-  int n_reads = 0;
-  for (auto& [pref,al] : allele) {
-    if (pref.at(0) == 't')
-      t_reads += al.alt;
-    else
-      n_reads += al.alt;
-  }
-  
-  int total_count = t_reads + n_reads; //n.split + t.split + dc.ncount + dc.tcount;
-  int disc_count = dc.tcount + dc.ncount;
-  //int hq = dc.tcount_hq + dc.ncount_hq;
-  
+
+  // NB: the read-count locals that used to live here (total alt-read count,
+  // discordant count, split-coverage span, germline flag, event span) were
+  // removed along with the two LOWSUPPORT gates below — evidence sufficiency is
+  // now titrated downstream via somlod/maxlod, not hard-gated here.
+
   if ( (max_a_mapq < 30 && b1.local == LocalAlignment::FROM_DISTANT_REGION) ||
        (max_b_mapq < 30 && b2.local == LocalAlignment::FROM_DISTANT_REGION) ||
        (/*b1.sub_n > 7 && */b1.mapq < 10 && b1.local == LocalAlignment::FROM_DISTANT_REGION) ||
@@ -1499,12 +1536,13 @@ void BreakPoint::score_assembly_dscrd() {
   else if ( std::min(b1.nm, b2.nm) >= 10)
     confidence = "LOWMAPQ";
   else if ( std::min(b1.mapq, b2.mapq) < 10/* && std::min(dc.mapq1, dc.mapq2) < 10 */)
-    confidence = "LOWMAPQ";      
-  else if ( total_count < 4 || (std::max(t.split, n.split) <= 5 && cov_span < (sc->readlen + 5) && disc_count < 7) )
-    confidence = "LOWSUPPORT";
-  else if ( total_count < 15 && germ && span == -1) // be super strict about germline interchrom
-    confidence = "LOWSUPPORT";
-  else if ( std::min(b1.matchlen, b2.matchlen) < 50 && b1.gr.chr != b2.gr.chr ) 
+    confidence = "LOWMAPQ";
+  // REMOVED hard read-count gates (both were LOWSUPPORT):
+  //   total_count < 4 || (max(t.split,n.split) <= 5 && cov_span < readlen+5 && disc_count < 7)
+  //   total_count < 15 && germline && interchrom
+  // Evidence sufficiency for assembly+discordant SVs is now the LOD's job
+  // (somlod/maxlod), titrated downstream — not a hard PASS veto.
+  else if ( std::min(b1.matchlen, b2.matchlen) < 50 && b1.gr.chr != b2.gr.chr )
     confidence = "LOWICSUPPORT";
   else if (secondary && getSpan() < 1000) // local alignments are more likely to be false for alignemnts with secondary mappings
     confidence = "SECONDARY";	
@@ -1528,23 +1566,21 @@ void BreakPoint::score_dscrd() {
   n.alt = dc.ncount;
 
   int nm_count = std::max(dc.nm1, dc.nm2);
-  int disc_count = dc.ncount + dc.tcount;
-  //int hq_disc_count = dc.ncount_hq + dc.tcount_hq;
-  int disc_cutoff = 8;
-  //int hq_disc_cutoff = disc_count >= 10 ? 3 : 5; // reads with both pair-mates have high MAPQ
+  // REMOVED hard read-count floor: the `disc_count < 8` requirement (was part of
+  // LOWMAPQDISC, plus the now-dead WEAKDISC gate). Whether there are "enough"
+  // discordant pairs is the LOD's job (somlod/maxlod), titrated downstream.
+  // The min(mapq) < 15 mapping-quality check below stays (artifact, not count).
 
   const int min_dscrd_size = 2000;
-  if (getSpan() > 0 && (getSpan() < min_dscrd_size && b1.gr.strand == '+' && b2.gr.strand == '-')) // restrict span for del (FR) type 
+  if (getSpan() > 0 && (getSpan() < min_dscrd_size && b1.gr.strand == '+' && b2.gr.strand == '-')) // restrict span for del (FR) type
     confidence = "LOWSPANDSCRD";
-  else if ((disc_count < disc_cutoff || std::min(dc.mapq1, dc.mapq2) < 15))
+  else if (std::min(dc.mapq1, dc.mapq2) < 15)
     confidence = "LOWMAPQDISC";
   else if (nm_count >= 4)
-    confidence = "HIGHNM"; 
+    confidence = "HIGHNM";
   else if (!dc.m_id_competing.empty())
     confidence = "COMPETEDISC";
-  else if ( disc_count < disc_cutoff)
-    confidence = "WEAKDISC";
-  else 
+  else
     confidence = "PASS";
   
   assert(confidence.length());
@@ -2067,13 +2103,21 @@ void BreakPoint::SampleInfo::modelSelection(double er, int readlen) {
 
 void BreakPoint::addCovs(const std::unordered_map<std::string, STCoverage*>& covs) {
   
+  const int W = COVERAGE_AVG_BUFF * 2 + 1;
   for (auto& [pref,i] : covs)  {
-    int c = 0;
+    int c1 = 0, c2 = 0;
     for (int j = -COVERAGE_AVG_BUFF; j <= COVERAGE_AVG_BUFF; ++j) {
-      c +=  i->getCoverageAtPosition(b1.gr.chr, b1.gr.pos1 + j);
-      c +=  i->getCoverageAtPosition(b2.gr.chr, b2.gr.pos1 + j);
+      c1 += i->getCoverageAtPosition(b1.gr.chr, b1.gr.pos1 + j);
+      c2 += i->getCoverageAtPosition(b2.gr.chr, b2.gr.pos1 + j);
     }
-    allele.at(pref).cov = c / 2 / (COVERAGE_AVG_BUFF*2 + 1);
+    // Average the two breakends, but only over ends whose coverage track was
+    // actually populated. An end with zero coverage in `covs` is almost
+    // always one that was never walked with get_coverage=true (e.g. an SV
+    // mate region, or an interchromosomal partner), NOT a true zero-depth
+    // locus — averaging it in would spuriously halve DP. Fall back to
+    // whichever end has data; if neither does, depth is 0.
+    const int ends = (c1 > 0 ? 1 : 0) + (c2 > 0 ? 1 : 0);
+    allele.at(pref).cov = ends ? (c1 + c2) / ends / W : 0;
   }
   
 }
@@ -2102,7 +2146,11 @@ std::string BreakPoint::SampleInfo::toFileString(SVType svtype) const {
   
   std::stringstream ss;
 
-  //GT:AD:DP:SR:DR:GQ:PL:LO:LO_n
+  //GT:AD:DP:SR:DR:GQ:PL:LO:LO_n:KC
+  // KC (trailing) = SvABA2 somatic-safety net kmer-spanning read count:
+  // unique reads carrying this BP's junction kmer that were excluded from
+  // assembly/r2c (adapter/blacklist). Appended last so existing positional
+  // parsing of fields 1-9 is unaffected (FillFromString case 10).
   if (svtype == SVType::INDEL)
     ss << std::setprecision(4)
        << genotype << ":"
@@ -2113,7 +2161,8 @@ std::string BreakPoint::SampleInfo::toFileString(SVType svtype) const {
        << GQ << ":"
        << pl.str() << ":"
        << LO << ":"
-       << LO_n;
+       << LO_n << ":"
+       << kmer_alt;
   else
     ss << std::setprecision(4)
        << genotype << ":"
@@ -2124,8 +2173,9 @@ std::string BreakPoint::SampleInfo::toFileString(SVType svtype) const {
        << GQ << ":"
        << pl.str() << ":"
        << LO << ":"
-       << LO_n;
-  
+       << LO_n << ":"
+       << kmer_alt;
+
   return ss.str();
   
 }
@@ -2159,6 +2209,10 @@ void BreakPoint::SampleInfo::FillFromString(const std::string& s,
     case 7: phred_likelihoods = svabaUtils::parsePLString(val);  break;
     case 8: LO =   std::stod(val); break;
     case 9: LO_n = std::stod(val); break;
+    // SvABA2 somatic-safety net: trailing KC (kmer-spanning read count).
+    // Optional for back-compat with pre-KC bps.txt rows (older files just
+    // won't have a 10th field, so this case never fires and kmer_alt stays 0).
+    case 10: kmer_alt = std::stoi(val); break;
     }
   }
 
@@ -2428,9 +2482,16 @@ BreakPoint::BreakPoint(DiscordantCluster& tdc,
     //i.second.alt = i.second.disc;
   }
   
-  // give a unique id (OK to give an empty header here, since used internally)
-  cname = dc.toRegionString(sc->header) + "__" + std::to_string(region.chr+1) + "_" + std::to_string(region.pos1) + 
-    "_" + std::to_string(region.pos2) + "D";
+  // Use the discordant cluster's own ID as the contig-column identifier for
+  // DSCRD breakpoints. This makes the bps.txt contig column join 1:1 with the
+  // `id` column of discordant.txt.gz AND the `DC:Z` read tag in
+  // discordant.bam, so a cluster can be traced across all three outputs by one
+  // string. (Previously this used toRegionString()+region suffix, a different
+  // spelling that matched neither — see scripts/discordant_for_cluster.sh.)
+  cname = dc.ID().empty()
+    ? (dc.toRegionString(sc->header) + "__" + std::to_string(region.chr+1) + "_" +
+       std::to_string(region.pos1) + "_" + std::to_string(region.pos2) + "D")
+    : dc.ID();
   
   // check if another cluster overlaps, but different strands
   if (getSpan() > 800 || getSpan() == -1) { // only check for large events.
@@ -2736,6 +2797,17 @@ BreakPoint::BreakPoint(const std::string& line, const SvabaSharedConfig* _sc)
             if (looks_like_kmer) {
               jxn_kmer = (maybe_kmer == ".") ? std::string() : maybe_kmer;
               ++i;
+
+              // SvABA2.0 v5: optional col 54 = disc_cluster id. Same colon
+              // test — a cluster id (e.g. FR_chr1_100___chr5_200) or "."
+              // never contains ':', while per-sample blocks always do. Cached
+              // so re-emission round-trips (the live `dc` is gone post-parse).
+              if (static_cast<size_t>(i) < tok.size() &&
+                  tok[static_cast<size_t>(i)].find(':') == std::string::npos) {
+                const std::string& maybe_dc = tok[static_cast<size_t>(i)];
+                disc_cluster = (maybe_dc == ".") ? std::string() : maybe_dc;
+                ++i;
+              }
             }
           }
         }

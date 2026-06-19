@@ -7,6 +7,7 @@
 
 #include "SeqLib/BamWalker.h"
 #include "SvabaUtils.h"
+#include "SvabaDebug.h"   // SVABA_READ_TRACE (no-op unless -DSVABA_TRACE_READ)
 
 #define DISC_PAD 150
 #define MIN_PER_CLUST 2
@@ -135,13 +136,17 @@ DiscordantClusterMap DiscordantCluster::clusterReads(svabaReadPtrVector& bav,
       
       // count number of reads per BAM
       ++counts[i->Prefix()];
-      
+
       if (tmp.at(0) == 't') {
 	++tcount;
       } else {
 	++ncount;
       }
-      
+
+      SVABA_READ_TRACE(i->Qname(),
+        "CLUSTER_ADD prefix=" << i->Prefix()
+        << " counted_as=" << (tmp.at(0) == 't' ? "tumor" : "normal")
+        << " (running tcount=" << tcount << " ncount=" << ncount << ")");
     }
 
     // loop through the big stack of reads and find the mates
@@ -371,9 +376,18 @@ std::string DiscordantCluster::toFileString(const SeqLib::BamHeader& h, bool wit
   
   std::string sep = "\t";
 
-  // get the edge of the cluster
-  int pos1 = m_reg1.strand == '+' ? m_reg1.pos2 : m_reg1.pos1; 
-  int pos2 = m_reg2.strand == '+' ? m_reg2.pos2 : m_reg2.pos1;
+  // Edge of the cluster facing the breakend, emitted 1-based to match
+  // bps.txt.gz / the VCF. For a '+' (right-facing) cluster the edge is the
+  // rightmost read END = m_reg.pos2 (= max PositionEnd = bam_endpos), which is
+  // ALREADY the 1-based coordinate of the last aligned base (bam_endpos is
+  // 0-based-exclusive). For a '-' (left-facing) cluster the edge is the
+  // leftmost read START = m_reg.pos1 (0-based), so it needs +1. (Previously the
+  // '-' branch emitted the raw 0-based start, so '+' and '-' rows used
+  // different conventions.) The cluster id `m_id` and toRegionString are left
+  // as-is — they're identifiers shared with the bps contig column and the DC:Z
+  // tag, where only mutual consistency matters, not the base convention.
+  int pos1 = m_reg1.strand == '+' ? m_reg1.pos2 : (m_reg1.pos1 + 1);
+  int pos2 = m_reg2.strand == '+' ? m_reg2.pos2 : (m_reg2.pos1 + 1);
 
   std::string chr1 = isEmpty() ? "NOTSET" : h.IDtoName(m_reg1.chr);
   std::string chr2 = isEmpty() ? "NOTSET" : h.IDtoName(m_reg2.chr);
@@ -384,8 +398,9 @@ std::string DiscordantCluster::toFileString(const SeqLib::BamHeader& h, bool wit
       << tcount << sep << ncount
       << sep << mapq1 << sep << mapq2 << sep
       << nm1 << sep << nm2 << sep 
-      << (m_contig.length() ? m_contig : "x") << sep << m_id;
-  
+      << (m_contig.length() ? m_contig : "x") << sep << m_id
+      << sep << (valid() ? 1 : 0);
+
   return (out.str());
   
 }

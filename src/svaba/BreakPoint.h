@@ -157,7 +157,7 @@ public:
 		       "somatic\tsomlod\tmaxlod\tdbsnp\tcontig_conf1\tcontig_conf2\t"
 		       "cpos1\tcpos2\tlmatch\trmatch\tscov1\tscov2\t"
 		       "local1\tlocal2\tctglen\tflipped\t"
-		       "bp_id\tjxn_kmer"
+		       "bp_id\tjxn_kmer\tdisc_cluster"
 		       );
   }
   
@@ -173,6 +173,15 @@ public:
   // emitter wrote, so we keep it here and let toFileString prefer it on
   // re-emission. Empty (== "") means "not parsed; compute from seq".
   std::string jxn_kmer;
+
+  // SvABA2.0 v5: discordant-cluster id (DiscordantCluster::ID()) associated
+  // with this BreakPoint, or "" / "." when none. Emitted as its own bps.txt
+  // column (after jxn_kmer) so ASDIS events expose the cluster id alongside
+  // the contig name — joins to discordant.txt.gz `id` and the discordant.bam
+  // `DC:Z` tag. For DSCRD-only events the contig column also holds this id.
+  // Like jxn_kmer this is a parsed-from-file cache: when hydrated from a row
+  // (refilter/tovcf) the live `dc` is gone, so toFileString prefers this.
+  std::string disc_cluster;
 
   // SvABA2.0: unique stable identifier for this BreakPoint, assigned
   // exactly once per BP in SvabaRegionProcessor::process() via
@@ -407,10 +416,20 @@ public:
 
     int split = 0;
     int cigar = 0;
-    int cigar_near = 0; // cigar matches close (but not same) 
+    int cigar_near = 0; // cigar matches close (but not same)
     int alt = 0;
     int cov = 0;
     int disc = 0;
+    // SvABA2 somatic-safety net: count of UNIQUE reads that carry this BP's
+    // junction kmer (>=19/20 bp, either strand) but were EXCLUDED from
+    // assembly/r2c (adapter read-through, blacklist-self) -- i.e. reads the
+    // normal sample carries that would otherwise be invisible to scoring.
+    // Folded into the normal alt count feeding SomaticLOD (score_somatic) so
+    // a junction-spanning normal read can never be silently lost. Disjoint
+    // from `alt` (those reads were never r2c-counted), so adding is net-new.
+    // Emitted as the trailing FORMAT subfield (KC). See SvabaRegionProcessor
+    // kmer scan and svabaBamWalker::excluded_reads.
+    int kmer_alt = 0;
     
     // genotype info
     //NB: PL (the Phred-scaled -10*log_10(GL - max(GL))

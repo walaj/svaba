@@ -53,8 +53,8 @@ constexpr int BAD_REGION_PAD = 200;
 // FORMAT column strings — must stay in sync with BreakPoint::SampleInfo::
 // toFileString (see BreakPoint.cpp ~line 1710) and with the ##FORMAT lines
 // we emit below.
-const std::string kSvFormat    = "GT:AD:DP:SR:DR:GQ:PL:LO:LO_n";
-const std::string kIndelFormat = "GT:AD:DP:SR:CR:GQ:PL:LO:LO_n";
+const std::string kSvFormat    = "GT:AD:DP:SR:DR:GQ:PL:LO:LO_n:KC";
+const std::string kIndelFormat = "GT:AD:DP:SR:CR:GQ:PL:LO:LO_n:KC";
 
 // INFO fields that were declared `Type=Flag` in the header — flags are
 // printed without an `=value` tail.
@@ -201,7 +201,19 @@ void VCFHeader::addContigField(std::string id, int len) {
 // ===========================================================================
 
 std::string VCFEntry::getRefString() const {
-  std::string p = (bp->svtype == SVType::INDEL || id_num == 1) ? bp->ref : bp->alt;
+  std::string p;
+  if (symbolic_rep) {
+    // A symbolic SV is a single record whose POS = min(b1,b2) (see
+    // toFileString). The REF column must be the reference base AT that POS.
+    // bp->ref is the reference base at b1, bp->alt the base at b2 (verified vs
+    // bps.txt cols 7/8). Using bp->ref unconditionally (as the BND/indel path
+    // does) put b1's base on every symbolic record — wrong whenever b2 is the
+    // min breakend (POS=b2), making REF mismatch reference[POS]. Pick the base
+    // belonging to the min breakend.
+    p = (bp->b1.gr.pos1 <= bp->b2.gr.pos1) ? bp->ref : bp->alt;
+  } else {
+    p = (bp->svtype == SVType::INDEL || id_num == 1) ? bp->ref : bp->alt;
+  }
   if (p.empty()) {
     std::cerr << "WARNING: Empty ref/alt field for bp\n";
     return "N";
@@ -286,6 +298,11 @@ std::unordered_map<std::string, std::string> VCFEntry::fillInfoFields() const {
 
   if (!bp->id.empty())
     info["EVENT"] = bp->id; // v3 bp_id (col 52 of bps.txt)
+
+  // v5: discordant-cluster id (bps.txt col 54). Present for DSCRD and ASDIS
+  // events; joins to discordant.txt.gz `id` and the discordant.bam DC:Z tag.
+  if (!bp->disc_cluster.empty())
+    info["DSCRD_CLUSTER"] = bp->disc_cluster;
 
   {
     std::stringstream ss; ss << std::setprecision(4) << bp->max_lod;
@@ -583,6 +600,7 @@ void populate_sv_header(VCFHeader& h) {
   h.addInfoField("MATEMAPQ",  "1", "Integer", "Mapping quality of the partner fragment of the contig");
   h.addInfoField("MATEID",    "1", "String",  "ID of mate breakends");
   h.addInfoField("SUBN",      "1", "Integer", "Number of secondary alignments associated with this contig fragment");
+  h.addInfoField("DSCRD_CLUSTER", "1", "String", "Discordant-cluster id for this event (DSCRD/ASDIS); joins discordant.txt.gz id and the discordant.bam DC:Z tag");
   h.addInfoField("NUMPARTS",  "1", "Integer", "If detected with assembly, number of parts the contig maps to. Otherwise 0");
   h.addInfoField("EVDNC",     "1", "String",  "Evidence for variant. ASSMB assembly only, ASDIS assembly+discordant. DSCRD discordant only, TSI_L templated-sequence insertion (local, e.g. AB or BC of an ABC), TSI_G global (e.g. AC of ABC)");
   h.addInfoField("SCTG",      "1", "String",  "Identifier for the contig assembled by svaba to make the SV call");
@@ -609,6 +627,7 @@ void populate_sv_header(VCFHeader& h) {
   h.addFormatField("DR",   "1", "Integer", "Number of discordant-supported reads for this variant");
   h.addFormatField("LO",   "1", "Float",   "Log-odds that this variant is real vs artifact");
   h.addFormatField("LO_n", "1", "Float",   "Log-odds that this variant is AF=0 vs AF>=0.5");
+  h.addFormatField("KC",   "1", "Integer", "Kmer-spanning reads: unique reads carrying the breakend junction kmer (>=19/20bp, either strand) that were excluded from assembly/r2c (adapter read-through, blacklist); folded into the normal alt count for somatic scoring");
 }
 
 void populate_indel_header(VCFHeader& h) {
@@ -653,6 +672,7 @@ void populate_indel_header(VCFHeader& h) {
   h.addFormatField("CR",   "1", "Integer", "Number of cigar-supported reads for this variant");
   h.addFormatField("LO",   "1", "Float",   "Log-odds that this variant is real vs artifact");
   h.addFormatField("LO_n", "1", "Float",   "Log-odds that this variant is AF=0 vs AF>=0.5");
+  h.addFormatField("KC",   "1", "Integer", "Kmer-spanning reads: unique reads carrying the breakend junction kmer (>=19/20bp, either strand) that were excluded from assembly/r2c (adapter read-through, blacklist); folded into the normal alt count for somatic scoring");
 }
 
 } // namespace

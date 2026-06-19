@@ -197,7 +197,15 @@ class SvabaOptions {
   bool dump_discordant_reads = false;
   bool dump_corrected_reads  = false;
   bool dump_alignments       = false;
-  
+
+  // --r2c-min-somlod: gate on r2c.db size. A contig's r2c reads are written
+  // only if the MAX somlod (BreakPoint::LO_s) across its breakpoints is
+  // STRICTLY greater than this. Default -1e9 = write everything (preserves
+  // behavior). Set to 0 to keep only somlod>0 (~somatic) events — LO_s
+  // defaults to 0 for unscored/germline BPs, so strict `>` is required to
+  // actually drop them. Only consulted when dump_alignments is on.
+  double r2cMinSomlod = -1e9;
+
     // inputs
   std::vector<std::string> caseBams;
   std::vector<std::string> controlBams;

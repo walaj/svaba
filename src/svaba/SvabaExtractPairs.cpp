@@ -66,6 +66,7 @@ struct Opts {
   std::vector<std::string> seqs;
   std::string seq_file;
   std::string counts_file;   // optional; only meaningful when seq_file is a bps
+  std::vector<std::string> clusters;  // --cluster: match by DC:Z discordant id
   int  threads  = 4;
   int  verbose  = 1;
   bool include_rc    = true;
@@ -74,7 +75,7 @@ struct Opts {
   int  pad           = 1000;  // breakend window half-width (bp) for region mode
 };
 
-enum { OPT_NO_RC = 1000, OPT_NO_PAIRS, OPT_COUNTS, OPT_WHOLE_BAM, OPT_PAD };
+enum { OPT_NO_RC = 1000, OPT_NO_PAIRS, OPT_COUNTS, OPT_WHOLE_BAM, OPT_PAD, OPT_CLUSTER };
 
 const char* kShortOpts = "hi:o:s:f:t:v:";
 const struct option kLongOpts[] = {
@@ -90,6 +91,7 @@ const struct option kLongOpts[] = {
   { "counts",    required_argument, nullptr, OPT_COUNTS  },
   { "whole-bam", no_argument,       nullptr, OPT_WHOLE_BAM },
   { "pad",       required_argument, nullptr, OPT_PAD },
+  { "cluster",   required_argument, nullptr, OPT_CLUSTER },
   { nullptr, 0, nullptr, 0 }
 };
 
@@ -148,10 +150,17 @@ void printUsage() {
     "                       kmers (poly-A/T, simple repeats) obvious. Only\n"
     "                       valid when -f is a bps.txt[.gz] file (the source\n"
     "                       of the bp_id<->kmer mapping); rejected otherwise.\n"
+    "      --cluster <ID>   Discordant-cluster mode: instead of matching by\n"
+    "                       sequence, pull all read pairs whose DC:Z aux tag\n"
+    "                       contains the given discordant-cluster id (the\n"
+    "                       value in the bps.txt contig column for a DSCRD row,\n"
+    "                       and the `id` column of discordant.txt.gz).\n"
+    "                       Repeatable. Run on the discordant.bam from\n"
+    "                       --dump-reads. Whole-BAM scan; -s/-f are ignored.\n"
     "  -v, --verbose <0-3>  Verbosity. [1]\n"
     "  -h, --help           This message.\n"
     "\n"
-    "  At least one query sequence must be supplied (via -s or -f).\n"
+    "  At least one query must be supplied (via -s, -f, or --cluster).\n"
     "  Match alphabet is ACGTN (case-insensitive); other IUPAC bases are\n"
     "  treated as mismatches.\n";
 }
@@ -175,6 +184,7 @@ Opts parseOpts(int argc, char** argv) {
       case OPT_COUNTS:    arg >> o.counts_file;    break;
       case OPT_WHOLE_BAM: o.whole_bam     = true;  break;
       case OPT_PAD:       arg >> o.pad;            break;
+      case OPT_CLUSTER:   o.clusters.emplace_back(optarg ? optarg : ""); break;
       default: printUsage(); std::exit(EXIT_FAILURE);
     }
   }
@@ -184,8 +194,8 @@ Opts parseOpts(int argc, char** argv) {
     printUsage();
     std::exit(EXIT_FAILURE);
   }
-  if (o.seqs.empty() && o.seq_file.empty()) {
-    std::cerr << "ERROR: at least one of --seq or --seq-file must be given\n";
+  if (o.seqs.empty() && o.seq_file.empty() && o.clusters.empty()) {
+    std::cerr << "ERROR: at least one of --seq, --seq-file, or --cluster must be given\n";
     printUsage();
     std::exit(EXIT_FAILURE);
   }
@@ -930,6 +940,55 @@ Pass1Stats collectQnames(const std::string& in_bam,
   return st;
 }
 
+// ---------- pass 1 (cluster mode): collect QNAMEs by DC:Z tag ----------
+//
+// For `--cluster`. Match reads whose DC:Z aux tag (the "d"-joined list of
+// discordant-cluster ids stamped by DiscordantCluster::labelReads) CONTAINS any
+// requested id. We use substring match rather than tokenizing on "d" because a
+// cluster id can itself contain 'd' (e.g. a "*_decoy" contig name); the "___"
+// inside every id makes spurious prefix hits unlikely. Whole-BAM scan — the
+// intended input is the (small) discordant.bam from --dump-reads.
+Pass1Stats collectQnamesByCluster(const std::string& in_bam,
+                                  const std::vector<std::string>& clusters,
+                                  int threads, int verbose,
+                                  std::unordered_set<std::string>& out_qnames) {
+  using clock = std::chrono::steady_clock;
+  Pass1Stats st;
+  const auto t0 = clock::now();
+
+  SeqLib::BamReader r;
+  if (!r.Open(in_bam))
+    throw std::runtime_error("cluster pass1: cannot open " + in_bam);
+  r.SetThreads(std::max(1, threads));
+
+  std::string dc;
+  bool warned_no_dc = false;
+  std::size_t reads_with_dc = 0;
+  while (auto opt = r.Next()) {
+    SeqLib::BamRecord& rec = *opt;
+    ++st.reads;
+    dc.clear();
+    rec.GetZTag("DC", dc);
+    if (dc.empty()) continue;
+    ++reads_with_dc;
+    bool hit = false;
+    for (const auto& c : clusters)
+      if (!c.empty() && dc.find(c) != std::string::npos) { hit = true; break; }
+    if (!hit) continue;
+    ++st.matched_reads;
+    out_qnames.insert(rec.Qname());
+  }
+  if (verbose >= 1 && reads_with_dc == 0 && !warned_no_dc) {
+    std::cerr << "[extract-pairs] WARNING: no reads in " << in_bam
+              << " carry a DC:Z tag. Is this the discordant.bam from "
+                 "--dump-reads?\n";
+    warned_no_dc = true;
+  }
+  st.unique_qnames = out_qnames.size();
+  st.seconds = std::chrono::duration<double>(clock::now() - t0).count();
+  return st;
+}
+
 // ---------- pass 2: extract all alignments for matched QNAMEs ----------
 
 struct Pass2Stats {
@@ -1177,6 +1236,66 @@ void runExtractPairs(int argc, char** argv) {
   if (!fileExists(o.in_bam)) {
     std::cerr << "ERROR: input BAM not found: " << o.in_bam << "\n";
     std::exit(EXIT_FAILURE);
+  }
+
+  // ---- discordant-cluster mode (--cluster) ----
+  // Self-contained: match by DC:Z tag, not by sequence/AC. Two-pass so both
+  // mates of every supporting pair come along for IGV. Bypasses all the
+  // seq/kmer machinery below.
+  if (!o.clusters.empty()) {
+    if (!o.seqs.empty() || !o.seq_file.empty())
+      std::cerr << "[extract-pairs] note: --cluster given; ignoring -s / -f "
+                   "sequence queries\n";
+    const std::string cl = buildCommandLine(argc, argv);
+
+    bool input_sorted = false;
+    { SeqLib::BamReader h; if (h.Open(o.in_bam)) input_sorted = isCoordinateSorted(h.Header()); }
+
+    if (o.verbose >= 1)
+      std::cerr << "[extract-pairs] cluster mode: " << o.clusters.size()
+                << " cluster id(s); scanning " << o.in_bam << " for DC:Z...\n";
+
+    std::unordered_set<std::string> qnames;
+    qnames.reserve(1 << 12);
+    const Pass1Stats p1 =
+        collectQnamesByCluster(o.in_bam, o.clusters, o.threads, o.verbose, qnames);
+    if (o.verbose >= 1)
+      std::cerr << "[extract-pairs] cluster pass 1: "
+                << SeqLib::AddCommas(p1.reads) << " reads, "
+                << SeqLib::AddCommas(p1.matched_reads) << " tagged, "
+                << SeqLib::AddCommas(p1.unique_qnames) << " unique qnames in "
+                << std::fixed << std::setprecision(1) << p1.seconds << "s\n";
+
+    if (qnames.empty()) {
+      std::cerr << "[extract-pairs] no reads carry DC:Z for the requested "
+                   "cluster(s); output not created\n";
+      std::exit(EXIT_SUCCESS);
+    }
+
+    const Pass2Stats p2 =
+        extractByQname(o.in_bam, o.out_bam, qnames, o.threads, o.verbose, cl);
+    if (o.verbose >= 1)
+      std::cerr << "[extract-pairs] cluster pass 2: "
+                << SeqLib::AddCommas(p2.reads_in) << " in, "
+                << SeqLib::AddCommas(p2.reads_out) << " written in "
+                << std::fixed << std::setprecision(1) << p2.seconds << "s\n";
+
+    if (!input_sorted) {
+      if (sortInPlace(o.out_bam, o.threads, o.verbose) != 0)
+        std::exit(EXIT_FAILURE);
+    }
+    const int idx_rc = sam_index_build(o.out_bam.c_str(), 0);
+    if (idx_rc < 0) {
+      std::cerr << "ERROR: sam_index_build failed (rc=" << idx_rc << ") on "
+                << o.out_bam << "\n";
+      std::exit(EXIT_FAILURE);
+    }
+    if (o.verbose >= 1)
+      std::cerr << "[extract-pairs] done.\n"
+                << "  Matching qnames:  " << SeqLib::AddCommas(qnames.size()) << "\n"
+                << "  Output records:   " << SeqLib::AddCommas(p2.reads_out) << "\n"
+                << "  Output:           " << o.out_bam << " (+ " << o.out_bam << ".bai)\n";
+    return;
   }
 
   // ---- gather + normalize patterns ----

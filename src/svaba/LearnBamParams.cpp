@@ -269,6 +269,16 @@ void LearnBamParams::learnParams() {
                   " sd=", static_cast<int>(bp.sd_isize),
                   " disc_cutoff(tumor)=", static_cast<int>(cutoff),
                   " readlen=", bp.readlen_max);
+    // Visibility guard: a sane WGS discordant cutoff is well under ~10 kb. If
+    // it is implausibly large the sample will miss discordant reads under the
+    // cutoff (the false-somatic symptom this MAD bugfix addresses) — surface
+    // it rather than failing silently.
+    if (cutoff > 50000.0)
+      sc.logger.log(true, true,
+                    "......  WARNING: RG='", rg, "' discordant cutoff ~",
+                    static_cast<long>(cutoff),
+                    " bp is implausibly large — insert-size distribution may be"
+                    " corrupted; discordant reads under this size will be MISSED");
   }
 }
 
@@ -353,13 +363,29 @@ void BamReadGroup::addRead(const SeqLib::BamRecord &r)
      isize_median = (isize_vec[keep / 2 - 1] + isize_vec[keep / 2]) / 2.0;
    }
 
-    // Calculate population standard deviation around the median
-    double sq_sum = 0.0;
-    for (uint32_t val : isize_vec) {
-      double diff = val - isize_median;
-        sq_sum += diff * diff;
-    }
-    sd_isize = std::sqrt(sq_sum / keep);
+    // Robust scale estimate via MAD (median absolute deviation), scaled by
+    // 1.4826 to be a Gaussian-equivalent SD.
+    //
+    // BUGFIX: the previous population SD over the 98%-trimmed values was NOT
+    // robust. A normal BAM whose insert-size sample carries a heavy tail
+    // (discordant / SV-spanning / mismapped pairs leaking into the midpoint
+    // sampling windows) inflated sd_isize to ~150 kb, which pushed the
+    // discordant cutoff (isize_median + sd_isize * sdDiscCutoff) to ~535 kb.
+    // That silently blinded the normal to ALL discordant reads (even a 172 kb
+    // deletion pair fell under the cutoff), so every discordant-supported SV
+    // was mis-called somatic. MAD is unaffected by the tail: with the bulk of
+    // pairs tight around the median, the median absolute deviation reflects the
+    // concordant spread regardless of how large the outliers are.
+    std::vector<uint32_t> dev;
+    dev.reserve(keep);
+    for (uint32_t val : isize_vec)
+      dev.push_back(static_cast<uint32_t>(
+          std::llround(std::abs(static_cast<double>(val) - isize_median))));
+    std::sort(dev.begin(), dev.end());
+    double mad = (keep % 2 == 1)
+        ? static_cast<double>(dev[keep / 2])
+        : (static_cast<double>(dev[keep / 2 - 1]) + dev[keep / 2]) / 2.0;
+    sd_isize = 1.4826 * mad;
 
     // Clean up memory
     isize_vec.clear();

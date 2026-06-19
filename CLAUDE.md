@@ -31,7 +31,10 @@ Top-level layout:
   (not at the repo root). Current set: `svaba_postprocess.sh`,
   `combine_blacklists.sh`, `mosdepth_lowmapq_blacklist.sh`,
   `extract_discordants.sh`, `filter_contig_supporting_reads.sh`,
-  `r2c_for_contig.sh`, `extract_by_qname.sh`, `search_sequence.sh`,
+  `r2c_for_contig.sh`, `discordant_for_cluster.sh` (pull one discordant
+  cluster's read pairs into an IGV BAM by its `DC:Z` id + print its
+  discordant.txt.gz tcount/ncount row), `extract_by_qname.sh`,
+  `search_sequence.sh`,
   `sort_bps.sh`, `sort_and_dedupe_bps_old.sh` (legacy standalone sorter,
   kept for reference; the live path is `svaba postprocess`),
   `svaba_cloud.sh`, `gcloud_teardown.sh`, `update_svaba_image.sh`,
@@ -152,6 +155,73 @@ error model), the two files to read first are:
     (`LO_s > cutoff`) — it does not use `maxlod` as a co-gate. This is one of
     the levers in the proposed fixes. (The SV gate is the sibling branch at
     ~1449.)
+
+## Confidence gates — read-count vetoes removed (June 2026)
+
+The `confidence` column (PASS vs NODISC/LOWMAPQ/…) is a **hard verdict set
+before, and independent of, the LOD**, in the four `BreakPoint::score_*`
+functions dispatched from `scoreBreakpoint()` (`BreakPoint.cpp` ~1759):
+`score_assembly_only` (ASSMB), `score_assembly_dscrd` (ASDIS),
+`score_dscrd` (DSCRD), `score_indel` (INDEL). It's an if/else chain; the
+first matching condition wins, falling through to `PASS`.
+
+**Design decision (user, the svaba author):** read-count sufficiency is the
+LOD's job — the user titrates `somlod`/`maxlod` downstream — so svaba should
+*not* hard-veto a variant to non-PASS purely on raw read counts. Crucial
+asymmetry to keep in mind: **only `score_indel` has a LOD-based gate**
+(`LOWLOD`, via `--lod`/`--lod-db`). The three SV paths have *no*
+`max_lod < cutoff` gate, so their read-count gates *were* the entire
+evidence-sufficiency floor for SVs. Removing them means SV evidence
+sufficiency is now decided purely by the downstream `somlod`/`maxlod` filter
+on the bps columns (a real behavior shift: a well-aligned contig with even
+1 split read can now reach PASS).
+
+**Removed (all pure read-count gates):**
+- `score_assembly_only`: `a.split < 7 && (span > 1500 || span == -1)` →
+  `NODISC` (large/interchrom assembly-only needed 7+ split). *This was the
+  one that triggered the investigation* (chr1:157139452/157128846, span
+  10606, split 4).
+- `score_assembly_only`: `a.split <= 3 && span <= 1500` → `LOWSPLITSMALL`
+  (small SV, few split reads).
+- `score_assembly_dscrd`: both `LOWSUPPORT` gates —
+  `total_count < 4 || (max(t.split,n.split) <= 5 && cov_span < readlen+5 &&
+  disc_count < 7)` and `total_count < 15 && germline && interchrom`. The now-
+  orphaned locals (`total_count`, `disc_count`, `cov_span`, `germ`, `span`,
+  `t_reads`/`n_reads` loop) were deleted to avoid `-Wall` churn.
+- `score_dscrd`: the `disc_count < 8` requirement — dropped from the
+  `LOWMAPQDISC` disjunction (now just `min(dc.mapq1,dc.mapq2) < 15`) and the
+  redundant `WEAKDISC` branch removed entirely (it was dead anyway —
+  subsumed by the old `LOWMAPQDISC`). `disc_count`/`disc_cutoff` locals gone.
+
+**Deliberately KEPT — alignment-quality / artifact gates** (the LOD literally
+can't see these; they answer "is this even a real alignment/contig?"):
+`NOLOCAL`, `LOCALMATCH`, `DUPREADS`, `TOOSHORT`, all `LOWMAPQ`,
+`LOWAS`/`HIGHNM`, `LOWMATCHLEN`, `LOWICSUPPORT`, `SECONDARY`,
+`HIGHHOMOLOGY`, `WEAKCONTIG`, `COMPETEDISC`, `LOWSPANDSCRD` (sub-2kb FR is
+within normal insert range — a resolution limit, not a count), `BLACKLIST`,
+the indel `LOWLOD` (that *is* the `--lod` knob), and the indel
+`SHORTALIGNMENT`. Also kept: `score_assembly_only`'s `LOWQINVERSION`
+(`num_split < 6 && span < 300 && same-strand`) and its homology-flavored
+`NODISC` (`homology >= 20 && span > 1500 && mapq < 60`) — small same-strand
+events and high-homology large events are artifact *classes*, not merely
+thin support, so those stay.
+
+**`LOWICSUPPORT` missing-interchrom-guard fix (June 2026).** In
+`score_assembly_only` there are three `LOWICSUPPORT` anchor gates
+(`BreakPoint.cpp` ~1341/1343/1345). The first two are correctly guarded with
+`b1.gr.chr != b2.gr.chr`, but the third — `std::min(b1.matchlen, b2.matchlen)
+< 0.6 * sc->readlen` — had **lost its inter-chrom guard**, so it fired on
+*intra-chrom* events too and mislabeled them `LOWICSUPPORT` (= inter-chromosomal
+support) even though no chromosome boundary was crossed. It also sat *before*
+the `LOWMATCHLEN` gates (`< 40`), so a strong intra-chrom SV with an anchor
+merely below `0.6*readlen` (~90 bp for 150 bp reads) was vetoed — e.g.
+chr22:17674665/17674550, intra-chrom, mapq 60/60, maxlod 23, anchor ~86. Fix:
+restored the `b1.gr.chr != b2.gr.chr &&` guard on the third gate. Now the
+0.6*readlen strong-anchor floor applies only to inter-chrom assembly-only SVs
+(where it belongs — no discordant support, two chromosomes), the label is
+honest, and intra-chrom anchor sufficiency is handled by the `LOWMATCHLEN < 40`
+gates with read-count adequacy left to the downstream LOD. Caller-side →
+needs a fresh run.
 
 ## The somlod / maxlod investigation (still open)
 
@@ -470,6 +540,45 @@ records had a POS/END mismatch too. All three now add +1 and agree. The
 strings, the entry sort comparator) stay 0-based on purpose — only the
 emitted POS / ALT-mate / END are 1-based.
 
+SV breakend coordinate off-by-one (fixed, deeper than the REF-base issue):
+distinct from the symbolic-REF bug below — this shifted the *breakend position
+itself* by +1 in **both** bps.txt.gz and the VCF, for **SVs only** (indels were
+always correct). Root cause in `AlignmentFragment.cpp`: `gbreak1`/`gbreak2`
+(the reference breakpoint coords) were computed as `Position()+1` (1-based first
+aligned base) and `PositionEnd()` (= `bam_endpos`, the 0-based coord one PAST
+the last aligned base = 1-based last aligned base) — i.e. effectively 1-based —
+but they're stored into `gr.pos1`, which is meant to be **0-based** (indels
+store it 0-based; `BreakPoint::toFileString` and tovcf add +1 on emission). So
+the emission +1 double-shifted every SV breakend: a right-clipped breakend
+reported `X+1` instead of `X` (the last reference base before the clip).
+Confirmed empirically via the `jxn_kmer`: the contig matched the reference up to
+`pos-1` and diverged exactly at the emitted `pos`. Fix: make `gbreak` 0-based —
+`gbreak1 = Position()`, `gbreak2 = PositionEnd() - 1` (and the swapped pair in
+the ReverseFlag branch). Self-consistent: `bp->ref`/`bp->alt` are queried
+straight from `b1.gr.pos1`/`b2.gr.pos1` (`BreakPoint.cpp` ~1793/1797), so REF
+follows POS; symbolic END/SVLEN and `getSpan()` are differences of the two
+breakends, so they're unchanged (END now correct). Indels untouched (separate
+ctor, no `gbreak`). Caller-side fix → needs a **full re-run** (not just tovcf);
+every SV breakend coordinate moves by −1 vs prior output. The right-clip was
+proven; the left-clip (`gbreak1`) is corrected by the identical/symmetric code
+path — spot-check one of each against the reference after re-running.
+
+Symbolic-SV REF base (fixed, v4 "svaba4fix"): a symbolic `<DEL>/<DUP>/<INV>`
+record is emitted at `POS = min(b1,b2)` (`toFileString`), but
+`VCFEntry::getRefString()` returned `bp->ref` unconditionally — and `bp->ref`
+is the reference base at **b1**, `bp->alt` the base at **b2** (= bps.txt cols
+7/8). So on every symbolic record where **b2 is the lower coordinate** (POS=b2),
+the REF column carried b1's base (the END base) instead of `reference[POS]`.
+This was *internally* invisible (bps and VCF "agreed" on POS/END; only the REF
+*letter* was wrong) and only showed up when checking REF against the reference
+genome — symbolic `<INV>` often looked right (b1 happened to be the min) while
+`<DUP>` consistently looked off. Fix: in `getRefString()`, for `symbolic_rep`
+pick the base at the min breakend — `(b1.pos1 <= b2.pos1) ? bp->ref : bp->alt`.
+Verified vs `Homo_sapiens_assembly38.fasta`: symbolic 239/239, BND 72/72,
+indels 200/200 now match `reference[POS]`. **bps.txt.gz was always correct**
+(it stores pos1+ref@b1 and pos2+alt@b2 separately); the bug was tovcf-only and
+affects only the symbolic SV REF column — re-run `svaba tovcf` to regenerate.
+
 Not-yet-done on this subcommand: bgzip-proper (current `--plain=false`
 output is plain gzip, which bcftools accepts but tabix doesn't index
 correctly). For now, pipe through `bcftools sort -Oz` + `tabix -p vcf`
@@ -592,6 +701,15 @@ svaba extract-pairs -i IN.bam -o OUT.bam (-s SEQ ... | -f FILE) [options]
                           incompatible with --no-pairs. The counts file is
                           written even when zero reads matched — you get a
                           header-only TSV in that case.
+      --cluster ID        Discordant-cluster mode: match by the `DC:Z` read
+                          aux tag (the discordant-cluster id) instead of by
+                          sequence. Repeatable. Run on the `discordant.bam`
+                          from `--dump-reads`; pulls every read pair whose
+                          `DC:Z` contains ID (substring match, two-pass so
+                          both mates come along), sorted + indexed for IGV.
+                          Whole-BAM scan; `-s`/`-f` are ignored when set.
+                          Entry: `collectQnamesByCluster` + the cluster
+                          branch at the top of `runExtractPairs`.
   -v, --verbose 0-3
   -h, --help
 ```
@@ -665,6 +783,53 @@ Implications:
   from `m_align->Sequence()`, which is BAM SEQ — already
   reference-forward by SAM convention. So the indel path needs no fix
   and gets none.
+
+## disc_cluster column (v5 schema)
+
+Col 54 of `bps.txt.gz` (1-based; 0-based 53) is `disc_cluster` — the
+discordant-cluster id (`DiscordantCluster::ID()`, e.g.
+`FR_chr1_12345___chr5_67890`) associated with this BreakPoint, or `"."`
+when none. It's the 54th and last core column, right after `jxn_kmer`,
+before the per-sample blocks. Purpose: ASDIS events (assembly **and**
+discordant) now expose their cluster id as a first-class column instead
+of losing it (the contig column holds the contig name for ASDIS; for
+DSCRD-only events the contig column still holds the id too). Joins to
+`discordant.txt.gz`'s `id` column and the `discordant.bam` `DC:Z` tag.
+
+Plumbing (mirrors `jxn_kmer` exactly — it's a parsed-cache field so it
+round-trips through refilter/tovcf when the live `dc` is gone):
+- `BreakPoint::disc_cluster` field + `header()` (`+\tdisc_cluster`) +
+  `toFileString()` (prefers live `dc.ID()`, then the cached field, else
+  `"."`) + the parser's colon-test (col 54, nested after the col-53
+  jxn_kmer parse). All in `BreakPoint.{h,cpp}`.
+- **postprocess needs NO change** — its bps sort/dedup reads only fixed
+  columns (≤ col 38) and preserves whole lines, so a trailing core column
+  passes through untouched (verified: 56-col v5 in → 56-col out, id
+  preserved through dedup).
+- **tovcf** emits it as `INFO/DSCRD_CLUSTER` (registered via
+  `addInfoField`; only when non-empty, so `.` rows omit it).
+- **HTML**: `docs/bps_explorer.html` gained a `V5=["disc_cluster"]`
+  constant + a `V5_N` branch in the `cc`-snap (without it, the extra core
+  column was mis-snapped to V4 and disc_cluster got read as a sample).
+  `docs/comparison.html` needed no change — it detects sample-start by
+  `t`/`n` prefix (skips `disc_cluster`) and reads core fields by name; the
+  detail panel zips header↔cols so the column shows up automatically.
+
+Readers that DON'T need updating, for reference: the postprocess
+sort/dedup keys, `svaba_bps_cols`, and any name-driven consumer.
+
+**ASDIS labeling bugfix (same change set).** `BreakPoint::Combine
+WithDiscordantClusterMap` (`BreakPoint.cpp` ~line 1220) used to set
+`svtype = ASDIS` *unconditionally* for any non-small-span breakpoint —
+even when the loop above associated **no** discordant cluster — so every
+assembly breakpoint was mislabeled ASDIS despite `DR=0` in the genotype
+and nothing discordant in IGV. Now it's
+`svtype = (has_disc && !small_fwd_del) ? ASDIS : ASSMB`, where
+`has_disc = (dc.tcount + dc.ncount) > 0`. So ASDIS now means "really has
+discordant read support"; pure-assembly contigs stay ASSMB. (The small
+forward-deletion `+/-` < ~2·insertsize case stays ASSMB regardless, as
+before.) This also makes the new `disc_cluster` column meaningful: it's
+populated exactly for the events that are now correctly ASDIS or DSCRD.
 
 ## Junction kmer (v4 schema)
 
@@ -760,6 +925,33 @@ identifier namespaces — choose the right one for the join you want:
 reads for a contig; set `TAG=bi` and pass a bp_id instead of a
 cname if you want the ALT-supporter subset for a specific variant.
 
+- `DC:Z` — `d`-joined list of **discordant-cluster ids** this read
+  belongs to (e.g. `FR_chr1_12345___chr5_67890`). Stamped by
+  `DiscordantCluster::labelReads()` only when `--dump-reads` is on,
+  on the reads written to `${ID}.discordant.bam`. The cluster id is
+  now **unified** across three places — the `bps.txt.gz` contig column
+  for a DSCRD row (set from `dc.ID()` in `BreakPoint.cpp`, was the
+  different `toRegionString()+region` spelling), the `id` column of
+  `discordant.txt.gz`, and this `DC:Z` tag — so a discordant cluster
+  can be traced across all three by one string. Substring-match it (a
+  cluster id can contain `d` from a `*_decoy` contig, so don't tokenize
+  on the `d` separator). Pull a cluster's reads for IGV with
+  `svaba extract-pairs -i discordant.bam -o out.bam --cluster <id>`
+  (DC-tag mode; whole-BAM scan, two-pass so both mates come along) or
+  `scripts/discordant_for_cluster.sh <id> discordant.bam [discordant.txt.gz]`
+  (samtools-only; also prints the cluster's discordant.txt.gz row so you
+  see the tcount/ncount tumor/normal split).
+
+**`discordant.txt.gz` schema note.** Header is
+`chr1 pos1 strand1 chr2 pos2 strand2 tcount ncount mapq1 mapq2 nm1 nm2
+cname id valid` (15 cols; a stray empty header column after `ncount` was
+removed and a trailing `valid` flag added). **Every** cluster in
+`unit.m_disc` is now emitted (the old `if (dc.valid())` write gate in
+`SvabaOutputWriter` is gone) so any id that lands in the bps contig
+column is always findable here; `valid=0` marks the geometric-invalidity
+case (overlapping intrachrom regions) that used to be silently dropped.
+`DiscordantCluster::header()`/`toFileString()` must stay in lockstep.
+
 ## r2c SQLite database (v4)
 
 `${ID}.r2c.db` is the queryable r2c alignment dump. It replaces the v3
@@ -772,6 +964,16 @@ hot path; arbitrary SQL on the back end via `sqlite3` CLI / `sql.js` /
 The legacy `r2c_explorer.html` still loads old `.r2c.txt.gz` files for
 historical outputs; the new viewer is `docs/r2c_db_explorer.html`
 (sql.js, runs queries client-side).
+
+**Size gate — `--r2c-min-somlod N`.** The r2c.db can get huge on deep
+samples because every variant-bearing contig's reads are written. `--r2c-min-
+somlod N` (`SvabaOptions::r2cMinSomlod`, default `-1e9` = write all) gates the
+`writeToR2cDb` call in `SvabaOutputWriter::writeUnit`: a contig is written only
+if `alc.maxSomlod() > N` (max `BreakPoint::LO_s` across its BPs). Use
+`--r2c-min-somlod 0` to keep only somlod>0 (~somatic) events — note the gate is
+**strict `>`** because `LO_s` defaults to 0 for unscored/germline BPs, so `>= 0`
+wouldn't drop them. Only consulted when `dump_alignments` is on. (Option code
+1802; `AlignedContig::maxSomlod()` is the helper.)
 
 **Per-thread emission + postprocess merge.** Each svaba worker writes
 its own `${ID}.thread${N}.r2c.db` during the run via
@@ -857,13 +1059,36 @@ Safe because `sc.blacklist` has had `MergeOverlappingIntervals()` +
 `CreateTreeMap()` called, so `FindOverlapWidth` can't double-count and
 wrongly drop a partially-callable region.
 
-The per-read blacklist check (`SvabaBamWalker.cpp:218`) and the per-BP
-check (`SvabaRegionProcessor.cpp:1262`, `checkBlacklist`) still run for
+The per-read blacklist check (`SvabaBamWalker.cpp`, in `readBam`) and the
+per-BP check (`SvabaRegionProcessor.cpp`, `checkBlacklist`) still run for
 regions that **partially** overlap — this prune only short-circuits the
 100%-covered case.
 
 Pruned regions don't get a `runtime.txt` row. That's intentional and
 actually makes the runtime file cleaner (only regions that did work).
+
+**Depth fix — blacklist reads still count toward DP (correctness).** The
+per-read blacklist clause used to ride in `readBam`'s hard-drop branch
+(`dup || qcfail || hardclip || blacklist → continue`), which `continue`d
+*before* `cov.addRead`. So a read whose own alignment overlapped the
+blacklist was dropped from the **coverage track too**, deflating DP for any
+breakend in/near a blacklist (e.g. a simple-repeat at one breakend). Now the
+blacklist test is split out: dup/qcfail/hardclip still hard-drop, but a
+blacklist-overlapping read is added to `cov` (counts for depth) and then
+`continue`d — kept out of assembly / weird_cov / cigar / training, but no
+longer invisible to DP. The per-read filter uses the read's *full span*
+(`AsGenomicRegion()`), so reads within ~one read-length of a blacklist edge
+were affected too. (Duplicates are still excluded from DP, which is
+conventional — so svaba DP reads a bit below IGV's dup-counting coverage.)
+
+**Depth fix — `BreakPoint::addCovs` averages only populated ends.** `addCovs`
+samples `cov` over a ±`COVERAGE_AVG_BUFF` window around *both* breakends and
+used to divide by 2 unconditionally. If one end had no coverage data (an SV
+mate region walked with `get_coverage=false`, or an interchromosomal
+partner) it contributed 0 and silently **halved** DP. Now it divides by the
+number of ends with `>0` coverage (`(c1+c2)/ends/W`), so a one-sided-tracked
+junction reports the real depth at the tracked end. Both-ends-covered
+behavior is unchanged.
 
 ## Options surface
 
@@ -949,7 +1174,23 @@ client-side, no server required.
   prominent runtime histogram (defaults to log10 because runtime
   distributions are always long-tailed — see "Perf notes"). 17-column
   schema hardcoded from `SvabaUtils.cpp::svabaTimer::header`.
-- **`comparison.html`** — side-by-side of two bps runs.
+- **`comparison.html`** — side-by-side diff of two call sets (A vs B). Each
+  upload box **auto-detects and accepts multiple files**, mixing formats:
+  a NEW `bps.txt[.gz]` (any schema incl. v5 — robust to the `disc_cluster`
+  column) **or** an OLD svaba VCF. OLD svaba uses *two* VCFs (sv + indel), so
+  drop both into one box and they merge; BND mate-pairs are de-mated and
+  decoded to chr/pos/strand (mirrors `vcf.cpp` `getAltString`, inverted),
+  indels parse from plain REF/ALT. Matching is orientation-invariant, both
+  breakends within the Tolerance (default 10 bp). Score thresholds are typed
+  number boxes (blank = no limit), shown per-side by format: VCF → a single
+  **LOD** box (= max sample `LO`); bps → **SOMLOD** + **MAXLOD**. Plus a
+  global **span min/max** filter (interchrom span `-1` is treated as the
+  LARGEST, since it spans chromosomes). Charts: agreement pie, by-type,
+  by-span-size (with an `interchr` bin), by-confidence, and **SOMLOD/MAXLOD
+  distribution histograms split A-only / B-only / Agree** (so you can see
+  where the signal lives). Per-sample (genotype) column headers carry a
+  hover tooltip glossing the FORMAT fields. Detail panel aligns A vs B by
+  field *name* (works across VCF↔bps). Needs internet (pako + Chart.js CDN).
 - **`learn_explorer.html`** — explorer for svaba's insert-size learning
   output (per-read-group insert-size / read-length distributions, learned
   inside `svaba run`; pairs with `scripts/plot_learn.sh`).
@@ -964,30 +1205,58 @@ client-side, no server required.
 hand-edit it; edit a component file and re-run the script.
 
 Components (as of last pass):
-- `hg38.blacklist.sorted.bed` — ENCODE-style high-signal regions.
+- `hg38.blacklist.sorted.bed` — ENCODE-style high-signal regions. (NB: fully
+  contained in `hg38.manual.blacklist.bed` — 0 bp outside it — so including it
+  is a no-op after `--merge`.)
 - `hg38.high_runtime.bed` — regions empirically slow to assemble.
 - `hg38.manual.blacklist.bed` — ad-hoc bad-list, curated.
 - `hg38.nonstd_chr.blacklist.bed` — full-contig entries for every
   chrUn/*_decoy/*_alt/*_random/chrEBV/HLA-* contig in the reference,
   generated from `tracks/chr` (a GRCh38 fasta-header dump).
 - `hg38.rmsk.simple_repeat.bed` — UCSC RepeatMasker simple-repeat
-  regions.
+  regions (~704k; **median width 36 bp**).
+- `hg38.rmsk.simple_repeat.min100.bed` — the simple-repeat track filtered to
+  **≥100 bp** (48,245 regions). This is the component now fed to the combine
+  step (see below).
+
+**`<100 bp` simple-repeat removal.** ~93% of the *old* combined blacklist
+(655,436 / 707,578 regions) was `<100 bp` microsatellites, all from
+`hg38.rmsk.simple_repeat.bed` — yet only 6% of covered bp. As a *hard*
+blacklist these tiny entries do real damage (a 36 bp `(CA)n` at a breakend
+auto-flags the BP `BLACKLIST`, drops its reads from assembly, and — until the
+depth fix above — from coverage), while svaba already handles short repeats
+dynamically (`local_blacklist` via `find_repeats`, `REPSEQ`, homology
+filters). So the combined blacklist is now built from the **≥100 bp** filtered
+track: `awk -F'\t' '($3-$2)>=100' …simple_repeat.bed > …min100.bed`. Result:
+707,578 → **47,787 merged intervals** (14.8× fewer), losing only ~6% of
+covered bp; all high-signal/decoy/runtime regions retained. The drop is
+almost entirely the removal (merging the full set alone only gets to ~631k).
 
 `scripts/combine_blacklists.sh` has three modes: plain concat (default),
 `--merge` (sort + `bedtools merge` with distinct-label aggregation), and
-`--clip GENOME` (clip interval ends to real contig length, because some
-input BEDs use oversize-end sentinels like `end=250000000` that would
-otherwise inflate covered-bp totals into the trillions — ask me how I
-know). Preferred invocation for refreshing the combined blacklist:
+`--clip GENOME` (clip interval ends to real contig length). `--clip` accepts
+a `.fai`, a 2-col `chrom<TAB>length` TSV, or svaba's `tracks/chr` dump — the
+reference `.fai` is the most reliable source if `tracks/chr` is missing.
+
+**`combine_blacklists.sh` bugfix:** the clip-step awk was missing `-F'\t'`,
+so it re-tokenized multi-word labels (`High Signal Region`,
+`…Family=Simple_repeat +`) on whitespace and emitted ragged column counts
+that broke the downstream `bedtools merge`. `--merge --clip` on any labeled
+BED was broken before this; fixed by adding `-F'\t'` to the clip awk.
+
+Preferred invocation for refreshing the combined blacklist (note the
+`min100` component and the `.fai` clip genome):
 
 ```bash
-./scripts/combine_blacklists.sh --merge --clip tracks/chr \
+awk -F'\t' '($3-$2)>=100' tracks/hg38.rmsk.simple_repeat.bed \
+  > tracks/hg38.rmsk.simple_repeat.min100.bed
+./scripts/combine_blacklists.sh --merge --clip /path/to/genome.fasta.fai \
   -o tracks/hg38.combined_blacklist.bed \
   tracks/hg38.blacklist.sorted.bed \
   tracks/hg38.high_runtime.bed \
   tracks/hg38.manual.blacklist.bed \
   tracks/hg38.nonstd_chr.blacklist.bed \
-  tracks/hg38.rmsk.simple_repeat.bed
+  tracks/hg38.rmsk.simple_repeat.min100.bed
 ```
 
 ## Perf notes (empirical, from profiling the HLA region on M3 Ultra)
@@ -1064,6 +1333,41 @@ Interchromosomal SVs: both breakends get assembled independently by
 whichever partition contains the discordant read pileup. The merge +
 dedup step in `svaba postprocess` pairs them. No calls are lost.
 
+## Coordinate conventions (0-based internal, 1-based output) — audited
+
+The invariant: **everything internal is 0-based** (htslib/bwa/C++); the `+1` to
+1-based happens **only at the final emission**. Audited end-to-end:
+
+- **Intake** (0-based): `Position()` / `MatePosition()` / `b->core.pos` (htslib)
+  and bwa alignments.
+- **Storage** (0-based): `GenomicRegion.pos1/pos2`, `cpos` (contig pos),
+  `m_reg` (discordant cluster), indel breakends. No internal 1-based methods.
+- **Reference** (0-based): `RefGenome::QueryRegion` → `faidx_fetch_seq` is
+  0-based-inclusive; `ref = QueryRegion(b1.gr.pos1)` is consistent.
+- **bps.txt.gz**: emit `gr.pos1 + 1` (`BreakPoint::toFileString`); parse
+  restores `pos1_1idx - 1`. Symmetric round-trip.
+- **VCF**: emit `+1` for POS, the BND mate locus, and symbolic END/POS.
+- **`discordant.txt.gz`** (now 1-based, was inconsistent): the cluster edge is
+  `m_reg.pos2` for a '+' cluster (= `max PositionEnd` = `bam_endpos`, already the
+  1-based last aligned base) and `m_reg.pos1 + 1` for a '-' cluster (0-based
+  start → 1-based). Previously the '-' branch emitted the raw 0-based start, so
+  '+' and '-' rows used different conventions.
+- **`r2c.db`**: deliberately **0-based** (read `Position()`, fragment
+  `Position()`, `gbreak`, and the `bps`-subfield `gr.pos1`). It's an
+  internal-like, BAM-adjacent dump — the read positions mirror the BAM (0-based)
+  on purpose; not converted.
+- **Cluster id (`m_id`) / `toRegionString`**: encode 0-based coords and are left
+  as-is — they're identifiers (shared by the bps contig column, `discordant.txt`
+  `id`, and the `DC:Z` tag) where only mutual consistency matters, and `m_id`'s
+  '+' edge uses `PositionEnd()` (0-based-exclusive). Don't read them as
+  coordinates.
+
+Gotcha that bit us twice: `PositionEnd()` = `bam_endpos` = the 0-based coord
+**one past** the last aligned base. So `PositionEnd()` numerically equals the
+**1-based** last aligned base. Storing it as a 0-based value (the old
+`gbreak2 = PositionEnd()`) and then `+1`-ing at emission double-shifts. The
+0-based last aligned base is `PositionEnd() - 1`.
+
 ## Conventions
 
 - **File naming**: `src/svaba/Svaba*.{cpp,h}` for the svaba-specific files
@@ -1087,6 +1391,163 @@ dedup step in `svaba postprocess` pairs them. No calls are lost.
   1100s = assembly, 1200s = EC, 1300s = discordant, 1400s = filter,
   1500 = chunking, 1600s = bwa-mem tuning, 1700s = output/DBs, 1800 =
   dump-reads. Keep the ranges coherent when adding new options.
+
+## Distant-read recovery (v5, assembly-driven)
+
+The mate-region lookup below is **discordant-driven** — it only fires when
+there are discordant reads pointing at the other breakend. A large SV
+detected purely by **assembly** (the contig itself spans the junction, zero
+discordant pairs) therefore never collects the reads sitting at its distant
+breakend, so split support there — often the normal/blood — is invisible and
+the call looks falsely **somatic off one end only**. (You'd see it in IGV:
+clear normal read support at the distant breakend that svaba never counted.)
+
+Fix lives in `SvabaRegionProcessor::process`, between contig alignment and
+the r2c loop: `computeDistantRegions()` scans each **multi-fragment** contig
+(≥2 aligned fragments = SV candidate) for fragment loci that are distant from
+region A (padded ~2 insert sizes) AND not already covered by the discordant
+mate-lookup (`mate_regions_for_native`), honoring the blacklist and the
+`maxMateChrID` gate, capped at 6 windows. Those windows are then fetched for
+**every** sample (`SetRegions`+`readBam`, `get_coverage=true`) and appended
+to `walker->reads`. The existing r2c loop, the deferred native realignment
+(keyed on `HasR2C()`; its local index now also includes the distant regions),
+and `splitCoverage` then count the distant-end reads automatically — so the
+normal's support is seen and the somatic/germline call is corrected. Fetching
+with coverage on also populates `cov` at the distant breakend, so DP there is
+right too (feeds `BreakPoint::addCovs`, which already averages only populated
+ends).
+
+This is **r2c-only** — it does NOT feed the distant reads back into the fermi
+assembly (a harder rewire, deferred); it fixes the *support counting and the
+somatic decision*, not the assembled contig. Key accessor:
+`AlignedContig::getFragmentGenomicRegions()` (each fragment's `m_align`
+contig→reference locus). Not behind a CLI flag (gated by construction).
+
+## Adapter filter 3′-clip fix + somatic-safety kmer net (KC) — June 2026
+
+Two coupled false-somatic fixes, both rooted in the same principle the user
+(svaba author) insists on for a *somatic* caller: **a normal/blood read that
+spans a candidate-somatic junction must NEVER be invisible to scoring, no
+matter how it was filtered (adapter, blacklist, …)** — a missed normal read is
+a false somatic call. Traced on the `chr22:17674550/17674665` ~115 bp
+Alu-mediated deletion (the same locus as the `LOWICSUPPORT` note above).
+
+**1. `hasAdapter` 3′-clip fix (`SvabaBamWalker.cpp`).** `hasAdapter()` decides
+whether a read is adapter read-through (fragment shorter than the read) and, if
+so, `continue`s it BEFORE assembly/r2c — so the read is never assembled and
+never r2c-aligned. The old geometric rule used **total** soft-clip:
+`exp_ins_size = len − NumClip(); if |exp_ins_size − |isize|| ≤ 6 → adapter`.
+That signature is *also* exactly a split read across a **small** SV: a forward
+`64S86M` read at the deletion right-anchor has aligned 86 ≈ isize 87, so it was
+tossed as adapter even though its 64 bp 5′ clip realigns to the left anchor
+(genomic Alu, 17,674,480–17,674,544), i.e. it is a genuine split read. Root
+cause: adapter read-through can **only** land on the read's **3′ end** (you
+sequence the insert 5′→3′ and read through into the 3′ adapter), so a 5′-end
+soft-clip is always split-read signal, never adapter. Fix: new
+`threePrimeSoftClip(r)` helper (trailing clip for fwd, leading for rev), and
+(a) early-return `false` when the **5′** clip ≥ `MIN_SPLIT_ANCHOR_CLIP` (10 bp),
+and (b) judge the read-through geometry on the **3′** clip alone. Verified: the
+`64S86M` fwd read now reaches r2c (`R2C HIT … 150M`) and is `SPLIT_COV
+CREDITED` for the normal, flipping the call from somatic to germline. (Its
+reverse mate `63S87M` is still adapter — its clip is genuinely 3′ — which is
+fine: same QNAME already credited via the fwd mate; we don't double-count the
+pair.) Caller-side → needs a fresh run.
+
+**2. Somatic-safety junction-kmer net (the `KC` FORMAT field).** A backstop so
+the safety principle holds even when a read is *legitimately* excluded
+(blacklist-self, 3′-adapter mate, etc.). Reads dropped by the blacklist-self
+and adapter `continue`s are now stashed `(qname, raw seq)` into
+`svabaBamWalker::excluded_reads` (a per-region shadow pool, cleared in
+`clear()`, capped at `MAX_EXCLUDED_POOL=100000`). In
+`SvabaRegionProcessor::process`, **before** the `scoreBreakpoint()` loop, each
+BP's `junctionKmer(20)` (bps col 53) is scanned against every sample's shadow
+pool: a unique read (by qname) carrying the kmer at **≥19/20 bp, either
+strand** counts. Match is alignment-free and pigeonhole-accelerated
+(`seqHasKmerFuzzy`: a ≤1-mismatch hit leaves one exact 10-mer half →
+`find()` the half, verify ≤1 mismatch). BPs with `jxn_kmer == "."` (imprecise /
+DSCRD-only / repeat / short contig) are skipped, which auto-excludes
+microsatellite over-match. **Double-counting is avoided** by deduping the kmer
+hits against `allele[pref].supporting_reads` (reads already credited via
+r2c/split/disc) — critical because an excluded mate shares its qname with the
+recovered r2c read.
+
+The per-sample count lands on `SampleInfo::kmer_alt` (summed in `operator+`,
+so `n.kmer_alt`/`t.kmer_alt` aggregate from the per-`allele` entries) and is
+**folded into the normal alt count** in `BreakPoint::score_somatic`:
+`n.alt += n.kmer_alt;` right before `scaled_alt_n` is computed and fed to
+`SvabaModels::SomaticLOD`. n.alt there is a post-aggregation local (the emitted
+core `a.alt`/per-sample `AD` are already fixed before `score_somatic`), so this
+does NOT corrupt AD — it only makes the somatic test see normal evidence it
+would otherwise miss. Over-counting the normal only ever makes a call *less*
+somatic (the safe direction).
+
+**`KC` FORMAT field (genotype schema bump; core columns unchanged at 54/v5).**
+`kmer_alt` is emitted as the **10th, trailing** subfield of each per-sample
+genotype block: `GT:AD:DP:SR:DR(/CR):GQ:PL:LO:LO_n:KC`. Appending it last keeps
+`SampleInfo::FillFromString`'s positional parse of fields 1–9 intact (new
+`case 10` reads KC; older pre-KC bps rows simply lack it and default to 0).
+Readers updated: `SampleInfo::toFileString`/`FillFromString` (BreakPoint.cpp),
+`vcf.cpp` (`kSvFormat`/`kIndelFormat` + `##FORMAT=<ID=KC>` lines; per-sample
+values already flow through `al.toFileString`), `docs/bps_explorer.html`
+(positional parser `p[9]`, detail panel, legend), `docs/comparison.html`
+(`SV_FORMAT`/`INDEL_FORMAT`/`FORMAT_KEY`). **postprocess needs NO change** —
+KC lives inside the genotype column, so the tab-column count is unchanged
+(verified: 56 tab-cols in/out, every genotype has exactly 10 colon-fields).
+
+Verified end-to-end on chr22: deletion normal `SR` went 0→1 (hasAdapter fix);
+the kmer net shows nonzero `KC` on nearby indels where excluded reads carried
+the kmer (`_47C`: N KC=1, T KC=7) and `KC=0` on the deletion where r2c already
+counted the read (dedup working); `tovcf` emits `…:LO_n:KC` + the `##FORMAT`
+line; `postprocess` round-trips.
+
+## Insert-size learning (robust SD) — false-somatic bug
+
+`BamReadGroup::computeStats()` (`LearnBamParams.cpp`) learns the per-read-group
+insert-size `isize_median` and `sd_isize`; the discordant cutoff is
+`isize_median + sd_isize * sdDiscCutoff` (tumor `3.92`, normal
+`sdDiscCutoffNormal 3.60`), computed per-sample in
+`svabaBamWalker::getIsizeCutoff`. A read pair is tagged discordant
+(`TagDiscordant`, and the FR-large-isize salvage in `readBam`) iff weird
+orientation, interchromosomal, or `|isize| >= cutoff`.
+
+**The bug (major, systematic).** `sd_isize` used to be a plain population SD
+over the 98%-trimmed isize sample. A 2% top-trim does NOT tame a heavy tail —
+when the midpoint sampling windows pick up discordant / SV-spanning /
+mismapped pairs, the SD inflates. On a real normal we measured
+`sd_isize ≈ 149,000` → discordant cutoff **≈ 535,000 bp**. That silently
+blinded the normal to essentially **all** discordant reads (even a 172 kb
+deletion pair fell under the cutoff): `rule_pass=0` → never tagged → never
+clustered → `ncount=0` → the cluster looked **somatic** despite obvious
+germline discordant reads in IGV / the normal BAM. Because it's a learning-time
+property of the *normal*, **every discordant-supported SV in an affected run
+was at risk of a false-somatic call**, and the normal's discordant reads were
+also absent from `discordant.bam`.
+
+**The fix.** `sd_isize` is now a robust scale estimate via **MAD** (median
+absolute deviation × 1.4826), which ignores the tail entirely — the median
+absolute deviation reflects the concordant spread regardless of outliers. On
+the same data the cutoff dropped from ~535,000 → **531 bp**, the normal reads
+tag `dd=1`, and the call goes germline. There is also a learn-time **WARNING**
+(in `LearnBamParams::learnParams`'s per-RG log) if any RG's cutoff still
+exceeds 50 kb, so a corrupted distribution surfaces loudly instead of silently
+blinding the sample. **Learning-time fix → requires a fresh run** to take
+effect (re-run affected cohorts).
+
+Traced end-to-end with `SVABA_TRACE_READ` on QNAME
+`LH00306:129:227V5CLT4:6:2114:32786:3689` (chr1:207.69M, 172 kb FR pair):
+`RULE_CHECK … FRsalv_cutoff=531 rule_pass=1` →
+`TAGDISCORDANT prefix=n001 … dd=1` → `DISC_COLLECT … INTO clustering`.
+
+**Sibling discordant-intake bug — interchromosomal RF reads dropped.** The
+"RF overlap" filter in `readBam` (just below the FR salvage) rejects RF-oriented
+pairs with `|isize| < max(200, 2*readlen)` — meant to drop concordant pairs
+whose reads overlap (a short fragment makes FR look RF with tiny isize). But an
+**interchromosomal** pair reports `isize=0` by SAM convention (TLEN is 0 across
+references), not because the reads overlap, so the filter silently dropped every
+interchromosomal RF discordant read (translocation support) — `rule_pass=1` →
+`REJECT RF overlap isize=0` → `SKIP not weird`. Fixed by adding a
+`!s->Interchromosomal()` guard, so the overlap rule applies only within a
+chromosome. (Orientation enum: `FR=0, FF=1, RF=2, RR=3, UD=4`.)
 
 ## Mate-region lookup pipeline
 
@@ -1136,13 +1597,27 @@ native realignment → splitCoverage scoring → output tagging.
 cmake .. -DCMAKE_CXX_FLAGS='-DSVABA_TRACE_READ="\"LH00306:129:227V5CLT4:6:1204:38807:7191\""'
 ```
 
-Trace points (19 total across 3 files):
-- `SvabaBamWalker.cpp`: initial read filter decisions (existing)
-- `SvabaRegionProcessor.cpp`: BFC correction result, r2c alignment
-  per-contig, native realignment reuse/done/miss, bi:Z tagging
-- `BreakPoint.cpp`: splitCoverage entry, TP8 r2c-vs-native comparison,
-  TP9 del/ins near break, TP10 span check, TP11 del covers,
-  CREDITED/NOT CREDITED final decision
+Trace points span 4 files now (the discordant path was added while chasing
+the false-somatic insert-size bug above):
+- `SvabaBamWalker.cpp`: initial read filter decisions; `RULE_CHECK` (with the
+  FR-isize-salvage diagnostics — `orient`, `PairMapped`, `FRsalv_fullisize`,
+  `FRsalv_cutoff` — this is what exposed the 535 kb cutoff); `TAGDISCORDANT`
+  (the `dd` decision with RG / cutoff / isize / orient / blacklist-self /
+  blacklist-mate); `DROPPED by region read-limit bail` (when `read_buffer` is
+  cleared on hitting `weird_read_limit`).
+- `SvabaRegionProcessor.cpp`: BFC correction result, r2c alignment per-contig,
+  native realignment reuse/done/miss, bi:Z tagging; `DISC_COLLECT` (whether a
+  read with `dd>0` enters clustering).
+- `DiscordantCluster.cpp`: `CLUSTER_ADD` (read added to a cluster, counted as
+  tumor/normal, running tcount/ncount). (`#include "SvabaDebug.h"` added here.)
+- `BreakPoint.cpp`: splitCoverage entry, TP8 r2c-vs-native comparison, TP9
+  del/ins near break, TP10 span check, TP11 del covers, CREDITED/NOT CREDITED;
+  `TP-DISC combine` (a cluster's final `dc.tcount`/`dc.ncount`/`svtype` on the
+  BP — contig-keyed, so use `SVABA_TRACE_CONTIG`).
+
+The discordant chain reads: `SEEN → RULE_CHECK → TAGDISCORDANT (dd=?) →
+DISC_COLLECT → CLUSTER_ADD`, with `SKIP …` / `BLACKLIST_SELF` / `ADDED via NM
+salvage` / `DROPPED by region read-limit bail` marking where a read is lost.
 
 **`SVABA_TRACE_CONTIG`** — traces a single contig through assembly,
 alignment, and scoring:
@@ -1163,7 +1638,27 @@ definitions and `README.md` for full recipes.
 - INDEL somatic gate: `src/svaba/BreakPoint.cpp:1434`
 - Region-queue blacklist prune: `src/svaba/run_svaba.cpp` (right after
   `loader.countJobs(regionsToRun)`)
-- Per-read blacklist filter: `src/svaba/SvabaBamWalker.cpp:218`
+- Per-read blacklist filter (now counts blacklist reads for depth):
+  `src/svaba/SvabaBamWalker.cpp::readBam` (the blacklist `continue` after the
+  dup/qcfail/hardclip hard-drop)
+- Adapter filter (3′-clip fix): `src/svaba/SvabaBamWalker.cpp::hasAdapter` +
+  `threePrimeSoftClip` (5′-clip = split signal, never adapter)
+- Somatic-safety kmer net: `svabaBamWalker::stashExcluded` / `excluded_reads`
+  (the shadow pool) → the kmer-scan loop before `scoreBreakpoint()` in
+  `SvabaRegionProcessor.cpp` (`seqHasKmerFuzzy`/`revcompStr`) →
+  `SampleInfo::kmer_alt` → folded into n.alt in `BreakPoint::score_somatic`.
+  Emitted as the trailing `KC` genotype subfield.
+- Insert-size learning / robust SD (MAD): `src/svaba/LearnBamParams.cpp::`
+  `BamReadGroup::computeStats` (cutoff = median + sd*sdDiscCutoff)
+- Discordant tag decision: `src/svaba/SvabaBamWalker.cpp::TagDiscordant` +
+  the FR-large-isize salvage in `readBam`; per-RG cutoff in `getIsizeCutoff`
+- Coverage→DP on a BP (populated-ends average): `src/svaba/BreakPoint.cpp::addCovs`
+- Distant-read recovery: `SvabaRegionProcessor.cpp::computeDistantRegions` +
+  the fetch block between contig-align and the r2c loop
+- Discordant cluster id / DC:Z / ASDIS svtype: `DiscordantCluster.cpp` (ID,
+  labelReads, valid) + `BreakPoint.cpp::CombineWithDiscordantClusterMap`
+- `svaba extract-pairs --cluster` (DC-tag mode): `SvabaExtractPairs.cpp::`
+  `collectQnamesByCluster` + the cluster branch in `runExtractPairs`
 - r2c SQLite writer: `src/svaba/AlignedContig.cpp::writeToR2cDb` +
   `src/svaba/R2CDatabase.cpp` (old `printToR2CTsv`/`r2cTsvHeader` TSV
   emitter is gone)
