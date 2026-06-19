@@ -236,6 +236,45 @@ std::string BreakPoint::junctionKmer(int window) const {
   return kmer;
 }
 
+// SvABA2 v6: non-filtering sequence annotations — see header doc.
+void BreakPoint::setSequenceAnnotations() {
+
+  // poly-A/T MEI signal: longest A- or T-homopolymer run in the inserted
+  // novel sequence. Deterministic from `insertion`, so this is safe to
+  // (re)compute on every path including refilter.
+  poly_a_len = 0;
+  int run_a = 0, run_t = 0;
+  for (char ch : insertion) {
+    run_a = (ch == 'A' || ch == 'a') ? run_a + 1 : 0;
+    run_t = (ch == 'T' || ch == 't') ? run_t + 1 : 0;
+    if (run_a > poly_a_len) poly_a_len = run_a;
+    if (run_t > poly_a_len) poly_a_len = run_t;
+  }
+
+  // per-breakend annotation-track overlap. Only (re)compute when a track is
+  // loaded; otherwise preserve the parsed-from-file `repeat_anno` so a
+  // refilter/tovcf run without --annotation round-trips unchanged.
+  if (sc == nullptr || sc->annotation.size() == 0)
+    return;
+
+  auto labels_for = [&](const GenomicRegion& gr) -> std::string {
+    std::vector<int> idx = sc->annotation.FindOverlappedIntervals(gr, true);
+    std::vector<std::string> labs;            // unique, first-seen order
+    for (int j : idx) {
+      const std::string& l = sc->annotation[j].label;
+      if (std::find(labs.begin(), labs.end(), l) == labs.end())
+        labs.push_back(l);
+    }
+    std::string out;
+    for (size_t k = 0; k < labs.size(); ++k) { if (k) out += ','; out += labs[k]; }
+    return out;
+  };
+
+  const std::string l1 = labels_for(b1.gr);
+  const std::string l2 = labels_for(b2.gr);
+  repeat_anno = (l1.empty() && l2.empty()) ? std::string() : (l1 + "|" + l2);
+}
+
 std::string BreakPoint::toFileString(const BamHeader& header) const {
   
   // make sure we already ran scoring
@@ -333,7 +372,12 @@ std::string BreakPoint::toFileString(const BamHeader& header) const {
     // pure-assembly ASSMB, or an indel).
      << sep
      << (!dc.ID().empty() ? dc.ID()
-                          : (!disc_cluster.empty() ? disc_cluster : "."));
+                          : (!disc_cluster.empty() ? disc_cluster : "."))
+    // SvABA2 v6: per-breakend annotation-track overlap ("b1|b2"), then the
+    // poly-A/T MEI run length. Both ':'-free so the parser's colon-test for
+    // trailing core columns still distinguishes them from per-sample blocks.
+     << sep << (repeat_anno.empty() ? "." : repeat_anno)
+     << sep << poly_a_len;
 
   for (const auto& [_,al] : allele)
     ss << sep << al.toFileString(svtype);
@@ -1779,8 +1823,13 @@ void BreakPoint::scoreBreakpoint() {
     throw std::runtime_error("no scoring method called in BreakPoint::score_breakpoints");
   
   // set the somatic_score field to true or false
-  score_somatic(error_rate); 
-  
+  score_somatic(error_rate);
+
+  // SvABA2 v6: non-filtering sequence annotations (repeat_anno from the
+  // --annotation track, poly_a MEI run). Purely informational; does not
+  // affect confidence or somatic state.
+  setSequenceAnnotations();
+
   // quality score is odds that read is
   // non-homozygous reference (max 99)
   // quality = 0;
@@ -2807,6 +2856,22 @@ BreakPoint::BreakPoint(const std::string& line, const SvabaSharedConfig* _sc)
                 const std::string& maybe_dc = tok[static_cast<size_t>(i)];
                 disc_cluster = (maybe_dc == ".") ? std::string() : maybe_dc;
                 ++i;
+
+                // SvABA2 v6: optional col 55 = repeat_anno, col 56 = poly_a.
+                // Same colon-test (both are ':'-free; per-sample blocks always
+                // contain ':'). Cached so refilter/tovcf round-trip even
+                // without --annotation loaded.
+                if (static_cast<size_t>(i) < tok.size() &&
+                    tok[static_cast<size_t>(i)].find(':') == std::string::npos) {
+                  const std::string& maybe_anno = tok[static_cast<size_t>(i)];
+                  repeat_anno = (maybe_anno == ".") ? std::string() : maybe_anno;
+                  ++i;
+                  if (static_cast<size_t>(i) < tok.size() &&
+                      tok[static_cast<size_t>(i)].find(':') == std::string::npos) {
+                    poly_a_len = to_int_safe(tok[static_cast<size_t>(i)], 0);
+                    ++i;
+                  }
+                }
               }
             }
           }

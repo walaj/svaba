@@ -1204,6 +1204,31 @@ client-side, no server required.
 `scripts/combine_blacklists.sh` from the component files in the same dir. Don't
 hand-edit it; edit a component file and re-run the script.
 
+**Annotation tracks (for `--annotation`, NOT `--blacklist`).** Labeled BEDs
+consumed by the v6 `repeat_anno` column (see "Sequence annotation" section).
+Both are **regeneratable artifacts** from UCSC hg38 database dumps, gzipped
+(the `--annotation` loader reads `.gz` natively). col4 label uses `/` as the
+hierarchy separator (survives the loader's `:`/`|`/tab sanitization):
+- `hg38.rmsk.bed.gz` — full RepeatMasker (~5.68M intervals), label
+  `repClass/repFamily/repName` (e.g. `SINE/Alu/AluY`, `LINE/L1/L1HS`):
+  ```bash
+  curl -sL https://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/rmsk.txt.gz \
+   | gunzip -c | awk -F'\t' 'BEGIN{OFS="\t"}{print $6,$7,$8,$12"/"$13"/"$11}' \
+   | gzip -c > tracks/hg38.rmsk.bed.gz
+  ```
+- `hg38.segdups.bed.gz` — segmental dups / `genomicSuperDups` (~70k intervals),
+  label `SegDup/<partnerChrom>` (e.g. `SegDup/chr15`):
+  ```bash
+  curl -sL https://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/genomicSuperDups.txt.gz \
+   | gunzip -c | awk -F'\t' 'BEGIN{OFS="\t"}{print $2,$3,$4,"SegDup/"$8}' \
+   | gzip -c > tracks/hg38.segdups.bed.gz
+  ```
+Usage: `svaba run ... --annotation tracks/hg38.rmsk.bed.gz --annotation
+tracks/hg38.segdups.bed.gz`. Then filter the bps `repeat_anno` column (e.g.
+`/SegDup/` = mismapping suspect, `SINE/Alu` on both ends = Alu–Alu NAHR).
+Verified: the chr22:17674550/17674665 Alu-mediated deletion self-annotates
+`SINE/Alu/AluSx3|SINE/Alu/FAM`.
+
 Components (as of last pass):
 - `hg38.blacklist.sorted.bed` — ENCODE-style high-signal regions. (NB: fully
   contained in `hg38.manual.blacklist.bed` — 0 bp outside it — so including it
@@ -1500,6 +1525,55 @@ the kmer (`_47C`: N KC=1, T KC=7) and `KC=0` on the deletion where r2c already
 counted the read (dedup working); `tovcf` emits `…:LO_n:KC` + the `##FORMAT`
 line; `postprocess` round-trips.
 
+## Sequence annotation: `--annotation` BED + `repeat_anno` / `poly_a` (v6) — June 2026
+
+Non-filtering annotation of each breakend, so users can *tune* what to trust
+(Alu–Alu NAHR vs SegDup mismapping vs L1 MEI) instead of doing it post-hoc.
+**Deliberately NOT a filter and NOT a svaba-internal repeat classifier** —
+sequence-level repeat *classification* is RepeatMasker/Dfam's job (divergent
+copies, many families); svaba just *overlaps* whatever labeled track you bring.
+Two new trailing core columns bump the bps schema **v5 (54 cols) → v6 (56
+cols)**.
+
+- **`--annotation <BED>`** (`SvabaOptions.cpp` code **1703**, `annotationFile`,
+  repeatable). Loaded in `run_svaba.cpp` right after the blacklist via **zlib
+  `gzopen`/`gzgets`** (plain + .gz transparently), col-4 label preserved,
+  `:`/`|`/tab sanitized out of the label (protects the bps colon-test and the
+  `b1|b2` separator). **NOT merged** (merging would fuse distinct families).
+  Stored in `sc.annotation`, a `GenomicRegionCollection<AnnoRegion>` where
+  `AnnoRegion : GenomicRegion { std::string label; }` carries the label INLINE
+  — required because `CreateTreeMap` CoordinateSorts `m_grv`, so a parallel
+  label vector would desync from `FindOverlappedIntervals` indices.
+- **`repeat_anno` (col 55)** = `"b1labels|b2labels"`, comma-joined unique labels
+  per breakend (either side may be empty; whole field `"."` when no track /
+  overlap). Computed in `BreakPoint::setSequenceAnnotations()` (called at the end
+  of `scoreBreakpoint()`): `sc->annotation.FindOverlappedIntervals(b.gr, true)`
+  → `sc->annotation[idx].label`. Only recomputed when a track is loaded;
+  otherwise the parsed-from-file value is kept so refilter/tovcf round-trip
+  **without** `--annotation`.
+- **`poly_a` (col 56)** = longest poly-A or poly-T homopolymer run (bp) in the
+  `insertion` field — the retrotransposition / processed-pseudogene (MEI)
+  signal. Deterministic from `insertion`, so it recomputes identically on every
+  path. 0 when no insertion.
+
+Both are `:`-free, so the parser's nested colon-test for trailing core columns
+(`BreakPoint.cpp`, after the `disc_cluster` parse) extends cleanly:
+`bp_id → jxn_kmer → disc_cluster → repeat_anno → poly_a`. `header()` and
+`toFileString()` emit them after `disc_cluster`; `tovcf` emits
+`INFO/REPEAT_ANNO` + `INFO/POLYA` (registered on both SV and indel header
+builders). **postprocess needs NO change** (sort/dedup keys are cols ≤37 and it
+slabs whole lines — verified 58 tab-cols in/out, genotype still 10 fields).
+Viewers: `docs/bps_explorer.html` gained `V6=["repeat_anno","poly_a"]` + a
+`V6_N` snap branch (sample-start detection already skips named core cols);
+`docs/comparison.html` needs no change (reads core by name, detects samples by
+`t`/`n` prefix). The user (svaba author) maintains RepeatMasker/SegDup tracks
+under `tracks/` — feed those, or any labeled BED.
+
+Verified on chr22 with a synthetic `anno.bed`: the 17674550/17674665 deletion
+got `repeat_anno=AluY|L1HS` (reciprocal row `L1HS|AluY`, per-breakend ordered);
+a poly-A-bearing insertion got `poly_a=7`; `tovcf` emitted `REPEAT_ANNO=AluY|L1HS`
+and the `##INFO` lines; postprocess preserved both columns.
+
 ## Insert-size learning (robust SD) — false-somatic bug
 
 `BamReadGroup::computeStats()` (`LearnBamParams.cpp`) learns the per-read-group
@@ -1648,6 +1722,11 @@ definitions and `README.md` for full recipes.
   `SvabaRegionProcessor.cpp` (`seqHasKmerFuzzy`/`revcompStr`) →
   `SampleInfo::kmer_alt` → folded into n.alt in `BreakPoint::score_somatic`.
   Emitted as the trailing `KC` genotype subfield.
+- Sequence annotation (`--annotation` BED → `repeat_anno`/`poly_a`):
+  load in `run_svaba.cpp` (zlib, after blacklist) into `sc.annotation`
+  (`AnnoRegion` in `SvabaSharedConfig.h`); per-BP overlap in
+  `BreakPoint::setSequenceAnnotations` (called from `scoreBreakpoint`);
+  emitted cols 55/56 + `INFO/REPEAT_ANNO`,`INFO/POLYA` in `vcf.cpp`.
 - Insert-size learning / robust SD (MAD): `src/svaba/LearnBamParams.cpp::`
   `BamReadGroup::computeStats` (cutoff = median + sd*sdDiscCutoff)
 - Discordant tag decision: `src/svaba/SvabaBamWalker.cpp::TagDiscordant` +

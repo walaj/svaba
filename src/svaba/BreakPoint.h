@@ -157,7 +157,7 @@ public:
 		       "somatic\tsomlod\tmaxlod\tdbsnp\tcontig_conf1\tcontig_conf2\t"
 		       "cpos1\tcpos2\tlmatch\trmatch\tscov1\tscov2\t"
 		       "local1\tlocal2\tctglen\tflipped\t"
-		       "bp_id\tjxn_kmer\tdisc_cluster"
+		       "bp_id\tjxn_kmer\tdisc_cluster\trepeat_anno\tpoly_a"
 		       );
   }
   
@@ -182,6 +182,20 @@ public:
   // Like jxn_kmer this is a parsed-from-file cache: when hydrated from a row
   // (refilter/tovcf) the live `dc` is gone, so toFileString prefers this.
   std::string disc_cluster;
+
+  // SvABA2 v6: per-breakend annotation-track overlap (--annotation BED), as
+  // "b1labels|b2labels" (comma-joined labels per end; either side may be empty;
+  // whole field "" / "." when no track or no overlap). Non-filtering, purely
+  // informational (e.g. AluY|L1HS, SegDup|, ...). Computed in
+  // setSequenceAnnotations() when a track is loaded; otherwise carries the
+  // parsed-from-file cache so it round-trips through refilter/tovcf.
+  std::string repeat_anno;
+
+  // SvABA2 v6: longest poly-A / poly-T homopolymer run (bp) in the inserted
+  // novel sequence at the junction. A long run (>= ~6-10 bp) is the signature
+  // of retrotransposition / processed-pseudogene insertion (MEI). 0 when no
+  // insertion. Derived from `insertion`, so it round-trips for free.
+  int poly_a_len = 0;
 
   // SvABA2.0: unique stable identifier for this BreakPoint, assigned
   // exactly once per BP in SvabaRegionProcessor::process() via
@@ -368,7 +382,14 @@ public:
    * positionally without parsing the contig sequence themselves.
    */
   std::string junctionKmer(int window = 20) const;
-  
+
+  /** SvABA2 v6: populate `repeat_anno` (per-breakend overlap of the
+   * --annotation track, "b1labels|b2labels") and `poly_a_len` (longest
+   * poly-A/T run in the insertion, an MEI signal). Non-filtering. repeat_anno
+   * is only recomputed when sc->annotation is loaded, so a refilter/tovcf run
+   * without --annotation preserves the parsed-from-file value. */
+  void setSequenceAnnotations();
+
   bool hasDiscordant() const;
   
   //bool operator==(const BreakPoint& bp) const;

@@ -304,6 +304,18 @@ std::unordered_map<std::string, std::string> VCFEntry::fillInfoFields() const {
   if (!bp->disc_cluster.empty())
     info["DSCRD_CLUSTER"] = bp->disc_cluster;
 
+  // v6: per-breakend annotation-track overlap (bps.txt col 55, "b1|b2") and
+  // the poly-A/T MEI run length (col 56). Non-filtering, informational.
+  if (!bp->repeat_anno.empty()) {
+    // a comma is ambiguous in a Number=1 VCF INFO value; join multiple labels
+    // with '&' (snpEff-style) for the VCF. bps.txt keeps the commas (TSV-safe).
+    std::string ra = bp->repeat_anno;
+    std::replace(ra.begin(), ra.end(), ',', '&');
+    info["REPEAT_ANNO"] = ra;
+  }
+  if (bp->poly_a_len > 0)
+    info["POLYA"] = std::to_string(bp->poly_a_len);
+
   {
     std::stringstream ss; ss << std::setprecision(4) << bp->max_lod;
     info["MAXLOD"] = ss.str();
@@ -601,6 +613,8 @@ void populate_sv_header(VCFHeader& h) {
   h.addInfoField("MATEID",    "1", "String",  "ID of mate breakends");
   h.addInfoField("SUBN",      "1", "Integer", "Number of secondary alignments associated with this contig fragment");
   h.addInfoField("DSCRD_CLUSTER", "1", "String", "Discordant-cluster id for this event (DSCRD/ASDIS); joins discordant.txt.gz id and the discordant.bam DC:Z tag");
+  h.addInfoField("REPEAT_ANNO", "1", "String", "Per-breakend overlap of the --annotation track as 'b1labels|b2labels' (e.g. AluY|L1HS). Non-filtering/informational");
+  h.addInfoField("POLYA",       "1", "Integer", "Longest poly-A/T homopolymer run (bp) in the inserted sequence; a long run signals retrotransposition/MEI");
   h.addInfoField("NUMPARTS",  "1", "Integer", "If detected with assembly, number of parts the contig maps to. Otherwise 0");
   h.addInfoField("EVDNC",     "1", "String",  "Evidence for variant. ASSMB assembly only, ASDIS assembly+discordant. DSCRD discordant only, TSI_L templated-sequence insertion (local, e.g. AB or BC of an ABC), TSI_G global (e.g. AC of ABC)");
   h.addInfoField("SCTG",      "1", "String",  "Identifier for the contig assembled by svaba to make the SV call");
@@ -661,6 +675,8 @@ void populate_indel_header(VCFHeader& h) {
   h.addInfoField("SVLEN",    "1", "Integer", "Length of the indel (negative for deletions)");
   h.addInfoField("MAXLOD",   "1", "Float",   "Maximum per-sample log-odds (variant vs error) across samples");
   h.addInfoField("SOMLOD",   "1", "Float",   "Somatic log-odds (LLR of somatic vs non-somatic)");
+  h.addInfoField("REPEAT_ANNO", "1", "String", "Per-breakend overlap of the --annotation track as 'b1labels|b2labels'. Non-filtering/informational");
+  h.addInfoField("POLYA",    "1", "Integer", "Longest poly-A/T homopolymer run (bp) in the inserted sequence; a long run signals retrotransposition/MEI");
 
   // FORMATs (indel)
   h.addFormatField("GT",   "1", "String",  "Most likely genotype");

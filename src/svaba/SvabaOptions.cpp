@@ -86,6 +86,9 @@ BWA-MEM tuning:
 
 Output & DBs:
       --blacklist <FILE>  BED of blacklisted regions
+      --annotation <FILE> labeled BED (RepeatMasker/SegDup/custom); each
+                         breakend is overlap-annotated into the bps
+                         repeat_anno column. Repeatable. Non-filtering.
       --germline-sv <FILE>
                          BED of known germline SVs
       --dbsnp <VCF>       DBSNP VCF of known variants
@@ -158,6 +161,7 @@ SvabaOptions SvabaOptions::parse(int argc, char** argv) {
     {"blacklist",  required_argument,      nullptr,  1700},
     {"germline-sv",required_argument,      nullptr,  1701},
     {"dbsnp",      required_argument,      nullptr,  1702},
+    {"annotation", required_argument,      nullptr,  1703},
     // --dump-reads: runtime opt-in for corrected + discordant-reads BAMs.
     // Single flag, both side effects — see comment in SvabaOptions.h.
     // Weird-reads BAM is deliberately not on this flag (compile-time only).
@@ -218,6 +222,7 @@ SvabaOptions SvabaOptions::parse(int argc, char** argv) {
       case 1700: o.blacklistFile.push_back(optarg); break;
       case 1701: o.germlineSvFile = optarg; break;
       case 1702: o.dbsnpVcf       = optarg; break;
+      case 1703: o.annotationFile.push_back(optarg); break;
 
       // --dump-reads is the single runtime knob for all per-read detail
       // outputs. Flip all three flags together here; any call-site

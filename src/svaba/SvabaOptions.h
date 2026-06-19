@@ -299,6 +299,10 @@ class SvabaOptions {
 
   // external DBs
   std::vector<std::string> blacklistFile;
+  // optional non-filtering annotation track(s): labeled BED (RepeatMasker /
+  // SegDup / custom). Each breakend is overlap-annotated into the bps
+  // `repeat_anno` column. Repeatable. Does NOT filter calls.
+  std::vector<std::string> annotationFile;
   std::string germlineSvFile;
   std::string dbsnpVcf;
 

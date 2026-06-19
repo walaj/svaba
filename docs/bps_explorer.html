@@ -396,7 +396,11 @@ const V4=["jxn_kmer"];
 // discordant.bam DC:Z tag. Lets ASDIS rows show their cluster id alongside the
 // contig.
 const V5=["disc_cluster"];
-const NUM=new Set(["pos1","pos2","span","split","alt_count","cov","cigar","cigar_near","dmq1","dmq2","dcn","dct","mapq1","mapq2","nm1","nm2","as1","as2","sub1","sub2","naln","qual","secondary","somlod","maxlod","cpos1","cpos2","lmatch","rmatch","scov1","scov2","ctglen"]);
+// SvABA2 v6: +2 trailing core columns. repeat_anno is the per-breakend overlap
+// of the --annotation track as "b1labels|b2labels" ("." when no track/overlap);
+// poly_a is the longest poly-A/T run in the inserted sequence (MEI signal).
+const V6=["repeat_anno","poly_a"];
+const NUM=new Set(["pos1","pos2","span","split","alt_count","cov","cigar","cigar_near","dmq1","dmq2","dcn","dct","mapq1","mapq2","nm1","nm2","as1","as2","sub1","sub2","naln","qual","secondary","somlod","maxlod","cpos1","cpos2","lmatch","rmatch","scov1","scov2","ctglen","poly_a"]);
 
 const TCOLS=[
   // bp_id pinned to the leftmost column — it's the primary join key back
@@ -877,8 +881,10 @@ function ingest(text,name){
   const V3_N  = V2_N  + V3.length;          // 52
   const V4_N  = V3_N  + V4.length;          // 53
   const V5_N  = V4_N  + V5.length;          // 54
+  const V6_N  = V5_N  + V6.length;          // 56
   let coreCols;
-  if      (cc >= V5_N) { cc = V5_N; coreCols = LEGACY.concat(V2).concat(V3).concat(V4).concat(V5); }
+  if      (cc >= V6_N) { cc = V6_N; coreCols = LEGACY.concat(V2).concat(V3).concat(V4).concat(V5).concat(V6); }
+  else if (cc >= V5_N) { cc = V5_N; coreCols = LEGACY.concat(V2).concat(V3).concat(V4).concat(V5); }
   else if (cc >= V4_N) { cc = V4_N; coreCols = LEGACY.concat(V2).concat(V3).concat(V4); }
   else if (cc >= V3_N) { cc = V3_N; coreCols = LEGACY.concat(V2).concat(V3); }
   else if (cc >= V2_N) { cc = V2_N; coreCols = LEGACY.concat(V2); }

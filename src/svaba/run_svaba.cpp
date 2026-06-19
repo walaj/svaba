@@ -13,6 +13,7 @@
 #include <map>
 #include <vector>
 #include <cassert>
+#include <zlib.h>   // labeled --annotation BED parsing (plain + gz)
 
 #include "SeqLib/GenomicRegion.h"
 #include "SeqLib/UnalignedSequence.h"
@@ -286,7 +287,47 @@ void runsvaba(int argc, char** argv) {
   logger.log(true, true, "...loaded ", SeqLib::AddCommas(sc.blacklist.size()),
 	     " blacklist regions across ", SeqLib::AddCommas(sc.opts.blacklistFile.size()),
 	     " files");
-  
+
+  // open optional annotation track(s) (--annotation): labeled BED, parsed with
+  // labels (col 4) preserved. Non-filtering — each breakend is overlap-tagged
+  // into the bps `repeat_anno` column. NOT merged: per-interval labels are kept
+  // (merging would fuse distinct families). zlib reads plain + gz transparently.
+  for (const auto& path : sc.opts.annotationFile) {
+    gzFile fp = gzopen(path.c_str(), "rb");
+    if (!fp) {
+      logger.log(true, true, "ERROR: cannot open --annotation file '", path, "'");
+      throw std::runtime_error("cannot open annotation BED: " + path);
+    }
+    char buf[1 << 16];
+    size_t n_added = 0;
+    while (gzgets(fp, buf, sizeof(buf))) {
+      std::string line(buf);
+      if (line.empty() || line[0] == '#') continue;
+      if (line.compare(0, 5, "track") == 0 || line.compare(0, 7, "browser") == 0)
+        continue;
+      std::vector<std::string> f;
+      { std::stringstream ss(line); std::string t;
+        while (std::getline(ss, t, '\t')) f.push_back(t); }
+      if (f.size() < 3) continue;
+      int cid = sc.header.Name2ID(f[0]);
+      if (cid < 0) continue;                       // chrom not in this reference
+      int start = 0, end = 0;
+      try { start = std::stoi(f[1]); end = std::stoi(f[2]); } catch (...) { continue; }
+      std::string label = (f.size() >= 4 && !f[3].empty()) ? f[3] : std::string("1");
+      while (!label.empty() && (label.back() == '\n' || label.back() == '\r'))
+        label.pop_back();
+      // protect the bps colon-test and the b1|b2 separator
+      for (char& c : label) if (c == ':' || c == '|' || c == '\t') c = '_';
+      sc.annotation.add(AnnoRegion(cid, start, end, '*', label));
+      ++n_added;
+    }
+    gzclose(fp);
+    logger.log(true, true, "...loaded ", SeqLib::AddCommas(n_added),
+               " annotation intervals from '", path, "'");
+  }
+  if (sc.annotation.size())
+    sc.annotation.CreateTreeMap();
+
   // open the germline sv database
   loader.loadBedRegions(sc.opts.germlineSvFile, sc.germline_svs);
   
