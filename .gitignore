@@ -27,3 +27,31 @@ compile
 *.a
 *.rds
 
+# --- sim/ simulator: generated outputs (regeneratable from seed+code; never commit) ---
+# Keeps the sim CODE (*.py, *.sh, *.md, *.yml) but ignores donor genomes, reads,
+# alignments, and truth files wherever an OUTDIR lands under sim/ (or repo root).
+sim_out/
+sim/sim_out/
+sim/smoke/
+sim/**/fastq_*/
+sim/**/*.fa
+sim/**/*.fa.fai
+sim/**/*.fasta
+sim/**/*.fai
+sim/**/*.fq
+sim/**/*.fq.gz
+sim/**/*.fastq
+sim/**/*.fastq.gz
+sim/**/*.bam
+sim/**/*.bam.bai
+sim/**/*.bai
+sim/**/*.sam
+sim/**/*.cram
+sim/**/truth.vcf
+sim/**/truth.bedpe
+sim/**/truth.sv_table.tsv
+sim/**/ref_subset.fa
+sim/**/bwa_*.log
+*.mixtmp.*
+sim/__pycache__/
+

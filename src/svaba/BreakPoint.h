@@ -268,6 +268,15 @@ public:
   // second is right-most
   std::pair<int,int> split_cov_bounds;
 
+  // SvABA2: number of UNIQUE genomic start positions among split-supporting
+  // reads (set in splitCoverage). The duplicate-read signature is "many split
+  // reads but ~one source fragment" -> few unique starts. Used by the DUPREADS
+  // gate INSTEAD of the old contig-footprint-span proxy, so it doesn't misfire
+  // on short contigs / low coverage / dup-free simulated data. -1 = not
+  // computed (e.g. refilter without a live splitCoverage), which disables the
+  // gate. Not emitted to bps.txt (live-only), so no schema change.
+  int nsplit_starts = -1;
+
   GenomicRegion BreakEndAsGenomicRegionLeft() const;
   
   GenomicRegion BreakEndAsGenomicRegionRight() const;

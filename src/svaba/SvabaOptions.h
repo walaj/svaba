@@ -5,16 +5,17 @@
 #include <map>
 #include <cstddef>
 
-// version & date
+// version & date  --  OWNED BY CLAUDE (see CLAUDE.md "Versioning"). On every
+// meaningful change, bump this per semver and add a matching CHANGELOG.md entry;
+// these two constants drive the startup banner / `svaba --version` / @PG lines.
+// The build commit is stamped separately (SvabaGitVersion.h).
 //
-// Bumped to 2.0.0 to mark the SvABA2.0 overhaul: v3 bps.txt schema with
-// per-BP bp_id (col 52), r2c.txt.gz structured r2c emission replacing the
-// old alignments.txt.gz, comparative split-coverage gate, standalone
-// `svaba tovcf` + `svaba postprocess` subcommands, VCFv4.5 output, and
-// fermi-lite as the default local-assembly engine. See CLAUDE.md for the
-// full set of changes.
-inline constexpr char SVABA_VERSION[] = "2.0.0";
-inline constexpr char SVABA_DATE[]    = "04/2026";
+// 2.1.0 (since 2.0.0): somatic-safety junction-kmer net (KC FORMAT field),
+// `--annotation` BED + per-breakend repeat_anno/poly_a (v6 bps schema),
+// DUPREADS via unique split-read starts, hasAdapter 3'-clip fix, and assorted
+// false-somatic / SV-coordinate correctness fixes. See CHANGELOG.md.
+inline constexpr char SVABA_VERSION[] = "2.1.0";
+inline constexpr char SVABA_DATE[]    = "06/2026";
 
 // from AlignmentFragment.h
 inline constexpr std::size_t MAX_CONTIG_SIZE = 5'000'000;

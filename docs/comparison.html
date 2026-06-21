@@ -6,6 +6,8 @@
 <title>SvABA BPS Comparison</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<!-- local ground-truth labeling store (Valid/Artifact/Germline/Ambiguous), shared with bps_explorer.html -->
+<script src="truth_store.js"></script>
 <style>
   :root {
     --bg: #0f1117; --surface: #1a1d27; --surface2: #252833;
@@ -388,6 +390,7 @@
         <div class="detail-panel-header">
           <span><strong>Row detail</strong> <span class="subtitle">— every field from bps.txt.gz</span></span>
           <span class="subtitle" id="rowDetailSubtitle">click any row above</span>
+          <span id="truth-host" style="margin-left:auto" title="Ground-truth labels save silently in this browser; Export/Import to a JSON file"></span>
         </div>
         <div class="detail-panel-body" id="rowDetailBody">
           <div class="empty">Click a row in the table above to see every column from <code>bps.txt.gz</code> for that record.</div>
@@ -1511,6 +1514,16 @@ function renderRowDetail(row) {
 
   html += '</tbody></table>';
   body.innerHTML = html;
+
+  // ground-truth labeling: per-variant Valid/Artifact/Germline/Ambiguous, saved
+  // silently to localStorage (shared with bps_explorer.html). Keyed by breakend
+  // coords only, so the same variant labels consistently across both viewers.
+  if (window.SvabaTruth) {
+    const tw = SvabaTruth.makeWidget(row.chr1, row.pos1, row.chr2, row.pos2,
+                 row.type || row.type_A || row.type_B || '',
+                 () => { if (window.__truthBar) window.__truthBar._refresh(); });
+    body.insertBefore(tw, body.firstChild);
+  }
 }
 
 function renderTable(rows, cols, rowClass) {
@@ -1648,6 +1661,13 @@ function renderDetailTabs(result) {
 document.getElementById('searchInput').addEventListener('input', () => {
   if (activeTabData) renderTable(activeTabData.rows, activeTabData.cols, activeTabData.cls);
 });
+
+// ground-truth labeling toolbar (summary + Export/Import). Labels persist in
+// localStorage, shared with bps_explorer.html. See truth_store.js.
+if (window.SvabaTruth) {
+  window.__truthBar = SvabaTruth.makeToolbar();
+  document.getElementById('truth-host').appendChild(window.__truthBar);
+}
 
 // ── Main ──
 document.getElementById('runBtn').addEventListener('click', () => {

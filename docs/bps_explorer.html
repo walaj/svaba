@@ -275,7 +275,8 @@ th.w-gt{cursor:help}
   <div class="ctrl"><label>Rows/pg</label>
     <select id="f-page-size"><option value="50">50</option><option value="100" selected>100</option><option value="250">250</option><option value="500">500</option><option value="1000">1k</option></select>
   </div>
-  <button class="btn-ghost btn" id="reset-btn" style="margin-left:auto">Reset</button>
+  <div class="ctrl" id="truth-host" style="margin-left:auto" title="Ground-truth labels are saved silently in this browser; Export/Import to a JSON file for durability"></div>
+  <button class="btn-ghost btn" id="reset-btn">Reset</button>
 </div>
 
 <div id="chip-bar" class="controls" style="display:none"></div>
@@ -364,6 +365,8 @@ th.w-gt{cursor:help}
      alignment-plot integration below can call initSqlJs() the moment a
      user drops in an r2c.db file. ~600 KB; harmless if unused. -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.js"></script>
+<!-- local ground-truth labeling store (Valid/Artifact/Germline/Ambiguous), file://-friendly -->
+<script src="truth_store.js"></script>
 <script>
 (function(){
 "use strict";
@@ -548,6 +551,9 @@ $("gtf-zone").addEventListener("drop",e=>{const f=e.dataTransfer.files[0];if(f)l
 $("export-btn").onclick=exportTSV;
 $("export-html-btn").onclick=exportHTML;
 $("reset-btn").onclick=()=>{resetF();render()};
+// ground-truth labeling toolbar (summary + Export/Import); labels persist in
+// localStorage. Importing refreshes row badges. See truth_store.js.
+if(window.SvabaTruth){ window.__truthBar=SvabaTruth.makeToolbar(()=>{try{rTable()}catch(e){}}); $("truth-host").appendChild(window.__truthBar); }
 $("pg-prev").onclick=()=>{if(S.pg>1){S.pg--;rTable()}};
 $("pg-next").onclick=()=>{if(S.pg<tPages()){S.pg++;rTable()}};
 $("pg-first").onclick=()=>{S.pg=1;rTable()};
@@ -1098,7 +1104,11 @@ function rTable(){
   else{
     const h=[];
     for(const r of page){
-      h.push('<tr data-id="'+r.id+'"'+(r.id===S.selId?' class="sel"':'')+'>');
+      // ground-truth badge: colored left bar if this variant has been labeled
+      let _gt="";
+      if(window.SvabaTruth){const _l=SvabaTruth.labelOf(r.chr1,r.pos1,r.chr2,r.pos2,r.eventType);
+        if(_l)_gt=' style="box-shadow:inset 4px 0 0 '+SvabaTruth.colorOf(_l)+'" title="ground truth: '+_l+'"';}
+      h.push('<tr data-id="'+r.id+'"'+(r.id===S.selId?' class="sel"':'')+_gt+'>');
       for(const c of TCOLS){
         let v=r[c.k],cls=c.n?"num":"";
         if(c.w) cls+=(cls?" ":"")+"w-"+c.w;
@@ -1176,6 +1186,17 @@ function rDetail(){
   });
   h+='</table>';
   $("dp-body").innerHTML=h;
+
+  // ground-truth labeling: per-variant Valid/Artifact/Germline/Ambiguous.
+  // Saved silently+immediately to localStorage; refreshes the summary bar and
+  // the row badges. Keyed by breakend coords only (BAM/version-independent).
+  if(window.SvabaTruth){
+    const tw=SvabaTruth.makeWidget(r.chr1,r.pos1,r.chr2,r.pos2,r.eventType,()=>{
+      if(window.__truthBar)window.__truthBar._refresh();
+      rTable();
+    });
+    $("dp-body").insertBefore(tw,$("dp-body").firstChild);
+  }
 
   // If the user has loaded an r2c.db, render the per-read alignment
   // plot for this row's contig in the panel below the detail panel.

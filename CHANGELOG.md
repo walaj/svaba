@@ -33,6 +33,57 @@ and svaba follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 _Nothing yet._
 
+## [2.1.0] - 2026-06-21
+
+Backward-compatible feature additions plus a batch of false-somatic / coordinate
+correctness fixes accumulated since 2.0.0. The `bps.txt.gz` and VCF additions are
+trailing/additive (older parsers that read by name or early columns are
+unaffected), so this is a MINOR release. See [`CLAUDE.md`](CLAUDE.md) for the
+full engineering notes. Versioning is now Claude-maintained (see CLAUDE.md
+"Versioning").
+
+### Added
+- **`--annotation <BED>`** (repeatable): overlap each breakend with a labeled
+  BED (RepeatMasker / segmental-dups / custom). New trailing bps columns
+  **`repeat_anno`** (col 55, `b1labels|b2labels`) and **`poly_a`** (col 56,
+  longest poly-A/T run in the insertion = MEI signal); VCF `INFO/REPEAT_ANNO`
+  and `INFO/POLYA`. Non-filtering. (bps schema v5 → **v6**.)
+- **Somatic-safety junction-kmer net** → new per-sample FORMAT subfield
+  **`KC`**. Reads excluded from assembly/r2c (adapter read-through,
+  blacklist-self) that carry a breakpoint's junction kmer (≥19/20 bp, either
+  strand) are counted and folded into the normal alt count for the somatic LOD,
+  so a junction-spanning normal read can never be silently lost.
+- **`sim/`** — self-contained SV simulator: non-overlapping SVs across the
+  genome → diploid donor → ART → BWA-MEM, in-silico tumor impurity admixture,
+  ground truth (VCF/BEDPE/TSV), `benchmark.py`, and one-shot panel/run drivers
+  (`build_sim_panel.sh`, `run_svaba_on_panel.sh`).
+- **Viewers**: `docs/sim_benchmark.html` (ROC / PR vs truth, dual somlod+maxlod
+  gate, IGV-linked TP/FP/FN tables, blacklist masking) and `docs/truth_store.js`
+  (in-browser Valid/Artifact/Germline/Ambiguous labeling with auto-save to a
+  committed `ground_truth.json`), wired into `bps_explorer.html` /
+  `comparison.html`. New `tracks/hg38.rmsk.bed.gz`, `tracks/hg38.segdups.bed.gz`.
+
+### Changed
+- **DUPREADS** now keys on the number of UNIQUE split-read genomic start
+  positions (`nsplit_starts`), not the contig-footprint span — fixes
+  false-flagging of real low-coverage / short-contig / duplicate-free events.
+- Distant-read recovery for assembly-only large SVs; blacklist-aware
+  region-queue pruning; coverage (DP) now counts blacklist-overlapping reads;
+  `addCovs` averages only populated breakends.
+
+### Fixed
+- **`hasAdapter`**: a 5′-end soft-clip is split-read signal, never adapter
+  read-through — adapter geometry is judged on the 3′ clip only, so
+  junction-spanning reads across small SVs are no longer dropped.
+- **SV breakend off-by-one**: `gbreak` stored 0-based; every SV breakend
+  coordinate shifts −1 vs prior output (indels unaffected). Symbolic-SV REF base
+  in `tovcf` now taken at the min breakend. VCF POS/END now consistently 1-based.
+- **Insert-size robust SD (MAD)**: tames heavy-tailed isize → fixes inflated
+  discordant cutoffs that blinded the normal and produced false somatic calls;
+  interchromosomal RF discordant reads no longer dropped.
+- Confidence read-count vetoes removed for SV paths (evidence sufficiency is the
+  LOD's job); `LOWICSUPPORT` intra-chrom guard restored.
+
 ## [2.0.0] - 2026-06-07
 
 The **SvABA 2.0** overhaul. This is a major release: output schemas, the

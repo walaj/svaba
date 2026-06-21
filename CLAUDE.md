@@ -27,6 +27,10 @@ Top-level layout:
   HTML viewer suite now lives in `docs/` (it used to be `viewer/`; see the
   "Viewer suite" section).
 - `tests/`, `example_data/` — test fixtures.
+- `sim/` — self-contained SV simulator (truth set + simulated WGS BAMs for
+  benchmarking; see `sim/README.md`). Only the code is tracked; all generated
+  outputs (donor genomes, reads, BAMs, `truth.*`) are gitignored via the
+  `sim/**` block in the root `.gitignore`.
 - `scripts/` — post-processing and utility shell helpers, all kept here
   (not at the repo root). Current set: `svaba_postprocess.sh`,
   `combine_blacklists.sh`, `mosdepth_lowmapq_blacklist.sh`,
@@ -53,6 +57,28 @@ them: `sort_output.sh` and `sort_and_deduplicate_bps.sh` were subsumed into
 the postprocess pipeline (now the `svaba postprocess` subcommand);
 `extract_pairs_by_seq.sh` was subsumed
 into the `svaba extract-pairs` subcommand.
+
+## Versioning — Claude owns this
+
+**Claude is responsible for svaba's version number and the printed header.** On
+every *meaningful* change (a feature, a fix that alters output, a schema/CLI
+change — not pure comments/docs), before finishing:
+
+1. Bump `SVABA_VERSION` (and set `SVABA_DATE` to the current `MM/YYYY`) in
+   `src/svaba/SvabaOptions.h`. These two `constexpr` constants drive the startup
+   banner, `svaba --version`, and the `@PG` lines — so a rebuild is required for
+   the new header to show.
+2. Follow **semver** (`MAJOR.MINOR.PATCH`): MAJOR = output-schema/CLI changes
+   that break existing pipelines; MINOR = backward-compatible new
+   functionality/outputs (trailing bps columns, new flags, new FORMAT subfields
+   count as MINOR since they're additive); PATCH = fixes with no interface
+   impact. Judge from the actual diff.
+3. Add/extend the matching `CHANGELOG.md` section (Keep-a-Changelog format:
+   Added / Changed / Fixed), dated. Roll the `[Unreleased]` bucket into the new
+   version.
+
+The git **commit** is stamped automatically by CMake (`SvabaGitVersion.h`) — do
+not hand-edit that. Current line: **2.1.0 (06/2026)**.
 
 ## Build system
 
@@ -205,6 +231,28 @@ the indel `LOWLOD` (that *is* the `--lod` knob), and the indel
 `NODISC` (`homology >= 20 && span > 1500 && mapq < 60`) — small same-strand
 events and high-homology large events are artifact *classes*, not merely
 thin support, so those stay.
+
+**`DUPREADS` reworked — unique split-read starts, not contig-footprint span
+(June 2026).** The old gate fired when `num_split>1 && cov_span<=readlen+5`
+(`cov_span = split_cov_bounds.second-first`, the span of contig positions
+covered by split reads). That proxy false-flagged real low-coverage /
+short-contig / dup-free (ART-simulated) somatic SVs whose few *independent*
+reads happen to cluster within ~one read length (e.g. a short 243 bp contig
+with the breakend near one end → only ~58 bp flank → cov_span pinned at
+readlen+5, tripping `<=` exactly). The duplicate signature is really "many
+split reads but ~one source fragment", so the gate now counts **unique genomic
+start positions** of credited split reads: `BreakPoint::nsplit_starts` (set in
+`splitCoverage`, a `std::unordered_set<int>` of `j->Position()`), and fires
+`num_split>1 && nsplit_starts>=0 && nsplit_starts<=1`. PCR/optical duplicates
+share a start (collapse to 1); independent molecules don't. svaba already drops
+MarkDuplicates-flagged reads at intake (`SvabaBamWalker.cpp` dup hard-drop), so
+this is just a thin secondary guard for *un-marked* duplicate inputs and is a
+near-no-op on properly-deduped/simulated BAMs. `nsplit_starts` is **live-only**
+(not emitted to bps → no schema change); `-1` (refilter, where `splitCoverage`
+didn't run) disables the gate. `split_cov_bounds`/`scov1`/`scov2` are still
+emitted for inspection but no longer drive DUPREADS. Verified: the
+`c_fermi_chr22_50470001_50495001_11C` 9.5 kb somatic DUP (split 5, somlod 8.84,
+maxlod 14.17, scov 88/243) flips DUPREADS→PASS.
 
 **`LOWICSUPPORT` missing-interchrom-guard fix (June 2026).** In
 `score_assembly_only` there are three `LOWICSUPPORT` anchor gates
@@ -1136,6 +1184,29 @@ Entry point is `docs/index.html`, a card grid pointing at the
 sub-viewers (the suite moved from `viewer/` to `docs/`). All
 client-side, no server required.
 
+**Ground-truth labeling (`docs/truth_store.js`).** Shared module included by
+`bps_explorer.html` and `comparison.html` for building a reusable truth set
+while reviewing one fixed test BAM over time. Per-variant buttons
+**Valid / Artifact / Germline / Ambiguous** in the detail panel save silently
++ immediately to `localStorage` (key `svaba_truth_v1`); a toolbar shows the
+running label tally with **Export/Import JSON** for durability/sharing/version
+control. bps_explorer also tints labeled rows with a colored left bar.
+**Auto-save to repo file:** the toolbar's "auto-save to file" button links a
+real `ground_truth.json` via the File System Access API (Chrome/Edge) and
+writes it on every label change — point it at the committed
+`docs/ground_truth.json` so the truth set lives in the repo with the project.
+The file handle persists in IndexedDB (one permission re-grant click per
+session via "reconnect"); merges are newest-`ts`-wins. Firefox/Safari lack the
+API and fall back to Export/Import. The seed `docs/ground_truth.json` is tracked
+(not gitignored).
+Variants are keyed by **breakend coordinates + coarse type only** — NOT
+bp_id/cname/svaba-version (per design: one BAM, "real or not real") — so labels
+are run-independent; keys are orientation- and strand-agnostic (A/B breakend
+order canonicalized) with a ±10 bp fuzzy fallback so small cross-version coord
+shifts still resolve. All viewer uses are guarded by `if(window.SvabaTruth)` so
+the HTML still works if the `.js` is absent. Logic verified via JavaScriptCore
+(`jsc`); the exported `*.json` is NOT gitignored (commit it as your truth set).
+
 - **`bps_explorer.html`** — primary viewer. Sortable table of bps rows,
   numeric filters (somlod/maxlod/qual/span/etc.), chip filters (counts
   are live — they reflect the current filter, not the full dataset),
@@ -1194,6 +1265,21 @@ client-side, no server required.
 - **`learn_explorer.html`** — explorer for svaba's insert-size learning
   output (per-read-group insert-size / read-length distributions, learned
   inside `svaba run`; pairs with `scripts/plot_learn.sh`).
+- **`sim_benchmark.html`** — scores svaba vs the `sim/` simulator truth.
+  Loads `truth.bedpe` + a `bps.txt[.gz]` (streaming gunzip, auto-restricted to
+  the truth's chromosomes so a genome-wide bps isn't drowned in off-target
+  germline). Breakend-pair match (orientation-agnostic, ±tol). **Dual somlod +
+  maxlod sliders** form a 2D gate (how svaba is really tuned); a sweep-axis
+  selector picks which score the curves sweep while the other is the held floor.
+  Charts: **call-level ROC** (TPR vs FPR + AUC + chance diagonal) and
+  **Precision-Recall** (truth-level recall). Clicking the TP/FP/FN counts
+  enumerates those variants in a table with **IGV links** (port 60151 goto).
+  Optional **blacklist BED** masks regions: any truth (and, by default, any
+  call) with a breakend inside a blacklist interval is excluded from scoring
+  (excluding calls too keeps precision honest — a call matching a removed truth
+  would otherwise become a phantom FP; toggle `also exclude calls in blacklist`
+  to do truth-only). BED half-open semantics, binary-search overlap.
+  Matching logic mirrors `sim/benchmark.py` (validated against it).
 - **`bps_viewer.html`** — legacy light-theme viewer, uses external
   `app.js` + `styles.css`.
 

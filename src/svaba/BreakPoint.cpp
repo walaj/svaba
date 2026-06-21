@@ -345,7 +345,9 @@ std::string BreakPoint::toFileString(const BamHeader& header) const {
     // Flanking match lengths at each end (drives SHORTALIGNMENT/LOWMATCHLEN).
      << left_match << sep
      << right_match << sep
-    // Extent of split-read coverage on the contig (drives DUPREADS/LOWSUPPORT).
+    // Extent of split-read coverage on the contig (scov1/scov2). Emitted for
+    // inspection; DUPREADS now uses unique split-read starts (nsplit_starts),
+    // not this footprint span — see score_assembly_only.
      << split_cov_bounds.first << sep
      << split_cov_bounds.second << sep
     // Per-end LocalAlignment enum, serialized as int to keep the parser
@@ -444,6 +446,10 @@ void BreakPoint::splitCoverage(svabaReadPtrVector& bav) {
   // dummy left-most and right-most positions that have an
   // overlapping read2contig alignment
   split_cov_bounds = {std::numeric_limits<int>::max(), -1};
+
+  // SvABA2: unique genomic start positions of credited split reads. Duplicate
+  // reads share a start; independent molecules don't. Drives the DUPREADS gate.
+  std::unordered_set<int> split_starts;
   
   // track if first and second mate covers same split. fishy and remove them both
   std::unordered_map<std::string, bool> qname_and_num;
@@ -810,9 +816,13 @@ void BreakPoint::splitCoverage(svabaReadPtrVector& bav) {
 	            << " issplit1=" << issplit1 << " issplit2=" << issplit2);
 	
 	// how much of the contig do these span
-	// for a given read QNAME, get the coverage that 
+	// for a given read QNAME, get the coverage that
 	split_cov_bounds.first = std::min(split_cov_bounds.first, pos);
 	split_cov_bounds.second = std::max(split_cov_bounds.second, te);
+	// unique source-fragment count: PCR/optical duplicates share a genomic
+	// start; independent molecules don't. (Marked dups are already dropped at
+	// intake; this catches un-marked ones for the DUPREADS gate.)
+	split_starts.insert(j->Position());
       }
     }
     
@@ -824,9 +834,12 @@ void BreakPoint::splitCoverage(svabaReadPtrVector& bav) {
     
     // add r2c back, but as amended
     //j.AddR2C(cname, this_r2c);
-    
+
   } // end read loop
-  
+
+  // unique split-read source-fragment count for the DUPREADS gate
+  nsplit_starts = static_cast<int>(split_starts.size());
+
     // process valid reads
   for (auto& i : bav) {
     
@@ -1333,7 +1346,8 @@ void BreakPoint::score_assembly_only() {
   
   int span = getSpan();
   int num_split = t.split + n.split;
-  int cov_span = split_cov_bounds.second - split_cov_bounds.first ;
+  // (cov_span / split_cov_bounds still emitted to bps for inspection; the
+  // DUPREADS gate now uses nsplit_starts instead — see below.)
 
   // check for high repeats
   // bool hi_rep = false;
@@ -1354,8 +1368,18 @@ void BreakPoint::score_assembly_only() {
     confidence = "NOLOCAL";
   else if (local == LocalAlignment::NONVAR_LOCAL_REALIGNMENT)
     confidence = "LOCALMATCH";
-  else if ( num_split > 1 && ( (cov_span <= (sc->readlen + 5 ) && cov_span > 0) || cov_span < 0) )
-    confidence = "DUPREADS"; // the same sequences keep covering the split
+  // DUPREADS: split support that collapses to a single source fragment -- the
+  // true duplicate-read signature. Measured by UNIQUE split-read genomic start
+  // positions (nsplit_starts), NOT the old contig-footprint-span proxy
+  // (cov_span <= readlen+5), which false-flagged real low-coverage / short-
+  // contig / dup-free (ART-simulated) somatic SVs whose few independent reads
+  // happen to cluster within ~one read length. svaba already drops
+  // MarkDuplicates-flagged reads at intake (SvabaBamWalker.cpp), so this is a
+  // thin secondary guard for un-marked duplicate inputs and now fires only when
+  // 2+ split reads share one start (i.e. no independent molecule). nsplit_starts
+  // < 0 means it wasn't computed live (refilter) -> gate disabled.
+  else if ( num_split > 1 && nsplit_starts >= 0 && nsplit_starts <= 1 )
+    confidence = "DUPREADS";
   else if (homology.length() >= 20 && (span > 1500 || span == -1) && std::max(b1.mapq, b2.mapq) < 60)
     confidence = "NODISC";
   else if ((int)seq.length() < sc->readlen + 30)
