@@ -24,10 +24,19 @@ set -euo pipefail
 : "${ANNO_RMSK:=$HOME/git/svaba/tracks/hg38.rmsk.bed.gz}"
 : "${ANNO_SEGDUP:=$HOME/git/svaba/tracks/hg38.segdups.bed.gz}"
 : "${THREADS:=20}"
-: "${POSTPROCESS:=1}"           # run `svaba postprocess` after each (needed for scoring)
+: "${POSTPROCESS:=1}"           # run `svaba postprocess` after each (bps mode only)
 : "${BENCHMARK:=1}"             # run sim/benchmark.py after each, write a summary
 : "${BAM_GLOB:=tumor.*x*.bam}"  # which BAMs in the panel to run on (impure + pure)
 : "${DRYRUN:=0}"
+
+# Output mode = what we score against truth:
+#   bps  (default) -- svaba2: postprocess -> <tag>.bps.sorted.dedup.txt.gz, scored
+#                     with --pass-only --somatic-only; run uses --annotation.
+#   vcf            -- older svaba (e.g. SVABA=~/git/svaba1/build/svaba): score the
+#                     somatic SV + indel VCFs that `svaba run` writes directly
+#                     (<tag>.svaba.somatic.{sv,indel}.vcf). No postprocess, and the
+#                     run drops --annotation (not supported by that build).
+: "${MODE:=bps}"
 
 # MATCHED NORMAL for the T/N pair. This is the user's SECOND WGS normal from the
 # SAME individual as the tumor's contamination (build_sim_panel.sh's
@@ -78,19 +87,38 @@ SVABA_VER=$("$SVABA" --version 2>&1 | head -1 || true)
 TIMEFORMAT='%R %U %S'              # bash `time` -> "real user sys" (seconds)
 BATCH_START=$(date +%s)
 
+# mode-dependent setup: --annotation only in bps mode (older builds lack it)
+case "$MODE" in
+  bps) ANNO_ARGS=(--annotation "$ANNO_RMSK" --annotation "$ANNO_SEGDUP") ;;
+  vcf) ANNO_ARGS=() ; POSTPROCESS=0 ;;
+  *)   echo "ERROR: MODE must be 'bps' or 'vcf' (got '$MODE')"; exit 1 ;;
+esac
+anno_args(){ [ "${#ANNO_ARGS[@]}" -gt 0 ] && printf '%s ' "${ANNO_ARGS[@]}"; }
+# combine svaba1's somatic SV + indel VCFs (plain or .gz) into one file for benchmark
+combine_somatic_vcfs(){ local od="$1" tag="$2" out="$3"; : > "$out"; local v found=0
+  shopt -s nullglob
+  for v in "$od/$tag".svaba.somatic.sv.vcf "$od/$tag".svaba.somatic.sv.vcf.gz \
+           "$od/$tag".svaba.somatic.indel.vcf "$od/$tag".svaba.somatic.indel.vcf.gz; do
+    [ -f "$v" ] || continue; found=1
+    case "$v" in *.gz) gzip -dc "$v";; *) cat "$v";; esac >> "$out"
+  done
+  shopt -u nullglob
+  [ "$found" = 1 ]
+}
+
 RUNROOT="$PANELDIR/svaba_runs_${GITHASH}"
 SUMMARY="$RUNROOT/benchmark_summary.tsv"
 log "panel: $PANELDIR"
-log "svaba: $SVABA   commit: $GITHASH   ($SVABA_VER)"
+log "svaba: $SVABA   commit: $GITHASH   mode: $MODE   ($SVABA_VER)"
 log "normal (-n): $NORMAL   threads: $THREADS   postprocess=$POSTPROCESS benchmark=$BENCHMARK"
 log "tumor BAMs (${#BAMS[@]}): $(for b in "${BAMS[@]}"; do basename "$b"; done | tr '\n' ' ')"
 log "output -> $RUNROOT/"
 
 if [ "$DRYRUN" = "1" ]; then
   for bam in "${BAMS[@]}"; do tag=$(basename "${bam%.bam}")
-    echo "time $SVABA run -t $bam -n $NORMAL -G $REF --blacklist $BLACKLIST -p $THREADS -a $tag --annotation $ANNO_RMSK --annotation $ANNO_SEGDUP"
+    echo "time $SVABA run -t $bam -n $NORMAL -G $REF --blacklist $BLACKLIST -p $THREADS -a $tag $(anno_args)"
   done
-  log "DRYRUN=1 -> nothing executed."; exit 0
+  log "DRYRUN=1 (mode=$MODE) -> nothing executed."; exit 0
 fi
 
 mkdir -p "$RUNROOT"
@@ -100,18 +128,19 @@ printf "tumor_bam\ttruth\tdetected\trecall\tcalls\tmatching\tprecision\twall_s\t
 for bam in "${BAMS[@]}"; do
   tag=$(basename "${bam%.bam}")
   od="$RUNROOT/$tag"; mkdir -p "$od"
-  if [ -f "$od/$tag.bps.txt.gz" ]; then
+  primary=$([ "$MODE" = vcf ] && echo "$od/$tag.svaba.somatic.sv.vcf" || echo "$od/$tag.bps.txt.gz")
+  if [ -f "$primary" ]; then
     log "$tag: svaba output exists -> skip run"
   else
-    log "svaba run on $tag ($(basename "$bam")) ..."
+    log "svaba run on $tag ($(basename "$bam")) [mode=$MODE] ..."
     # capture real/user/sys for this run into <tag>.time.txt (svaba's own output
     # goes to the log); the `time` keyword's stderr is what lands in time.txt.
     { time ( cd "$od" && "$SVABA" run -t "$bam" -n "$NORMAL" -G "$REF" \
         --blacklist "$BLACKLIST" -p "$THREADS" -a "$tag" \
-        --annotation "$ANNO_RMSK" --annotation "$ANNO_SEGDUP" \
+        ${ANNO_ARGS[@]+"${ANNO_ARGS[@]}"} \
         > "$od/$tag.svaba.log" 2>&1 ) ; } 2> "$od/$tag.time.txt" \
       || log "  WARN: svaba run nonzero exit for $tag (see $tag.svaba.log)"
-    log "  done -> $od/$tag.bps.txt.gz  ($(cat "$od/$tag.time.txt" 2>/dev/null | awk '{printf "wall %ss cpu %.0fs", $1, $2+$3}'))"
+    log "  done ($(cat "$od/$tag.time.txt" 2>/dev/null | awk '{printf "wall %ss cpu %.0fs", $1, $2+$3}'))"
   fi
 
   if [ "$POSTPROCESS" = "1" ]; then
@@ -132,12 +161,20 @@ for bam in "${BAMS[@]}"; do
     cpu=$(awk -v u="${urun:-0}" -v s="${srun:-0}" 'BEGIN{printf "%.1f",u+s}')
   fi
 
-  # accuracy vs truth (optional)
-  t="NA"; d="NA"; r="NA"; c="NA"; m="NA"; pr="NA"
-  if [ "$BENCHMARK" = "1" ] && [ -f "$PANELDIR/truth.bedpe" ] && [ -f "$od/$tag.bps.sorted.dedup.txt.gz" ]; then
-    log "  benchmarking $tag vs truth ..."
+  # accuracy vs truth (optional). bps mode -> dedup bps (--somatic-only); vcf mode
+  # -> combined somatic SV+indel VCFs (already the somatic set, so no --somatic-only).
+  t="NA"; d="NA"; r="NA"; c="NA"; m="NA"; pr="NA"; calls=""; bflags=""
+  if [ "$MODE" = "vcf" ]; then
+    if combine_somatic_vcfs "$od" "$tag" "$od/$tag.somatic.combined.vcf"; then
+      calls="$od/$tag.somatic.combined.vcf"; bflags="--format vcf --pass-only"
+    else log "  WARN: no somatic VCFs found for $tag (expected $tag.svaba.somatic.{sv,indel}.vcf)"; fi
+  else
+    [ -f "$od/$tag.bps.sorted.dedup.txt.gz" ] && { calls="$od/$tag.bps.sorted.dedup.txt.gz"; bflags="--pass-only --somatic-only"; }
+  fi
+  if [ "$BENCHMARK" = "1" ] && [ -f "$PANELDIR/truth.bedpe" ] && [ -n "$calls" ]; then
+    log "  benchmarking $tag vs truth ($MODE) ..."
     out=$(python3 "$HERE/benchmark.py" --truth "$PANELDIR/truth.bedpe" \
-           --calls "$od/$tag.bps.sorted.dedup.txt.gz" --pass-only --somatic-only 2>/dev/null || true)
+           --calls "$calls" $bflags --events-out "$od/$tag.events.tsv" 2>/dev/null || true)
     echo "$out" > "$od/$tag.benchmark.txt"
     ov=$(echo "$out" | grep -m1 "truth=[0-9]"); cv=$(echo "$out" | grep -m1 "calls=[0-9]")
     t=$(echo "$ov"  | sed -n 's/.*truth=\([0-9]*\).*/\1/p');  t=${t:-NA}
@@ -152,9 +189,12 @@ done
 
 # ---- totals + run metadata (for the cross-commit comparison tool) ----------
 shopt -s nullglob; TF=( "$RUNROOT"/*/*.time.txt ); shopt -u nullglob
+TOT_WALL=0; TOT_CPU=0
 if [ "${#TF[@]}" -gt 0 ]; then
-  read -r TOT_WALL TOT_CPU < <(awk '{w+=$1;c+=$2+$3} END{printf "%.1f %.1f",w,c}' "${TF[@]}")
-else TOT_WALL=0; TOT_CPU=0; fi
+  # note the trailing \n + `|| true`: a newline-less `read` returns non-zero,
+  # which under `set -e` would otherwise abort before run_meta.json is written.
+  read -r TOT_WALL TOT_CPU < <(awk '{w+=$1;c+=$2+$3} END{printf "%.1f %.1f\n",w,c}' "${TF[@]}") || true
+fi
 BATCH_WALL=$(( $(date +%s) - BATCH_START ))
 cat > "$RUNROOT/run_meta.json" <<JSON
 {

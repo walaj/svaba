@@ -66,6 +66,8 @@ def load_bps(path, pass_only, somatic_only):
             return None
         ic1, ip1, ic2, ip2 = col("chr1"), col("pos1"), col("chr2"), col("pos2")
         iconf, isom = col("conf", "confidence"), col("somatic")
+        isl, iml, ity = col("somlod"), col("maxlod"), col("type", "evidence")
+        get = lambda f, i: f[i] if (i is not None and i < len(f)) else ""
         for line in fh:
             f = line.rstrip("\n").split("\t")
             if len(f) <= max(ip2, iconf or 0):
@@ -77,7 +79,8 @@ def load_bps(path, pass_only, somatic_only):
             if somatic_only and som not in ("1", "SOMATIC", "true", "TRUE"):
                 continue
             calls.append(dict(b1=(f[ic1], int(f[ip1])), b2=(f[ic2], int(f[ip2])),
-                              conf=conf, somatic=som))
+                              conf=conf, somatic=som, evtype=get(f, ity),
+                              somlod=get(f, isl), maxlod=get(f, iml)))
     return calls
 
 
@@ -108,12 +111,16 @@ def load_vcf(path, pass_only, somatic_only):
                 if not m:
                     continue
                 mate = (m.group(1), int(m.group(2)))
-                rec = dict(b1=(chrom, pos), b2=mate, conf=filt, somatic=is_som)
+                rec = dict(b1=(chrom, pos), b2=mate, conf=filt, somatic=is_som,
+                           somlod=ikv.get("SOMLOD", ""), maxlod=ikv.get("MAXLOD", ""),
+                           evtype=ikv.get("EVDNC", ""))
                 calls.append(rec)  # each BND row already carries both ends
             else:
                 end = int(ikv.get("END", pos))
                 calls.append(dict(b1=(chrom, pos), b2=(chrom, end),
-                                  conf=filt, somatic=is_som))
+                                  conf=filt, somatic=is_som,
+                                  somlod=ikv.get("SOMLOD", ""), maxlod=ikv.get("MAXLOD", ""),
+                                  evtype=ikv.get("EVDNC", "")))
     if somatic_only:
         calls = [c for c in calls if c["somatic"]]
     return calls
@@ -142,6 +149,7 @@ def match(truth, calls, tol):
         return a[0] == b[0] and abs(a[1] - b[1]) <= tol
 
     matched_calls = set()
+    call_to_truth = {}              # call idx -> truth name it matched (first wins)
     for t in truth:
         cand = set(near(*t["b1"])) | set(near(*t["b2"]))
         for ci in cand:
@@ -149,9 +157,46 @@ def match(truth, calls, tol):
             if (bp_match(t["b1"], c["b1"]) and bp_match(t["b2"], c["b2"])) or \
                (bp_match(t["b1"], c["b2"]) and bp_match(t["b2"], c["b1"])):
                 t["matched"] = True
-                matched_calls.add(ci)
-                break
-    return matched_calls
+                matched_calls.add(ci)       # credit EVERY matching call (no break)
+                call_to_truth.setdefault(ci, t["name"])
+    # NB: no break -> a call matching ANY truth is a TP, not an FP. svaba emits
+    # BOTH junctions of an inversion (often 1 bp apart) for a single truth row;
+    # breaking after the first match wrongly counted the 2nd correct junction FP.
+    return matched_calls, call_to_truth
+
+
+def write_events(path, truth, calls, matched_calls, call_to_truth):
+    """Per-CALL event TSV (+ FN truths) so a viewer can re-score at any
+    somlod/maxlod cutoff exactly:
+      - TP : one row per call that matched a truth -> carries that truth's stable
+             id/coords/type + the CALL's somlod/maxlod.
+      - FP : one row per call that matched nothing -> the call's somlod/maxlod.
+      - FN : one row per truth no call matched (no score).
+    At cutoff (sc,mc): recall = |distinct truth ids over passing TP rows| / |truth|;
+    precision = |passing TP rows| / (|passing TP| + |passing FP|)."""
+    truth_by_name = {t["name"]: t for t in truth}
+    with open(path, "w") as fh:
+        fh.write("status\ttruth_id\tchrom1\tpos1\tchrom2\tpos2\t"
+                 "svtype\tsvlen\tsize_bin\tsomlod\tmaxlod\tevtype\n")
+        for ci, c in enumerate(calls):
+            sl = c.get("somlod", ""); ml = c.get("maxlod", ""); ev = c.get("evtype", "")
+            if ci in matched_calls:
+                t = truth_by_name[call_to_truth[ci]]
+                fh.write("\t".join([
+                    "TP", t["name"], t["b1"][0], str(t["b1"][1]), t["b2"][0], str(t["b2"][1]),
+                    t["svtype"], str(t["svlen"]), size_bin(t["svtype"], t["svlen"]),
+                    str(sl), str(ml), str(ev)]) + "\n")
+            else:
+                fid = "FP_%s_%d_%s_%d" % (c["b1"][0], c["b1"][1], c["b2"][0], c["b2"][1])
+                fh.write("\t".join([
+                    "FP", fid, c["b1"][0], str(c["b1"][1]), c["b2"][0], str(c["b2"][1]),
+                    "", "", "", str(sl), str(ml), str(ev)]) + "\n")
+        for t in truth:
+            if not t["matched"]:
+                fh.write("\t".join([
+                    "FN", t["name"], t["b1"][0], str(t["b1"][1]), t["b2"][0], str(t["b2"][1]),
+                    t["svtype"], str(t["svlen"]), size_bin(t["svtype"], t["svlen"]),
+                    "", "", ""]) + "\n")
 
 
 # ---------------------------------------------------------------------------
@@ -164,6 +209,9 @@ def main():
     ap.add_argument("--pass-only", action="store_true")
     ap.add_argument("--somatic-only", action="store_true",
                     help="score only somatic truth vs somatic calls")
+    ap.add_argument("--events-out", default="",
+                    help="write a per-event TSV (TP/FN per truth, FP per call) "
+                         "for the cross-commit event matrix viewer")
     args = ap.parse_args()
 
     fmt = args.format
@@ -176,7 +224,10 @@ def main():
     calls = (load_bps if fmt == "bps" else load_vcf)(
         args.calls, args.pass_only, args.somatic_only)
 
-    matched_calls = match(truth, calls, args.tol)
+    matched_calls, call_to_truth = match(truth, calls, args.tol)
+
+    if args.events_out:
+        write_events(args.events_out, truth, calls, matched_calls, call_to_truth)
 
     # ---- recall by type ----
     by_type = defaultdict(lambda: [0, 0])

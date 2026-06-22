@@ -136,6 +136,22 @@ a.card:hover{border-color:var(--accent);transform:translateY(-2px)}
       </div>
     </a>
 
+    <a class="card" href="sim_commit_compare.html">
+      <div class="title">Commit Tracker <span class="tag tag-runtime">across commits</span></div>
+      <div class="desc">
+        Track how svaba accuracy and compute change across git commits. Point it
+        at a sim panel folder (or all of <code>/Volumes/wala24T/sim</code>); it
+        reads every <code>svaba_runs_&lt;hash&gt;/{run_meta.json,benchmark_summary.tsv}</code>
+        and plots recall/precision/F1 and wall/CPU vs coverage, one line per
+        commit, filterable by panel &amp; purity, plus a per-commit compute bar
+        and an accuracy-vs-compute trade-off scatter. <b>Per-commit somlod/maxlod
+        sliders re-score recall/precision live</b> (no re-run) so you can tune and
+        compare cutoffs per svaba version. Also a per-event matrix (TP/FN/FP)
+        showing which commits got each event right/wrong, with IGV links &mdash;
+        loads the per-BAM <code>*.events.tsv</code>.
+      </div>
+    </a>
+
     <a class="card" href="bps_viewer.html">
       <div class="title">BPS Viewer (original) <span class="tag tag-legacy">legacy</span></div>
       <div class="desc">

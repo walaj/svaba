@@ -1280,6 +1280,39 @@ the HTML still works if the `.js` is absent. Logic verified via JavaScriptCore
   would otherwise become a phantom FP; toggle `also exclude calls in blacklist`
   to do truth-only). BED half-open semantics, binary-search overlap.
   Matching logic mirrors `sim/benchmark.py` (validated against it).
+- **`sim_commit_compare.html`** — cross-commit tracker. Point it at a sim panel
+  (or all of `/Volumes/wala24T/sim`) via a directory picker; it reads every
+  `svaba_runs_<hash>/{run_meta.json,benchmark_summary.tsv}` (written by
+  `sim/run_svaba_on_panel.sh`) and plots recall/precision/F1 and wall/CPU vs
+  coverage, **one series per git commit**, filterable by panel & purity, plus a
+  per-commit total-CPU bar and an accuracy-vs-compute trade-off scatter. Loads
+  via `<input webkitdirectory>` (Chrome/FF/Safari; no server) — also accepts
+  dropped loose files for a single commit. The folder hashing + `run_meta.json`
+  schema are produced by `run_svaba_on_panel.sh`. Also has a **per-event matrix**
+  (event × commit → TP ✓ / FN ✗ / FP ●, IGV links) so you can see which commits
+  got each truth event right/wrong; it reads the per-BAM `<tag>.events.tsv` that
+  `benchmark.py --events-out` writes. Matrix views: FN (missed by ≥1 commit),
+  disagreements (some TP some FN), TP (all), FP (clustered by locus within 500 bp;
+  FP rows carry no size so the bin is derived from coords via `binOf`).
+  **Score-threshold explorer:** per-commit somlod + maxlod **sliders** re-score
+  recall/precision/F1 **live** from the events (no re-run), so you can find the
+  best 2D cutoff per svaba version and compare. This needs `events.tsv` to be a
+  **per-CALL** table: `benchmark.py --events-out` emits one `TP` row per matching
+  call (carrying the matched truth's stable id/coords/type + the CALL's
+  somlod/maxlod), one `FP` row per unmatched call, and one `FN` row per unmatched
+  truth. At cutoff `(sc,mc)`: recall = |distinct truth ids over passing TP rows| /
+  |truth|, precision = |passing TP| / (|passing TP| + |passing FP|) — re-scores
+  EXACTLY to the fixed-cutoff summary at the slider minimums (`scoreAt` in the
+  HTML). The charts/table are events-driven (fall back to the static summary for a
+  commit lacking events); the compute chart/bar stay summary-driven (cutoff-
+  independent). Slider drag updates charts/table live (rAF-throttled) and refreshes
+  the event matrix on release. **Null-LOD calls always pass the slider** — svaba1
+  VCFs carry no SOMLOD/MAXLOD (`benchmark.py` leaves them empty → null), so the
+  calls are taken at face value and that commit's sliders are auto-disabled
+  ("no LOD in calls — taken as-is"). **Evidence-type checkboxes** (DSCRD / ASSMB /
+  ASDIS / INDEL / …) filter which calls count, for both bps and VCF: `events.tsv`
+  has a trailing `evtype` column from the bps `type` col / VCF `INFO/EVDNC`
+  (`benchmark.py`); the viewer (`callPasses`) gates each call on LOD **and** type.
 - **`bps_viewer.html`** — legacy light-theme viewer, uses external
   `app.js` + `styles.css`.
 

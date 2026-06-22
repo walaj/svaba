@@ -33,6 +33,19 @@ and svaba follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 _Nothing yet._
 
+## [2.1.1] - 2026-06-22
+
+### Fixed
+- **Span-0 FR discordant false somatics.** `score_dscrd`'s `LOWSPANDSCRD` gate
+  guarded on `getSpan() > 0`, but an intrachromosomal same-position discordant
+  cluster has `getSpan() == 0` — a degenerate zero-length "deletion" formed when
+  mildly-over-insert FR pairs (tagged discordant by a low insert cutoff) collapse
+  to a single base. These leaked straight to `PASS` as false somatic DSCRD calls
+  (e.g. 312 of 319 somatic-PASS DSCRD at 10× in the sim panel). Changed the guard
+  to `getSpan() >= 0`, so span-0 FR clusters are correctly labeled `LOWSPANDSCRD`;
+  interchromosomal events (`getSpan()` = −1) remain excluded. Caller-side → needs
+  a fresh run.
+
 ## [2.1.0] - 2026-06-21
 
 Backward-compatible feature additions plus a batch of false-somatic / coordinate

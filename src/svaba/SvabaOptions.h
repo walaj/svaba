@@ -10,11 +10,14 @@
 // these two constants drive the startup banner / `svaba --version` / @PG lines.
 // The build commit is stamped separately (SvabaGitVersion.h).
 //
+// 2.1.1: LOWSPANDSCRD now catches span-0 FR discordant clusters (degenerate
+//   zero-length "deletions" from mildly-over-insert FR pairs) that leaked to
+//   PASS as false somatic calls -- `getSpan() > 0` -> `>= 0` in score_dscrd.
 // 2.1.0 (since 2.0.0): somatic-safety junction-kmer net (KC FORMAT field),
 // `--annotation` BED + per-breakend repeat_anno/poly_a (v6 bps schema),
 // DUPREADS via unique split-read starts, hasAdapter 3'-clip fix, and assorted
 // false-somatic / SV-coordinate correctness fixes. See CHANGELOG.md.
-inline constexpr char SVABA_VERSION[] = "2.1.0";
+inline constexpr char SVABA_VERSION[] = "2.1.1";
 inline constexpr char SVABA_DATE[]    = "06/2026";
 
 // from AlignmentFragment.h

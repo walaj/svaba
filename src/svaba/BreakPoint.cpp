@@ -1640,7 +1640,12 @@ void BreakPoint::score_dscrd() {
   // The min(mapq) < 15 mapping-quality check below stays (artifact, not count).
 
   const int min_dscrd_size = 2000;
-  if (getSpan() > 0 && (getSpan() < min_dscrd_size && b1.gr.strand == '+' && b2.gr.strand == '-')) // restrict span for del (FR) type
+  // FR (deletion-type) clusters below ~insert size aren't resolvable from the
+  // normal insert spread. Use >= 0 (NOT > 0): a same-position cluster has
+  // getSpan()==0 (a degenerate zero-length "deletion" -- always an artifact from
+  // mildly-over-insert FR pairs collapsing to one base), which the old `> 0`
+  // guard let leak to PASS. Interchromosomal events return -1 and stay excluded.
+  if (getSpan() >= 0 && getSpan() < min_dscrd_size && b1.gr.strand == '+' && b2.gr.strand == '-')
     confidence = "LOWSPANDSCRD";
   else if (std::min(dc.mapq1, dc.mapq2) < 15)
     confidence = "LOWMAPQDISC";

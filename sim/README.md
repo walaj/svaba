@@ -132,12 +132,27 @@ Runs svaba T/N on **every** `tumor.*x*.bam` in a panel folder, then postprocess
 ./run_svaba_on_panel.sh /Volumes/wala24T/sim/wgs_..._seed42   # or omit -> newest wgs_*
 DRYRUN=1 ./run_svaba_on_panel.sh    # print the commands only
 ```
-Outputs land in `<panel>/svaba_runs/<tag>/` and a recall/precision
-`benchmark_summary.tsv` is written. **`-n` (matched normal) is the SECOND WGS
-normal from the SAME individual** as the tumor's contamination (`NORMAL=` env;
-default `~/Downloads/svaba_compare/blood.recal.bam`). Same person ⇒ shared
-germline (germline SVs aren't called somatic); different reads from the
-contamination ⇒ no identical-read artifact; only the simulated SVs are somatic.
+Outputs land in `<panel>/svaba_runs_<commit>/<tag>/` (the svaba git commit is in
+the folder name) with a recall/precision/compute `benchmark_summary.tsv`, a
+`run_meta.json`, and per-BAM `*.events.tsv` (for the event matrix). **`-n`
+(matched normal) is the SECOND WGS normal from the SAME individual** as the
+tumor's contamination (`NORMAL=` env; default
+`~/Downloads/svaba_compare/blood.recal.bam`). Same person ⇒ shared germline
+(germline SVs aren't called somatic); different reads from the contamination ⇒
+no identical-read artifact; only the simulated SVs are somatic.
+
+### Comparing an older svaba (e.g. svaba1) — `MODE=vcf`
+Set `MODE=vcf` and point `SVABA=` at the older binary. In this mode the run
+drops `--annotation` (older builds lack it) and **scores the somatic SV+indel
+VCFs** that `svaba run` writes directly (`<tag>.svaba.somatic.{sv,indel}.vcf`),
+not `bps.txt.gz` — no postprocess. Results drop into their own
+`svaba_runs_<commit>/` folder, so they line up next to the bps-mode runs in
+`docs/sim_commit_compare.html` (same `truth.bedpe`, same event ids).
+```bash
+MODE=vcf SVABA=~/git/svaba1/build/svaba GITHASH=svaba1.0 \
+  ./run_svaba_on_panel.sh /Volumes/wala24T/sim/wgs_..._seed42
+```
+(`GITHASH=` is optional — it otherwise auto-derives from the binary's repo.)
 
 ## Coordinate conventions
 All internal coordinates are 0-based half-open. Truth breakends (`truth.bedpe`):
