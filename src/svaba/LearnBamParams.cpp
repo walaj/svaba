@@ -11,6 +11,7 @@
 
 #include <stdexcept>
 #include <sstream>
+#include <fstream>
 #include <vector>
 #include <map>
 #include <algorithm>
@@ -304,6 +305,80 @@ void LearnBamParams::dumpLearnData(const std::string& prefix) const {
 
   out.close();
   sc.logger.log(true, true, "......wrote learning data to ", fn);
+}
+
+// ---- insert-size param cache: learn once, reuse across scatter shards ----------
+void writeBamParams(const SvabaSharedConfig& sc, const std::string& file) {
+  std::ofstream out(file);
+  if (!out.good()) {
+    sc.logger.log(true, true, "WARNING: cannot open bam-params file for write: ", file);
+    return;
+  }
+  out << "bam\trg\tisize_median\tsd_isize\trg_readlen_max\trg_mapq_max\t"
+         "bam_readlen_max\tbam_mapq_max\tbam_isize_max\treads\tn_isize_pairs\n";
+  for (const auto& [prefix, lp] : sc.bamStats) {
+    (void)prefix;
+    for (const auto& [rg, brg] : lp.bam_read_groups) {
+      out << lp.bamPath() << '\t' << rg << '\t'
+          << brg.isize_median << '\t' << brg.sd_isize << '\t'
+          << brg.readlen_max << '\t' << brg.mapq_max << '\t'
+          << lp.readlen_max << '\t' << lp.mapq_max << '\t' << lp.isize_max << '\t'
+          << brg.reads << '\t' << brg.n_isize_pairs << '\n';
+    }
+  }
+}
+
+bool loadBamParams(SvabaSharedConfig& sc, const std::string& file) {
+  std::ifstream in(file);
+  if (!in.good()) return false;
+
+  // bamStats is keyed by the run's sample prefix; map the file's PATH -> prefix
+  std::unordered_map<std::string, std::string> path2prefix;
+  for (const auto& b : sc.opts.bams) path2prefix[b.second] = b.first;
+
+  std::string line;
+  std::getline(in, line);  // header
+  std::unordered_set<std::string> populated;
+  size_t rows = 0;
+  while (std::getline(in, line)) {
+    if (line.empty() || line[0] == '#') continue;
+    std::istringstream ss(line);
+    std::string bam, rg, med, sd, rrl, rmq, brl, bmq, bis, rds, np;
+    if (!std::getline(ss, bam, '\t') || !std::getline(ss, rg, '\t')) continue;
+    std::getline(ss, med, '\t'); std::getline(ss, sd, '\t');
+    std::getline(ss, rrl, '\t'); std::getline(ss, rmq, '\t');
+    std::getline(ss, brl, '\t'); std::getline(ss, bmq, '\t'); std::getline(ss, bis, '\t');
+    std::getline(ss, rds, '\t'); std::getline(ss, np, '\t');
+    auto pit = path2prefix.find(bam);
+    if (pit == path2prefix.end()) continue;   // a BAM not in this run
+    const std::string& prefix = pit->second;
+    auto it = sc.bamStats.find(prefix);
+    if (it == sc.bamStats.end())
+      it = sc.bamStats.emplace(prefix, LearnBamParams(sc, bam)).first;
+    try {
+      BamReadGroup& brg = it->second.bam_read_groups[rg];
+      brg.isize_median = std::stod(med);
+      brg.sd_isize     = std::stod(sd);
+      brg.readlen_max  = std::stoi(rrl);
+      brg.mapq_max     = std::stoi(rmq);
+      if (!rds.empty()) brg.reads = std::stoull(rds);
+      if (!np.empty())  brg.n_isize_pairs = std::stoull(np);
+      it->second.readlen_max = std::stoi(brl);
+      it->second.mapq_max    = std::stoi(bmq);
+      it->second.isize_max   = std::stod(bis);
+    } catch (const std::exception&) { continue; }
+    populated.insert(prefix);
+    ++rows;
+  }
+  // require every BAM in the current run to be covered, else learn fresh
+  for (const auto& b : sc.opts.bams) {
+    if (!populated.count(b.first)) {
+      sc.logger.log(true, true, "...bam-params file lacks an entry for ", b.second,
+                    "; falling back to full insert-size learning");
+      return false;
+    }
+  }
+  return rows > 0;
 }
 
 void BamReadGroup::addRead(const SeqLib::BamRecord &r)

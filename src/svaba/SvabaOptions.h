@@ -10,6 +10,14 @@
 // these two constants drive the startup banner / `svaba --version` / @PG lines.
 // The build commit is stamped separately (SvabaGitVersion.h).
 //
+// 2.2.0: `--bam-params FILE` caches learned per-RG insert-size params (+
+//   `--learn-only` precompute step), so a scatter-gather run learns once and
+//   every shard reuses it instead of re-doing the genome-wide insert sweep —
+//   removes a large redundant per-shard CPU + shared-disk cost.
+// 2.1.2: contig-alignment confidence (contig_conf / WEAKCONTIG) now penalizes
+//   alignment non-uniqueness -- BWA XS≈AS (another near-equal placement, i.e. a
+//   repeat/paralog/segdup the contig BLATs to many sites) -- via a new Rule E in
+//   scoreContigAlignment. The as_xs_gap signal was computed but unused.
 // 2.1.1: LOWSPANDSCRD now catches span-0 FR discordant clusters (degenerate
 //   zero-length "deletions" from mildly-over-insert FR pairs) that leaked to
 //   PASS as false somatic calls -- `getSpan() > 0` -> `>= 0` in score_dscrd.
@@ -17,7 +25,7 @@
 // `--annotation` BED + per-breakend repeat_anno/poly_a (v6 bps schema),
 // DUPREADS via unique split-read starts, hasAdapter 3'-clip fix, and assorted
 // false-somatic / SV-coordinate correctness fixes. See CHANGELOG.md.
-inline constexpr char SVABA_VERSION[] = "2.1.1";
+inline constexpr char SVABA_VERSION[] = "2.2.0";
 inline constexpr char SVABA_DATE[]    = "06/2026";
 
 // from AlignmentFragment.h
@@ -201,6 +209,14 @@ class SvabaOptions {
   bool dump_discordant_reads = false;
   bool dump_corrected_reads  = false;
   bool dump_alignments       = false;
+
+  // --bam-params FILE: cache the learned per-RG insert-size params. If the file
+  // exists and covers every input BAM, svaba LOADS it and SKIPS the genome-wide
+  // insert-size sweep (big win for scatter-gather: learn once, reuse per shard);
+  // otherwise svaba learns normally and WRITES the file. --learn-only learns,
+  // writes the file, and exits before any region processing (the precompute step).
+  std::string bamParamsFile;
+  bool learnOnly = false;
 
   // --r2c-min-somlod: gate on r2c.db size. A contig's r2c reads are written
   // only if the MAX somlod (BreakPoint::LO_s) across its breakpoints is

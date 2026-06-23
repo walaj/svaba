@@ -396,14 +396,36 @@ void runsvaba(int argc, char** argv) {
     regionsToRun.add(GenomicRegion(2,89000000,91500000));
   */
   
-  // --- learn the insert-sizes ---
-  logger.log(true, true,"...learning insert size distribution across all BAMs; this may take a while");
-  
-  // learn from the BAM files
-  for (const auto& b : opts.bams) {
-    auto [it, inserted] = sc.bamStats.emplace(b.first, LearnBamParams(sc, b.second));
-    logger.log(true,true,"......learning BAM: ", b.second);
-    it->second.learnParams();
+  // --- learn the insert-sizes (or load a cached --bam-params file) ---
+  bool params_loaded = false;
+  if (!opts.bamParamsFile.empty() && !opts.learnOnly) {
+    params_loaded = loadBamParams(sc, opts.bamParamsFile);
+    if (params_loaded)
+      logger.log(true, true, "...loaded cached insert-size params from ",
+                 opts.bamParamsFile, "; skipping the genome-wide insert-size sweep");
+  }
+  if (!params_loaded) {
+    sc.bamStats.clear();   // drop any partial load before a fresh learn
+    logger.log(true, true,"...learning insert size distribution across all BAMs; this may take a while");
+    for (const auto& b : opts.bams) {
+      auto [it, inserted] = sc.bamStats.emplace(b.first, LearnBamParams(sc, b.second));
+      logger.log(true,true,"......learning BAM: ", b.second);
+      it->second.learnParams();
+    }
+    if (!opts.bamParamsFile.empty()) {
+      writeBamParams(sc, opts.bamParamsFile);
+      logger.log(true, true, "...wrote insert-size params to ", opts.bamParamsFile);
+    }
+  }
+
+  if (opts.learnOnly) {
+    if (!opts.bamParamsFile.empty())
+      logger.log(true, true, "--learn-only: wrote params to ", opts.bamParamsFile,
+                 "; exiting before region processing");
+    else
+      logger.log(true, true, "--learn-only: learning done but no --bam-params FILE "
+                 "was given, so nothing was written. Exiting.");
+    return;
   }
 
   // --- report what we learned ---

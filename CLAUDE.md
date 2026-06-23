@@ -42,6 +42,9 @@ Top-level layout:
   `sort_bps.sh`, `sort_and_dedupe_bps_old.sh` (legacy standalone sorter,
   kept for reference; the live path is `svaba postprocess`),
   `svaba_cloud.sh`, `gcloud_teardown.sh`, `update_svaba_image.sh`,
+  `build_svaba_image.sh` (build a worker image from a specific git ref:
+  boots the builder VM, checks out the commit, rebuilds svaba+submodules at
+  `-O3 -march=native`, verifies, snapshots to `svaba-<hash>`),
   `plot_learn.sh`, `svaba_explore.sh` (one-shot launcher for the bps
   explorer), `svaba_local_function.sh` (sourceable bash helpers, incl.
   `svaba_bps_cols`). Profiling helpers (`memprof*.sh`) live under `opt/`
@@ -1313,6 +1316,13 @@ the HTML still works if the `.js` is absent. Logic verified via JavaScriptCore
   ASDIS / INDEL / …) filter which calls count, for both bps and VCF: `events.tsv`
   has a trailing `evtype` column from the bps `type` col / VCF `INFO/EVDNC`
   (`benchmark.py`); the viewer (`callPasses`) gates each call on LOD **and** type.
+  A **third per-commit slider, `contig_conf`** (the alignment-confidence /
+  `WEAKCONTIG` score, bps cols 40/41), is also re-scorable live: `benchmark.py
+  --events-out` records the per-call min-over-breakends `contig_conf` as a
+  trailing column; null (svaba1 VCF, no such field) → always passes + slider
+  disabled. `callPasses` gates on somlod/maxlod/contig_conf (each null-tolerant)
+  + type. Pairs with the 2.1.2 Rule E (XS-uniqueness penalty) — raising
+  contig_conf preferentially drops ambiguous/multi-mapping contigs.
 - **`bps_viewer.html`** — legacy light-theme viewer, uses external
   `app.js` + `styles.css`.
 
@@ -1455,6 +1465,31 @@ per chromosome partition — sharing a single read-only persistent disk.
 Each VM runs `svaba run -k <partition>` independently; outputs go to a
 GCS bucket; an optional `--merge` step concatenates the per-partition
 `bps.txt.gz` files and runs `svaba postprocess`.
+
+**Per-shard startup tax (measured) + the `--bam-params` fix.** Every `svaba
+run` re-derives insert size via `LearnBamParams::learnParams()`, which samples
+~1M reads/window at each chromosome midpoint (≈ many millions of reads, ×2 for
+tumor+normal) **regardless of `-k`**, plus loads the ~5.4 GB BWA index. Measured
+on a 1 Mb shard (`-p 8`, SG.WGS.UCLA tumor / 21-RG blood normal): **~5.4 CPU-min
+of pure fixed overhead** (the 21-RG normal alone forced an 11.8M-read sweep
+because its RGs span the genome), Max RSS 7.2 GB. Across a 322-shard fixed-chunk
+scatter that's **~27 CPU-h of redundant overhead** (~¼ of the cost) + billions
+of random reads against the shared BAM disk. Two mitigations: (1) **chromosome-
+group sharding** (this script's default, ~6 shards → pay it 6× not 322×); (2)
+**`svaba run --learn-only --bam-params FILE`** to learn once, then every shard
+runs `--bam-params FILE` to load+skip the sweep (v2.2.0; `loadBamParams`/
+`writeBamParams` in `LearnBamParams.cpp`, matched to the run's BAMs by path; a
+missing/partial file silently falls back to full learning). The HTML
+`docs/svaba_cloud_launcher.html` generates all of this (form → commands + cost +
+monitor), incl. a Step -1 that emits the `build_svaba_image.sh` command and a
+worker-image dropdown populated by pasting `gcloud compute images list`. The
+script supports `--spot`, `--max-concurrent N` (bounded-concurrency waves),
+`--chunk-mb M` (fixed-size shards, e.g. 10 Mb → 322 shards), and
+`--bam-params-gcs` (workers fetch the insert-size cache and `--bam-params` it).
+NB: also right-size memory — the hg38 index needs ~6–7 GB, so
+`n2-highcpu-2` (2 GB) OOMs; use ≥8 GB (`n2-standard-*`). And CPU-hours aren't
+portable: an n1/n2 vCPU is ~2–4× slower than an Apple M-series P-core, so cloud
+CPU-h ≫ local CPU-h for the same work — not a bug.
 
 Architecture rationale: svaba's bottleneck is BWA FM-index random
 lookups, which are latency-bound and NUMA-hostile. Multi-socket servers

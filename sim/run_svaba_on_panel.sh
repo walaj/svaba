@@ -31,12 +31,16 @@ set -euo pipefail
 
 # Output mode = what we score against truth:
 #   bps  (default) -- svaba2: postprocess -> <tag>.bps.sorted.dedup.txt.gz, scored
-#                     with --pass-only --somatic-only; run uses --annotation.
+#                     with --pass-only --somatic-only.
 #   vcf            -- older svaba (e.g. SVABA=~/git/svaba1/build/svaba): score the
 #                     somatic SV + indel VCFs that `svaba run` writes directly
-#                     (<tag>.svaba.somatic.{sv,indel}.vcf). No postprocess, and the
-#                     run drops --annotation (not supported by that build).
+#                     (<tag>.svaba.somatic.{sv,indel}.vcf). No postprocess.
 : "${MODE:=bps}"
+
+# Pass --annotation to `svaba run`? auto (default) = on iff THIS binary supports
+# it (older 2.0.x builds predate the flag and abort on it -- bps-mode comparisons
+# of those builds need it off). Force with ANNOTATE=1 / ANNOTATE=0.
+: "${ANNOTATE:=auto}"
 
 # MATCHED NORMAL for the T/N pair. This is the user's SECOND WGS normal from the
 # SAME individual as the tumor's contamination (build_sim_panel.sh's
@@ -87,9 +91,17 @@ SVABA_VER=$("$SVABA" --version 2>&1 | head -1 || true)
 TIMEFORMAT='%R %U %S'              # bash `time` -> "real user sys" (seconds)
 BATCH_START=$(date +%s)
 
-# mode-dependent setup: --annotation only in bps mode (older builds lack it)
+# mode-dependent setup. --annotation is gated by ANNOTATE + binary support so a
+# 2.0.x build (which aborts on the unknown flag) runs fine in bps mode.
 case "$MODE" in
-  bps) ANNO_ARGS=(--annotation "$ANNO_RMSK" --annotation "$ANNO_SEGDUP") ;;
+  bps)
+    use_anno=0
+    if [ "$ANNOTATE" = 1 ]; then use_anno=1
+    elif [ "$ANNOTATE" = auto ]; then
+      if "$SVABA" run --help 2>&1 | grep -q -- "--annotation"; then use_anno=1
+      else log "NOTE: $SVABA has no --annotation (older build); running bps mode without it"; fi
+    fi
+    if [ "$use_anno" = 1 ]; then ANNO_ARGS=(--annotation "$ANNO_RMSK" --annotation "$ANNO_SEGDUP"); else ANNO_ARGS=(); fi ;;
   vcf) ANNO_ARGS=() ; POSTPROCESS=0 ;;
   *)   echo "ERROR: MODE must be 'bps' or 'vcf' (got '$MODE')"; exit 1 ;;
 esac

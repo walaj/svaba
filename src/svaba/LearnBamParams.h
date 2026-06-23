@@ -97,6 +97,9 @@ public:
   /// Output: ${prefix}.learn.tsv.gz with columns: bam, rg, isize
   void dumpLearnData(const std::string& prefix) const;
 
+  /// Path of the BAM this object learned from.
+  const std::string& bamPath() const { return bam_; }
+
 private:
 
   /// Process reads from the current reader position, updating rg_count
@@ -111,3 +114,12 @@ private:
  std::shared_ptr<SeqLib::BamReader> reader_;
 
 };
+
+// --- insert-size param cache (cloud scatter: learn once, reuse per shard) ------
+// writeBamParams: dump every learned BAM's per-RG isize_median/sd_isize (+ the
+//   per-bam readlen/mapq/isize maxima) to a small TSV.
+// loadBamParams: restore them into sc.bamStats, matched to the current run's BAMs
+//   by PATH (so the prefix scheme can differ), letting svaba skip the genome-wide
+//   insert-size sweep. Returns true only if EVERY BAM in the current run is covered.
+void writeBamParams(const SvabaSharedConfig& sc, const std::string& file);
+bool loadBamParams(SvabaSharedConfig& sc, const std::string& file);

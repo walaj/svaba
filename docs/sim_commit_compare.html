@@ -111,23 +111,24 @@ function parseEvents(text){ const L=(text||"").split("\n").filter(l=>l.trim()); 
   for(let i=1;i<L.length;i++){ const f=L[i].split("\t");
     rows.push({status:f[ix.status],id:f[ix.truth_id],c1:f[ix.chrom1],p1:+f[ix.pos1],c2:f[ix.chrom2],p2:+f[ix.pos2],
       svtype:f[ix.svtype],bin:f[ix.size_bin],somlod:n(f[ix.somlod]),maxlod:n(f[ix.maxlod]),
-      evtype:(ix.evtype!=null?f[ix.evtype]:"")||""}); }
+      evtype:(ix.evtype!=null?f[ix.evtype]:"")||"",cc:n(f[ix.contig_conf])}); }
   return rows; }
 function evOf(r){ return r.evtype||"(none)"; }
-// a call clears the gate iff its LOD >= cutoff (null LOD -> always passes, e.g.
-// svaba1 VCF carries no somlod/maxlod -> taken at face value) AND its evidence
-// type is selected. `types` is a Set or null (=all).
-function callPasses(r, sc, mc, types){
-  return (r.somlod==null||r.somlod>=sc) && (r.maxlod==null||r.maxlod>=mc) && (!types||types.has(evOf(r)));
+// a call clears the gate iff somlod/maxlod/contig_conf all >= their cutoffs (a
+// null field always passes -- e.g. svaba1 VCF carries no LOD/contig_conf, taken
+// at face value) AND its evidence type is selected. `types` is a Set or null.
+function callPasses(r, sc, mc, cc, types){
+  return (r.somlod==null||r.somlod>=sc) && (r.maxlod==null||r.maxlod>=mc)
+      && (r.cc==null||r.cc>=cc) && (!types||types.has(evOf(r)));
 }
-// re-score a (commit,tag)'s event rows at a somlod/maxlod cutoff + type filter.
-// Exact: per-call TP/FP rows + per-truth FN rows -> recall/precision.
-function scoreAt(rows, sc, mc, types){
+// re-score a (commit,tag)'s event rows at somlod/maxlod/contig_conf cutoffs +
+// type filter. Exact: per-call TP/FP rows + per-truth FN rows -> recall/precision.
+function scoreAt(rows, sc, mc, cc, types){
   const truth=new Set(), det=new Set(); let tp=0, fp=0;
   for(const r of rows){
     if(r.status==="FN"){ truth.add(r.id); }
-    else if(r.status==="TP"){ truth.add(r.id); if(callPasses(r,sc,mc,types)){ det.add(r.id); tp++; } }
-    else if(r.status==="FP"){ if(callPasses(r,sc,mc,types)) fp++; }
+    else if(r.status==="TP"){ truth.add(r.id); if(callPasses(r,sc,mc,cc,types)){ det.add(r.id); tp++; } }
+    else if(r.status==="FP"){ if(callPasses(r,sc,mc,cc,types)) fp++; }
   }
   const T=truth.size, D=det.size;
   const recall=T?100*D/T:0, precision=(tp+fp)?100*tp/(tp+fp):0;
@@ -213,12 +214,14 @@ function afterLoad(){
   const purities=[...purSet].sort((a,b)=>a-b);
   fill($("panelSel"),panels.map(p=>[p,p])); fill($("puritySel"),purities.map(p=>["p"+p,p]));
   // somlod/maxlod ranges across all call rows -> slider bounds
-  let sMin=Infinity,sMax=-Infinity,mMin=Infinity,mMax=-Infinity;
+  let sMin=Infinity,sMax=-Infinity,mMin=Infinity,mMax=-Infinity,cMin=Infinity,cMax=-Infinity;
   (ST.eventRuns||[]).forEach(e=>e.rows.forEach(r=>{ if(r.status==="TP"||r.status==="FP"){
     if(r.somlod!=null){sMin=Math.min(sMin,r.somlod);sMax=Math.max(sMax,r.somlod);}
-    if(r.maxlod!=null){mMin=Math.min(mMin,r.maxlod);mMax=Math.max(mMax,r.maxlod);} } }));
-  if(!isFinite(sMin)){sMin=0;sMax=10;} if(!isFinite(mMin)){mMin=0;mMax=10;}
+    if(r.maxlod!=null){mMin=Math.min(mMin,r.maxlod);mMax=Math.max(mMax,r.maxlod);}
+    if(r.cc!=null){cMin=Math.min(cMin,r.cc);cMax=Math.max(cMax,r.cc);} } }));
+  if(!isFinite(sMin)){sMin=0;sMax=10;} if(!isFinite(mMin)){mMin=0;mMax=10;} if(!isFinite(cMin)){cMin=0;cMax=1;}
   ST.lodRange={ sMin:Math.floor(sMin), sMax:Math.ceil(sMax), mMin:Math.floor(mMin), mMax:Math.ceil(mMax),
+                cMin:Math.floor(cMin*100)/100, cMax:Math.ceil(cMax*100)/100, cStep:0.01,
                 sStep:+(Math.max(0.1,(sMax-sMin)/200)).toFixed(2), mStep:+(Math.max(0.1,(mMax-mMin)/200)).toFixed(2) };
   ST.cut={};   // per-commit {s,m}; absent -> baseline (slider mins)
   // evidence types present across all calls -> type checkboxes (DSCRD/ASSMB/...)
@@ -233,7 +236,7 @@ function afterLoad(){
   renderThresholds(); render();
 }
 function cssid(c){ return c.replace(/[^a-zA-Z0-9]/g,"_"); }
-function cutOf(c){ const r=ST.lodRange||{sMin:0,mMin:0}; return ST.cut[c]||{s:r.sMin,m:r.mMin}; }
+function cutOf(c){ const r=ST.lodRange||{sMin:0,mMin:0,cMin:0}; return ST.cut[c]||{s:r.sMin,m:r.mMin,c:r.cMin}; }
 function selectedTypes(){ if(!ST.typeSel||!ST.evtypes)return null; return ST.typeSel.size===ST.evtypes.length?null:ST.typeSel; }
 function buildTypeBox(){
   $("typeBox").innerHTML=(ST.evtypes||[]).map(t=>`<label style="margin-right:10px;font-size:.78rem"><input type="checkbox" data-t="${t}" ${ST.typeSel.has(t)?"checked":""}> ${t}</label>`).join("")
@@ -242,22 +245,27 @@ function buildTypeBox(){
     if(inp.checked)ST.typeSel.add(t); else ST.typeSel.delete(t); render(); }; });
 }
 function commitHasLod(commit,panel){ return (ST.eventRuns||[]).some(e=>e.panel===panel&&e.commit===commit&&e.rows.some(r=>(r.status==="TP"||r.status==="FP")&&r.somlod!=null)); }
+function commitHasCC(commit,panel){ return (ST.eventRuns||[]).some(e=>e.panel===panel&&e.commit===commit&&e.rows.some(r=>(r.status==="TP"||r.status==="FP")&&r.cc!=null)); }
 let _raf=null; function scheduleRender(){ if(_raf)return; _raf=requestAnimationFrame(()=>{_raf=null; render(true);}); }
 function renderThresholds(){
   const panel=$("panelSel").value, R=ST.lodRange;
   const commits=commitOrder([...new Set((ST.eventRuns||[]).filter(e=>e.panel===panel).map(e=>e.commit))]);
   if(!commits.length){ $("thrRows").innerHTML='<span class="muted">no per-event data (run benchmark with --events-out) — thresholds disabled, charts show the fixed-cutoff summary.</span>'; return; }
   const panelSel=$("panelSel").value;
-  $("thrRows").innerHTML=commits.map(c=>{ const cut=cutOf(c); const lod=commitHasLod(c,panelSel); const dis=lod?"":"disabled";
-    return `<div style="display:flex;align-items:center;gap:14px;margin:5px 0;flex-wrap:wrap${lod?"":";opacity:.6"}">
+  $("thrRows").innerHTML=commits.map(c=>{ const cut=cutOf(c);
+    const lod=commitHasLod(c,panelSel), hcc=commitHasCC(c,panelSel);
+    const dis=lod?"":"disabled", disc=hcc?"":"disabled";
+    return `<div style="display:flex;align-items:center;gap:14px;margin:5px 0;flex-wrap:wrap${(lod||hcc)?"":";opacity:.6"}">
       <span style="min-width:150px"><span class="swatch" style="background:${ST.colorOf[c]}"></span><code>${shortc(c)}</code></span>
       <label style="font-size:.72rem;color:var(--text2)">somlod ≥ <input type="range" data-c="${c}" data-k="s" min="${R.sMin}" max="${R.sMax}" step="${R.sStep}" value="${cut.s}" ${dis}> <b id="sval_${cssid(c)}">${(+cut.s).toFixed(1)}</b></label>
       <label style="font-size:.72rem;color:var(--text2)">maxlod ≥ <input type="range" data-c="${c}" data-k="m" min="${R.mMin}" max="${R.mMax}" step="${R.mStep}" value="${cut.m}" ${dis}> <b id="mval_${cssid(c)}">${(+cut.m).toFixed(1)}</b></label>
-      ${lod?"":'<span class="muted">no LOD in calls — taken as-is</span>'}<span class="muted" id="thrread_${cssid(c)}"></span></div>`; }).join("");
+      <label style="font-size:.72rem;color:var(--text2)">contig_conf ≥ <input type="range" data-c="${c}" data-k="c" min="${R.cMin}" max="${R.cMax}" step="${R.cStep}" value="${cut.c}" ${disc}> <b id="cval_${cssid(c)}">${(+cut.c).toFixed(2)}</b></label>
+      ${(lod||hcc)?"":'<span class="muted">no LOD/contig_conf in calls — taken as-is</span>'}<span class="muted" id="thrread_${cssid(c)}"></span></div>`; }).join("");
+  const LID={s:"sval_",m:"mval_",c:"cval_"};
   $("thrRows").querySelectorAll("input[type=range]").forEach(inp=>{ inp.oninput=()=>{
     const c=inp.dataset.c,k=inp.dataset.k,v=parseFloat(inp.value); const R2=ST.lodRange;
-    ST.cut[c]=ST.cut[c]||{s:R2.sMin,m:R2.mMin}; ST.cut[c][k]=v;
-    document.getElementById((k==="s"?"sval_":"mval_")+cssid(c)).textContent=v.toFixed(1); scheduleRender(); };
+    ST.cut[c]=ST.cut[c]||{s:R2.sMin,m:R2.mMin,c:R2.cMin}; ST.cut[c][k]=v;
+    document.getElementById(LID[k]+cssid(c)).textContent=v.toFixed(k==="c"?2:1); scheduleRender(); };
     inp.onchange=()=>renderMatrix(); });   // refresh the event matrix on slider release
 }
 function fill(sel,pairs){ sel.innerHTML=pairs.map(([v,_],i)=>`<option value="${v}">${v}</option>`).join(""); }
@@ -269,7 +277,7 @@ function shortc(c){ return c.length>10?c.slice(0,8)+(c.endsWith("-dirty")?"…di
 function accPoints(commit, panel, types){
   const evs=(ST.eventRuns||[]).filter(e=>e.panel===panel&&e.commit===commit);
   if(evs.length){ const cut=cutOf(commit);
-    return evs.map(e=>({cov:covOf(e.tag),pur:purOf(e.tag),tag:e.tag,...scoreAt(e.rows,cut.s,cut.m,types)})).filter(p=>p.cov!=null); }
+    return evs.map(e=>({cov:covOf(e.tag),pur:purOf(e.tag),tag:e.tag,...scoreAt(e.rows,cut.s,cut.m,cut.c,types)})).filter(p=>p.cov!=null); }
   const rr=ST.runs.find(r=>r.panel===panel&&r.commit===commit); if(!rr)return [];
   return rr.rows.map(x=>({cov:x.coverage,pur:x.purity,tag:x.tumor_bam,recall:x.recall,precision:x.precision,f1:x.f1,
     truth:x.truth,detected:x.detected,tp:x.matching,fp:(x.calls!=null&&x.matching!=null)?x.calls-x.matching:null}));
@@ -339,7 +347,7 @@ function renderMatrix(){
     const C=500, fp={};   // cluster FP calls by locus across commits (each above its commit's cutoff)
     for(const run of runs){ const cut=cutOf(run.commit);
       for(const r of run.rows){ if(r.status!=="FP")continue;
-        if(!callPasses(r,cut.s,cut.m,types))continue;          // below cutoff or deselected type -> filtered out
+        if(!callPasses(r,cut.s,cut.m,cut.c,types))continue;    // below cutoff or deselected type -> filtered out
         const fbin=binOf(r.c1,r.p1,r.c2,r.p2);                 // FP rows carry no size -> derive from coords
         if(bin!=="all"&&fbin!==bin)continue;
         const key=r.c1+":"+Math.round(r.p1/C)+"|"+r.c2+":"+Math.round(r.p2/C);
@@ -359,7 +367,7 @@ function renderMatrix(){
     for(const r of run.rows){ if(r.status!=="TP"&&r.status!=="FN")continue; if(bin!=="all"&&r.bin!==bin)continue;
       if(!ev[r.id])ev[r.id]={c1:r.c1,p1:r.p1,c2:r.c2,p2:r.p2,svtype:r.svtype,bin:r.bin,by:{},score:{}};
       const E=ev[r.id];
-      if(r.status==="TP"){ const pass=callPasses(r,cut.s,cut.m,types);
+      if(r.status==="TP"){ const pass=callPasses(r,cut.s,cut.m,cut.c,types);
         if(pass){ E.by[run.commit]="TP"; if(r.somlod!=null) E.score[run.commit]=Math.max(E.score[run.commit]??-1e9, r.somlod); }
         else if(E.by[run.commit]!=="TP") E.by[run.commit]="FN"; }
       else if(E.by[run.commit]!=="TP") E.by[run.commit]="FN"; } }

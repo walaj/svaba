@@ -67,7 +67,13 @@ def load_bps(path, pass_only, somatic_only):
         ic1, ip1, ic2, ip2 = col("chr1"), col("pos1"), col("chr2"), col("pos2")
         iconf, isom = col("conf", "confidence"), col("somatic")
         isl, iml, ity = col("somlod"), col("maxlod"), col("type", "evidence")
+        icc1, icc2 = col("contig_conf1"), col("contig_conf2")
         get = lambda f, i: f[i] if (i is not None and i < len(f)) else ""
+        def ccmin(f):  # min contig_conf over the two breakends ("" if absent)
+            try:
+                return str(min(float(get(f, icc1)), float(get(f, icc2))))
+            except ValueError:
+                return ""
         for line in fh:
             f = line.rstrip("\n").split("\t")
             if len(f) <= max(ip2, iconf or 0):
@@ -80,7 +86,7 @@ def load_bps(path, pass_only, somatic_only):
                 continue
             calls.append(dict(b1=(f[ic1], int(f[ip1])), b2=(f[ic2], int(f[ip2])),
                               conf=conf, somatic=som, evtype=get(f, ity),
-                              somlod=get(f, isl), maxlod=get(f, iml)))
+                              somlod=get(f, isl), maxlod=get(f, iml), cc=ccmin(f)))
     return calls
 
 
@@ -177,26 +183,26 @@ def write_events(path, truth, calls, matched_calls, call_to_truth):
     truth_by_name = {t["name"]: t for t in truth}
     with open(path, "w") as fh:
         fh.write("status\ttruth_id\tchrom1\tpos1\tchrom2\tpos2\t"
-                 "svtype\tsvlen\tsize_bin\tsomlod\tmaxlod\tevtype\n")
+                 "svtype\tsvlen\tsize_bin\tsomlod\tmaxlod\tevtype\tcontig_conf\n")
         for ci, c in enumerate(calls):
-            sl = c.get("somlod", ""); ml = c.get("maxlod", ""); ev = c.get("evtype", "")
+            sl = c.get("somlod", ""); ml = c.get("maxlod", ""); ev = c.get("evtype", ""); cc = c.get("cc", "")
             if ci in matched_calls:
                 t = truth_by_name[call_to_truth[ci]]
                 fh.write("\t".join([
                     "TP", t["name"], t["b1"][0], str(t["b1"][1]), t["b2"][0], str(t["b2"][1]),
                     t["svtype"], str(t["svlen"]), size_bin(t["svtype"], t["svlen"]),
-                    str(sl), str(ml), str(ev)]) + "\n")
+                    str(sl), str(ml), str(ev), str(cc)]) + "\n")
             else:
                 fid = "FP_%s_%d_%s_%d" % (c["b1"][0], c["b1"][1], c["b2"][0], c["b2"][1])
                 fh.write("\t".join([
                     "FP", fid, c["b1"][0], str(c["b1"][1]), c["b2"][0], str(c["b2"][1]),
-                    "", "", "", str(sl), str(ml), str(ev)]) + "\n")
+                    "", "", "", str(sl), str(ml), str(ev), str(cc)]) + "\n")
         for t in truth:
             if not t["matched"]:
                 fh.write("\t".join([
                     "FN", t["name"], t["b1"][0], str(t["b1"][1]), t["b2"][0], str(t["b2"][1]),
                     t["svtype"], str(t["svlen"]), size_bin(t["svtype"], t["svlen"]),
-                    "", "", ""]) + "\n")
+                    "", "", "", ""]) + "\n")
 
 
 # ---------------------------------------------------------------------------

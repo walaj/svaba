@@ -116,6 +116,16 @@ Output & DBs:
                           strictly > N. Shrinks the r2c.db dramatically on
                           deep samples. Default: write all. Use 0 to keep
                           only somlod>0 (~somatic) events.
+      --bam-params FILE   Cache learned per-read-group insert-size params.
+                          If FILE exists and covers every input BAM, svaba
+                          loads it and SKIPS the genome-wide insert-size
+                          sweep (big win for scatter-gather: learn once,
+                          reuse per shard); otherwise it learns and WRITES
+                          FILE. Match is by BAM path, so all shards must use
+                          the same -t/-n BAMs.
+      --learn-only        Learn insert-size params, write --bam-params FILE,
+                          and exit before any region processing. The
+                          precompute step for a scatter run.
 )" << "\n";
 }
 
@@ -168,6 +178,8 @@ SvabaOptions SvabaOptions::parse(int argc, char** argv) {
     {"dump-reads", no_argument,            nullptr,  1800},
     {"always-realign-corrected", no_argument, nullptr, 1801},
     {"r2c-min-somlod", required_argument,   nullptr,  1802},
+    {"bam-params", required_argument,       nullptr,  1810},
+    {"learn-only", no_argument,             nullptr,  1811},
     {nullptr,0,nullptr,0}
   };
 
@@ -258,6 +270,14 @@ SvabaOptions SvabaOptions::parse(int argc, char** argv) {
 
       case 1802:
         o.r2cMinSomlod = std::stod(optarg);
+        break;
+
+      case 1810:
+        o.bamParamsFile = optarg;
+        break;
+
+      case 1811:
+        o.learnOnly = true;
         break;
 
       case '?':

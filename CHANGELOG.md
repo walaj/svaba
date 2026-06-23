@@ -33,6 +33,40 @@ and svaba follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 _Nothing yet._
 
+## [2.2.0] - 2026-06-22
+
+### Added
+- **`--bam-params FILE` / `--learn-only` — cache insert-size learning across a
+  scatter-gather run.** `learnParams()` samples up to ~1 M reads/window across
+  every chromosome midpoint (≈ many millions of reads, ×2 for tumor+normal) to
+  estimate per-read-group insert size — and it ran on **every** `svaba run`
+  regardless of `-k`. In a 322-shard scatter that genome-wide sweep (+ 5.4 GB
+  index load) was paid 322×, ≈ 5 CPU-min/shard of pure redundant overhead (≈ a
+  quarter of the total CPU-h) plus billions of random reads against the shared
+  BAM disk. Now: `svaba run --learn-only --bam-params p.tsv` learns once and
+  writes a tiny TSV; every shard runs `--bam-params p.tsv` to LOAD it and skip
+  the sweep entirely. The cache stores per-RG `isize_median`/`sd_isize` + per-BAM
+  `readlen/mapq/isize` maxima, matched to the run's BAMs by path; if the file is
+  missing/incomplete svaba transparently learns (and writes it). No effect on
+  results — only on how insert size is obtained.
+
+## [2.1.2] - 2026-06-22
+
+### Changed
+- **Contig-alignment confidence now penalizes alignment non-uniqueness.**
+  `scoreContigAlignment` gained Rule E: when BWA's suboptimal score `XS`
+  approaches the primary `AS` (`XS/AS > 0.80`, scaling to a full penalty at a
+  dead tie), the contig has another near-equal placement — a repeat / paralog /
+  segmental-dup locus that BLATs to many sites — so `contig_conf` is lowered and
+  the existing `WEAKCONTIG` gate catches it. The `as_xs_gap` signal was already
+  computed but unused; the prior confidence measured only absolute quality
+  (mismatch rate, AS-density), not multi-mapping. Targets the dominant remaining
+  false-positive mode: weak/ambiguous contig alignments svaba treated as
+  confident. Caller-side → needs a fresh run. The per-breakend `contig_conf`
+  (bps cols 40/41) is unchanged in meaning, just better calibrated; `benchmark.py
+  --events-out` now also records it (min over breakends) so it can be tuned as a
+  slider in `docs/sim_commit_compare.html`.
+
 ## [2.1.1] - 2026-06-22
 
 ### Fixed

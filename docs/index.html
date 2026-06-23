@@ -144,11 +144,24 @@ a.card:hover{border-color:var(--accent);transform:translateY(-2px)}
         reads every <code>svaba_runs_&lt;hash&gt;/{run_meta.json,benchmark_summary.tsv}</code>
         and plots recall/precision/F1 and wall/CPU vs coverage, one line per
         commit, filterable by panel &amp; purity, plus a per-commit compute bar
-        and an accuracy-vs-compute trade-off scatter. <b>Per-commit somlod/maxlod
-        sliders re-score recall/precision live</b> (no re-run) so you can tune and
-        compare cutoffs per svaba version. Also a per-event matrix (TP/FN/FP)
+        and an accuracy-vs-compute trade-off scatter. <b>Per-commit somlod /
+        maxlod / contig_conf sliders re-score recall/precision live</b> (no re-run)
+        so you can tune and compare cutoffs per svaba version, plus an evidence-type
+        (DSCRD/ASSMB/…) call filter. Also a per-event matrix (TP/FN/FP)
         showing which commits got each event right/wrong, with IGV links &mdash;
         loads the per-BAM <code>*.events.tsv</code>.
+      </div>
+    </a>
+
+    <a class="card" href="svaba_cloud_launcher.html">
+      <div class="title">Cloud Launcher <span class="tag tag-runtime">scatter-gather</span></div>
+      <div class="desc">
+        Front-end for running svaba on GCP scatter-gather (<code>scripts/svaba_cloud.sh</code>).
+        Fill a form (project, disk, BAMs, machine type, partitions) and get the
+        exact commands — precompute <code>--bam-params</code>, launch, monitor,
+        gather, teardown — plus a live <b>cost estimate</b> (VM picker, on-demand
+        vs Spot, memory sanity) and a <b>monitor dashboard</b> (paste the
+        done-marker listing → progress). Client-side only.
       </div>
     </a>
 
