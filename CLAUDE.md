@@ -1088,7 +1088,7 @@ cmake .. -DCMAKE_CXX_FLAGS='-DSVABA_TRACE_CONTIG="\"c_fermi_chr2_215869501_21589
 
 Both can be combined. Both are `#ifdef`-guarded so they compile to
 nothing when not defined. See `src/svaba/SvabaDebug.h` for the macro
-definitions and `README.md` for full recipes.
+definitions and `README.dev.md` for full recipes.
 
 ## Useful jump points
 
@@ -1118,4 +1118,4 @@ definitions and `README.md` for full recipes.
 - Read trace macro: `src/svaba/SvabaDebug.h`
 - Read trace (BFC/r2c/native): `src/svaba/SvabaRegionProcessor.cpp`
 - Read trace (splitCoverage): `src/svaba/BreakPoint.cpp`
-- Debugging recipes: `README.md` (in svaba_opt root)
+- Debugging recipes: `README.dev.md` (in svaba_opt root)

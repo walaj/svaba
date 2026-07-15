@@ -1,46 +1,28 @@
 ## *SvABA* — Structural variation and indel analysis by assembly
 
 SvABA (formerly *Snowman*) is an SV and indel caller for short-read BAMs.
-It performs genome-wide local assembly with a vendored SGA, realigns
-contigs with BWA-MEM, and scores variants by reassembled read support.
-Tumor/normal, trios, and single-sample modes are supported; variants
-are emitted as VCF plus a verbose tab-delimited companion
-(`bps.txt.gz`) that carries the full per-sample evidence.
+It performs genome-wide local assembly, realigns contigs with BWA-MEM, and
+scores variants by reassembled read support. Tumor/normal, trios, and
+single-sample modes are supported; variants are emitted as VCF plus a verbose
+tab-delimited companion (`bps.txt.gz`) carrying the full per-sample evidence.
 
-**License:** [GNU GPLv3](./LICENSE). Uses the [SeqLib][seqlib] API for
-BAM I/O, BWA-MEM alignment, interval trees, and the assembly front-end.
+**License:** [GNU GPLv3](./LICENSE). Uses the [SeqLib][seqlib] API for BAM I/O,
+BWA-MEM alignment, interval trees, and the assembly front-end.
+
+For debugging recipes, build tuning, and internals, see **[README.dev.md](./README.dev.md)**
+and `CLAUDE.md`.
 
 ## Install
 
-### Dependencies
-
-| Package    | Required? | Purpose                                                      |
-|------------|-----------|--------------------------------------------------------------|
-| CMake ≥ 3.14 | yes     | build system                                                 |
-| htslib     | yes       | BAM/CRAM/VCF I/O                                             |
-| zlib       | yes       | gzip in/out                                                  |
-| pthread    | yes       | worker threads                                               |
-| BZip2, lzma | yes      | htslib compression deps                                      |
-| sqlite3    | optional  | enables `--dump-reads` r2c.db output (see below)             |
-| jemalloc   | optional  | recommended on Linux at `-p 16+` (allocator contention)      |
-
-When sqlite3 isn't found, svaba builds successfully but `--dump-reads`
-skips the `${ID}.r2c.db` file with a single startup warning; the other
-`--dump-reads` outputs (`corrected.bam`, `discordant.bam`)
-are unaffected. If you don't use `--dump-reads`, sqlite3 isn't
-exercised at all and you can ignore it. To enable r2c.db (so the
-`docs/r2c_db_explorer.html` viewer has something to load), install:
-
-- macOS: `brew install sqlite` (also pre-installed)
-- Debian/Ubuntu: `sudo apt install libsqlite3-dev`
-- Fedora/RHEL: `sudo dnf install sqlite-devel`
-
-…then re-run cmake.
-
-### Building
-
-CMake auto-detects htslib via pkg-config or the default include/lib
-search paths:
+| Package      | Required? | Purpose                                     |
+|--------------|-----------|---------------------------------------------|
+| CMake ≥ 3.14 | yes       | build system                                |
+| htslib       | yes       | BAM/CRAM/VCF I/O                            |
+| zlib         | yes       | gzip in/out                                 |
+| pthread      | yes       | worker threads                              |
+| BZip2, lzma  | yes       | htslib compression deps                     |
+| sqlite3      | optional  | enables `--dump-reads` `r2c.db` output      |
+| jemalloc     | optional  | recommended on Linux at `-p 16+`            |
 
 ```bash
 git clone --recursive https://github.com/walaj/svaba
@@ -48,108 +30,29 @@ cd svaba && mkdir build && cd build
 cmake .. && make -j
 ```
 
-For a non-standard htslib install location, point at it explicitly:
+The binary lands at `build/svaba`. For a non-standard htslib, pass
+`-DHTSLIB_DIR=/path/to/htslib-1.xx`. Install system-wide with `make install`
+(prefix `/usr/local`, override with `-DCMAKE_INSTALL_PREFIX`).
 
-```bash
-cmake .. -DHTSLIB_DIR=/path/to/htslib-1.xx
-make -j
-```
+Build type defaults to `RelWithDebInfo` (`-O2 -g -DNDEBUG`). See
+[README.dev.md](./README.dev.md) for `-O3 -mcpu=native` tuning (5–15% faster),
+the fermi-lite/SGA assembler switch, and jemalloc (10–20% faster on Linux at
+high thread counts).
 
-To link jemalloc at compile time (recommended on Linux for `-p 16+`
-runs — eliminates allocator contention, no `LD_PRELOAD` needed):
-
-```bash
-cmake .. -DUSE_JEMALLOC=ON
-make -j
-```
-
-The binary lands at `build/svaba`. To install it system-wide (or
-into this repo's `bin/`), use CMake's install target — the default
-prefix is `/usr/local` and needs sudo, or override it with
-`-DCMAKE_INSTALL_PREFIX`:
-
-```bash
-make install                                           # /usr/local/bin/svaba
-cmake --install build --prefix $(pwd)/..               # repo-local bin/svaba
-```
-
-Build type defaults to `RelWithDebInfo` (`-O2 -g -DNDEBUG`). The
-vendored `SeqLib/bwa` and `SeqLib/fermi-lite` hardcode `-O2` in their
-Makefiles; see `CLAUDE.md` for how to push them to `-O3 -mcpu=native`
-(typically a 5–15% wall-time win).
-
-### Assembler selection
-
-By default svaba assembles contigs with **fermi-lite** (ropebwt2-based,
-the faster path). The vendored SGA (String Graph Assembler) is still
-fully supported but off by default — switch it on at compile time by
-passing `-DSVABA_ASSEMBLER_FERMI=0` to CMake:
-
-```bash
-cmake .. -DSVABA_ASSEMBLER_FERMI=0
-make -j
-```
-
-The choice is a single compile-time symbol in
-`src/svaba/SvabaAssemblerConfig.h`; you can also flip it by editing that
-file directly and rebuilding. Runtime logs report the active
-assembler under `svaba::kAssemblerName`, so you can always confirm
-which engine a build was compiled with.
-
-### jemalloc (Linux, high thread count)
-
-On Linux, running svaba with **jemalloc** as the allocator typically
-wins 10–20 % wall-time at `-p 16+` (large WGS, tumor/normal). svaba's
-per-thread assembly loop generates heavy malloc/free traffic and
-glibc's default allocator serializes on its arena locks under that
-contention pattern; jemalloc's thread-local arenas sidestep the
-problem. The repo ships a drop-in wrapper at `./svaba_jemalloc` that
-`LD_PRELOAD`s the system `libjemalloc.so.2` and then exec's svaba:
-
-```bash
-# one-liner replacement for `svaba run ...`:
-./svaba_jemalloc run -t tumor.bam -n normal.bam -G ref.fa -a my_run -p 16 \
-                     --blacklist tracks/hg38.combined_blacklist.bed
-```
-
-Install jemalloc first (`apt install libjemalloc2`, `yum install
-jemalloc`, `dnf install jemalloc`). The wrapper auto-detects the
-library under the standard distro paths; if yours is elsewhere, set
-`JEMALLOC_LIB=/path/to/libjemalloc.so.2`. If the svaba binary isn't on
-your `$PATH`, set `SVABA=/path/to/svaba`.
-
-For very high concurrency (`-p 24+`), also pass jemalloc's own tuning
-knobs via `MALLOC_CONF`:
-
-```bash
-MALLOC_CONF=background_thread:true,narenas:24,dirty_decay_ms:10000 \
-    ./svaba_jemalloc run -p 24 ...
-```
-
-`narenas` should match or modestly exceed the thread count;
-`background_thread:true` asks jemalloc to reclaim dirty pages on a
-background thread instead of in the hot path.
-
-**macOS users should not use jemalloc.** Apple's native libmalloc
-(with its nanomalloc fast path for small allocations) and the
-DYLD_INSERT_LIBRARIES mechanism combine to run 5–10× slower than
-system malloc on this exact workload in our A/B tests. The wrapper
-refuses to run on Darwin for that reason. Stick with the system
-allocator on macOS.
+When sqlite3 isn't found, svaba builds fine but `--dump-reads` skips the
+`${ID}.r2c.db` file (the other `--dump-reads` outputs are unaffected). To
+enable it: `brew install sqlite` / `apt install libsqlite3-dev` /
+`dnf install sqlite-devel`, then re-run cmake.
 
 ## Quick start
 
-Three steps. Run the caller, merge + dedup + index the per-thread
-outputs, then convert the deduped `bps.txt.gz` to VCF. The bundled
-combined blacklist is strongly recommended — it keeps svaba out of
-well-known pileup / high-complexity regions that would otherwise
-dominate wall-clock time with no real calls to show for it. See
-`tracks/README.md` for customizing or extending the blacklist.
+Three steps: call, post-process, convert to VCF. The bundled combined
+blacklist is strongly recommended — it keeps svaba out of pileup /
+high-complexity regions that otherwise dominate wall-clock with no real calls.
 
 ```bash
 # 1. Call: tumor/normal on chr22 with 4 threads, bundled blacklist
-svaba run -t tumor.bam -n normal.bam -G ref.fa -a my_run -p 4 \
-          -k chr22 \
+svaba run -t tumor.bam -n normal.bam -G ref.fa -a my_run -p 4 -k chr22 \
           --blacklist tracks/hg38.combined_blacklist.bed
 
 # 2. Post-process (one command): merge per-thread BAMs, sort+dedup+index,
@@ -160,381 +63,196 @@ svaba postprocess -i my_run -t 8 -m 4G
 svaba tovcf -i my_run.bps.sorted.dedup.txt.gz -b tumor.bam -a my_run
 ```
 
-A single-sample call drops `-n`. Any number of cases/controls can be
-jointly assembled; prefix on the sample ID drives case/control routing
-(`t*` = case, `n*` = control).
+A single-sample call drops `-n`. Any number of cases/controls can be jointly
+assembled; the sample-ID prefix drives routing (`t*` = case, `n*` = control).
 
 ## Subcommands
 
-SvABA is a multi-tool binary. `svaba help` lists everything. The main
-ones:
+SvABA is a multi-tool binary; `svaba help` lists everything.
 
-`svaba run` performs the whole assembly + variant-calling pipeline.
-Takes a BAM (or many) plus a reference, a blacklist, and an output ID.
-Emits `bps.txt.gz`, per-sample VCFs, `contigs.bam`, `runtime.txt`, and
-(with `--dump-reads`) per-thread `*.discordant.bam`,
-`*.corrected.bam`, and `*.r2c.db`.
-
-`svaba postprocess` is the one-command post-processing step. It merges
-the per-thread BAMs and `r2c.db` files, coordinate-sorts + stream-dedups
-+ @PG-stamps + indexes the BAMs, sorts and dedups `bps.txt.gz` (writing
-the PASS / PASS-somatic subsets), and stamps the PASS reads into
-`r2c.db`. (The older `scripts/svaba_postprocess.sh` wrapper predates the
-subcommand absorbing all of this and is now superseded.)
-
-`svaba tovcf` converts a deduplicated `bps.txt.gz` into VCFv4.5 output
-(one SV VCF, one indel VCF; somatic distinguished by the `SOMATIC`
-INFO flag). Clean intrachrom events emit as symbolic `<DEL>`/`<DUP>`/
-`<INV>`; everything else stays paired BND. Input is assumed already
-sorted/deduped by `svaba postprocess` — use `--dedup` to opt back
-into the legacy internal dedup.
-
-The `SOMATIC` flag is stamped when a record's somatic LOD
-(`INFO/SOMLOD`) meets or exceeds a configurable cutoff; the default
-is **1.0**, which is a reasonable "confident somatic" gate and keeps
-marginal calls out of the somatic set. Tune it with `--somlod`:
-
-```bash
-svaba tovcf -i deduped.bps.txt.gz -b tumor.bam -a my_run            # default somlod >= 1
-svaba tovcf ... --somlod 2.0                                         # stricter: only strong somatic calls
-svaba tovcf ... --somlod 0.0                                         # permissive: flag anything with LO_s >= 0
-```
-
-The raw score is always written to `INFO/SOMLOD` regardless of the
-cutoff, so downstream `bcftools view -i 'INFO/SOMLOD >= 3'` still
-works if you want to re-threshold after the fact without regenerating
-the VCF.
-
-`svaba refilter` re-runs the LOD cutoffs / PASS logic on an existing
-`bps.txt.gz` with new thresholds, regenerating VCFs without rerunning
-assembly. Use it when you want to tune sensitivity/specificity after
-the fact.
+- **`svaba run`** — the whole assembly + variant-calling pipeline. Emits
+  `bps.txt.gz`, per-sample VCFs, `contigs.bam`, `runtime.txt`, and (with
+  `--dump-reads`) per-thread `*.discordant.bam`, `*.corrected.bam`, `*.r2c.db`.
+- **`svaba postprocess`** — one-command post-processing: merges per-thread
+  BAMs and `r2c.db` files, coordinate-sorts + stream-dedups + `@PG`-stamps +
+  indexes the BAMs, sorts/dedups `bps.txt.gz` (writing PASS / PASS-somatic
+  subsets), and stamps PASS reads into `r2c.db`. Six idempotent phases; reruns
+  are near-instant.
+- **`svaba tovcf`** — converts a deduplicated `bps.txt.gz` into VCFv4.5 (one SV
+  VCF, one indel VCF; somatic marked by the `SOMATIC` INFO flag). Clean
+  intrachrom events emit as symbolic `<DEL>`/`<DUP>`/`<INV>`; everything else
+  stays paired BND. The `SOMATIC` flag is stamped when `INFO/SOMLOD` ≥ a cutoff
+  (default **1.0**, tune with `--somlod`). The raw score is always written to
+  `INFO/SOMLOD`, so `bcftools view -i 'INFO/SOMLOD >= 3'` re-thresholds without
+  regenerating the VCF.
+- **`svaba refilter`** — re-runs LOD cutoffs / PASS logic on an existing
+  `bps.txt.gz` with new thresholds, regenerating VCFs without re-assembling.
+- **`svaba extract-pairs`** — pulls every read pair whose SEQ contains a query
+  sequence (or, with `-f bps.txt.gz`, every read carrying a variant's junction
+  kmer). See `svaba extract-pairs -h`.
 
 ## Output files
 
-`${ID}.bps.txt.gz` is the primary output — one row per breakpoint,
-with a v4 schema of 53 core columns + per-sample blocks (see
-`BreakPoint::header` for column names). Column 52 is a unique
-`bp_id` of the form `bpTTTNNNNNNNN` that joins back to the BAM aux
-tags and the VCF `EVENT=` field; column 53 is the junction kmer
-(`jxn_kmer`) consumed by `svaba extract-pairs`. `${ID}.contigs.bam` holds every
-assembled contig, `${ID}.runtime.txt` holds per-region timing, and
-`${ID}.log` carries the run log.
+`${ID}.bps.txt.gz` is the primary output — one row per breakpoint, with a v4
+schema of 53 core columns plus one FORMAT-style block per sample. Full column
+reference below.
 
-The VCF files (`${ID}.sv.vcf.gz`, `${ID}.indel.vcf.gz`) declare
-`VCFv4.5`, use symbolic alleles where unambiguous, and carry the
-canonical scoring in INFO: `MAXLOD` (variant-vs-error, per-sample
-max), `SOMLOD` (somatic LLR), `SOMATIC` (flag), and `SVCLAIM`
-(evidence class). VCF `QUAL` defaults to `.` — filter on `FILTER=PASS`
-or the two LOD fields, not QUAL. See `CLAUDE.md` for the full scoring
-model.
+The VCF files (`${ID}.sv.vcf.gz`, `${ID}.indel.vcf.gz`) declare `VCFv4.5`, use
+symbolic alleles where unambiguous, and carry the canonical scoring in INFO:
+`MAXLOD` (variant-vs-error, per-sample max), `SOMLOD` (somatic LLR), `SOMATIC`
+(flag), `SVCLAIM` (evidence class). VCF `QUAL` defaults to `.` — filter on
+`FILTER=PASS` or the two LOD fields, not QUAL.
 
-Opt-in outputs (gated behind `--dump-reads`): `${ID}.r2c.db` is a
-queryable SQLite database of every contig + its r2c-aligned reads;
-`${ID}.corrected.bam` / `${ID}.discordant.bam`
-carry per-read evidence streams. These can run to tens of GB on deep
-samples, so they're off by default.
+`${ID}.contigs.bam` holds every assembled contig; `${ID}.runtime.txt` holds
+per-region timing; `${ID}.log` is the run log.
 
-## Post-processing pipeline
+Opt-in outputs (behind `--dump-reads`, can run to tens of GB on deep samples):
+`${ID}.r2c.db` (queryable SQLite of every contig + its r2c-aligned reads),
+`${ID}.corrected.bam` / `${ID}.discordant.bam` (per-read evidence streams).
 
-`svaba run` emits per-thread, unsorted BAMs, a per-thread `bps.txt.gz`,
-and (with `--dump-reads`) per-thread `r2c.db` files. `svaba postprocess`
-folds all of that into the final outputs in one command:
+### `bps.txt.gz` column reference
 
-```bash
-svaba postprocess -i my_run -t 8 -m 4G
-```
+Columns are 1-indexed (awk `$1` == `chr1`). This is the v4 schema emitted by
+`BreakPoint::toFileString`; positions are 1-based (SAM/VCF convention).
+`x` marks an empty string field; `.` marks an empty numeric/id field.
 
-Six idempotent phases: (0) merge per-thread BAMs and `r2c.db` files;
-(1) coordinate-sort the BAMs in parallel; (2) stream-dedup + @PG-stamp +
-index them; (3) sort + dedup `bps.txt.gz` and write the PASS /
-PASS-somatic subsets (`my_run.bps.sorted.dedup.txt.gz` is the file
-`svaba tovcf` consumes); (4) stamp the PASS / PASS-somatic cnames into
-`r2c.db`; (5, optional, `--split`) demux the BAMs by source prefix.
-Every phase auto-skips work that's already done, so reruns are
-near-instant. See `CLAUDE.md` for the full flag surface.
+| # | Name | Description |
+|---|------|-------------|
+| 1 | `chr1` | Chromosome of breakend 1 |
+| 2 | `pos1` | Position of breakend 1 (1-based) |
+| 3 | `strand1` | Orientation of breakend 1 (`+`/`-`) |
+| 4 | `chr2` | Chromosome of breakend 2 |
+| 5 | `pos2` | Position of breakend 2 (1-based) |
+| 6 | `strand2` | Orientation of breakend 2 (`+`/`-`) |
+| 7 | `ref` | Reference allele at the breakpoint |
+| 8 | `alt` | Alternate allele |
+| 9 | `span` | Event span in bp (`-1` for interchromosomal) |
+| 10 | `split` | Total split-read support across all samples |
+| 11 | `alt_count` | Total alt-read count |
+| 12 | `cov` | Read coverage at the breakpoint |
+| 13 | `cigar` | Indel support from read CIGAR strings |
+| 14 | `cigar_near` | CIGAR support near (but not exactly at) the breakpoint |
+| 15 | `dmq1` | Discordant-cluster MAPQ, side 1 |
+| 16 | `dmq2` | Discordant-cluster MAPQ, side 2 |
+| 17 | `dcn` | Discordant read count, normal |
+| 18 | `dct` | Discordant read count, tumor |
+| 19 | `mapq1` | Contig-alignment MAPQ, side 1 |
+| 20 | `mapq2` | Contig-alignment MAPQ, side 2 |
+| 21 | `nm1` | Contig-alignment edit distance (NM), side 1 |
+| 22 | `nm2` | Contig-alignment edit distance (NM), side 2 |
+| 23 | `as1` | Contig-alignment score (BWA AS), side 1 |
+| 24 | `as2` | Contig-alignment score (BWA AS), side 2 |
+| 25 | `sub1` | Number of sub-optimal contig alignments, side 1 |
+| 26 | `sub2` | Number of sub-optimal contig alignments, side 2 |
+| 27 | `homol` | Microhomology at the junction (side-1 forward strand); `x` if none |
+| 28 | `insert` | Inserted novel (non-template) sequence at the junction; `x` if none |
+| 29 | `repeat` | Repeat-sequence context at the breakpoint; `x` if none |
+| 30 | `contig_and_region` | Contig name (`cname`) — the r2c / `r2c.db` join key |
+| 31 | `naln` | Number of contig-alignment fragments |
+| 32 | `conf` | Confidence / FILTER (`PASS`, `LOWLOD`, `LOWSUPPORT`, …) |
+| 33 | `type` | Evidence type (`ASSMB`, `ASDIS`, `DSCRD`, `INDEL`, …) |
+| 34 | `qual` | Variant quality |
+| 35 | `2ndary` | Secondary-alignment flag |
+| 36 | `somatic` | Somatic call flag (`NA` when no normal sample present) |
+| 37 | `somlod` | Somatic LOD (`LO_s`), capped at 99 |
+| 38 | `maxlod` | Max per-sample `LO` (variant-vs-error) |
+| 39 | `dbsnp` | dbSNP overlap (rs id, or `x`) |
+| 40 | `contig_conf1` | Contig-alignment confidence, side 1 |
+| 41 | `contig_conf2` | Contig-alignment confidence, side 2 |
+| 42 | `cpos1` | Contig-relative breakend position, side 1 (`-1` = unset) |
+| 43 | `cpos2` | Contig-relative breakend position, side 2 (`-1` = unset) |
+| 44 | `lmatch` | Left flanking match length |
+| 45 | `rmatch` | Right flanking match length |
+| 46 | `scov1` | Split-coverage lower bound on the contig |
+| 47 | `scov2` | Split-coverage upper bound on the contig |
+| 48 | `local1` | Per-end LocalAlignment enum (0–3), side 1 |
+| 49 | `local2` | Per-end LocalAlignment enum (0–3), side 2 |
+| 50 | `ctglen` | Contig length |
+| 51 | `flipped` | Contig orientation flag (1 = contig flipped relative to side 1) |
+| 52 | `bp_id` | Unique per-BP identifier `bpTTTNNNNNNNN` (thread `TTT`, counter `NNNNNNNN`). Joins to `bps.txt` col 52, the BAM `bi:Z` tag, `r2c.db`'s `split_bps`/`disc_bps`, and the VCF `EVENT=` field. `.` if unset |
+| 53 | `jxn_kmer` | 20 bp contig sequence spanning the breakend junction — a read-search query for `svaba extract-pairs -f bps.txt.gz`. `.` when no precise junction exists |
+| 54+ | *per-sample block* | One `FORMAT`-style block per BAM (order matches the header row) — see below |
+
+**Per-sample block** (columns 54+, one per BAM), colon-delimited
+`GT:AD:DP:SR:DR:GQ:PL:LO:LO_n`:
+
+| Sub | Name | Description |
+|-----|------|-------------|
+| GT | genotype | Genotype call |
+| AD | alt depth | Alt-supporting read count (for indels, `max(alt, cigar)`) |
+| DP | depth | Total read coverage |
+| SR | split reads | Split-read support count |
+| DR | discordant reads | Discordant-read support (**indels:** this field holds the CIGAR-indel count instead) |
+| GQ | genotype quality | Phred genotype quality |
+| PL | phred likelihoods | Comma-separated genotype likelihoods |
+| LO | log-odds | Variant vs error (per-sample); `maxlod` is the max of these |
+| LO_n | log-odds ref | Confidence the site is REF-only in this sample (the germline-vs-somatic discriminant; the normal's `LO_n` drives `somlod`) |
+
+`scripts/svaba_local_function.sh::svaba_bps_cols` prints this same reference
+from the shell.
 
 ## Viewers
 
-All-HTML, no server, drop files in from `file://`. Entry point:
-`docs/index.html`. The primary viewer is `bps_explorer.html` —
-sortable `bps.txt.gz` table with chip filters, per-sample detail
-panel, log10 histograms for somlod/maxlod/span, and click-to-IGV
-navigation. `r2c_db_explorer.html` loads a `${ID}.r2c.db` and plots
-each contig + its r2c-aligned reads (contig ruler, fragment rows,
-indel marker rows, per-read gap-expanded CIGAR, bp_id filter); the
-legacy `r2c_explorer.html` does the same for old `.r2c.txt.gz` dumps.
-`runtime_explorer.html` visualizes `runtime.txt`; `comparison.html`
-does side-by-side diffs of two runs; `learn_explorer.html` plots
-per-read-group insert-size distributions (pairs with `scripts/plot_learn.sh`).
-
-`docs/alignments_viewer.html` still renders the legacy
-`alignments.txt.gz` ASCII output, but new runs don't produce that
-file — `r2c_db_explorer.html` is the replacement.
+All-HTML, no server — drop files in from `file://`. Entry point:
+`docs/index.html`. Primary viewer is `bps_explorer.html` (sortable
+`bps.txt.gz` table, chip filters, per-sample detail, histograms, click-to-IGV).
+`r2c_db_explorer.html` loads a `${ID}.r2c.db` and plots each contig with its
+r2c-aligned reads. `runtime_explorer.html` visualizes `runtime.txt`;
+`comparison.html` diffs two runs; `learn_explorer.html` plots insert-size
+distributions.
 
 ## Blacklists
 
-`tracks/hg38.combined_blacklist.bed` is the ready-made blacklist;
-feed it to `svaba run --blacklist`. It is a regeneratable union of
-component BED files in `tracks/` (ENCODE, high-runtime regions, manual
-curations, simple repeats, non-standard contigs, and a
-low-mappability blacklist derived from paired mosdepth runs). See
-`tracks/README.md` for the recipe.
-
-## Debugging recipes
-
-### Trace a specific read through the entire pipeline
-
-Compile with `-DSVABA_TRACE_READ` to get per-decision-point stderr output
-for a single read (by QNAME) from BAM ingestion through to output tagging.
-Zero runtime cost when not compiled in (all trace macros compile to no-ops).
-
-```bash
-cmake -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-      -DCMAKE_CXX_FLAGS='-DSVABA_TRACE_READ="\"LH00306:129:227V5CLT4:6:1204:38807:7191\""'
-cmake --build build -j$(nproc)
-
-# Run on just the region containing the read (faster iteration)
-svaba run -t tumor.bam -n normal.bam -G ref.fa -p 4 \
-    -k chr2:215000000-216000000 --dump-reads -a trace_run 2> read_trace.log
-
-grep READ_TRACE read_trace.log
-```
-
-The trace covers every gate the read hits:
-
-| Stage | Log prefix | What it tells you |
-|-------|-----------|-------------------|
-| BAM read & filter | (various, from SvabaBamWalker) | Dup/QC/blacklist gates, rule_pass, NM salvage, adapter filter, quality trim, buffer admission |
-| BFC error correction | `BFC corrected:` | Whether BFC changed the sequence and by how much |
-| R2C alignment | `R2C SKIP:` / `R2C HIT:` | Perfect-ref-match skip, or which contigs the read aligned to (AS score, CIGAR) |
-| Native realignment | `NATIVE_REALIGN:` | Whether the corrected seq was re-aligned to ref or reused the BAM CIGAR |
-| Split coverage scoring | `SPLIT_COV enter` | Entry into per-BP scoring with r2c coords and breakpoint positions |
-| R2C vs native gate | `SPLIT_COV TP8` | The critical score comparison: r2c_score, native_score, both CIGARs, NM values |
-| Indel-at-break check | `SPLIT_COV TP9` | Whether an r2c CIGAR indel lands at the breakpoint |
-| Span check | `SPLIT_COV TP10` | Whether the read spans the breakpoint(s), with exact coord bounds |
-| DEL-covers-break | `SPLIT_COV TP11` | Whether an r2c deletion masks the breakpoint |
-| Final verdict | `SPLIT_COV CREDITED` / `NOT CREDITED` / `SKIPPED` | Did this read count as a variant supporter? |
-| Output tagging | `OUTPUT TAG bi:Z` | BP id stamped on the read, confidence, somatic status |
-
-Example trace (abridged) for a read supporting a somatic 1bp deletion:
-
-```
-[READ_TRACE:SvabaBamWalker.cpp:203] read=LH00306:129:... flag=163 mapq=60 pos=chr2:215869800 ...
-[READ_TRACE:SvabaBamWalker.cpp:236] PASS mr.isValid rule_pass=1
-[READ_TRACE:SvabaBamWalker.cpp:340] ADDED to read buffer (n=847)
-[READ_TRACE:SvabaRegionProcessor.cpp:377] BFC corrected: changed=NO ...
-[READ_TRACE:SvabaRegionProcessor.cpp:808] R2C HIT: contig=c_fermi_chr2_... AS=150 rc=0 CIGAR=75M1D74M
-[READ_TRACE:SvabaRegionProcessor.cpp:978] NATIVE_REALIGN: reusing BAM CIGAR (seq unchanged by BFC)
-[READ_TRACE:BreakPoint.cpp:379] SPLIT_COV enter contig=c_fermi_chr2_... r2c_start=340 r2c_end=489 ...
-[READ_TRACE:BreakPoint.cpp:476] SPLIT_COV TP8 PASS r2c>native r2c_score=150 native_score=143 ...
-[READ_TRACE:BreakPoint.cpp:601] SPLIT_COV TP10 span check issplit1=1 issplit2=1 one_split=1
-[READ_TRACE:BreakPoint.cpp:697] SPLIT_COV CREDITED as variant supporter sample=t000 tumor=1
-[READ_TRACE:SvabaRegionProcessor.cpp:1346] OUTPUT TAG bi:Z bp_id=bp00100000042 confidence=PASS somatic=1
-```
-
-### Trace a specific contig
-
-```bash
-cmake -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-      -DCMAKE_CXX_FLAGS='-DSVABA_TRACE_CONTIG="\"c_fermi_chr2_215869501_215894501_13C\""'
-cmake --build build -j$(nproc)
-```
-
-Shows assembly filtering (TP1–TP5), variant identification (TP6),
-per-read split-coverage scoring (TP8–TP11), breakpoint confidence
-(TP13–TP16, TP23).
-
-### Trace both a read AND a contig simultaneously
-
-```bash
-cmake -B build \
-      -DCMAKE_CXX_FLAGS='-DSVABA_TRACE_READ="\"LH00306:129:227V5CLT4:6:1204:38807:7191\"" \
-                          -DSVABA_TRACE_CONTIG="\"c_fermi_chr2_215869501_215894501_13C\""'
-cmake --build build -j$(nproc)
-```
-
-Independent prefixes (`[READ_TRACE:...]` vs `[TRACE:...]`) — grep for either.
-
-### Trace ALL reads or ALL contigs (very noisy)
-
-```bash
-cmake ... -DCMAKE_CXX_FLAGS='-DSVABA_TRACE_ALL_READS=1'   # every read
-cmake ... -DCMAKE_CXX_FLAGS='-DSVABA_TRACE_ALL=1'          # every contig
-```
-
-Best combined with a small `-k` region.
-
-### Finding a read's QNAME to trace
-
-```bash
-# From bps.txt.gz — get contig name (col 30) and bp_id (col 52)
-zcat results.bps.txt.gz | awk -F'\t' '$1=="chr2" && $2 > 215869000 && $2 < 215870000'
-
-# From the corrected BAM — reads tagged with a specific bp_id
-samtools view results.corrected.bam chr2:215869000-215870000 | grep "bi:Z:.*bp00100000042"
-
-# From the r2c.db — all reads for a contig
-sqlite3 results.r2c.db "SELECT read_id FROM reads WHERE cname='c_fermi_chr2_215869501_215894501_13C';"
-```
-
-### Restrict assembly to reads containing a specific kmer
-
-```bash
-cmake -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-      -DCMAKE_CXX_FLAGS='-DSVABA_KMER_RESTRICT="\"CCATGCAGAGTGTTGAAGAAAAGGC\""'
-cmake --build build -j$(nproc)
-```
-
-After BFC error correction, only reads whose corrected sequence
-contains the specified kmer (or its reverse complement) survive.
-All other reads get `to_assemble = false` — they won't enter fermi
-assembly, r2c alignment, corrected.bam, or scoring. The log prints
-kept/dropped counts per region.
-
-Use case: you see a suspicious contig and want to know whether
-assembly still produces it when restricted to reads from a particular
-locus. Pick a 25-mer unique to that locus, compile with
-`SVABA_KMER_RESTRICT`, and run on the same region:
-
-```bash
-svaba run -t tumor.bam -n normal.bam -G ref.fa -k chr11:5000000-5100000 \
-          -a kmer_test --dump-reads -p 1
-```
-
-If the chimeric contig still assembles, the kmer-carrying reads are
-sufficient to produce it. If it disappears, reads from elsewhere
-were required.
-
-Can be combined with read/contig tracing:
-
-```bash
-cmake -B build \
-      -DCMAKE_CXX_FLAGS='-DSVABA_KMER_RESTRICT="\"CCATGCAGAGTGTTGAAGAAAAGGC\"" \
-                          -DSVABA_TRACE_CONTIG="\"c_fermi_chr11_5000001_5100001_3C\""'
-```
-
-### Disable the r2c-vs-native gate (for debugging only)
-
-```bash
-cmake ... -DCMAKE_CXX_FLAGS='-DSVABA_R2C_NATIVE_GATE=0'
-```
-
-Restores old behavior where any r2c-spanning read credits as variant supporter.
-Will reintroduce false-positive somatic calls from homology-trap reads.
-
----
-
-## Alt-contig demotion
-
-BWA-MEM sometimes places a contig fragment on an alt contig (e.g.
-`chr11_JH159136v1_alt`) when chr11 proper has an equally good
-alignment. If the alt later gets blacklisted, the real breakpoint
-is lost.
-
-svaba now requests secondary alignments for contigs and runs a
-post-alignment step (`preferStandardChromosomes`): for each
-primary/supplementary fragment on a non-standard chromosome
-(ChrID > `maxMateChrID`, default 23), it looks for a secondary
-alignment on a standard chromosome that:
-
-- Covers ≥ 80% of the same query range (reciprocal overlap)
-- Has AS ≥ 95% of the non-standard alignment's AS
-
-If found, the standard-chr alignment is promoted (gets the
-primary/supplementary flag) and the non-standard one is demoted
-to secondary. The contig trace (`SVABA_TRACE_CONTIG`) logs each
-swap with both chromosome IDs and alignment scores.
-
-This is controlled by `--max-mate-chr` (same constant used for
-mate-region lookup). `--non-human` sets it to -1, which disables
-alt-demotion entirely (no chromosome is "non-standard").
-
----
+`tracks/hg38.combined_blacklist.bed` is the ready-made blacklist; feed it to
+`svaba run --blacklist`. It's a regeneratable union of component BEDs in
+`tracks/` (ENCODE, high-runtime regions, manual curations, simple repeats,
+non-standard contigs, low-mappability). See `tracks/README.md` for the recipe.
 
 ## Recipes
 
-Germline-only. Raise the mate-lookup threshold so only larger
-discordant clusters trigger a cross-region lookup — more conservative
-and usually appropriate for a single-sample germline run where we
-don't have a built-in control to guard against mapping artifacts
-(a tumor would typically see smaller, subclonal clusters we want
-to chase down). Add `--single-end` to disable mate lookups entirely
-if you want to be even more conservative:
+**Germline-only.** Raise the mate-lookup threshold so only larger discordant
+clusters trigger a cross-region lookup (add `--single-end` to disable mate
+lookups entirely):
 
 ```bash
-svaba run -t germline.bam -p 8 --mate-min 6 -a germline_run \
-          -G ref.fa \
+svaba run -t germline.bam -p 8 --mate-min 6 -a germline_run -G ref.fa \
           --blacklist tracks/hg38.combined_blacklist.bed
 ```
 
-Targeted assembly over a list of regions (BED, chr, or IGV-style
-string):
+**Targeted assembly** over a region list (BED, chr, or IGV-style string):
 
 ```bash
 svaba run -t sample.bam -k targets.bed -a exome_cap -G ref.fa
 svaba run -t sample.bam -k chr17:7,541,145-7,621,399 -a TP53 -G ref.fa
 ```
 
-Dump all per-read evidence (large output, only for debugging a
-specific call):
-
-```bash
-svaba run -t sample.bam -G ref.fa -a debug_run --dump-reads
-svaba postprocess -i debug_run -t 8 -m 4G
-```
-
-Non-human genome (e.g. mouse, zebrafish, _C. elegans_). By default
-svaba assumes a human reference: mate-region lookups skip chromosomes
-past chrY (ChrID > 23), and insert-size learning samples only the
-primary assembly (chr1–chrY). `--non-human` removes these gates so
-every contig in the reference is treated equally:
+**Non-human genome** (mouse, zebrafish, …). By default svaba assumes a human
+reference (mate lookups skip past chrY, insert-size learning samples chr1–chrY).
+`--non-human` removes those gates:
 
 ```bash
 svaba run -t mouse.bam -G mm39.fa -a mouse_run --non-human -p 16
 ```
 
-The flag sets `maxMateChrID = -1` internally. You can also fine-tune
-individually: `--max-mate-chr 19` (mouse has 19 autosomes + X + Y =
-ChrIDs 0–20 in a typical reference), `--min-mate-mapq 10` (require
-MAPQ ≥ 10 on the primary read before chasing its mate).
-
-Snapshot where a long-running job currently is:
-
-```bash
-tail my_run.log
-```
-
-## Further reading
-
-`CLAUDE.md` at the repo root is the crash-safety-net doc — conventions,
-file landmarks, build-system quirks (the `-O2` hardcoding in
-submodules), the somatic LOD model, the postprocess pipeline details,
-performance notes, and open investigations. Always update `CLAUDE.md`
-when you change something non-obvious.
-
-`scripts/svaba_local_function.sh` is a sourceable bash helper library
-with `svaba_*` utilities for grepping contigs, following a bp_id
-through the output set, opening locations in IGV, etc. Source it from
-your shell rc file to use.
+Fine-tune individually with `--max-mate-chr N` and `--min-mate-mapq N`.
 
 ## Issues and contact
 
-Please file bug reports, feature requests, and questions on the GitHub
-issues tracker: https://github.com/walaj/svaba/issues.
+File bug reports, feature requests, and questions on GitHub:
+https://github.com/walaj/svaba/issues.
 
 ## Attributions
 
-SvABA is developed by Jeremiah Wala in the Rameen Berkoukhim lab at
-Dana-Farber Cancer Institute, in collaboration with the Cancer Genome
-Analysis team at the Broad Institute. Particular thanks to Cheng-Zhong
-Zhang (HMS DBMI) and Marcin Imielinski (Weill Cornell / NYGC).
+SvABA is developed by Jeremiah Wala in the Rameen Berkoukhim lab at Dana-Farber
+Cancer Institute, in collaboration with the Cancer Genome Analysis team at the
+Broad Institute. Particular thanks to Cheng-Zhong Zhang (HMS DBMI) and Marcin
+Imielinski (Weill Cornell / NYGC).
 
-Additional thanks to Jared Simpson for SGA, Heng Li for htslib and
-BWA, and the SeqLib contributors.
+Additional thanks to Jared Simpson for SGA, Heng Li for htslib and BWA, and the
+SeqLib contributors.
 
-The SvABA 2.0 release and its documentation were built with the
-assistance of OpenAI Codex and Anthropic Claude, with extensive
-human-in-the-loop review, testing, and decision-making throughout.
+The SvABA 2.0 release and its documentation were built with the assistance of
+OpenAI Codex and Anthropic Claude, with extensive human-in-the-loop review,
+testing, and decision-making throughout.
 
 [seqlib]: https://github.com/walaj/SeqLib
