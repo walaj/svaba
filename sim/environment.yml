@@ -1,0 +1,13 @@
+# Conda/mamba environment for the svaba SV simulator.
+#   mamba env create -f environment.yml   &&   mamba activate svaba-sim
+# (The simulator's Python is stdlib-only; this env just provides the external
+#  tools. bwa-mem2 may be substituted for bwa.)
+name: svaba-sim
+channels:
+  - bioconda
+  - conda-forge
+dependencies:
+  - python>=3.8
+  - art               # art_illumina read simulator
+  - bwa               # alignment (BWA-MEM)
+  - samtools>=1.10    # sort/index/subsample/merge/idxstats/faidx

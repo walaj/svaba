@@ -123,6 +123,48 @@ a.card:hover{border-color:var(--accent);transform:translateY(-2px)}
       </div>
     </a>
 
+    <a class="card" href="sim_benchmark.html">
+      <div class="title">Sim Benchmark (ROC / PR) <span class="tag tag-align">truth + bps</span></div>
+      <div class="desc">
+        Score svaba against the <code>sim/</code> simulator ground truth. Load
+        <code>truth.bedpe</code> + a <code>bps.txt.gz</code>; sweep a score
+        threshold (somlod / maxlod / qual) to get Precision-Recall and
+        Recall-vs-FalsePositives (FROC) curves, an operating-point slider, and
+        recall broken down by SV type and size bin. Click TP/FP/FN for IGV-
+        linked variant lists; optional blacklist BED masks regions. Streams
+        large gzip, auto-restricts to the truth's chromosomes.
+      </div>
+    </a>
+
+    <a class="card" href="sim_commit_compare.html">
+      <div class="title">Commit Tracker <span class="tag tag-runtime">across commits</span></div>
+      <div class="desc">
+        Track how svaba accuracy and compute change across git commits. Point it
+        at a sim panel folder (or all of <code>/Volumes/wala24T/sim</code>); it
+        reads every <code>svaba_runs_&lt;hash&gt;/{run_meta.json,benchmark_summary.tsv}</code>
+        and plots recall/precision/F1 and wall/CPU vs coverage, one line per
+        commit, filterable by panel &amp; purity, plus a per-commit compute bar
+        and an accuracy-vs-compute trade-off scatter. <b>Per-commit somlod /
+        maxlod / contig_conf sliders re-score recall/precision live</b> (no re-run)
+        so you can tune and compare cutoffs per svaba version, plus an evidence-type
+        (DSCRD/ASSMB/…) call filter. Also a per-event matrix (TP/FN/FP)
+        showing which commits got each event right/wrong, with IGV links &mdash;
+        loads the per-BAM <code>*.events.tsv</code>.
+      </div>
+    </a>
+
+    <a class="card" href="svaba_cloud_launcher.html">
+      <div class="title">Cloud Launcher <span class="tag tag-runtime">scatter-gather</span></div>
+      <div class="desc">
+        Front-end for running svaba on GCP scatter-gather (<code>scripts/svaba_cloud.sh</code>).
+        Fill a form (project, disk, BAMs, machine type, partitions) and get the
+        exact commands — precompute <code>--bam-params</code>, launch, monitor,
+        gather, teardown — plus a live <b>cost estimate</b> (VM picker, on-demand
+        vs Spot, memory sanity) and a <b>monitor dashboard</b> (paste the
+        done-marker listing → progress). Client-side only.
+      </div>
+    </a>
+
     <a class="card" href="bps_viewer.html">
       <div class="title">BPS Viewer (original) <span class="tag tag-legacy">legacy</span></div>
       <div class="desc">

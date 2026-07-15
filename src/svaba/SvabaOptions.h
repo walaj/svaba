@@ -5,16 +5,28 @@
 #include <map>
 #include <cstddef>
 
-// version & date
+// version & date  --  OWNED BY CLAUDE (see CLAUDE.md "Versioning"). On every
+// meaningful change, bump this per semver and add a matching CHANGELOG.md entry;
+// these two constants drive the startup banner / `svaba --version` / @PG lines.
+// The build commit is stamped separately (SvabaGitVersion.h).
 //
-// Bumped to 2.0.0 to mark the SvABA2.0 overhaul: v3 bps.txt schema with
-// per-BP bp_id (col 52), r2c.txt.gz structured r2c emission replacing the
-// old alignments.txt.gz, comparative split-coverage gate, standalone
-// `svaba tovcf` + `svaba postprocess` subcommands, VCFv4.5 output, and
-// fermi-lite as the default local-assembly engine. See CLAUDE.md for the
-// full set of changes.
-inline constexpr char SVABA_VERSION[] = "2.0.0";
-inline constexpr char SVABA_DATE[]    = "04/2026";
+// 2.2.0: `--bam-params FILE` caches learned per-RG insert-size params (+
+//   `--learn-only` precompute step), so a scatter-gather run learns once and
+//   every shard reuses it instead of re-doing the genome-wide insert sweep —
+//   removes a large redundant per-shard CPU + shared-disk cost.
+// 2.1.2: contig-alignment confidence (contig_conf / WEAKCONTIG) now penalizes
+//   alignment non-uniqueness -- BWA XS≈AS (another near-equal placement, i.e. a
+//   repeat/paralog/segdup the contig BLATs to many sites) -- via a new Rule E in
+//   scoreContigAlignment. The as_xs_gap signal was computed but unused.
+// 2.1.1: LOWSPANDSCRD now catches span-0 FR discordant clusters (degenerate
+//   zero-length "deletions" from mildly-over-insert FR pairs) that leaked to
+//   PASS as false somatic calls -- `getSpan() > 0` -> `>= 0` in score_dscrd.
+// 2.1.0 (since 2.0.0): somatic-safety junction-kmer net (KC FORMAT field),
+// `--annotation` BED + per-breakend repeat_anno/poly_a (v6 bps schema),
+// DUPREADS via unique split-read starts, hasAdapter 3'-clip fix, and assorted
+// false-somatic / SV-coordinate correctness fixes. See CHANGELOG.md.
+inline constexpr char SVABA_VERSION[] = "2.2.0";
+inline constexpr char SVABA_DATE[]    = "06/2026";
 
 // from AlignmentFragment.h
 inline constexpr std::size_t MAX_CONTIG_SIZE = 5'000'000;
@@ -197,7 +209,23 @@ class SvabaOptions {
   bool dump_discordant_reads = false;
   bool dump_corrected_reads  = false;
   bool dump_alignments       = false;
-  
+
+  // --bam-params FILE: cache the learned per-RG insert-size params. If the file
+  // exists and covers every input BAM, svaba LOADS it and SKIPS the genome-wide
+  // insert-size sweep (big win for scatter-gather: learn once, reuse per shard);
+  // otherwise svaba learns normally and WRITES the file. --learn-only learns,
+  // writes the file, and exits before any region processing (the precompute step).
+  std::string bamParamsFile;
+  bool learnOnly = false;
+
+  // --r2c-min-somlod: gate on r2c.db size. A contig's r2c reads are written
+  // only if the MAX somlod (BreakPoint::LO_s) across its breakpoints is
+  // STRICTLY greater than this. Default -1e9 = write everything (preserves
+  // behavior). Set to 0 to keep only somlod>0 (~somatic) events — LO_s
+  // defaults to 0 for unscored/germline BPs, so strict `>` is required to
+  // actually drop them. Only consulted when dump_alignments is on.
+  double r2cMinSomlod = -1e9;
+
     // inputs
   std::vector<std::string> caseBams;
   std::vector<std::string> controlBams;
@@ -291,6 +319,10 @@ class SvabaOptions {
 
   // external DBs
   std::vector<std::string> blacklistFile;
+  // optional non-filtering annotation track(s): labeled BED (RepeatMasker /
+  // SegDup / custom). Each breakend is overlap-annotated into the bps
+  // `repeat_anno` column. Repeatable. Does NOT filter calls.
+  std::vector<std::string> annotationFile;
   std::string germlineSvFile;
   std::string dbsnpVcf;
 

@@ -25,6 +25,16 @@
 #   --mount-point DIR     where data disk mounts          (default: /mnt/data)
 #   --boot-disk-size STR  boot disk size                  (default: 50GB)
 #   --regions-file FILE   custom partition file (one comma-sep line per partition)
+#   --chunk-mb M          fixed-size M-Mb shards across hg38 (1 shard/window;
+#                         recreates a "1Mb-per-shard" scatter). Overrides --partitions.
+#   --max-concurrent N    cap simultaneously-running VMs; process in waves of N
+#                         (default 0 = launch all at once). Use for big shard counts
+#                         to respect vCPU quota and avoid overloading the BAM disk.
+#   --spot                use Spot/preemptible VMs (~70% cheaper; can be killed —
+#                         re-run to fill any shard left without a .done_part marker)
+#   --bam-params-gcs gs://...  each worker fetches this insert-size cache and runs
+#                         --bam-params (precompute once with: svaba run --learn-only
+#                         --bam-params p.tsv ... ; gsutil cp p.tsv gs://...)
 #   --merge               merge + postprocess after all workers finish
 #   --keep-vms            don't delete worker VMs on completion
 #   --dry-run             print commands without executing
@@ -65,6 +75,10 @@ DO_MERGE=0
 KEEP_VMS=0
 DRY_RUN=0
 REGIONS_FILE=""
+SPOT=0              # --spot: use preemptible/Spot VMs (~70% cheaper, can be killed)
+MAX_CONCURRENT=0    # --max-concurrent N: cap simultaneously-running workers (0=all at once)
+CHUNK_MB=0          # --chunk-mb M: fixed-size M-Mb shards across hg38 (instead of chrom groups)
+BAM_PARAMS_GCS=""   # --bam-params-gcs gs://...: each worker fetches this and runs --bam-params
 
 # Required
 DATA_DISK=""
@@ -91,6 +105,10 @@ while [[ $# -gt 0 ]]; do
     --mount-point)    MOUNT="$2";          shift 2 ;;
     --boot-disk-size) BOOT_DISK_SIZE="$2"; shift 2 ;;
     --regions-file)   REGIONS_FILE="$2";   shift 2 ;;
+    --spot)           SPOT=1;              shift ;;
+    --max-concurrent) MAX_CONCURRENT="$2"; shift 2 ;;
+    --chunk-mb)       CHUNK_MB="$2";       shift 2 ;;
+    --bam-params-gcs) BAM_PARAMS_GCS="$2"; shift 2 ;;
     --merge)          DO_MERGE=1;          shift ;;
     --keep-vms)       KEEP_VMS=1;          shift ;;
     --dry-run)        DRY_RUN=1;           shift ;;
@@ -190,10 +208,37 @@ default_regions() {
   esac
 }
 
+# --chunk-mb M : fixed-size M-Mb shards across the hg38 primary assembly (one
+# shard per window). Recreates the "1Mb-per-shard" style scatter. Uses embedded
+# GRCh38 chrom lengths so it works without a local .fai. For non-hg38, use
+# --regions-file instead.
+hg38_windows() {
+  local w=$(( $1 * 1000000 ))
+  local names=(chr1 chr2 chr3 chr4 chr5 chr6 chr7 chr8 chr9 chr10 chr11 chr12 \
+               chr13 chr14 chr15 chr16 chr17 chr18 chr19 chr20 chr21 chr22 chrX chrY)
+  local lens=(248956422 242193529 198295559 190214555 181538259 170805979 159345973 \
+              145138636 138394717 133797422 135086622 133275309 114364328 107043718 \
+              101991189 90338345 83257441 80373285 58617616 64444167 46709983 50818468 \
+              156040895 57227415)
+  local i s e
+  for i in "${!names[@]}"; do
+    s=0
+    while [[ $s -lt ${lens[$i]} ]]; do
+      e=$(( s + w )); [[ $e -gt ${lens[$i]} ]] && e=${lens[$i]}
+      echo "${names[$i]}:$(( s + 1 ))-${e}"
+      s=$e
+    done
+  done
+}
+
 declare -a REGIONS
 if [[ -n "$REGIONS_FILE" ]]; then
   while IFS= read -r line; do REGIONS+=("$line"); done < "$REGIONS_FILE"
   PARTITIONS=${#REGIONS[@]}
+elif [[ "$CHUNK_MB" -gt 0 ]]; then
+  while IFS= read -r line; do REGIONS+=("$line"); done < <(hg38_windows "$CHUNK_MB")
+  PARTITIONS=${#REGIONS[@]}
+  echo "svaba_cloud.sh: --chunk-mb ${CHUNK_MB} -> ${PARTITIONS} fixed-size shards"
 else
   while IFS= read -r line; do REGIONS+=("$line"); done < <(default_regions "$PARTITIONS")
 fi
@@ -225,138 +270,107 @@ echo "============================================================"
 SCRIPT_TMPDIR=$(mktemp -d)
 trap 'rm -rf "$SCRIPT_TMPDIR"' EXIT
 
-VM_NAMES=()
-for i in $(seq 1 "$PARTITIONS"); do
-  vm="svaba-${GCP_ID}-worker-${i}"
-  VM_NAMES+=("$vm")
+# --- spot + bam-params plumbing ---
+SPOT_ARGS=()
+[[ $SPOT -eq 1 ]] && SPOT_ARGS=(--provisioning-model=SPOT --instance-termination-action=DELETE --no-restart-on-failure)
+BP_FETCH=""; BP_ARG=""
+if [[ -n "$BAM_PARAMS_GCS" ]]; then
+  BP_FETCH="echo 'fetching bam-params'; gsutil cp ${BAM_PARAMS_GCS} /tmp/bam_params.tsv"
+  BP_ARG="--bam-params /tmp/bam_params.tsv"
+fi
 
-  SCRIPT_FILE="${SCRIPT_TMPDIR}/startup_${i}.sh"
+# create one worker VM for partition $1
+create_worker() {
+  local i=$1
+  local vm="svaba-${GCP_ID}-worker-${i}"
+  local SCRIPT_FILE="${SCRIPT_TMPDIR}/startup_${i}.sh"
   cat > "$SCRIPT_FILE" <<STARTUP_EOF
 #!/bin/bash
 exec > /var/log/svaba_startup.log 2>&1
 set -euxo pipefail
-
 echo "=== svaba worker ${i} starting at \$(date) ==="
-
-# --- mount data disk ---
 mkdir -p ${MOUNT} /mnt/output
-
 echo "waiting for data disk..."
-for attempt in \$(seq 1 30); do
-  [[ -b /dev/sdb ]] && break
-  echo "  attempt \${attempt}: /dev/sdb not yet available"
-  sleep 2
-done
-
-if [[ ! -b /dev/sdb ]]; then
-  echo "FATAL: /dev/sdb not found after 60s"
-  echo "available block devices:"
-  lsblk
-  exit 1
-fi
-
-MOUNT_DEV=/dev/sdb
-[[ -b /dev/sdb1 ]] && MOUNT_DEV=/dev/sdb1
-echo "mounting \${MOUNT_DEV} -> ${MOUNT}"
+for attempt in \$(seq 1 30); do [[ -b /dev/sdb ]] && break; sleep 2; done
+if [[ ! -b /dev/sdb ]]; then echo "FATAL: /dev/sdb not found"; lsblk; exit 1; fi
+MOUNT_DEV=/dev/sdb; [[ -b /dev/sdb1 ]] && MOUNT_DEV=/dev/sdb1
 mount -o ro,noload \${MOUNT_DEV} ${MOUNT} || mount -o ro \${MOUNT_DEV} ${MOUNT}
-
-echo "data disk mounted, contents:"
 ls ${MOUNT}/
-
-# --- run svaba ---
+${BP_FETCH}
 PART_ID="${ID}_part${i}"
 cd /mnt/output
-
 echo "=== starting svaba at \$(date) ==="
 svaba run \\
-  ${SVABA_ARGS_STR} \\
+  ${SVABA_ARGS_STR} ${BP_ARG} \\
   -k ${REGIONS[$((i-1))]} \\
   -a \${PART_ID} \\
   2>&1 | tee \${PART_ID}.startup.log
-
 echo "=== svaba finished at \$(date) ==="
-echo "output files:"
 ls -lh /mnt/output/
-
-# --- upload results ---
-echo "uploading to ${BUCKET}/"
 gsutil -m cp \\
-  \${PART_ID}.bps.txt.gz \\
-  \${PART_ID}.log \\
-  \${PART_ID}.startup.log \\
-  \${PART_ID}.contigs.bam \\
-  \${PART_ID}.runtime.txt \\
-  ${BUCKET}/
-
-# Upload optional outputs if they exist (--dump-reads)
-for f in \${PART_ID}.discordant.bam \${PART_ID}.corrected.bam \${PART_ID}.r2c.txt.gz; do
+  \${PART_ID}.bps.txt.gz \${PART_ID}.log \${PART_ID}.startup.log \\
+  \${PART_ID}.contigs.bam \${PART_ID}.runtime.txt ${BUCKET}/
+for f in \${PART_ID}.discordant.bam \${PART_ID}.corrected.bam \${PART_ID}.r2c.db; do
   [[ -f "\$f" ]] && gsutil cp "\$f" ${BUCKET}/ || true
 done
-
-# Signal completion
-echo "=== uploading done marker at \$(date) ==="
 echo "DONE" | gsutil cp - ${BUCKET}/.done_part${i}
 echo "=== worker ${i} complete ==="
 STARTUP_EOF
-
-  echo "[${i}/${PARTITIONS}] creating $vm  regions=${REGIONS[$((i-1))]}"
+  echo "  creating $vm  regions=${REGIONS[$((i-1))]}"
   run_cmd gcloud compute instances create "$vm" \
-    --zone="$ZONE" \
-    --machine-type="$MACHINE" \
-    --image="$IMAGE" \
+    --zone="$ZONE" --machine-type="$MACHINE" --image="$IMAGE" \
     --disk="name=${DATA_DISK},mode=ro,device-name=svaba-data" \
-    --boot-disk-size="$BOOT_DISK_SIZE" \
-    --scopes=storage-rw \
+    --boot-disk-size="$BOOT_DISK_SIZE" --scopes=storage-rw \
+    ${SPOT_ARGS[@]+"${SPOT_ARGS[@]}"} \
     --metadata-from-file=startup-script="$SCRIPT_FILE"
+}
 
-  # Stagger VM creation to avoid disk-attach races
-  [[ $i -lt $PARTITIONS ]] && sleep 5
-done
-echo "all $PARTITIONS VMs created"
+delete_worker() {
+  run_cmd gcloud compute instances delete "svaba-${GCP_ID}-worker-${1}" --zone="$ZONE" --quiet
+}
 
-# ================================================================
-# STEP 2: Wait for all workers to finish
-# ================================================================
-echo "waiting for workers to complete..."
-echo "(checking ${BUCKET}/.done_part* every 60s)"
-
-poll_done() {
-  local expected=$1
+# wait until ${BUCKET}/.done_part<i> exists for every i in "$@"
+poll_parts() {
   while true; do
-    local count
-    count=$(gsutil ls "${BUCKET}/.done_part*" 2>/dev/null | grep -c '\.done_part' || true)
-    if [[ $count -ge $expected ]]; then
-      echo "all $expected partitions complete"
-      return 0
-    fi
-    echo "  $(date +%H:%M:%S)  $count / $expected done"
+    local have; have=$(gsutil ls "${BUCKET}/.done_part*" 2>/dev/null || true)
+    local missing=0 i
+    for i in "$@"; do echo "$have" | grep -q "/\.done_part${i}\$" || missing=$((missing+1)); done
+    [[ $missing -eq 0 ]] && { echo "  all $# done"; return 0; }
+    echo "  $(date +%H:%M:%S)  $missing of $# not yet done"
     sleep 60
   done
 }
 
-if [[ $DRY_RUN -eq 0 ]]; then
-  poll_done "$PARTITIONS"
-fi
-
-# ================================================================
-# STEP 3: Tear down workers (unless --keep-vms)
-# ================================================================
-if [[ $KEEP_VMS -eq 0 ]]; then
-  echo "deleting worker VMs..."
-  for vm in "${VM_NAMES[@]}"; do
-    run_cmd gcloud compute instances delete "$vm" \
-      --zone="$ZONE" --quiet &
-  done
-  wait
-  echo "all workers deleted"
+if [[ "$MAX_CONCURRENT" -le 0 ]]; then
+  # ---- all-at-once (original behavior) ----
+  for i in $(seq 1 "$PARTITIONS"); do create_worker "$i"; [[ $i -lt $PARTITIONS ]] && sleep 5; done
+  echo "all $PARTITIONS VMs created"
+  if [[ $DRY_RUN -eq 0 ]]; then
+    echo "waiting for workers (checking .done_part* every 60s)..."
+    poll_parts $(seq 1 "$PARTITIONS")
+    if [[ $KEEP_VMS -eq 0 ]]; then
+      echo "deleting workers..."; for i in $(seq 1 "$PARTITIONS"); do delete_worker "$i" & done; wait
+    fi
+  fi
 else
-  echo "keeping VMs (--keep-vms): ${VM_NAMES[*]}"
+  # ---- bounded-concurrency: waves of <= MAX_CONCURRENT VMs ----
+  echo "wave mode: $PARTITIONS shards, <= $MAX_CONCURRENT VMs running at once"
+  s=1
+  while [[ $s -le $PARTITIONS ]]; do
+    e=$(( s + MAX_CONCURRENT - 1 )); [[ $e -gt $PARTITIONS ]] && e=$PARTITIONS
+    wave=($(seq "$s" "$e"))
+    echo "--- wave: workers ${s}..${e} (of $PARTITIONS) ---"
+    for i in "${wave[@]}"; do create_worker "$i"; sleep 3; done
+    if [[ $DRY_RUN -eq 0 ]]; then
+      poll_parts "${wave[@]}"
+      if [[ $KEEP_VMS -eq 0 ]]; then for i in "${wave[@]}"; do delete_worker "$i" & done; wait; fi
+    fi
+    s=$(( e + 1 ))
+  done
 fi
 
 # Clean up done markers
-if [[ $DRY_RUN -eq 0 ]]; then
-  gsutil -m rm "${BUCKET}/.done_part*" 2>/dev/null || true
-fi
+[[ $DRY_RUN -eq 0 ]] && gsutil -m rm "${BUCKET}/.done_part*" 2>/dev/null || true
 
 # ================================================================
 # STEP 4: Merge + postprocess (optional, --merge)

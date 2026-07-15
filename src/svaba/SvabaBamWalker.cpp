@@ -33,10 +33,42 @@ static const std::string ILLUMINA_PE_PRIMER_2p0 = "CAAGCAGAAGACGGCAT";
 // true if the read looks like adapter contamination and should be
 // skipped.  Reads with indels or unmapped mates are exempted — those
 // might genuinely support an SV even if the geometry looks adapter-ish.
+// Length of the soft-clip on the read's 3' END -- the only end where
+// adapter read-through can land. You sequence the insert 5'->3' and only
+// read through into the 3' adapter once the fragment is shorter than the
+// read, so adapter is always a 3' phenomenon. In reference/CIGAR
+// orientation that is the TRAILING clip on a forward read and the LEADING
+// clip on a reverse read. (Hard-clips are already dropped before this is
+// reached, so soft == total clip here.)
+static int threePrimeSoftClip(const svabaRead& r) {
+  SeqLib::Cigar c = r.GetCigar();
+  if (c.size() == 0)
+    return 0;
+  const SeqLib::CigarField& f = r.ReverseFlag() ? c[0] : c[c.size() - 1];
+  return (f.Type() == 'S') ? static_cast<int>(f.Length()) : 0;
+}
+
+// minimum 5'-end soft-clip (bp) for a read to count as split-read signal
+// rather than adapter. A clip on the 5' end can NEVER be adapter
+// read-through; it is the far anchor of a junction-spanning read.
+static const int MIN_SPLIT_ANCHOR_CLIP = 10;
+
 static bool hasAdapter(const svabaRead& r) {
 
   // keep reads with indels or unmapped mate — could be real SV signal
   if (r.MaxDeletionBases() || r.MaxInsertionBases() || !r.InsertSize())
+    return false;
+
+  // A substantial soft-clip on the read's 5' END is split-read signal (the
+  // far anchor of a junction), never adapter read-through (adapter is always
+  // 3'). Such a read must NOT be tossed as adapter -- this is what was
+  // eating forward 64S86M reads spanning small deletions (aligned 86 ~=
+  // isize 87), silently dropping normal junction support and risking false
+  // somatic calls. The kmer safety-net is a second backstop, but keep these
+  // reads here in the first place.
+  const int clip3p = threePrimeSoftClip(r);
+  const int clip5p = r.NumClip() - clip3p;
+  if (clip5p >= MIN_SPLIT_ANCHOR_CLIP)
     return false;
 
   // toss if insert size ≈ read length (completely overlapping pair)
@@ -47,9 +79,11 @@ static bool hasAdapter(const svabaRead& r) {
   if (!r.NumClip())
     return false;
 
-  // toss if insert size explains the clip length (adapter read-through)
-  int exp_ins_size = r.Length() - r.NumClip();
-  if (std::abs(exp_ins_size - std::abs(r.InsertSize())) <= 6)
+  // toss if insert size explains the clip length (adapter read-through).
+  // Only the 3'-end clip can be adapter -- judge the geometry on that clip
+  // alone, so a 5'-clipped split read is never mistaken for read-through.
+  int exp_ins_size = r.Length() - clip3p;
+  if (clip3p > 0 && std::abs(exp_ins_size - std::abs(r.InsertSize())) <= 6)
     return true;
 
   // toss if literal Illumina adapter sequence is present
@@ -61,6 +95,17 @@ static bool hasAdapter(const svabaRead& r) {
 //static const std::string REV_ADAPTER = "GCTCTTCCGATCT";
 
 svabaBamWalker::svabaBamWalker(SvabaSharedConfig& sc_) : sc(sc_) {}
+
+// somatic-safety net: stash a read excluded from assembly/r2c (adapter /
+// blacklist-self) so the post-assembly junction-kmer scan can still detect
+// that it spans a breakpoint. Bounded by MAX_EXCLUDED_POOL so a dense
+// blacklist/repeat region can't blow up memory (those BPs emit jxn_kmer="."
+// and are skipped by the scan anyway).
+void svabaBamWalker::stashExcluded(const svabaRead& r) {
+  if (excluded_reads.size() >= MAX_EXCLUDED_POOL)
+    return;
+  excluded_reads.emplace_back(r.Qname(), r.Sequence());
+}
 
 void svabaBamWalker::addCigar(const svabaReadPtr& r) {
   
@@ -191,8 +236,21 @@ SeqLib::GRC svabaBamWalker::readBam(svabaThreadUnit& unit) {
 	bad_regions.add(regions_[region_idx_]);
       
       // clear these reads out, not a good region
+#ifdef SVABA_READ_TRACING
+      // Trace whether the read we're hunting was among the buffered reads that
+      // get discarded here — a region read-limit bail (too many weird reads or
+      // too-high coverage) silently drops EVERY read buffered for this window,
+      // including discordant ones already tagged dd=1. This is asymmetric:
+      // if the normal walker has more weird reads in the window than the tumor,
+      // the normal's reads vanish while the tumor's survive → false somatic.
+      for (const auto& rb : read_buffer)
+        SVABA_READ_TRACE(rb->Qname(),
+          "DROPPED by region read-limit bail (window=" << regstr
+          << " buffered=" << read_buffer.size() << " m_limit=" << m_limit
+          << " walker_prefix=" << prefix_ << ")");
+#endif
       read_buffer.clear();
-      
+
       // force it to try the next region, or return if none left
       ++region_idx_; // increment to next region
       if (region_idx_ >= regions_.size()) {/// no more regions left and last one was bad
@@ -214,14 +272,32 @@ SeqLib::GRC svabaBamWalker::readBam(svabaThreadUnit& unit) {
     // The mate-blacklist only suppresses discordant tagging (TagDiscordant).
     if (s->DuplicateFlag() ||
 	s->QCFailFlag() ||
-	s->NumHardClip() ||
-	sc.blacklist.CountOverlaps(s->AsGenomicRegion()))
+	s->NumHardClip())
       {
 	SVABA_READ_TRACE(s->Qname(),
 	  "SKIP dup=" << s->DuplicateFlag()
 	  << " qcfail=" << s->QCFailFlag()
-	  << " hardclip=" << s->NumHardClip()
-	  << " blacklist_self=" << sc.blacklist.CountOverlaps(s->AsGenomicRegion()));
+	  << " hardclip=" << s->NumHardClip());
+	continue;
+      }
+
+    // Reads whose own alignment overlaps the blacklist must NOT be assembled
+    // (we don't want blacklist / simple-repeat reads polluting the local
+    // assembly), but they are still real reads covering this locus and MUST
+    // count toward depth (DP). Add them to the full-coverage track only, then
+    // skip everything downstream (assembly buffer, weird_cov, cigar, training).
+    // Previously the blacklist test rode in the hard-drop branch above, which
+    // also skipped cov.addRead — deflating DP for any breakend in/near a
+    // blacklisted region.
+    if (!sc.blacklist.empty() && sc.blacklist.CountOverlaps(s->AsGenomicRegion()))
+      {
+	SVABA_READ_TRACE(s->Qname(), "BLACKLIST_SELF: counted for depth, not assembled");
+	if (get_coverage)
+	  cov.addRead(*s, 0);
+	// somatic-safety net: this read is excluded from assembly/r2c but may
+	// still span a breakpoint junction. Stash (qname, raw seq) so the
+	// post-assembly kmer scan can recover its support (see clear()).
+	stashExcluded(*s);
 	continue;
       }
 
@@ -237,18 +313,28 @@ SeqLib::GRC svabaBamWalker::readBam(svabaThreadUnit& unit) {
     // FR reads with large isize: per-RG discordant cutoff check.
     // This replaces the old ReadFilterCollection FR isize rule and uses
     // the same cutoff as TagDiscordant, so the two are always consistent.
+    int  _fr_cutoff = -1;   // diagnostic only (printed in the RULE_CHECK trace)
+    long _fr_fullis = -1;   // diagnostic only
     if (!rule_pass &&
         s->PairMappedFlag() &&
         s->PairOrientation() == SeqLib::Orientation::FR) {
       std::string rg;
       if (!s->GetZTag("RG", rg)) rg = "NA";
-      int cutoff = getIsizeCutoff(rg);
-      if (std::abs(s->FullInsertSize()) >= cutoff)
+      _fr_cutoff = getIsizeCutoff(rg);
+      _fr_fullis = std::abs(s->FullInsertSize());
+      if (_fr_fullis >= _fr_cutoff)
         rule_pass = true;
     }
 
     SVABA_READ_TRACE(s->Qname(),
-      "RULE_CHECK rule_pass=" << rule_pass);
+      "RULE_CHECK rule_pass=" << rule_pass
+      << " mr_isValid="   << sc.mr.isValid(*s)
+      << " orient="       << static_cast<int>(s->PairOrientation())
+      << " FR_enum="      << static_cast<int>(SeqLib::Orientation::FR)
+      << " PairMapped="   << s->PairMappedFlag()
+      << " FRsalv_fullisize=" << _fr_fullis
+      << " FRsalv_cutoff="    << _fr_cutoff
+      << "  (cutoff=-1 => salvage skipped isize test: not PairMapped or not FR)");
 
     // special case to also check against high mismatch
     // --no-nm disables this path entirely for maximum efficiency
@@ -276,8 +362,15 @@ SeqLib::GRC svabaBamWalker::readBam(svabaThreadUnit& unit) {
       rule_pass = false;
     }
 
-    // special rule to filter "RF" "discordants" that are just overlaps
+    // Special rule to filter "RF" "discordants" that are just overlapping read
+    // pairs (fragment shorter than ~2x readlen makes a concordant FR pair look
+    // RF with a small insert size). This ONLY applies within a chromosome —
+    // an interchromosomal pair reports isize=0 by SAM convention (TLEN is 0
+    // across references), NOT because the reads overlap, so without the
+    // !Interchromosomal() guard this silently dropped every interchromosomal
+    // RF discordant read (translocation support).
     if (s->PairOrientation() == SeqLib::Orientation::RF &&
+	!s->Interchromosomal() &&
 	std::abs(s->InsertSize()) < std::max(200, sc.readlen * 2)) {
       SVABA_READ_TRACE_IF(rule_pass, s->Qname(),
         "REJECT RF overlap isize=" << s->InsertSize()
@@ -332,6 +425,10 @@ SeqLib::GRC svabaBamWalker::readBam(svabaThreadUnit& unit) {
         "SKIP adapter isize=" << s->InsertSize()
         << " len=" << s->Length()
         << " nclip=" << s->NumClip());
+      // somatic-safety net: an adapter-classified read can still carry a
+      // junction kmer (small-SV split reads look like read-through). Stash
+      // it for the post-assembly kmer scan rather than losing it entirely.
+      stashExcluded(*s);
       continue;
     }
 
@@ -633,15 +730,26 @@ void svabaBamWalker::TagDiscordant(svabaReadPtr& r) {
       sc.blacklist.CountOverlaps(r->AsGenomicRegionMate()) ||
       local_blacklist.CountOverlaps(r->AsGenomicRegion()) ||
       local_blacklist.CountOverlaps(r->AsGenomicRegionMate()))
-    r->dd = 0; 
-  
-  //debug
-  // if (r->Qname() == "LH00306:129:227V5CLT4:6:2114:6074:25724") {
-  //   std::cerr << " TAG " << r->dd << " -- " << *r << " weird orientation " <<
-  //     weird_orientation << " cutoff " << cc->second << " INS " <<
-  //     abs(r->FullInsertSize()) << std::endl;
-  // }
-      
+    r->dd = 0;
+
+  // Discordant-tagging trace. The per-sample isize cutoff is the usual reason a
+  // GERMLINE discordant pair is tagged in the tumor but missed in the normal
+  // (normal library wider/shifted → higher absolute cutoff despite the lower
+  // sd multiplier), which makes a cluster look falsely somatic. This prints the
+  // full decision so you can see exactly why dd ended up 0 vs 1 for the normal.
+  SVABA_READ_TRACE(r->Qname(),
+    "TAGDISCORDANT prefix=" << prefix_
+    << " RG=" << RG << " cutoff=" << cutoff
+    << " |isize|=" << std::abs(r->FullInsertSize())
+    << " orient=" << static_cast<int>(r->PairOrientation())
+    << " weird_orient=" << weird_orientation
+    << " interchrom=" << r->Interchromosomal()
+    << " bl_self="      << (sc.blacklist.CountOverlaps(r->AsGenomicRegion()) > 0)
+    << " bl_mate="      << (sc.blacklist.CountOverlaps(r->AsGenomicRegionMate()) > 0)
+    << " localbl_self=" << (local_blacklist.CountOverlaps(r->AsGenomicRegion()) > 0)
+    << " localbl_mate=" << (local_blacklist.CountOverlaps(r->AsGenomicRegionMate()) > 0)
+    << " => dd=" << r->dd);
+
   return;
 }
  

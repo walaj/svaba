@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>svaba commit tracker — accuracy & compute across commits</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root{--bg:#0f172a;--panel:#1e293b;--panel2:#172033;--border:#334155;--text:#e2e8f0;--text2:#94a3b8;--accent:#6c8cff}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif}
+  header{padding:14px 22px;border-bottom:1px solid var(--border)}
+  header h1{margin:0;font-size:1.1rem} header .sub{color:var(--text2);font-size:.8rem;margin-top:2px}
+  .wrap{padding:18px 22px;max-width:1500px;margin:0 auto}
+  .drop{border:1.5px dashed var(--border);border-radius:10px;padding:16px;text-align:center;cursor:pointer;background:var(--panel2);margin-bottom:14px}
+  .drop.over{border-color:var(--accent);background:#1d2942} .drop b{color:var(--text)} .drop small{color:var(--text2);display:block;margin-top:4px}
+  .controls{display:flex;gap:18px;flex-wrap:wrap;align-items:flex-end;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:12px 16px;margin-bottom:14px}
+  .ctrl{display:flex;flex-direction:column;gap:3px} .ctrl label{font-size:.68rem;color:var(--text2);text-transform:uppercase;letter-spacing:.03em}
+  select{background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:5px 8px;font:inherit}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px} @media(max-width:1000px){.grid{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:16px}
+  .card h3{margin:0 0 10px;font-size:.82rem;color:var(--text2);text-transform:uppercase;letter-spacing:.04em}
+  table{border-collapse:collapse;width:100%;font-size:.76rem} th,td{padding:4px 8px;text-align:right;border-bottom:1px solid var(--border);white-space:nowrap}
+  th:first-child,td:first-child,th:nth-child(2),td:nth-child(2){text-align:left} th{color:var(--text2);font-weight:600;cursor:pointer}
+  .muted{color:var(--text2);font-size:.75rem} code{background:#0b1220;padding:1px 5px;border-radius:4px;font-size:.85em}
+  .swatch{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:middle}
+  #status{font-size:.78rem;color:var(--text2);margin:6px 0}
+  .tbl-wrap{max-height:420px;overflow:auto}
+</style>
+</head>
+<body>
+<header>
+  <h1>svaba commit tracker &mdash; accuracy &amp; compute across commits</h1>
+  <div class="sub">Pick a sim panel folder (or its parent). Reads every <code>svaba_runs_&lt;hash&gt;/{run_meta.json,benchmark_summary.tsv}</code>, then plots how recall / precision / F1 and wall/CPU vary by coverage and panel, one series per <b>git commit</b>.</div>
+</header>
+<div class="wrap">
+
+  <div class="drop" id="drop" onclick="dirInput.click()">
+    <b>Load results</b>
+    <small>Click to pick a folder (a panel <code>wgs_…/</code>, or <code>/Volumes/wala24T/sim</code> to scan all panels) &mdash; finds every <code>svaba_runs_*</code> inside.
+    Or drop loose <code>run_meta.json</code> + <code>benchmark_summary.tsv</code> files for a single commit.</small>
+    <input id="dirInput" type="file" webkitdirectory directory multiple style="display:none">
+  </div>
+  <div id="status"></div>
+
+  <div class="controls" id="controls" style="display:none">
+    <div class="ctrl"><label>Panel</label><select id="panelSel"></select></div>
+    <div class="ctrl"><label>Purity</label><select id="puritySel"></select></div>
+    <div class="ctrl"><label>Accuracy metric</label>
+      <select id="metricSel"><option value="recall">recall</option><option value="precision">precision</option><option value="f1">F1</option></select></div>
+    <div class="ctrl"><label>Compute metric</label>
+      <select id="computeSel"><option value="cpu_s">CPU s (per BAM)</option><option value="wall_s">wall s (per BAM)</option></select></div>
+    <div class="ctrl"><label>Evidence types (call filter)</label><div id="typeBox" style="display:flex;gap:2px;flex-wrap:wrap;max-width:460px"></div></div>
+  </div>
+
+  <div id="results" style="display:none">
+    <div class="card">
+      <h3>Score-threshold explorer <span class="muted">— per-commit somlod / maxlod cutoffs, re-scored live from the events (no re-run)</span></h3>
+      <div id="thrRows"></div>
+    </div>
+    <div class="grid">
+      <div class="card"><h3 id="accTitle">Accuracy vs coverage</h3><canvas id="accChart" height="240"></canvas></div>
+      <div class="card"><h3 id="compTitle">Compute vs coverage</h3><canvas id="compChart" height="240"></canvas></div>
+    </div>
+    <div class="grid">
+      <div class="card"><h3>Total svaba compute per commit <span class="muted">(this panel)</span></h3><canvas id="totChart" height="220"></canvas></div>
+      <div class="card"><h3>Accuracy vs compute trade-off <span class="muted">(mean over coverages, this panel/purity)</span></h3><canvas id="scatterChart" height="220"></canvas></div>
+    </div>
+    <div class="card"><h3>Commits</h3><div id="commitLegend"></div></div>
+
+    <div class="card">
+      <h3>Event matrix &mdash; which commits got each event right/wrong</h3>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px">
+        <div class="ctrl"><label>BAM</label><select id="mTag"></select></div>
+        <div class="ctrl"><label>Show</label><select id="mView">
+          <option value="fn">FN — missed by ≥1 commit</option>
+          <option value="disagree">Disagreements (some TP, some FN)</option>
+          <option value="tp">TP — detected by all commits</option>
+          <option value="fp">FP — false positives</option>
+        </select></div>
+        <div class="ctrl"><label>Size bin</label><select id="mBin"></select></div>
+        <span class="muted" id="mCount"></span>
+      </div>
+      <div class="muted" style="margin-bottom:6px">✓ = detected (TP) · ✗ = missed (FN) · ● = false positive · – = BAM not run for that commit. Cells link nothing; the breakend columns are IGV links (port 60151).</div>
+      <div class="tbl-wrap"><table id="mTbl"></table></div>
+    </div>
+
+    <div class="card"><h3>All runs <span class="muted">(commit × BAM)</span></h3><div class="tbl-wrap"><table id="tbl"></table></div></div>
+  </div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+const PALETTE=["#6c8cff","#4ade80","#f59e0b","#f472b6","#22d3ee","#a855f7","#ef4444","#84cc16","#fb923c","#38bdf8","#e879f9","#10b981"];
+const ST={runs:[],charts:{}};
+
+/* ---- parsing ---- */
+function pct(s){ if(s==null)return null; s=(""+s).trim(); if(s==="NA"||s==="?"||s==="")return null; const v=parseFloat(s); return isFinite(v)?v:null; }
+function num(s){ const v=parseFloat(s); return isFinite(v)?v:null; }
+function covOf(name){ const m=(name||"").match(/(\d+(?:\.\d+)?)x/); return m?parseFloat(m[1]):null; }
+function purOf(name){ const m=(name||"").match(/p([0-9.]+)/); return m?parseFloat(m[1]):1.0; }
+function baseName(p){ p=(""+p).replace(/\/+$/,""); return p.includes("/")?p.slice(p.lastIndexOf("/")+1):p; }
+
+/* IGV remote nav + per-event parsing (for the event matrix) */
+function igvGoto(locus){ fetch("http://localhost:60151/goto?locus="+encodeURIComponent(locus),{mode:"no-cors"}).catch(()=>{}); }
+window.igvGoto=igvGoto;
+function igvLink(chr,pos){ pos=+pos; const loc=chr+":"+Math.max(1,pos-150)+"-"+(pos+150);
+  return `<a href="#" style="color:var(--accent);text-decoration:none" title="IGV → ${chr}:${pos}" onclick="igvGoto('${loc}');return false">${chr}:${pos.toLocaleString()}</a>`; }
+function parseEvents(text){ const L=(text||"").split("\n").filter(l=>l.trim()); if(!L.length)return [];
+  const h=L[0].split("\t"); const ix={}; h.forEach((x,i)=>ix[x]=i); const rows=[];
+  const n=s=>{ const v=parseFloat(s); return isFinite(v)?v:null; };
+  for(let i=1;i<L.length;i++){ const f=L[i].split("\t");
+    rows.push({status:f[ix.status],id:f[ix.truth_id],c1:f[ix.chrom1],p1:+f[ix.pos1],c2:f[ix.chrom2],p2:+f[ix.pos2],
+      svtype:f[ix.svtype],bin:f[ix.size_bin],somlod:n(f[ix.somlod]),maxlod:n(f[ix.maxlod]),
+      evtype:(ix.evtype!=null?f[ix.evtype]:"")||"",cc:n(f[ix.contig_conf])}); }
+  return rows; }
+function evOf(r){ return r.evtype||"(none)"; }
+// a call clears the gate iff somlod/maxlod/contig_conf all >= their cutoffs (a
+// null field always passes -- e.g. svaba1 VCF carries no LOD/contig_conf, taken
+// at face value) AND its evidence type is selected. `types` is a Set or null.
+function callPasses(r, sc, mc, cc, types){
+  return (r.somlod==null||r.somlod>=sc) && (r.maxlod==null||r.maxlod>=mc)
+      && (r.cc==null||r.cc>=cc) && (!types||types.has(evOf(r)));
+}
+// re-score a (commit,tag)'s event rows at somlod/maxlod/contig_conf cutoffs +
+// type filter. Exact: per-call TP/FP rows + per-truth FN rows -> recall/precision.
+function scoreAt(rows, sc, mc, cc, types){
+  const truth=new Set(), det=new Set(); let tp=0, fp=0;
+  for(const r of rows){
+    if(r.status==="FN"){ truth.add(r.id); }
+    else if(r.status==="TP"){ truth.add(r.id); if(callPasses(r,sc,mc,cc,types)){ det.add(r.id); tp++; } }
+    else if(r.status==="FP"){ if(callPasses(r,sc,mc,cc,types)) fp++; }
+  }
+  const T=truth.size, D=det.size;
+  const recall=T?100*D/T:0, precision=(tp+fp)?100*tp/(tp+fp):0;
+  return {truth:T, detected:D, recall, tp, fp, calls:tp+fp, precision,
+          f1:(recall+precision)?2*recall*precision/(recall+precision):0};
+}
+// .../<panel>/svaba_runs_<hash>/<tag>/<tag>.events.tsv  ->  {panel, commit, tag}
+function eventPathInfo(p){ const parts=p.split("/"); const i=parts.findIndex(x=>x.startsWith("svaba_runs_"));
+  if(i<0)return null; return {commit:parts[i].slice("svaba_runs_".length), panel:i>0?parts[i-1]:"(panel)", tag:parts[i+1]||"(tag)"}; }
+
+function parseSummary(text){
+  const lines=text.split("\n").filter(l=>l.trim());
+  if(!lines.length)return [];
+  const hdr=lines[0].split("\t").map(s=>s.replace(/^#/,""));
+  const ix={}; hdr.forEach((h,i)=>ix[h]=i);
+  const rows=[];
+  for(let i=1;i<lines.length;i++){
+    const f=lines[i].split("\t");
+    const name=f[ix.tumor_bam];
+    rows.push({tumor_bam:name, coverage:covOf(name), purity:purOf(name),
+      truth:num(f[ix.truth]), detected:num(f[ix.detected]), recall:pct(f[ix.recall]),
+      calls:num(f[ix.calls]), matching:num(f[ix.matching]), precision:pct(f[ix.precision]),
+      wall_s:num(f[ix.wall_s]), cpu_s:num(f[ix.cpu_s])});
+  }
+  rows.forEach(r=>{ r.f1=(r.recall!=null&&r.precision!=null&&(r.recall+r.precision)>0)?
+      2*r.recall*r.precision/(r.recall+r.precision):null; });
+  return rows;
+}
+
+/* ---- load ---- */
+$("dirInput").addEventListener("change",e=>loadFiles([...e.target.files]));
+["dragenter","dragover"].forEach(e=>$("drop").addEventListener(e,ev=>{ev.preventDefault();$("drop").classList.add("over")}));
+["dragleave","drop"].forEach(e=>$("drop").addEventListener(e,ev=>{ev.preventDefault();$("drop").classList.remove("over")}));
+$("drop").addEventListener("drop",ev=>{ev.preventDefault();ev.stopPropagation(); if(ev.dataTransfer.files.length)loadFiles([...ev.dataTransfer.files]);});
+
+function loadFiles(files){
+  // group run_meta.json + benchmark_summary.tsv by folder; collect *.events.tsv
+  const groups={}, evFiles=[];
+  for(const f of files){
+    const p=f.webkitRelativePath||f.name;
+    const bn=baseName(p);
+    if(bn==="run_meta.json" || bn==="benchmark_summary.tsv"){
+      const dir=p.includes("/")?p.slice(0,p.lastIndexOf("/")):"(dropped)";
+      (groups[dir]=groups[dir]||{}); groups[dir][bn==="run_meta.json"?"meta":"sum"]=f;
+    } else if(/\.events\.tsv$/.test(bn)){ evFiles.push(f); }
+  }
+  const dirs=Object.keys(groups);
+  if(!dirs.length && !evFiles.length){ $("status").textContent="No svaba_runs results found in that selection."; return; }
+  $("status").textContent=`reading ${dirs.length} run folder(s) + ${evFiles.length} event file(s)…`;
+  const read=f=>f?new Promise(res=>{const r=new FileReader();r.onload=()=>res(r.result);r.readAsText(f);}):Promise.resolve(null);
+  const runsP=Promise.all(dirs.map(d=>{const g=groups[d];
+    return Promise.all([read(g.meta),read(g.sum)]).then(([m,s])=>{
+      let meta={}; try{ meta=m?JSON.parse(m):{}; }catch(e){}
+      const rows=s?parseSummary(s):[];
+      const commit=(meta.svaba_git||baseName(d).replace(/^svaba_runs_/,"")||"?");
+      const panel=meta.panel?baseName(meta.panel):baseName(d.replace(/\/svaba_runs_[^/]*$/,""));
+      return {dir:d, commit, panel, version:meta.svaba_version||"", date:meta.date_utc||"",
+        total_cpu:meta.total_svaba_cpu_s, total_wall:meta.total_svaba_wall_s, batch_wall:meta.batch_wall_s,
+        threads:meta.threads, rows};
+    });
+  }));
+  const evsP=Promise.all(evFiles.map(f=>{ const p=f.webkitRelativePath||f.name;
+    const info=eventPathInfo(p)||{commit:"?",panel:"(panel)",tag:baseName(p).replace(/\.events\.tsv$/,"")};
+    return read(f).then(t=>({...info, rows:parseEvents(t)}));
+  }));
+  Promise.all([runsP,evsP]).then(([runs,evs])=>{
+    ST.runs=runs.filter(r=>r.rows.length||r.commit);
+    ST.eventRuns=evs.filter(e=>e.rows.length);
+    afterLoad();
+  });
+}
+
+function afterLoad(){
+  // stable colors: commits ordered by run date, then any event-only commits
+  const allCommits=[];
+  [...ST.runs].sort((a,b)=>(a.date||"").localeCompare(b.date||"")).forEach(r=>{ if(!allCommits.includes(r.commit))allCommits.push(r.commit); });
+  (ST.eventRuns||[]).forEach(e=>{ if(!allCommits.includes(e.commit))allCommits.push(e.commit); });
+  ST.colorOf={}; allCommits.forEach((c,i)=>ST.colorOf[c]=PALETTE[i%PALETTE.length]);
+  // panels + purities (from summary rows + event tags)
+  const panels=[...new Set([...ST.runs.map(r=>r.panel), ...(ST.eventRuns||[]).map(e=>e.panel)])].sort();
+  const purSet=new Set(); ST.runs.forEach(r=>r.rows.forEach(x=>{ if(x.purity!=null)purSet.add(x.purity); }));
+  (ST.eventRuns||[]).forEach(e=>{ const p=purOf(e.tag); if(p!=null)purSet.add(p); });
+  const purities=[...purSet].sort((a,b)=>a-b);
+  fill($("panelSel"),panels.map(p=>[p,p])); fill($("puritySel"),purities.map(p=>["p"+p,p]));
+  // somlod/maxlod ranges across all call rows -> slider bounds
+  let sMin=Infinity,sMax=-Infinity,mMin=Infinity,mMax=-Infinity,cMin=Infinity,cMax=-Infinity;
+  (ST.eventRuns||[]).forEach(e=>e.rows.forEach(r=>{ if(r.status==="TP"||r.status==="FP"){
+    if(r.somlod!=null){sMin=Math.min(sMin,r.somlod);sMax=Math.max(sMax,r.somlod);}
+    if(r.maxlod!=null){mMin=Math.min(mMin,r.maxlod);mMax=Math.max(mMax,r.maxlod);}
+    if(r.cc!=null){cMin=Math.min(cMin,r.cc);cMax=Math.max(cMax,r.cc);} } }));
+  if(!isFinite(sMin)){sMin=0;sMax=10;} if(!isFinite(mMin)){mMin=0;mMax=10;} if(!isFinite(cMin)){cMin=0;cMax=1;}
+  ST.lodRange={ sMin:Math.floor(sMin), sMax:Math.ceil(sMax), mMin:Math.floor(mMin), mMax:Math.ceil(mMax),
+                cMin:Math.floor(cMin*100)/100, cMax:Math.ceil(cMax*100)/100, cStep:0.01,
+                sStep:+(Math.max(0.1,(sMax-sMin)/200)).toFixed(2), mStep:+(Math.max(0.1,(mMax-mMin)/200)).toFixed(2) };
+  ST.cut={};   // per-commit {s,m}; absent -> baseline (slider mins)
+  // evidence types present across all calls -> type checkboxes (DSCRD/ASSMB/...)
+  const evset=new Set();
+  (ST.eventRuns||[]).forEach(e=>e.rows.forEach(r=>{ if(r.status==="TP"||r.status==="FP")evset.add(evOf(r)); }));
+  ST.evtypes=[...evset].sort(); ST.typeSel=new Set(ST.evtypes); buildTypeBox();
+  const nEv=(ST.eventRuns||[]).length;
+  $("status").textContent=`loaded ${ST.runs.length} run(s): ${allCommits.length} commit(s) × ${panels.length} panel(s)`+(nEv?`, ${nEv} event file(s).`:` — no event files (re-run benchmark with --events-out).`);
+  $("controls").style.display="flex"; $("results").style.display="block";
+  ["panelSel","puritySel","metricSel","computeSel"].forEach(id=>$(id).onchange=()=>{renderThresholds();render();});
+  ["mTag","mView","mBin"].forEach(id=>$(id).onchange=renderMatrix);
+  renderThresholds(); render();
+}
+function cssid(c){ return c.replace(/[^a-zA-Z0-9]/g,"_"); }
+function cutOf(c){ const r=ST.lodRange||{sMin:0,mMin:0,cMin:0}; return ST.cut[c]||{s:r.sMin,m:r.mMin,c:r.cMin}; }
+function selectedTypes(){ if(!ST.typeSel||!ST.evtypes)return null; return ST.typeSel.size===ST.evtypes.length?null:ST.typeSel; }
+function buildTypeBox(){
+  $("typeBox").innerHTML=(ST.evtypes||[]).map(t=>`<label style="margin-right:10px;font-size:.78rem"><input type="checkbox" data-t="${t}" ${ST.typeSel.has(t)?"checked":""}> ${t}</label>`).join("")
+    || '<span class="muted">no evidence-type data</span>';
+  $("typeBox").querySelectorAll("input").forEach(inp=>{ inp.onchange=()=>{ const t=inp.dataset.t;
+    if(inp.checked)ST.typeSel.add(t); else ST.typeSel.delete(t); render(); }; });
+}
+function commitHasLod(commit,panel){ return (ST.eventRuns||[]).some(e=>e.panel===panel&&e.commit===commit&&e.rows.some(r=>(r.status==="TP"||r.status==="FP")&&r.somlod!=null)); }
+function commitHasCC(commit,panel){ return (ST.eventRuns||[]).some(e=>e.panel===panel&&e.commit===commit&&e.rows.some(r=>(r.status==="TP"||r.status==="FP")&&r.cc!=null)); }
+let _raf=null; function scheduleRender(){ if(_raf)return; _raf=requestAnimationFrame(()=>{_raf=null; render(true);}); }
+function renderThresholds(){
+  const panel=$("panelSel").value, R=ST.lodRange;
+  const commits=commitOrder([...new Set((ST.eventRuns||[]).filter(e=>e.panel===panel).map(e=>e.commit))]);
+  if(!commits.length){ $("thrRows").innerHTML='<span class="muted">no per-event data (run benchmark with --events-out) — thresholds disabled, charts show the fixed-cutoff summary.</span>'; return; }
+  const panelSel=$("panelSel").value;
+  $("thrRows").innerHTML=commits.map(c=>{ const cut=cutOf(c);
+    const lod=commitHasLod(c,panelSel), hcc=commitHasCC(c,panelSel);
+    const dis=lod?"":"disabled", disc=hcc?"":"disabled";
+    return `<div style="display:flex;align-items:center;gap:14px;margin:5px 0;flex-wrap:wrap${(lod||hcc)?"":";opacity:.6"}">
+      <span style="min-width:150px"><span class="swatch" style="background:${ST.colorOf[c]}"></span><code>${shortc(c)}</code></span>
+      <label style="font-size:.72rem;color:var(--text2)">somlod ≥ <input type="range" data-c="${c}" data-k="s" min="${R.sMin}" max="${R.sMax}" step="${R.sStep}" value="${cut.s}" ${dis}> <b id="sval_${cssid(c)}">${(+cut.s).toFixed(1)}</b></label>
+      <label style="font-size:.72rem;color:var(--text2)">maxlod ≥ <input type="range" data-c="${c}" data-k="m" min="${R.mMin}" max="${R.mMax}" step="${R.mStep}" value="${cut.m}" ${dis}> <b id="mval_${cssid(c)}">${(+cut.m).toFixed(1)}</b></label>
+      <label style="font-size:.72rem;color:var(--text2)">contig_conf ≥ <input type="range" data-c="${c}" data-k="c" min="${R.cMin}" max="${R.cMax}" step="${R.cStep}" value="${cut.c}" ${disc}> <b id="cval_${cssid(c)}">${(+cut.c).toFixed(2)}</b></label>
+      ${(lod||hcc)?"":'<span class="muted">no LOD/contig_conf in calls — taken as-is</span>'}<span class="muted" id="thrread_${cssid(c)}"></span></div>`; }).join("");
+  const LID={s:"sval_",m:"mval_",c:"cval_"};
+  $("thrRows").querySelectorAll("input[type=range]").forEach(inp=>{ inp.oninput=()=>{
+    const c=inp.dataset.c,k=inp.dataset.k,v=parseFloat(inp.value); const R2=ST.lodRange;
+    ST.cut[c]=ST.cut[c]||{s:R2.sMin,m:R2.mMin,c:R2.cMin}; ST.cut[c][k]=v;
+    document.getElementById(LID[k]+cssid(c)).textContent=v.toFixed(k==="c"?2:1); scheduleRender(); };
+    inp.onchange=()=>renderMatrix(); });   // refresh the event matrix on slider release
+}
+function fill(sel,pairs){ sel.innerHTML=pairs.map(([v,_],i)=>`<option value="${v}">${v}</option>`).join(""); }
+
+/* ---- render ---- */
+function shortc(c){ return c.length>10?c.slice(0,8)+(c.endsWith("-dirty")?"…dirty":""):c; }
+// accuracy points for a commit: re-scored from events at the commit's cutoff,
+// or (fallback) the static summary numbers when a commit has no events.tsv.
+function accPoints(commit, panel, types){
+  const evs=(ST.eventRuns||[]).filter(e=>e.panel===panel&&e.commit===commit);
+  if(evs.length){ const cut=cutOf(commit);
+    return evs.map(e=>({cov:covOf(e.tag),pur:purOf(e.tag),tag:e.tag,...scoreAt(e.rows,cut.s,cut.m,cut.c,types)})).filter(p=>p.cov!=null); }
+  const rr=ST.runs.find(r=>r.panel===panel&&r.commit===commit); if(!rr)return [];
+  return rr.rows.map(x=>({cov:x.coverage,pur:x.purity,tag:x.tumor_bam,recall:x.recall,precision:x.precision,f1:x.f1,
+    truth:x.truth,detected:x.detected,tp:x.matching,fp:(x.calls!=null&&x.matching!=null)?x.calls-x.matching:null}));
+}
+function render(skipMatrix){
+  const panel=$("panelSel").value, purity=parseFloat($("puritySel").value.replace("p","")), metric=$("metricSel").value, comp=$("computeSel").value;
+  const runs=ST.runs.filter(r=>r.panel===panel);
+  const commits=commitOrder([...new Set([...runs.map(r=>r.commit), ...(ST.eventRuns||[]).filter(e=>e.panel===panel).map(e=>e.commit)])]);
+  const types=selectedTypes();
+  const metricLabel={recall:"recall %",precision:"precision %",f1:"F1 %"}[metric];
+  $("accTitle").textContent=`${metricLabel} vs coverage — purity ${purity} (live cutoff)`;
+  $("compTitle").textContent=`${comp} vs coverage — purity ${purity}`;
+
+  const accDs=[], scatter=[];
+  for(const c of commits){
+    const col=ST.colorOf[c];
+    const pts=accPoints(c,panel,types).filter(p=>p.pur===purity&&p.cov!=null).sort((a,b)=>a.cov-b.cov);
+    accDs.push({label:shortc(c),borderColor:col,backgroundColor:col,pointRadius:4,borderWidth:2,tension:.1,
+      data:pts.filter(p=>p[metric]!=null).map(p=>({x:p.cov,y:p[metric]}))});
+    const rd=document.getElementById("thrread_"+cssid(c));
+    if(rd) rd.textContent=pts.length?`recall ${(mean(pts.map(p=>p.recall))||0).toFixed(1)}% · prec ${(mean(pts.map(p=>p.precision))||0).toFixed(1)}% (mean p${purity})`:"";
+    const rr=runs.find(r=>r.commit===c); const mc=rr?mean(rr.rows.filter(x=>x.purity===purity).map(x=>x.cpu_s)):null;
+    const mm=pts.length?mean(pts.map(p=>p[metric])):null;
+    if(mc!=null&&mm!=null) scatter.push({x:mc,y:mm,label:shortc(c),col});
+  }
+  ST.charts.acc=lineChart(ST.charts.acc,"accChart",accDs,"coverage (x)",metricLabel,[0,100]);
+
+  // compute vs coverage (cutoff-independent, from the summary)
+  const compDs=runs.map(r=>{ const col=ST.colorOf[r.commit];
+    const pts=r.rows.filter(x=>x.purity===purity&&x.coverage!=null).sort((a,b)=>a.coverage-b.coverage);
+    return {label:shortc(r.commit),borderColor:col,backgroundColor:col,pointRadius:4,borderWidth:2,tension:.1,
+      data:pts.filter(x=>x[comp]!=null).map(x=>({x:x.coverage,y:x[comp]}))}; });
+  ST.charts.comp=lineChart(ST.charts.comp,"compChart",compDs,"coverage (x)",comp,null);
+
+  ST.charts.tot=barChart(ST.charts.tot,"totChart",runs.map(r=>shortc(r.commit)),
+    runs.map(r=>r.total_cpu!=null?r.total_cpu:null), runs.map(r=>ST.colorOf[r.commit]),"total svaba CPU s");
+  ST.charts.scatter=scatterChart(ST.charts.scatter,"scatterChart",scatter,"mean CPU s","mean "+metricLabel);
+
+  renderLegend(commits);
+  renderTable(panel);
+  if(!skipMatrix){ refreshMatrixControls(); renderMatrix(); }   // matrix updates on release (cheaper during slider drag)
+}
+function mean(a){ a=a.filter(v=>v!=null); return a.length?a.reduce((s,v)=>s+v,0)/a.length:null; }
+
+/* ---- event matrix: which commits got each event right/wrong ---- */
+function commitOrder(commits){ const o=Object.keys(ST.colorOf); return commits.slice().sort((a,b)=>o.indexOf(a)-o.indexOf(b)); }
+function refreshMatrixControls(){
+  const panel=$("panelSel").value;
+  const evs=(ST.eventRuns||[]).filter(e=>e.panel===panel);
+  const tags=[...new Set(evs.map(e=>e.tag))].sort();
+  const curT=$("mTag").value; $("mTag").innerHTML=tags.map(t=>`<option>${t}</option>`).join("");
+  if(tags.includes(curT))$("mTag").value=curT;
+  const bins=["all","<50bp","50bp-1kb","1-10kb","10-100kb","100kb-1Mb",">1Mb","interchrom"];
+  const curB=$("mBin").value; $("mBin").innerHTML=bins.map(b=>`<option>${b}</option>`).join("");
+  if(bins.includes(curB))$("mBin").value=curB;
+}
+function renderMatrix(){
+  const panel=$("panelSel").value, tag=$("mTag").value, view=$("mView").value, bin=$("mBin").value;
+  const runs=(ST.eventRuns||[]).filter(e=>e.panel===panel && e.tag===tag);
+  const tbl=$("mTbl"), cnt=$("mCount");
+  if(!runs.length){ tbl.innerHTML=""; cnt.textContent="no event files for this BAM (run benchmark with --events-out)"; return; }
+  const commits=commitOrder([...new Set(runs.map(e=>e.commit))]);
+  const CAP=3000, types=selectedTypes();
+  const cols=commits.map(c=>`<th title="${c}"><span class="swatch" style="background:${ST.colorOf[c]||'#888'}"></span>${shortc(c)}</th>`).join("");
+
+  if(view==="fp"){
+    const C=500, fp={};   // cluster FP calls by locus across commits (each above its commit's cutoff)
+    for(const run of runs){ const cut=cutOf(run.commit);
+      for(const r of run.rows){ if(r.status!=="FP")continue;
+        if(!callPasses(r,cut.s,cut.m,cut.c,types))continue;    // below cutoff or deselected type -> filtered out
+        const fbin=binOf(r.c1,r.p1,r.c2,r.p2);                 // FP rows carry no size -> derive from coords
+        if(bin!=="all"&&fbin!==bin)continue;
+        const key=r.c1+":"+Math.round(r.p1/C)+"|"+r.c2+":"+Math.round(r.p2/C);
+        if(!fp[key])fp[key]={c1:r.c1,p1:r.p1,c2:r.c2,p2:r.p2,bin:fbin,by:{}}; fp[key].by[run.commit]=r.somlod; } }
+    let rows=Object.values(fp).sort((a,b)=>countBy(b,commits)-countBy(a,commits)||a.c1.localeCompare(b.c1)||a.p1-b.p1);
+    cnt.textContent=`${rows.length} FP locus/loci`+(rows.length>CAP?` (showing ${CAP})`:"");
+    let h=`<tr><th>size</th><th>breakend 1</th><th>breakend 2</th>${cols}</tr>`;
+    for(const e of rows.slice(0,CAP)) h+=`<tr><td>${e.bin}</td><td>${igvLink(e.c1,e.p1)}</td><td>${igvLink(e.c2,e.p2)}</td>`+
+      commits.map(c=>{const v=e.by[c]; return v!==undefined?`<td title="somlod ${(+v).toFixed(2)}"><span style="color:#f59e0b">●</span></td>`:`<td><span class="muted">·</span></td>`;}).join("")+"</tr>";
+    tbl.innerHTML=h; return;
+  }
+
+  // truth events keyed by stable truth id; per commit, TP iff a matching call
+  // clears that commit's cutoff, else FN (so the matrix reflects the sliders too)
+  const ev={};
+  for(const run of runs){ const cut=cutOf(run.commit);
+    for(const r of run.rows){ if(r.status!=="TP"&&r.status!=="FN")continue; if(bin!=="all"&&r.bin!==bin)continue;
+      if(!ev[r.id])ev[r.id]={c1:r.c1,p1:r.p1,c2:r.c2,p2:r.p2,svtype:r.svtype,bin:r.bin,by:{},score:{}};
+      const E=ev[r.id];
+      if(r.status==="TP"){ const pass=callPasses(r,cut.s,cut.m,cut.c,types);
+        if(pass){ E.by[run.commit]="TP"; if(r.somlod!=null) E.score[run.commit]=Math.max(E.score[run.commit]??-1e9, r.somlod); }
+        else if(E.by[run.commit]!=="TP") E.by[run.commit]="FN"; }
+      else if(E.by[run.commit]!=="TP") E.by[run.commit]="FN"; } }
+  let rows=Object.values(ev).filter(e=>{ const s=commits.map(c=>e.by[c]); const nTP=s.filter(x=>x==="TP").length, nFN=s.filter(x=>x==="FN").length;
+    if(view==="fn")return nFN>0; if(view==="tp")return nTP===commits.length&&nFN===0; if(view==="disagree")return nTP>0&&nFN>0; return true; });
+  rows.sort((a,b)=>nFNof(b,commits)-nFNof(a,commits)||a.c1.localeCompare(b.c1)||a.p1-b.p1);
+  cnt.textContent=`${rows.length} event(s)`+(rows.length>CAP?` (showing ${CAP})`:"");
+  let h=`<tr><th>type</th><th>size</th><th>breakend 1</th><th>breakend 2</th>${cols}</tr>`;
+  for(const e of rows.slice(0,CAP)) h+=`<tr><td>${e.svtype||"·"}</td><td>${e.bin||"·"}</td><td>${igvLink(e.c1,e.p1)}</td><td>${igvLink(e.c2,e.p2)}</td>`+
+    commits.map(c=>{const s=e.by[c]; const sym=s==="TP"?'<span style="color:#16a34a">✓</span>':s==="FN"?'<span style="color:#ef4444">✗</span>':'<span class="muted">–</span>';
+      const tip=e.score[c]!=null?` title="somlod ${(+e.score[c]).toFixed(2)}"`:""; return `<td${tip}>${sym}</td>`;}).join("")+"</tr>";
+  tbl.innerHTML=h;
+}
+function nFNof(e,commits){ return commits.filter(c=>e.by[c]==="FN").length; }
+function countBy(e,commits){ return commits.filter(c=>e.by[c]!==undefined).length; }
+// size bin from breakend coords (mirrors sim/benchmark.py size_bin); interchrom
+// when the two breakends are on different chromosomes. Used for FP rows, which
+// carry no svtype/svlen in events.tsv.
+function binOf(c1,p1,c2,p2){ if(c1!==c2)return "interchrom"; const a=Math.abs((+p2)-(+p1));
+  return a<50?"<50bp":a<1000?"50bp-1kb":a<10000?"1-10kb":a<100000?"10-100kb":a<1000000?"100kb-1Mb":">1Mb"; }
+
+function lineChart(ch,id,datasets,xl,yl,yr){ if(ch)ch.destroy();
+  return new Chart($(id),{type:"line",data:{datasets},options:{responsive:true,animation:false,
+    plugins:{legend:{labels:{color:"#94a3b8",boxWidth:12,font:{size:10}}},tooltip:{callbacks:{label:c=>`${c.dataset.label}: ${xl}=${c.parsed.x}, ${yl}=${(+c.parsed.y).toFixed(2)}`}}},
+    scales:{x:{type:"linear",title:{display:true,text:xl,color:"#94a3b8"},ticks:{color:"#94a3b8"},grid:{color:"#1f2a40"}},
+            y:{title:{display:true,text:yl,color:"#94a3b8"},min:yr?yr[0]:undefined,max:yr?yr[1]:undefined,ticks:{color:"#94a3b8"},grid:{color:"#1f2a40"}}}}});
+}
+function barChart(ch,id,labels,data,colors,yl){ if(ch)ch.destroy();
+  return new Chart($(id),{type:"bar",data:{labels,datasets:[{data,backgroundColor:colors,label:yl}]},options:{responsive:true,animation:false,
+    plugins:{legend:{display:false}},scales:{x:{ticks:{color:"#94a3b8"},grid:{display:false}},y:{title:{display:true,text:yl,color:"#94a3b8"},ticks:{color:"#94a3b8"},grid:{color:"#1f2a40"}}}}});
+}
+function scatterChart(ch,id,pts,xl,yl){ if(ch)ch.destroy();
+  return new Chart($(id),{type:"scatter",data:{datasets:pts.map(p=>({label:p.label,data:[{x:p.x,y:p.y}],backgroundColor:p.col,pointRadius:7}))},
+    options:{responsive:true,animation:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>`${c.dataset.label}: ${xl}=${(+c.parsed.x).toFixed(1)}, ${yl}=${(+c.parsed.y).toFixed(1)}`}}},
+      scales:{x:{title:{display:true,text:xl,color:"#94a3b8"},ticks:{color:"#94a3b8"},grid:{color:"#1f2a40"}},
+              y:{title:{display:true,text:yl,color:"#94a3b8"},ticks:{color:"#94a3b8"},grid:{color:"#1f2a40"}}}}});
+}
+function renderLegend(commits){
+  $("commitLegend").innerHTML=commits.map(c=>{const r=ST.runs.find(x=>x.commit===c);
+    return `<span style="display:inline-block;margin:0 14px 6px 0"><span class="swatch" style="background:${ST.colorOf[c]}"></span><code>${c}</code> <span class="muted">${r?(r.version||""):""} ${r&&r.date?r.date.slice(0,10):""}</span></span>`;}).join("");
+}
+function renderTable(panel){
+  // accuracy re-scored from events @ each commit's cutoff; wall/cpu from summary
+  const runIx={}; ST.runs.filter(r=>r.panel===panel).forEach(r=>r.rows.forEach(x=>{ runIx[r.commit+"|"+x.tumor_bam]={wall:x.wall_s,cpu:x.cpu_s}; }));
+  const commits=commitOrder([...new Set([...ST.runs.filter(r=>r.panel===panel).map(r=>r.commit), ...(ST.eventRuns||[]).filter(e=>e.panel===panel).map(e=>e.commit)])]);
+  const types=selectedTypes();
+  const rows=[];
+  for(const c of commits) for(const p of accPoints(c,panel,types)){ const comp=runIx[c+"|"+p.tag]||{};
+    rows.push({c, tag:p.tag, cov:p.cov, pur:p.pur, truth:p.truth, detected:p.detected, recall:p.recall, precision:p.precision, f1:p.f1, tp:p.tp, fp:p.fp, wall:comp.wall, cpu:comp.cpu}); }
+  rows.sort((a,b)=>a.c.localeCompare(b.c)||(a.cov-b.cov)||(a.pur-b.pur));
+  const f=v=>v==null?'<span class="muted">·</span>':(+v).toFixed(1);
+  let h="<tr><th>commit</th><th>bam</th><th>cov</th><th>pur</th><th>truth</th><th>detected</th><th>recall</th><th>precision</th><th>F1</th><th>tp</th><th>fp</th><th>wall_s</th><th>cpu_s</th></tr>";
+  for(const x of rows) h+=`<tr><td><span class="swatch" style="background:${ST.colorOf[x.c]}"></span>${shortc(x.c)}</td><td>${x.tag}</td><td>${x.cov??"·"}</td><td>${x.pur??"·"}</td><td>${x.truth??"·"}</td><td>${x.detected??"·"}</td><td>${f(x.recall)}</td><td>${f(x.precision)}</td><td>${f(x.f1)}</td><td>${x.tp??"·"}</td><td>${x.fp??"·"}</td><td>${f(x.wall)}</td><td>${f(x.cpu)}</td></tr>`;
+  $("tbl").innerHTML=h;
+}
+</script>
+</body>
+</html>

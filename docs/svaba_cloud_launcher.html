@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>svaba cloud scatter-gather — launcher, cost & monitor</title>
+<style>
+  :root{--bg:#0f172a;--panel:#1e293b;--panel2:#172033;--border:#334155;--text:#e2e8f0;--text2:#94a3b8;--accent:#6c8cff;--green:#4ade80;--amber:#fbbf24;--red:#ef4444}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:14px/1.55 -apple-system,Segoe UI,Roboto,sans-serif}
+  header{padding:14px 22px;border-bottom:1px solid var(--border)} header h1{margin:0;font-size:1.15rem}
+  header .sub{color:var(--text2);font-size:.82rem;margin-top:3px}
+  .wrap{max-width:1180px;margin:0 auto;padding:18px 22px}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:16px}
+  .card h2{margin:0 0 4px;font-size:.95rem} .card h3{margin:14px 0 8px;font-size:.8rem;color:var(--text2);text-transform:uppercase;letter-spacing:.04em}
+  .muted{color:var(--text2)} code{background:#0b1220;padding:1px 5px;border-radius:4px;font-size:.86em}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 18px} @media(max-width:760px){.grid{grid-template-columns:1fr}}
+  label.f{display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:var(--text2);text-transform:uppercase;letter-spacing:.03em}
+  input,select{background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:6px 8px;font:inherit;font-size:.85rem}
+  input[type=checkbox]{width:auto}
+  .flow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:.8rem;margin:8px 0}
+  .flow .box{background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:8px 12px}
+  .flow .arw{color:var(--accent);font-weight:700}
+  pre{background:#0b1220;border:1px solid var(--border);border-radius:8px;padding:12px;overflow:auto;font-size:.78rem;margin:6px 0;white-space:pre-wrap;word-break:break-word}
+  .cmd{position:relative} .cmd button.copy{position:absolute;top:8px;right:8px;font-size:.66rem;padding:3px 8px;background:var(--accent);color:#0b1220;border:none;border-radius:5px;cursor:pointer;font-weight:700}
+  .cost{display:flex;gap:22px;flex-wrap:wrap;align-items:baseline;margin-top:8px}
+  .cost .big{font-size:1.8rem;font-weight:700} .cost .big.on{color:var(--amber)} .cost .big.spot{color:var(--green)}
+  .pill{display:inline-block;font-size:.66rem;padding:2px 7px;border-radius:10px;background:rgba(108,140,255,.15);color:var(--accent);margin-left:6px}
+  .warn{color:var(--amber)} .ok{color:var(--green)}
+  table{border-collapse:collapse;width:100%;font-size:.8rem;margin-top:6px} th,td{padding:4px 8px;border-bottom:1px solid var(--border);text-align:left} th{color:var(--text2)}
+  .bar{height:14px;background:var(--panel2);border-radius:7px;overflow:hidden;border:1px solid var(--border)} .bar > div{height:100%;background:var(--green);width:0}
+  details summary{cursor:pointer;color:var(--accent);font-size:.85rem}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:18px} @media(max-width:760px){.row2{grid-template-columns:1fr}}
+  small.hint{color:var(--text2);font-size:.68rem}
+</style>
+</head>
+<body>
+<header>
+  <h1>svaba cloud scatter-gather <span class="muted">— launcher · cost · monitor</span></h1>
+  <div class="sub">Fill the form → get the exact commands + a live cost estimate. Client-side only; nothing leaves your browser. Wraps <code>scripts/svaba_cloud.sh</code>.</div>
+</header>
+<div class="wrap">
+
+  <div class="card">
+    <h2>How it works</h2>
+    <div class="flow">
+      <span class="box">① <b>worker image</b><br><small class="hint">svaba + reference baked in</small></span><span class="arw">→</span>
+      <span class="box">② <b>N worker VMs</b><br><small class="hint">BAM disk attached <b>read-only</b></small></span><span class="arw">→</span>
+      <span class="box">③ each runs <code>svaba -k &lt;region&gt;</code></span><span class="arw">→</span>
+      <span class="box">④ upload to <b>GCS bucket</b><br><small class="hint">+ <code>.done_part*</code> marker</small></span><span class="arw">→</span>
+      <span class="box">⑤ <b>gather</b><br><small class="hint">merge + postprocess</small></span>
+    </div>
+    <small class="hint">The reference/index is <b>local to each worker</b> (in the image). The BAM disk is one read-only PD fanned out to all workers. Sharding is by <b>chromosome groups</b> (few big shards) — far cheaper than many tiny fixed-size chunks, because each shard pays the ~5 GB index load + insert-size learning once.</small>
+  </div>
+
+  <div class="card">
+    <h2>1 · Configure the run</h2>
+    <h3>GCP environment</h3>
+    <div class="grid">
+      <label class="f">Project<input id="project" value="osteosarc"></label>
+      <label class="f">Zone<input id="zone" value="us-central1-a"></label>
+      <label class="f">Worker image (svaba+ref baked in)<input id="image" list="imgOptions" value="svaba-worker-image"><datalist id="imgOptions"></datalist></label>
+      <label class="f">BAM data disk name (RO)<input id="datadisk" value="wgs-data-restored"></label>
+      <label class="f">Mount point on worker<input id="mount" value="/mnt/wgs"></label>
+      <label class="f">GCS output bucket<input id="bucket" value="gs://osteosarc-svaba/run1"></label>
+    </div>
+    <h3>Available images <span class="muted">— paste <code>gcloud compute images list --filter=name~svaba --format="value(name)"</code> to populate the dropdown</span></h3>
+    <textarea id="imgList" rows="3" style="width:100%;background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:6px;font:inherit;font-size:.8rem">svaba-worker-image
+svaba-worker-image-2-1-2</textarea>
+    <h3>Inputs (paths as seen on the worker)</h3>
+    <div class="grid">
+      <label class="f">Analysis id<input id="id" value="sg_ucla"></label>
+      <label class="f">Reference fasta (in image)<input id="ref" value="/home/jeremiahwala/ref/Homo_sapiens_assembly38.fasta"></label>
+      <label class="f">Tumor BAM (on mounted disk)<input id="tumor" value="/mnt/wgs/SG.WGS.UCLA.2025.01.tumor.recal.bam"></label>
+      <label class="f">Normal BAM (optional)<input id="normal" value="/mnt/wgs/blood.recal.bam"></label>
+      <label class="f">Blacklist BED (in image)<input id="bl" value="/home/jeremiahwala/git/svaba/tracks/hg38.combined_blacklist.bed"></label>
+      <label class="f">bam-params GCS cache (gs://…)<input id="bamparams" value="gs://osteosarc-svaba/run1/bam_params.tsv"></label>
+    </div>
+    <h3>Sharding</h3>
+    <div class="grid">
+      <label class="f">Mode<select id="shardmode">
+        <option value="chrom">Chromosome groups — few big shards (recommended)</option>
+        <option value="chunk">Fixed-size chunks — recreate "1 Mb-style"</option></select></label>
+      <label class="f" id="partsWrap">Partitions / chrom groups (N)<input id="parts" type="number" value="6" min="1" max="24"></label>
+      <label class="f" id="chunkWrap" style="display:none">Chunk size (Mb)<input id="chunkmb" type="number" value="10" min="1" max="250"></label>
+      <label class="f">Shards (N, computed)<input id="nshards" value="6" readonly></label>
+    </div>
+    <h3>Machine &amp; concurrency</h3>
+    <div class="grid">
+      <label class="f">Machine type<select id="machine"></select></label>
+      <label class="f">Threads per worker (-p)<input id="threads" type="number" value="8" min="1" max="32"></label>
+      <label class="f">Max concurrent VMs (0 = all at once)<input id="maxconc" type="number" value="20" min="0"></label>
+      <label class="f">Region vCPU quota<input id="quota" type="number" value="200" min="8"></label>
+      <label class="f">Est. wall-time per shard (min)<input id="wall" type="number" value="60" min="1"></label>
+      <label class="f"><span>Use <code>--bam-params</code> (learn once)</span><span><input type="checkbox" id="useparams" checked> recommended</span></label>
+      <label class="f"><span>Use Spot/preemptible VMs</span><span><input type="checkbox" id="spot" checked> ~70% cheaper</span></label>
+      <label class="f"><span>Merge + postprocess (gather)</span><span><input type="checkbox" id="merge" checked></span></label>
+      <label class="f"><span>--dump-reads (debug BAMs)</span><span><input type="checkbox" id="dump"></span></label>
+    </div>
+    <small class="hint" id="memwarn"></small><br>
+    <small class="hint" id="quotawarn"></small>
+  </div>
+
+  <div class="card">
+    <h2>2 · Cost estimate <span class="pill">approximate</span></h2>
+    <div class="cost">
+      <div><div class="muted" style="font-size:.7rem">ON-DEMAND</div><div class="big on" id="costOnDemand">$0</div></div>
+      <div><div class="muted" style="font-size:.7rem">SPOT (~70% off)</div><div class="big spot" id="costSpot">$0</div></div>
+      <div><div class="muted" style="font-size:.7rem">BILLED VM-HOURS</div><div class="big" id="vmHours" style="font-size:1.3rem">0</div></div>
+      <div><div class="muted" style="font-size:.7rem">≈ WALL-CLOCK</div><div class="big" id="wallClock" style="font-size:1.3rem">0</div></div>
+    </div>
+    <div id="costNote" class="muted" style="font-size:.78rem;margin-top:8px"></div>
+    <small class="hint">Pricing is rough on-demand us-central1 $/hr — <b>verify against the live GCP price list</b>. Cost ≈ N shards × per-shard wall × ($/hr), + a small VM boot tax. <code>--bam-params</code> trims the per-shard insert-learning overhead (~5 CPU-min/shard).</small>
+  </div>
+
+  <div class="card">
+    <h2>3 · Commands to run</h2>
+    <h3>Step -1 — build a worker image from a git commit <span class="muted">(optional, when you change svaba)</span></h3>
+    <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:6px">
+      <label class="f">git ref (hash / branch / tag)<input id="buildgit" value="HEAD"></label>
+      <label class="f">new image name (hyphens only)<input id="buildimg" value="svaba-head"></label>
+    </div>
+    <div class="cmd"><button class="copy" onclick="cp('cm1')">copy</button><pre id="cm1"></pre></div>
+    <small class="hint">Boots the builder VM, checks out the commit, rebuilds svaba + bwa + fermi-lite at <code>-O3 -march=native</code>, <b>verifies it compiled</b>, installs it on PATH, then snapshots a new image (data disk untouched). Afterwards, re-run the <code>gcloud compute images list</code> above and paste it to pick the new image. GCP image names can't contain underscores.</small>
+    <h3 id="step0title">Step 0 — precompute insert-size params once <span class="muted">(learn-only)</span></h3>
+    <div class="cmd"><button class="copy" onclick="cp('c0')">copy</button><pre id="c0"></pre></div>
+    <small class="hint">Run this once (any quick region; it always learns genome-wide). Writes the small params TSV every shard then reuses, so no shard repeats the ~14M-read insert sweep. Put the file where the workers can read it (the RO data disk, or fetch from the bucket in the startup script).</small>
+    <h3>Step 1 — launch the scatter (creates N worker VMs)</h3>
+    <div class="cmd"><button class="copy" onclick="cp('c1')">copy</button><pre id="c1"></pre></div>
+    <h3>Step 2 — monitor (poll the done-markers)</h3>
+    <div class="cmd"><button class="copy" onclick="cp('c2')">copy</button><pre id="c2"></pre></div>
+    <h3>Step 3 — gather / merge (if not using <code>--merge</code>)</h3>
+    <div class="cmd"><button class="copy" onclick="cp('c3')">copy</button><pre id="c3"></pre></div>
+    <h3>Teardown — delete the worker VMs</h3>
+    <div class="cmd"><button class="copy" onclick="cp('c4')">copy</button><pre id="c4"></pre></div>
+  </div>
+
+  <div class="card">
+    <h2>4 · Monitor dashboard</h2>
+    <div class="row2">
+      <div>
+        <h3>paste <code>gsutil ls &lt;bucket&gt;/.done_part*</code></h3>
+        <textarea id="doneIn" rows="5" style="width:100%;background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:6px;font:inherit;font-size:.78rem" placeholder="gs://.../.done_part1&#10;gs://.../.done_part3"></textarea>
+      </div>
+      <div>
+        <h3>progress</h3>
+        <div class="bar"><div id="progBar"></div></div>
+        <div id="progText" class="muted" style="margin-top:6px;font-size:.85rem">—</div>
+        <div id="progList" style="font-size:.8rem;margin-top:6px"></div>
+      </div>
+    </div>
+    <small class="hint">Static page can't poll GCS live (no backend). Paste the output of the monitor command (or <code>gcloud compute instances list</code>) and it renders progress. Re-paste to refresh.</small>
+  </div>
+
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+// approx on-demand us-central1 $/hr (VERIFY against live pricing). [vCPU, GB, $/hr]
+const MACHINES=[
+  ["e2-standard-8",   8, 32, 0.268],
+  ["n1-standard-8",   8, 30, 0.380],
+  ["n2-standard-4",   4, 16, 0.194],
+  ["n2-standard-8",   8, 32, 0.388],
+  ["n2-highcpu-8",    8,  8, 0.286],
+  ["n2-highcpu-16",  16, 16, 0.573],
+  ["n2-highmem-8",    8, 64, 0.524],
+  ["c3-standard-8",   8, 32, 0.461],
+  ["c3d-highcpu-16", 16, 32, 0.560],
+  ["c3-highcpu-22",  22, 44, 0.880],
+];
+const SVABA_MIN_GB=7;  // ~5.4GB index + working set
+// GRCh38 primary chrom lengths -> #shards for fixed-size chunking
+const HG38=[248956422,242193529,198295559,190214555,181538259,170805979,159345973,145138636,138394717,133797422,135086622,133275309,114364328,107043718,101991189,90338345,83257441,80373285,58617616,64444167,46709983,50818468,156040895,57227415];
+function computeN(chunkMb){ const w=chunkMb*1e6; return HG38.reduce((n,len)=>n+Math.ceil(len/w),0); }
+function fillMachines(){
+  $("machine").innerHTML=MACHINES.map(m=>`<option value="${m[0]}">${m[0]} — ${m[1]} vCPU / ${m[2]} GB / ~$${m[3]}/hr</option>`).join("");
+  $("machine").value="n2-standard-8";
+}
+function mach(){ return MACHINES.find(m=>m[0]===$("machine").value)||MACHINES[0]; }
+
+function recalc(){
+  const m=mach(), vcpu=m[1], gb=m[2], rate=m[3];
+  const mode=$("shardmode").value;
+  $("partsWrap").style.display = mode==="chunk"?"none":"";
+  $("chunkWrap").style.display = mode==="chunk"?"":"none";
+  const N = mode==="chunk" ? computeN(+$("chunkmb").value||10) : (+$("parts").value||1);
+  $("nshards").value=N;
+  const wall=+$("wall").value||1, useParams=$("useparams").checked, threads=+$("threads").value||1;
+  const maxConc=+$("maxconc").value||0, quota=+$("quota").value||0;
+  const effWall=Math.max(1, wall-(useParams?5:0)), bootMin=1.5;
+  const vmHr=N*(effWall+bootMin)/60, onDemand=vmHr*rate, spotCost=onDemand*0.30;
+  const conc = maxConc>0 ? Math.min(maxConc,N) : N;
+  const wallClockMin = Math.ceil(N/conc)*(effWall+bootMin);
+  $("vmHours").textContent=vmHr.toFixed(1)+" h";
+  $("costOnDemand").textContent="$"+onDemand.toFixed(2);
+  $("costSpot").textContent="$"+spotCost.toFixed(2);
+  $("wallClock").textContent=(wallClockMin<60?wallClockMin.toFixed(0)+" min":(wallClockMin/60).toFixed(1)+" h");
+  $("costNote").innerHTML=`${N} shards × ~${effWall} min ${useParams?'<span class="ok">(insert-learning skipped via --bam-params)</span>':'<span class="warn">(each shard re-learns insert size — tick --bam-params)</span>'} on <b>${m[0]}</b> ($${rate}/hr), ≤ ${conc} VMs at once. Bill = Σ per-VM lifetimes (independent of concurrency).`;
+  $("memwarn").innerHTML = gb<SVABA_MIN_GB
+    ? `<span class="warn">⚠ ${m[0]} = ${gb} GB; svaba needs ~${SVABA_MIN_GB} GB (hg38 index) and a chromosome-scale shard peaked ~10 GB → it will OOM. Use ≥10 GB.</span>`
+    : (gb<10 ? `<span class="warn">⚠ ${gb} GB is tight — a dense / chromosome-scale shard peaked ~10 GB in testing; risk of OOM→retry. Prefer ~12 GB.</span>`
+             : `<span class="ok">✓ ${gb} GB OK (peak ~10 GB on big shards).</span>`);
+  const peakVMs = maxConc>0 ? Math.min(maxConc,N) : N, peakVcpu = peakVMs*vcpu;
+  $("quotawarn").innerHTML = peakVcpu>quota
+    ? `<span class="warn">⚠ up to ${peakVMs} VMs × ${vcpu} vCPU = ${peakVcpu} vCPU would exceed your ${quota}-vCPU quota → creates fail. Set "Max concurrent VMs" ≤ ${Math.max(1,Math.floor(quota/vcpu))} (or raise quota).</span>`
+    : `<span class="ok">✓ peak ${peakVMs} VMs × ${vcpu} vCPU = ${peakVcpu} ≤ ${quota} quota.</span>`+(maxConc===0&&N>20?` <span class="warn">— launching all ${N} at once also hammers the read-only BAM disk; set --max-concurrent.</span>`:``);
+  genCmds();
+}
+
+function genCmds(){
+  const v=id=>$(id).value.trim();
+  const project=v("project"),zone=v("zone"),image=v("image"),disk=v("datadisk"),mount=v("mount"),
+    bucket=v("bucket"),id=v("id"),ref=v("ref"),tumor=v("tumor"),normal=v("normal"),bl=v("bl"),bp=v("bamparams"),p=v("threads"),m=mach()[0];
+  const gid=id.toLowerCase().replace(/_/g,"-").replace(/[^a-z0-9-]/g,"");
+  const mode=$("shardmode").value, parts=v("parts"), chunkmb=v("chunkmb"), maxConc=+$("maxconc").value||0;
+  const useParams=$("useparams").checked, spot=$("spot").checked, merge=$("merge").checked, dump=$("dump").checked;
+  const nArg=normal?` \\\n     -n ${normal}`:"";
+  const shardArg = mode==="chunk" ? `--chunk-mb ${chunkmb}` : `--partitions ${parts}`;
+
+  // Step 0: launch a learn VM -> learn-only -> upload cache -> self-delete
+  $("c0").textContent = useParams
+    ? `# one-time: a small VM learns insert size, uploads the cache, deletes itself\n`+
+      `cat > /tmp/svaba_learn.sh <<'EOS'\n`+
+      `#!/bin/bash\nset -euxo pipefail\nmkdir -p ${mount}\n`+
+      `for a in $(seq 1 30); do [ -b /dev/sdb ] && break; sleep 2; done\n`+
+      `mount -o ro,noload /dev/sdb ${mount} || mount -o ro /dev/sdb ${mount}\n`+
+      `svaba run --learn-only --bam-params /tmp/p.tsv -t ${tumor}${normal?` -n ${normal}`:""} -G ${ref} -p 4\n`+
+      `gsutil cp /tmp/p.tsv ${bp}\n`+
+      `gcloud compute instances delete $(hostname) --zone=${zone} --quiet\n`+
+      `EOS\n`+
+      `gcloud compute instances create svaba-${gid}-learn --project=${project} --zone=${zone} \\\n`+
+      `  --machine-type=n2-standard-4 --image=${image} \\\n`+
+      `  --disk=name=${disk},mode=ro,device-name=svaba-data \\\n`+
+      `  --scopes=storage-rw,compute-rw \\\n`+
+      `  --metadata-from-file=startup-script=/tmp/svaba_learn.sh\n`+
+      `# block until the cache appears, then the workers can use it:\n`+
+      `until gsutil -q stat ${bp}; do sleep 20; done; echo "params ready: ${bp}"`
+    : `# (skipped — tick "Use --bam-params" to learn once and save ~5 min/shard)`;
+
+  // Step 1
+  $("c1").textContent =
+    `scripts/svaba_cloud.sh \\\n  --id ${id} \\\n  --data-disk ${disk} \\\n  --bucket ${bucket} \\\n`+
+    `  --mount-point ${mount} \\\n  --machine ${m} \\\n  --zone ${zone} \\\n  --image ${image} \\\n`+
+    `  ${shardArg} \\\n`+
+    (maxConc>0?`  --max-concurrent ${maxConc} \\\n`:``)+
+    (spot?`  --spot \\\n`:``)+
+    (useParams?`  --bam-params-gcs ${bp} \\\n`:``)+
+    (merge?`  --merge \\\n`:``)+
+    `  -- svaba run \\\n     -t ${tumor}${nArg} \\\n     -G ${ref} \\\n     -p ${p} \\\n     --blacklist ${bl}`+(dump?` \\\n     --dump-reads`:``);
+
+  // Step 2 monitor
+  $("c2").textContent =
+    `watch -n 60 'echo "$(gsutil ls ${bucket}/.done_part* 2>/dev/null | wc -l) of ${$("nshards").value} shards done"'\n`+
+    `gcloud compute instances list --project=${project} --filter="name~svaba-${gid}-worker"`;
+
+  // Step 3 gather
+  $("c3").textContent = merge
+    ? `# --merge set: svaba_cloud.sh concatenates the per-partition bps.txt.gz + runs postprocess once all markers appear.`
+    : `mkdir -p ${id}_merge && cd ${id}_merge\n`+
+      `gsutil -m cp '${bucket}/${id}_part*.bps.txt.gz' .\n`+
+      `cat ${id}_part*.bps.txt.gz > ${id}.bps.txt.gz   # gzip is concat-safe\n`+
+      `svaba postprocess -i ${id} -t ${p}`;
+
+  // Step 4 teardown (waves auto-delete; this catches stragglers / --keep-vms)
+  $("c4").textContent =
+    `gcloud compute instances list --project=${project} --filter="name~svaba-${gid}-worker" --format="value(name)" \\\n`+
+    `  | xargs -r -I{} gcloud compute instances delete {} --zone=${zone} --project=${project} --quiet`;
+
+  // Step -1 build-image-from-commit
+  const buildgit=v("buildgit")||"HEAD";
+  const buildimg=v("buildimg")||("svaba-"+buildgit.toLowerCase().replace(/[._/]/g,"-").replace(/[^a-z0-9-]/g,""));
+  $("cm1").textContent =
+    `scripts/build_svaba_image.sh \\\n  --git ${buildgit} \\\n  --image ${buildimg} \\\n`+
+    `  --project ${project} \\\n  --zone ${zone} \\\n  --keep-running`;
+}
+// populate the worker-image dropdown from a pasted 'gcloud images list'
+function populateImages(){
+  const names=$("imgList").value.split(/[\s,]+/).map(s=>s.trim()).filter(s=>s && s!=="NAME");
+  $("imgOptions").innerHTML=names.map(n=>`<option value="${n}"></option>`).join("");
+}
+
+function cp(id){ navigator.clipboard.writeText($(id).textContent); }
+
+// monitor dashboard
+function renderProgress(){
+  const N=+$("nshards").value||1;
+  const lines=$("doneIn").value.split(/\s+/).filter(x=>/\.done_part/.test(x));
+  const done=new Set(lines.map(l=>{const m=l.match(/done_part(\d+)/);return m?+m[1]:null;}).filter(Boolean));
+  const pct=N? Math.round(100*done.size/N):0;
+  $("progBar").style.width=pct+"%";
+  $("progBar").style.background = done.size>=N? "var(--green)":"var(--accent)";
+  $("progText").innerHTML=`<b>${done.size} / ${N}</b> shards complete (${pct}%)`+(done.size>=N?' <span class="ok">— all done, run gather</span>':'');
+  let cells="";
+  for(let i=1;i<=N;i++) cells+=`<span style="display:inline-block;width:26px;height:22px;line-height:22px;text-align:center;margin:2px;border-radius:4px;font-size:.7rem;background:${done.has(i)?'var(--green)':'var(--panel2)'};color:${done.has(i)?'#0b1220':'var(--text2)'};border:1px solid var(--border)" title="part ${i}">${i}</span>`;
+  $("progList").innerHTML=cells;
+}
+
+fillMachines();
+["project","zone","image","datadisk","mount","bucket","id","ref","tumor","normal","bl","bamparams","shardmode","parts","chunkmb","threads","machine","maxconc","quota","wall","useparams","spot","merge","dump","buildimg"]
+  .forEach(k=>{ const e=$(k); e.addEventListener("input",recalc); e.addEventListener("change",recalc); });
+$("buildgit").addEventListener("input",()=>{ $("buildimg").value="svaba-"+$("buildgit").value.toLowerCase().replace(/[._/]/g,"-").replace(/[^a-z0-9-]/g,""); recalc(); });
+$("imgList").addEventListener("input",populateImages);
+$("doneIn").addEventListener("input",renderProgress);
+populateImages(); recalc(); renderProgress();
+</script>
+</body>
+</html>

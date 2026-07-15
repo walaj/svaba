@@ -86,6 +86,9 @@ BWA-MEM tuning:
 
 Output & DBs:
       --blacklist <FILE>  BED of blacklisted regions
+      --annotation <FILE> labeled BED (RepeatMasker/SegDup/custom); each
+                         breakend is overlap-annotated into the bps
+                         repeat_anno column. Repeatable. Non-filtering.
       --germline-sv <FILE>
                          BED of known germline SVs
       --dbsnp <VCF>       DBSNP VCF of known variants
@@ -108,6 +111,21 @@ Output & DBs:
                           reuse the input BAM's CIGAR/NM (valid when the
                           BAM was aligned with BWA). Use this flag when
                           the input was aligned with a non-BWA aligner.
+      --r2c-min-somlod N  With --dump-reads, only write a contig's r2c reads
+                          to ${ID}.r2c.db if its max breakpoint SOMLOD is
+                          strictly > N. Shrinks the r2c.db dramatically on
+                          deep samples. Default: write all. Use 0 to keep
+                          only somlod>0 (~somatic) events.
+      --bam-params FILE   Cache learned per-read-group insert-size params.
+                          If FILE exists and covers every input BAM, svaba
+                          loads it and SKIPS the genome-wide insert-size
+                          sweep (big win for scatter-gather: learn once,
+                          reuse per shard); otherwise it learns and WRITES
+                          FILE. Match is by BAM path, so all shards must use
+                          the same -t/-n BAMs.
+      --learn-only        Learn insert-size params, write --bam-params FILE,
+                          and exit before any region processing. The
+                          precompute step for a scatter run.
 )" << "\n";
 }
 
@@ -153,11 +171,15 @@ SvabaOptions SvabaOptions::parse(int argc, char** argv) {
     {"blacklist",  required_argument,      nullptr,  1700},
     {"germline-sv",required_argument,      nullptr,  1701},
     {"dbsnp",      required_argument,      nullptr,  1702},
+    {"annotation", required_argument,      nullptr,  1703},
     // --dump-reads: runtime opt-in for corrected + discordant-reads BAMs.
     // Single flag, both side effects — see comment in SvabaOptions.h.
     // Weird-reads BAM is deliberately not on this flag (compile-time only).
     {"dump-reads", no_argument,            nullptr,  1800},
     {"always-realign-corrected", no_argument, nullptr, 1801},
+    {"r2c-min-somlod", required_argument,   nullptr,  1802},
+    {"bam-params", required_argument,       nullptr,  1810},
+    {"learn-only", no_argument,             nullptr,  1811},
     {nullptr,0,nullptr,0}
   };
 
@@ -212,6 +234,7 @@ SvabaOptions SvabaOptions::parse(int argc, char** argv) {
       case 1700: o.blacklistFile.push_back(optarg); break;
       case 1701: o.germlineSvFile = optarg; break;
       case 1702: o.dbsnpVcf       = optarg; break;
+      case 1703: o.annotationFile.push_back(optarg); break;
 
       // --dump-reads is the single runtime knob for all per-read detail
       // outputs. Flip all three flags together here; any call-site
@@ -243,6 +266,18 @@ SvabaOptions SvabaOptions::parse(int argc, char** argv) {
 
       case 1801:
         o.alwaysRealignCorrected = true;
+        break;
+
+      case 1802:
+        o.r2cMinSomlod = std::stod(optarg);
+        break;
+
+      case 1810:
+        o.bamParamsFile = optarg;
+        break;
+
+      case 1811:
+        o.learnOnly = true;
         break;
 
       case '?':

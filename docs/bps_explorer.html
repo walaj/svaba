@@ -112,7 +112,7 @@ td.w-wrap,th.w-wrap{width:22ch;max-width:22ch;white-space:normal;word-break:brea
    soft-wrap so multi-gene hits don't blow the row height out. */
 td.w-genes,th.w-genes{width:16ch;max-width:16ch;white-space:normal;word-break:break-word;line-height:1.15;color:var(--green)}
 /* Samples column — shows the full per-sample FORMAT value
-   (GT:AD:DP:SR:DR:GQ:PL:LO:LO_n), one sample per line, monospace so the
+   (GT:AD:DP:SR:DR:GQ:PL:LO:LO_n:KC), one sample per line, monospace so the
    colon-separated fields stack column-wise visually. white-space:pre
    preserves the embedded \n that mkRow puts between samples. */
 td.w-gt,th.w-gt{width:46ch;max-width:46ch;white-space:pre;line-height:1.25;font-size:.7rem}
@@ -275,7 +275,8 @@ th.w-gt{cursor:help}
   <div class="ctrl"><label>Rows/pg</label>
     <select id="f-page-size"><option value="50">50</option><option value="100" selected>100</option><option value="250">250</option><option value="500">500</option><option value="1000">1k</option></select>
   </div>
-  <button class="btn-ghost btn" id="reset-btn" style="margin-left:auto">Reset</button>
+  <div class="ctrl" id="truth-host" style="margin-left:auto" title="Ground-truth labels are saved silently in this browser; Export/Import to a JSON file for durability"></div>
+  <button class="btn-ghost btn" id="reset-btn">Reset</button>
 </div>
 
 <div id="chip-bar" class="controls" style="display:none"></div>
@@ -314,7 +315,7 @@ th.w-gt{cursor:help}
     <span>Selected row detail</span>
     <strong id="dp-locus">-</strong>
   </div>
-  <div class="format-key">FORMAT (per-sample): <code>GT:AD:DP:SR:DR:GQ:PL:LO:LO_n</code> &mdash; SV uses DR=disc, INDEL uses DR=cigar. To inline the per-read alignment plot below this panel, also load the <code>.r2c.db</code> in the upload row above.</div>
+  <div class="format-key">FORMAT (per-sample): <code>GT:AD:DP:SR:DR:GQ:PL:LO:LO_n:KC</code> &mdash; SV uses DR=disc, INDEL uses DR=cigar; KC=kmer-spanning reads excluded from assembly/r2c. To inline the per-read alignment plot below this panel, also load the <code>.r2c.db</code> in the upload row above.</div>
   <div class="dp-body" id="dp-body"><div class="dp-empty">Click a table row</div></div>
 </div>
 
@@ -346,7 +347,7 @@ th.w-gt{cursor:help}
   <div class="row"><span class="k">1/1</span><span class="v">homozygous alt (both alleles are alt)</span></div>
   <div class="row"><span class="k">./.</span><span class="v">no call / insufficient coverage</span></div>
   <hr>
-  <h4>Per-sample FORMAT fields <code style="color:var(--accent);font-size:.68rem">GT:AD:DP:SR:DR:GQ:PL:LO:LO_n</code></h4>
+  <h4>Per-sample FORMAT fields <code style="color:var(--accent);font-size:.68rem">GT:AD:DP:SR:DR:GQ:PL:LO:LO_n:KC</code></h4>
   <div class="row"><span class="k">AD</span><span class="v">allelic depth (# reads supporting the alt allele)</span></div>
   <div class="row"><span class="k">DP</span><span class="v">total read depth at this site</span></div>
   <div class="row"><span class="k">SR</span><span class="v">split-read support (reads spanning the breakpoint)</span></div>
@@ -355,6 +356,7 @@ th.w-gt{cursor:help}
   <div class="row"><span class="k">PL</span><span class="v">Phred-scaled genotype likelihoods (0/0, 0/1, 1/1)</span></div>
   <div class="row"><span class="k">LO</span><span class="v">log-odds variant vs. error at this sample (see CLAUDE.md)</span></div>
   <div class="row"><span class="k">LO_n</span><span class="v">log-odds variant vs. error, normal-model only</span></div>
+  <div class="row"><span class="k">KC</span><span class="v">kmer-spanning reads: unique reads carrying the breakend junction kmer (&ge;19/20bp, either strand) that were excluded from assembly/r2c (adapter/blacklist), folded into the normal alt count for somatic scoring</span></div>
   <hr>
   <div class="row"><span class="k" style="color:var(--text2)">Tip</span><span class="v">Click outside this box or press <kbd style="background:var(--surface2);padding:1px 5px;border-radius:3px;border:1px solid var(--border)">Esc</kbd> to dismiss</span></div>
 </div>
@@ -363,6 +365,8 @@ th.w-gt{cursor:help}
      alignment-plot integration below can call initSqlJs() the moment a
      user drops in an r2c.db file. ~600 KB; harmless if unused. -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.js"></script>
+<!-- local ground-truth labeling store (Valid/Artifact/Germline/Ambiguous), file://-friendly -->
+<script src="truth_store.js"></script>
 <script>
 (function(){
 "use strict";
@@ -390,7 +394,16 @@ const V3=["bp_id"];
 // the contig spanning the breakend junction; "." when no precise
 // junction exists. Useful as a primary-key for `svaba extract-pairs`.
 const V4=["jxn_kmer"];
-const NUM=new Set(["pos1","pos2","span","split","alt_count","cov","cigar","cigar_near","dmq1","dmq2","dcn","dct","mapq1","mapq2","nm1","nm2","as1","as2","sub1","sub2","naln","qual","secondary","somlod","maxlod","cpos1","cpos2","lmatch","rmatch","scov1","scov2","ctglen"]);
+// SvABA2.0 v5: +1 trailing core column. disc_cluster is the discordant-cluster
+// id for this event ("." when none) — joins to discordant.txt.gz `id` and the
+// discordant.bam DC:Z tag. Lets ASDIS rows show their cluster id alongside the
+// contig.
+const V5=["disc_cluster"];
+// SvABA2 v6: +2 trailing core columns. repeat_anno is the per-breakend overlap
+// of the --annotation track as "b1labels|b2labels" ("." when no track/overlap);
+// poly_a is the longest poly-A/T run in the inserted sequence (MEI signal).
+const V6=["repeat_anno","poly_a"];
+const NUM=new Set(["pos1","pos2","span","split","alt_count","cov","cigar","cigar_near","dmq1","dmq2","dcn","dct","mapq1","mapq2","nm1","nm2","as1","as2","sub1","sub2","naln","qual","secondary","somlod","maxlod","cpos1","cpos2","lmatch","rmatch","scov1","scov2","ctglen","poly_a"]);
 
 const TCOLS=[
   // bp_id pinned to the leftmost column — it's the primary join key back
@@ -538,6 +551,9 @@ $("gtf-zone").addEventListener("drop",e=>{const f=e.dataTransfer.files[0];if(f)l
 $("export-btn").onclick=exportTSV;
 $("export-html-btn").onclick=exportHTML;
 $("reset-btn").onclick=()=>{resetF();render()};
+// ground-truth labeling toolbar (summary + Export/Import); labels persist in
+// localStorage. Importing refreshes row badges. See truth_store.js.
+if(window.SvabaTruth){ window.__truthBar=SvabaTruth.makeToolbar(()=>{try{rTable()}catch(e){}}); $("truth-host").appendChild(window.__truthBar); }
 $("pg-prev").onclick=()=>{if(S.pg>1){S.pg--;rTable()}};
 $("pg-next").onclick=()=>{if(S.pg<tPages()){S.pg++;rTable()}};
 $("pg-first").onclick=()=>{S.pg=1;rTable()};
@@ -870,8 +886,12 @@ function ingest(text,name){
   const V2_N  = LEG_N + V2.length;          // 51
   const V3_N  = V2_N  + V3.length;          // 52
   const V4_N  = V3_N  + V4.length;          // 53
+  const V5_N  = V4_N  + V5.length;          // 54
+  const V6_N  = V5_N  + V6.length;          // 56
   let coreCols;
-  if      (cc >= V4_N) { cc = V4_N; coreCols = LEGACY.concat(V2).concat(V3).concat(V4); }
+  if      (cc >= V6_N) { cc = V6_N; coreCols = LEGACY.concat(V2).concat(V3).concat(V4).concat(V5).concat(V6); }
+  else if (cc >= V5_N) { cc = V5_N; coreCols = LEGACY.concat(V2).concat(V3).concat(V4).concat(V5); }
+  else if (cc >= V4_N) { cc = V4_N; coreCols = LEGACY.concat(V2).concat(V3).concat(V4); }
   else if (cc >= V3_N) { cc = V3_N; coreCols = LEGACY.concat(V2).concat(V3); }
   else if (cc >= V2_N) { cc = V2_N; coreCols = LEGACY.concat(V2); }
   else                 { cc = LEG_N; coreCols = LEGACY; }
@@ -913,7 +933,7 @@ function mkRow(id,cells,coreCols,sampHdr,cc){
   // per sample, prefixed with the sample-label's first char (e.g. "t" or
   // "n" for a typical tumor/normal run). The payload is the raw colon-
   // separated value verbatim from the bps.txt row, i.e.
-  //   GT:AD:DP:SR:DR:GQ:PL:LO:LO_n
+  //   GT:AD:DP:SR:DR:GQ:PL:LO:LO_n:KC
   // — so the cell holds the complete per-BAM state for each sample,
   // not just the genotype. Newlines are preserved by the cell's CSS
   // (white-space:pre on .w-gt) so colon-separated fields stack
@@ -941,7 +961,7 @@ function evType(r){
 function parseSamp(h,raw,ev){
   const lbl=h.split("_")[0],p=(raw||"").split(":");
   return{lbl,hdr:h,raw,gt:p[0]||"",ad:mNum(p[1]),dp:mNum(p[2]),sr:mNum(p[3]),
-    dr:mNum(p[4]),drLbl:ev==="INDEL"?"cigar":"disc",gq:mNum(p[5]),pl:p[6]||"",lo:mNum(p[7]),lo_n:mNum(p[8])};
+    dr:mNum(p[4]),drLbl:ev==="INDEL"?"cigar":"disc",gq:mNum(p[5]),pl:p[6]||"",lo:mNum(p[7]),lo_n:mNum(p[8]),kc:mNum(p[9])};
 }
 
 /* === Filters === */
@@ -1084,7 +1104,11 @@ function rTable(){
   else{
     const h=[];
     for(const r of page){
-      h.push('<tr data-id="'+r.id+'"'+(r.id===S.selId?' class="sel"':'')+'>');
+      // ground-truth badge: colored left bar if this variant has been labeled
+      let _gt="";
+      if(window.SvabaTruth){const _l=SvabaTruth.labelOf(r.chr1,r.pos1,r.chr2,r.pos2,r.eventType);
+        if(_l)_gt=' style="box-shadow:inset 4px 0 0 '+SvabaTruth.colorOf(_l)+'" title="ground truth: '+_l+'"';}
+      h.push('<tr data-id="'+r.id+'"'+(r.id===S.selId?' class="sel"':'')+_gt+'>');
       for(const c of TCOLS){
         let v=r[c.k],cls=c.n?"num":"";
         if(c.w) cls+=(cls?" ":"")+"w-"+c.w;
@@ -1158,10 +1182,21 @@ function rDetail(){
   // sample cols
   r.samp.forEach(s=>{
     h+='<tr class="samp"><td class="k">'+esc(s.lbl)+' <span style="font-weight:400;font-size:.6rem">'+esc(s.hdr)+'</span></td>';
-    h+='<td class="v">GT='+esc(s.gt)+' AD='+fN(s.ad)+' DP='+fN(s.dp)+' SR='+fN(s.sr)+' '+s.drLbl+'='+fN(s.dr)+' GQ='+fN(s.gq)+' LO='+fN(s.lo)+' LO_n='+fN(s.lo_n)+'</td></tr>';
+    h+='<td class="v">GT='+esc(s.gt)+' AD='+fN(s.ad)+' DP='+fN(s.dp)+' SR='+fN(s.sr)+' '+s.drLbl+'='+fN(s.dr)+' GQ='+fN(s.gq)+' LO='+fN(s.lo)+' LO_n='+fN(s.lo_n)+' KC='+fN(s.kc)+'</td></tr>';
   });
   h+='</table>';
   $("dp-body").innerHTML=h;
+
+  // ground-truth labeling: per-variant Valid/Artifact/Germline/Ambiguous.
+  // Saved silently+immediately to localStorage; refreshes the summary bar and
+  // the row badges. Keyed by breakend coords only (BAM/version-independent).
+  if(window.SvabaTruth){
+    const tw=SvabaTruth.makeWidget(r.chr1,r.pos1,r.chr2,r.pos2,r.eventType,()=>{
+      if(window.__truthBar)window.__truthBar._refresh();
+      rTable();
+    });
+    $("dp-body").insertBefore(tw,$("dp-body").firstChild);
+  }
 
   // If the user has loaded an r2c.db, render the per-read alignment
   // plot for this row's contig in the panel below the detail panel.

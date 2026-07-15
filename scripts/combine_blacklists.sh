@@ -196,7 +196,12 @@ LC_ALL=C sort -k1,1 -k2,2n "$CAT" > "$SORTED"
 # intervals whose end overshoots are clipped to the contig length.
 if [[ -n "$CLIP" ]]; then
   CLIPPED="$TMPDIR_LOCAL/clipped.bed"
-  awk -v OFS='\t' -v genomefile="$GENOME_TSV" '
+  # -F'\t' is required: by this point the data is the normalized, tab-separated
+  # 5-col CAT. Without it, awk's default whitespace FS re-splits multi-word
+  # labels ("High Signal Region", "...Family=Simple_repeat +") into extra
+  # columns when a clipped line is rebuilt with OFS, yielding ragged field
+  # counts that break the downstream `bedtools merge`.
+  awk -F'\t' -v OFS='\t' -v genomefile="$GENOME_TSV" '
     BEGIN {
       while ((getline < genomefile) > 0) { len[$1] = $2 }
       close(genomefile)

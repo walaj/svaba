@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>svaba sim benchmark — ROC / PR vs ground truth</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root{--bg:#0f172a;--panel:#1e293b;--panel2:#172033;--border:#334155;--text:#e2e8f0;--text2:#94a3b8;--accent:#6c8cff;--green:#16a34a;--red:#dc2626;--amber:#d97706}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif}
+  header{padding:14px 22px;border-bottom:1px solid var(--border)}
+  header h1{margin:0;font-size:1.1rem} header .sub{color:var(--text2);font-size:.8rem;margin-top:2px}
+  .wrap{padding:18px 22px;max-width:1500px;margin:0 auto}
+  .uploads{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:14px}
+  .drop{flex:1;min-width:260px;border:1.5px dashed var(--border);border-radius:10px;padding:16px;text-align:center;cursor:pointer;background:var(--panel2)}
+  .drop.over{border-color:var(--accent);background:#1d2942}.drop.loaded{border-color:var(--green)}
+  .drop b{color:var(--text)} .drop small{color:var(--text2);display:block;margin-top:4px}
+  .controls{display:flex;gap:18px;flex-wrap:wrap;align-items:flex-end;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:12px 16px;margin-bottom:14px}
+  .ctrl{display:flex;flex-direction:column;gap:3px} .ctrl label{font-size:.68rem;color:var(--text2);text-transform:uppercase;letter-spacing:.03em}
+  select,input[type=number]{background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:5px 8px;font:inherit}
+  .chk{display:flex;align-items:center;gap:5px;font-size:.8rem}
+  button.run{background:var(--accent);color:#fff;border:0;border-radius:7px;padding:8px 16px;font:inherit;font-weight:600;cursor:pointer}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:1000px){.grid{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:16px}
+  .card h3{margin:0 0 10px;font-size:.82rem;color:var(--text2);text-transform:uppercase;letter-spacing:.04em}
+  .sliders{display:flex;gap:28px;flex-wrap:wrap;margin-bottom:10px}
+  .srow{display:flex;flex-direction:column;gap:3px;min-width:280px}
+  .srow .top{display:flex;justify-content:space-between;font-size:.8rem}
+  .srow input[type=range]{width:300px}
+  .op{display:flex;gap:22px;flex-wrap:wrap;align-items:center}
+  .op .big{font-size:1.45rem;font-weight:700} .op .lab{font-size:.64rem;color:var(--text2);text-transform:uppercase}
+  .op .clk{cursor:pointer;border-bottom:1px dotted currentColor}
+  table{border-collapse:collapse;width:100%;font-size:.78rem} th,td{padding:4px 8px;text-align:right;border-bottom:1px solid var(--border)}
+  th:first-child,td:first-child{text-align:left} th{color:var(--text2);font-weight:600}
+  .bar{height:8px;background:#0b1220;border-radius:4px;overflow:hidden;width:80px;display:inline-block;vertical-align:middle}.bar>span{display:block;height:100%;background:var(--green)}
+  .muted{color:var(--text2);font-size:.75rem}
+  #status{font-size:.78rem;color:var(--text2);margin:6px 0}
+  code{background:#0b1220;padding:1px 5px;border-radius:4px;font-size:.85em}
+  a.igv{color:var(--accent);text-decoration:none;cursor:pointer} a.igv:hover{text-decoration:underline}
+  .enumwrap{max-height:420px;overflow:auto}
+  .tabbtn{background:var(--panel2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:5px 12px;cursor:pointer;font:inherit;font-size:.78rem}
+  .tabbtn.active{border-color:var(--accent);color:var(--accent)}
+</style>
+</head>
+<body>
+<header>
+  <h1>svaba simulation benchmark &mdash; ROC / Precision-Recall vs ground truth</h1>
+  <div class="sub">Match svaba <code>bps.txt.gz</code> calls to the simulator <code>truth.bedpe</code> (breakend-pair, orientation-agnostic, within tol). Gate on somlod &amp; maxlod; sweep one for the curves. Click TP/FP/FN to enumerate with IGV links. IGV must be running with port 60151 enabled.</div>
+</header>
+<div class="wrap">
+
+  <div class="uploads">
+    <div class="drop" id="truthDrop" onclick="truthInput.click()">
+      <b>1. truth.bedpe</b><small id="truthMsg">drop or click &mdash; simulator ground-truth set</small>
+      <input id="truthInput" type="file" accept=".bedpe,.txt,.gz" style="display:none">
+    </div>
+    <div class="drop" id="callsDrop" onclick="callsInput.click()">
+      <b>2. svaba bps.txt[.gz]</b><small id="callsMsg">drop or click &mdash; e.g. <code>sim.bps.sorted.dedup.txt.gz</code> (streamed, restricted to truth chroms)</small>
+      <input id="callsInput" type="file" accept=".txt,.gz" style="display:none">
+    </div>
+    <div class="drop" id="blDrop" onclick="blInput.click()">
+      <b>3. blacklist BED (optional)</b><small id="blMsg">drop or click &mdash; mask out regions; any truth/call with a breakend here is excluded</small>
+      <input id="blInput" type="file" accept=".bed,.txt,.gz" style="display:none">
+    </div>
+  </div>
+
+  <div class="controls" id="controls" style="display:none">
+    <div class="ctrl"><label>Curve sweep axis</label>
+      <select id="sweepSel"><option value="somlod">somlod</option><option value="maxlod">maxlod</option></select></div>
+    <div class="ctrl"><label>Match tol (bp)</label><input id="tol" type="number" value="100" style="width:90px"></div>
+    <div class="ctrl"><label>Calls</label><label class="chk"><input type="checkbox" id="passOnly"> PASS only</label></div>
+    <div class="ctrl"><label>Truth</label><label class="chk"><input type="checkbox" id="truthSom" checked> somatic truth only</label></div>
+    <div class="ctrl"><label>Blacklist</label><label class="chk"><input type="checkbox" id="blCalls" checked> also exclude calls in blacklist</label></div>
+    <button class="run" id="runBtn">Score &amp; plot</button>
+  </div>
+  <div id="status"></div>
+
+  <div id="results" style="display:none">
+    <div class="card">
+      <h3>Operating point — gate: somlod &ge; S AND maxlod &ge; M</h3>
+      <div class="sliders">
+        <div class="srow"><div class="top"><span>somlod &ge; <b id="sVal">-</b></span><span class="muted" id="sRange"></span></div><input type="range" id="sSlider"></div>
+        <div class="srow"><div class="top"><span>maxlod &ge; <b id="mVal">-</b></span><span class="muted" id="mRange"></span></div><input type="range" id="mSlider"></div>
+      </div>
+      <div class="op">
+        <div><div class="lab">recall (sens)</div><div class="big" style="color:var(--green)" id="opRecall">-</div></div>
+        <div><div class="lab">precision</div><div class="big" style="color:var(--accent)" id="opPrec">-</div></div>
+        <div><div class="lab">F1</div><div class="big" id="opF1">-</div></div>
+        <div><div class="lab">TP detected</div><div class="big clk" style="color:var(--green)" id="opTP" data-set="tp">-</div></div>
+        <div><div class="lab">FP calls</div><div class="big clk" style="color:var(--red)" id="opFP" data-set="fp">-</div></div>
+        <div><div class="lab">FN missed</div><div class="big clk" style="color:var(--amber)" id="opFN" data-set="fn">-</div></div>
+      </div>
+      <div class="muted" id="opNote" style="margin-top:6px"></div>
+    </div>
+
+    <div class="grid">
+      <div class="card"><h3>ROC &mdash; call-level <span class="muted" id="aucRoc"></span></h3><canvas id="rocChart" height="240"></canvas>
+        <div class="muted" style="margin-top:4px">Each call is an instance (positive = matches truth). Sweeps <span id="sweepName">somlod</span> at the held maxlod floor. Measures how well the score separates real calls from artifacts/germline.</div></div>
+      <div class="card"><h3>Precision &ndash; Recall <span class="muted" id="aucPr"></span></h3><canvas id="prChart" height="240"></canvas>
+        <div class="muted" style="margin-top:4px">Recall = truth-level sensitivity; precision = call-level.</div></div>
+    </div>
+
+    <div class="card">
+      <h3>Variant list &mdash; <span id="enumTitle">click TP / FP / FN above</span></h3>
+      <div style="margin-bottom:8px">
+        <button class="tabbtn" data-set="tp">True positives</button>
+        <button class="tabbtn" data-set="fp">False positives</button>
+        <button class="tabbtn" data-set="fn">False negatives (missed)</button>
+        <span class="muted" id="enumCount" style="margin-left:10px"></span>
+      </div>
+      <div class="enumwrap"><table id="enumTbl"></table></div>
+    </div>
+
+    <div class="grid">
+      <div class="card"><h3>Recall by SV type <span class="muted">(at gate)</span></h3><table id="typeTbl"></table></div>
+      <div class="card"><h3>Recall by size bin <span class="muted">(at gate)</span></h3><table id="binTbl"></table></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+const SIZE_BINS=[[0,50,"<50bp"],[50,1000,"50bp-1kb"],[1000,10000,"1-10kb"],[10000,100000,"10-100kb"],[100000,1000000,"100kb-1Mb"],[1000000,1e12,">1Mb"]];
+function sizeBin(t,l){ if(t==="TRA"||t==="BND")return "interchrom"; const a=Math.abs(l||0); for(const[lo,hi,n] of SIZE_BINS)if(a>=lo&&a<hi)return n; return ">1Mb"; }
+const NEG=-1e9;
+const ST={truth:null,truthChroms:null,callsFile:null,calls:null,m:null,rocChart:null,prChart:null,curEnum:"tp",blacklist:null,blExcl:null};
+
+/* IGV remote control (same protocol as bps_explorer) */
+function igvGoto(locus){ fetch("http://localhost:60151/goto?locus="+encodeURIComponent(locus),{mode:"no-cors"}).catch(()=>{}); }
+window.igvGoto=igvGoto;
+function igvLink(chr,pos){ const loc=chr+":"+(Math.max(1,pos-150))+"-"+(pos+150); return `<a class="igv" title="navigate IGV to ${chr}:${pos}" onclick="igvGoto('${loc}')">${chr}:${pos.toLocaleString()}</a>`; }
+
+/* ---- drag/drop ---- */
+function wireDrop(drop,input,onFile){
+  ["dragenter","dragover"].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.add("over")}));
+  ["dragleave","drop"].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.remove("over")}));
+  drop.addEventListener("drop",ev=>{const f=ev.dataTransfer.files[0];if(f)onFile(f)});
+  input.addEventListener("change",ev=>{const f=ev.target.files[0];if(f)onFile(f)});
+}
+wireDrop($("truthDrop"),$("truthInput"),loadTruth);
+wireDrop($("callsDrop"),$("callsInput"),loadCalls);
+wireDrop($("blDrop"),$("blInput"),loadBlacklist);
+
+/* ---- blacklist BED ---- */
+function loadBlacklist(file){
+  const rd=new FileReader();
+  rd.onload=()=>{ let text=rd.result; if(file.name.endsWith(".gz")) text=new TextDecoder().decode(pako.ungzip(new Uint8Array(rd.result))); parseBED(text,file.name); };
+  if(file.name.endsWith(".gz")) rd.readAsArrayBuffer(file); else rd.readAsText(file);
+}
+function parseBED(text,name){
+  const bl={}; let n=0;
+  for(const line of text.split("\n")){
+    if(!line||line[0]==="#"||line.startsWith("track")||line.startsWith("browser"))continue;
+    const f=line.split("\t"); if(f.length<3)continue;
+    const s=parseInt(f[1],10),e=parseInt(f[2],10); if(!isFinite(s)||!isFinite(e))continue;
+    (bl[f[0]]=bl[f[0]]||[]).push([s,e]); n++;
+  }
+  for(const c in bl) bl[c].sort((a,b)=>a[0]-b[0]);
+  ST.blacklist=n?bl:null; $("blDrop").classList.add("loaded");
+  $("blMsg").innerHTML=`<b style="color:var(--green)">${n.toLocaleString()}</b> blacklist intervals over ${Object.keys(bl).length} chroms`;
+  if(ST.calls)match();
+}
+// is position p on chrom c inside any blacklist interval?  (binary search)
+function blHit(c,p){
+  if(!ST.blacklist)return false; const a=ST.blacklist[c]; if(!a)return false;
+  let lo=0,hi=a.length-1;
+  while(lo<=hi){ const m=(lo+hi)>>1; if(a[m][1]<=p)lo=m+1; else if(a[m][0]>p)hi=m-1; else return true; }
+  return false;
+}
+
+/* ---- truth.bedpe ---- */
+function loadTruth(file){
+  const rd=new FileReader();
+  rd.onload=()=>{ let text=rd.result; if(file.name.endsWith(".gz")) text=new TextDecoder().decode(pako.ungzip(new Uint8Array(rd.result))); parseTruth(text); };
+  if(file.name.endsWith(".gz")) rd.readAsArrayBuffer(file); else rd.readAsText(file);
+}
+function parseTruth(text){
+  const t=[],chroms=new Set();
+  for(const line of text.split("\n")){
+    if(!line||line[0]==="#")continue; const f=line.split("\t"); if(f.length<10)continue;
+    t.push({c1:f[0],p1:+f[1],c2:f[3],p2:+f[4],name:f[6],svtype:f[7],svlen:+f[8],somatic:f[9]==="somatic",matches:[]});
+    chroms.add(f[0]); chroms.add(f[3]);
+  }
+  ST.truth=t; ST.truthChroms=chroms; $("truthDrop").classList.add("loaded");
+  $("truthMsg").innerHTML=`<b style="color:var(--green)">${t.length}</b> truth SVs &middot; ${[...chroms].join(", ")}`;
+  ready();
+}
+function loadCalls(file){ ST.callsFile=file; $("callsDrop").classList.add("loaded");
+  $("callsMsg").innerHTML=`<b style="color:var(--green)">${file.name}</b> (${(file.size/1e6).toFixed(1)} MB) &mdash; click "Score &amp; plot"`; ready(); }
+function ready(){ if(ST.truth&&ST.callsFile)$("controls").style.display="flex"; }
+
+/* ---- streaming bps parse, restricted to truth chroms ---- */
+const FIXED={chr1:0,pos1:1,chr2:3,pos2:4,conf:31,type:32,qual:33,somatic:35,somlod:36,maxlod:37};
+function mapCols(h){const m={};h.forEach((n,i)=>{if(!(n in m))m[n]=i});const p=(...a)=>{for(const n of a)if(n in m)return m[n];return -1};
+  return {chr1:p("chr1"),pos1:p("pos1"),chr2:p("chr2"),pos2:p("pos2"),conf:p("conf","confidence"),type:p("type"),qual:p("qual"),somatic:p("somatic"),somlod:p("somlod"),maxlod:p("maxlod")};}
+const num=v=>{const x=parseFloat(v);return isFinite(x)?x:null;};
+function parseCalls(file,cb){
+  const calls=[]; let hdr=null,idx=null,buf="",nseen=0,nkept=0;
+  function chunk(s){buf+=s;let nl;while((nl=buf.indexOf("\n"))>=0){line(buf.slice(0,nl));buf=buf.slice(nl+1);}}
+  function line(L){ if(!L)return;
+    if(hdr===null&&L[0]==="#"){hdr=L.slice(1).split("\t");idx=mapCols(hdr);return;}
+    if(hdr===null){hdr=[];idx=FIXED;}
+    nseen++; const f=L.split("\t"); const c1=f[idx.chr1]; if(!ST.truthChroms.has(c1))return;
+    calls.push({c1,p1:+f[idx.pos1],c2:f[idx.chr2],p2:+f[idx.pos2],conf:f[idx.conf]||"",
+      somlod:num(f[idx.somlod]),maxlod:num(f[idx.maxlod]),qual:num(f[idx.qual]),svtype:f[idx.type]||"",tp:false}); nkept++;
+  }
+  const rd=new FileReader();
+  rd.onload=()=>{ $("status").textContent="parsing…";
+    if(file.name.endsWith(".gz")){ const inf=new pako.Inflate({to:"string",chunkSize:1<<20});
+      inf.onData=chunk; inf.onEnd=()=>{if(buf)line(buf);done()}; inf.push(new Uint8Array(rd.result),true);
+      if(inf.err){$("status").textContent="gzip error: "+inf.msg;return;}
+    } else { chunk(rd.result); if(buf)line(buf); done(); }
+    function done(){ $("status").textContent=`parsed ${nseen.toLocaleString()} rows, kept ${nkept.toLocaleString()} on truth chroms`; cb(calls); }
+  };
+  if(file.name.endsWith(".gz")) rd.readAsArrayBuffer(file); else rd.readAsText(file);
+}
+
+/* ---- match (once per parse/filter) ---- */
+function match(){
+  const tol=+$("tol").value||100, passOnly=$("passOnly").checked, truthSom=$("truthSom").checked;
+  let truth=ST.truth.filter(t=>!truthSom||t.somatic);
+  let calls=ST.calls.filter(c=>!passOnly||c.conf==="PASS");
+  // blacklist masking: drop any truth (and, by default, any call) whose either
+  // breakend falls in a blacklist interval. Excluding calls too keeps precision
+  // fair -- a call that matched a now-removed truth must not become a phantom FP.
+  ST.blExcl=null;
+  if(ST.blacklist){
+    const t0=truth.length, c0=calls.length;
+    truth=truth.filter(t=>!blHit(t.c1,t.p1)&&!blHit(t.c2,t.p2));
+    if($("blCalls").checked) calls=calls.filter(c=>!blHit(c.c1,c.p1)&&!blHit(c.c2,c.p2));
+    ST.blExcl={t:t0-truth.length, c:c0-calls.length, calls:$("blCalls").checked};
+  }
+  const ix={}; calls.forEach((c,i)=>{(ix[c.c1]=ix[c.c1]||[]).push([c.p1,i]);(ix[c.c2]=ix[c.c2]||[]).push([c.p2,i]);});
+  for(const k in ix)ix[k].sort((a,b)=>a[0]-b[0]);
+  const lb=(a,x)=>{let lo=0,hi=a.length;while(lo<hi){const m=(lo+hi)>>1;if(a[m][0]<x)lo=m+1;else hi=m}return lo;};
+  const ub=(a,x)=>{let lo=0,hi=a.length;while(lo<hi){const m=(lo+hi)>>1;if(a[m][0]<=x)lo=m+1;else hi=m}return lo;};
+  const near=(c,p)=>{const a=ix[c];if(!a)return[];const o=[];for(let i=lb(a,p-tol);i<ub(a,p+tol);i++)o.push(a[i][1]);return o;};
+  const bp=(c,p,q)=>c===q[0]&&Math.abs(p-q[1])<=tol;
+  calls.forEach(c=>c.tp=false);
+  truth.forEach(t=>{ t.matches=[]; const cand=new Set([...near(t.c1,t.p1),...near(t.c2,t.p2)]);
+    cand.forEach(ci=>{const c=calls[ci];
+      if((bp(t.c1,t.p1,[c.c1,c.p1])&&bp(t.c2,t.p2,[c.c2,c.p2]))||(bp(t.c1,t.p1,[c.c2,c.p2])&&bp(t.c2,t.p2,[c.c1,c.p1]))){c.tp=true;t.matches.push(ci);}});
+  });
+  ST.m={truth,calls,P:calls.filter(c=>c.tp).length,N:calls.filter(c=>!c.tp).length};
+  setupSliders(); recurve(); render();
+  $("results").style.display="block";
+}
+const sc=(c,f)=> (c[f]==null?NEG:c[f]);
+
+/* ---- curves: sweep one score, hold the other at its slider floor ---- */
+function recurve(){
+  const {truth,calls,P,N}=ST.m;
+  const sweep=$("sweepSel").value, other=(sweep==="somlod")?"maxlod":(sweep==="maxlod"?"somlod":"somlod");
+  const floor= (other==="somlod")? +$("sSlider").value : +$("mSlider").value;
+  // eligible = passes the held floor; sweep over `sweep` desc
+  const elig=calls.filter(c=>sc(c,other)>=floor && c[sweep]!=null).sort((a,b)=>b[sweep]-a[sweep]);
+  // per-truth best sweep-score among matching calls that pass the floor
+  const tDet=truth.map(t=>{let best=null;for(const ci of t.matches){const c=calls[ci];if(sc(c,other)>=floor&&c[sweep]!=null){if(best===null||c[sweep]>best)best=c[sweep];}}return best;});
+  const detSorted=tDet.filter(v=>v!=null).sort((a,b)=>a-b);
+  const lb2=(a,x)=>{let lo=0,hi=a.length;while(lo<hi){const m=(lo+hi)>>1;if(a[m]<x)lo=m+1;else hi=m}return lo;};
+  const nt=truth.length;
+  const pts=[]; let cumTP=0,cumFP=0,i=0;
+  while(i<elig.length){ const T=elig[i][sweep];
+    while(i<elig.length&&elig[i][sweep]===T){ if(elig[i].tp)cumTP++; else cumFP++; i++; }
+    const det=detSorted.length-lb2(detSorted,T);
+    pts.push({thr:T, tpr:P?cumTP/P:0, fpr:N?cumFP/N:0, recall:nt?det/nt:0, precision:(cumTP+cumFP)?cumTP/(cumTP+cumFP):1, tp:cumTP, fp:cumFP});
+  }
+  let aucR=0; for(let k=1;k<pts.length;k++){aucR+=Math.abs(pts[k].fpr-pts[k-1].fpr)*(pts[k].tpr+pts[k-1].tpr)/2;}
+  let aucP=0; for(let k=1;k<pts.length;k++){aucP+=Math.abs(pts[k].recall-pts[k-1].recall)*(pts[k].precision+pts[k-1].precision)/2;}
+  ST.m.curve={pts,sweep,other,floor,aucR,aucP};
+  drawCharts();
+}
+function drawCharts(){
+  const {pts,sweep,aucR,aucP}=ST.m.curve;
+  $("sweepName").textContent=sweep; $("aucRoc").textContent="AUC = "+aucR.toFixed(3); $("aucPr").textContent="AUC = "+aucP.toFixed(3);
+  ST.rocChart=line(ST.rocChart,"rocChart",pts.map(p=>({x:p.fpr,y:p.tpr})),"False-positive rate","True-positive rate",[0,1],[0,1],true);
+  ST.prChart=line(ST.prChart,"prChart",pts.map(p=>({x:p.recall,y:p.precision})),"Recall","Precision",[0,1],[0,1],false);
+}
+function line(chart,id,data,xl,yl,xr,yr,diag){
+  if(chart)chart.destroy();
+  const ds=[{label:yl,data,borderColor:"#6c8cff",backgroundColor:"rgba(108,140,255,.12)",fill:true,pointRadius:0,borderWidth:2,tension:.04},
+            {label:"op",data:[],borderColor:"#f59e0b",backgroundColor:"#f59e0b",pointRadius:6,showLine:false}];
+  if(diag)ds.push({label:"chance",data:[{x:0,y:0},{x:1,y:1}],borderColor:"#475569",borderDash:[5,4],pointRadius:0,borderWidth:1,fill:false});
+  return new Chart($(id),{type:"line",data:{datasets:ds},options:{responsive:true,animation:false,
+    plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>`${xl}=${c.parsed.x.toFixed(3)}, ${yl}=${c.parsed.y.toFixed(3)}`}}},
+    scales:{x:{title:{display:true,text:xl,color:"#94a3b8"},min:xr[0],max:xr[1],ticks:{color:"#94a3b8"},grid:{color:"#1f2a40"}},
+            y:{title:{display:true,text:yl,color:"#94a3b8"},min:yr[0],max:yr[1],ticks:{color:"#94a3b8"},grid:{color:"#1f2a40"}}}}});
+}
+
+/* ---- sliders ---- */
+function setupSliders(){
+  const {calls}=ST.m;
+  const setup=(field,slider,vlab,rlab)=>{
+    let lo=Infinity,hi=-Infinity,any=false;
+    for(const c of calls){const v=c[field];if(v==null)continue;any=true;if(v<lo)lo=v;if(v>hi)hi=v;}
+    if(!any){lo=0;hi=1;} if(lo===hi)hi=lo+1;
+    $(slider).min=lo; $(slider).max=hi; $(slider).step=(hi-lo)/500||0.01; $(slider).value=lo;
+    $(rlab).textContent=`[${lo.toFixed(1)} … ${hi.toFixed(1)}]`; $(vlab).textContent=(+$(slider).value).toFixed(2);
+  };
+  setup("somlod","sSlider","sVal","sRange"); setup("maxlod","mSlider","mVal","mRange");
+}
+
+/* ---- operating point + render ---- */
+function gatePass(c,S,M){ return sc(c,"somlod")>=S && sc(c,"maxlod")>=M; }
+function render(){
+  const {truth,calls}=ST.m; const S=+$("sSlider").value, M=+$("mSlider").value;
+  $("sVal").textContent=S.toFixed(2); $("mVal").textContent=M.toFixed(2);
+  const passMatch=calls.filter(c=>c.tp&&gatePass(c,S,M)).length;
+  const fpCalls=calls.filter(c=>!c.tp&&gatePass(c,S,M)).length;
+  const det=truth.filter(t=>t.matches.some(ci=>gatePass(calls[ci],S,M))).length;
+  const nt=truth.length, fn=nt-det;
+  const recall=nt?det/nt:0, prec=(passMatch+fpCalls)?passMatch/(passMatch+fpCalls):0, f1=(prec+recall)?2*prec*recall/(prec+recall):0;
+  $("opRecall").textContent=(recall*100).toFixed(1)+"%"; $("opPrec").textContent=(prec*100).toFixed(1)+"%";
+  $("opF1").textContent=f1.toFixed(3); $("opTP").textContent=det; $("opFP").textContent=fpCalls; $("opFN").textContent=fn;
+  let blTxt="";
+  if(ST.blExcl) blTxt=` · <span style="color:var(--amber)">blacklist excluded ${ST.blExcl.t} truth`+(ST.blExcl.calls?` &amp; ${ST.blExcl.c} calls`:` (calls kept)`)+`</span>`;
+  $("opNote").innerHTML=`gate <code>somlod≥${S.toFixed(2)} &amp; maxlod≥${M.toFixed(2)}</code>: ${det}/${nt} truth detected · ${fpCalls} false-positive calls on truth chroms.`+blTxt;
+  // operating point markers (use the swept axis value for x-position via the curve)
+  markOp(S,M);
+  // breakdown tables
+  const byT={},byB={};
+  for(const t of truth){const d=t.matches.some(ci=>gatePass(calls[ci],S,M));
+    (byT[t.svtype]=byT[t.svtype]||[0,0]);byT[t.svtype][0]++;if(d)byT[t.svtype][1]++;
+    const b=sizeBin(t.svtype,t.svlen);(byB[b]=byB[b]||[0,0]);byB[b][0]++;if(d)byB[b][1]++;}
+  $("typeTbl").innerHTML=brk(byT,Object.keys(byT).sort());
+  const order=SIZE_BINS.map(b=>b[2]).concat(["interchrom"]); $("binTbl").innerHTML=brk(byB,order.filter(b=>b in byB));
+  if(ST.curEnum)renderEnum(ST.curEnum);
+}
+function markOp(S,M){
+  const {curve}=ST.m; if(!curve)return; const {pts,sweep}=curve;
+  const T=(sweep==="maxlod")?M:(sweep==="somlod"?S:S);
+  let best=null; for(const p of pts){if(p.thr>=T){if(!best||p.thr<best.thr)best=p;}} if(!best&&pts.length)best=pts[pts.length-1];
+  if(best){ if(ST.rocChart){ST.rocChart.data.datasets[1].data=[{x:best.fpr,y:best.tpr}];ST.rocChart.update("none");}
+            if(ST.prChart){ST.prChart.data.datasets[1].data=[{x:best.recall,y:best.precision}];ST.prChart.update("none");} }
+}
+function brk(o,keys){let h="<tr><th>group</th><th>truth</th><th>found</th><th>recall</th><th></th></tr>";
+  for(const k of keys){const[n,f]=o[k],r=n?f/n:0;h+=`<tr><td>${k}</td><td>${n}</td><td>${f}</td><td>${(r*100).toFixed(0)}%</td><td><span class="bar"><span style="width:${(r*100).toFixed(0)}%"></span></span></td></tr>`;}return h;}
+
+/* ---- enumeration (TP/FP/FN) with IGV links ---- */
+function renderEnum(set){
+  ST.curEnum=set;
+  document.querySelectorAll(".tabbtn").forEach(b=>b.classList.toggle("active",b.dataset.set===set));
+  const {truth,calls}=ST.m; const S=+$("sSlider").value, M=+$("mSlider").value; const CAP=3000;
+  let rows=[], title="", head="";
+  if(set==="fp"){
+    title="False positives — calls passing the gate that match no truth SV";
+    head="<tr><th>#</th><th>breakend 1</th><th>breakend 2</th><th>somlod</th><th>maxlod</th><th>conf</th><th>evidence</th></tr>";
+    const fp=calls.filter(c=>!c.tp&&gatePass(c,S,M));
+    rows=fp.slice(0,CAP).map((c,i)=>`<tr><td>${i+1}</td><td>${igvLink(c.c1,c.p1)}</td><td>${igvLink(c.c2,c.p2)}</td><td>${fmt(c.somlod)}</td><td>${fmt(c.maxlod)}</td><td>${c.conf}</td><td>${c.svtype}</td></tr>`);
+    setCount(fp.length);
+  } else if(set==="fn"){
+    title="False negatives — truth SVs NOT detected at the gate (missed, or only sub-threshold calls)";
+    head="<tr><th>#</th><th>type</th><th>breakend 1</th><th>breakend 2</th><th>svlen</th><th>size bin</th><th>best call</th></tr>";
+    const fn=truth.filter(t=>!t.matches.some(ci=>gatePass(calls[ci],S,M)));
+    rows=fn.slice(0,CAP).map((t,i)=>{ // diagnose: any matching call at all? show its best scores
+      let why="not called"; if(t.matches.length){ let bs=-1e18,bm=-1e18; t.matches.forEach(ci=>{bs=Math.max(bs,sc(calls[ci],"somlod"));bm=Math.max(bm,sc(calls[ci],"maxlod"));});
+        why=`sub-threshold (somlod ${bs<=NEG?"·":bs.toFixed(1)}, maxlod ${bm<=NEG?"·":bm.toFixed(1)})`; }
+      return `<tr><td>${i+1}</td><td>${t.svtype}</td><td>${igvLink(t.c1,t.p1)}</td><td>${igvLink(t.c2,t.p2)}</td><td>${t.svlen}</td><td>${sizeBin(t.svtype,t.svlen)}</td><td>${why}</td></tr>`;});
+    setCount(fn.length);
+  } else {
+    title="True positives — truth SVs detected at the gate (with best matching call)";
+    head="<tr><th>#</th><th>type</th><th>breakend 1</th><th>breakend 2</th><th>svlen</th><th>somlod</th><th>maxlod</th><th>conf</th></tr>";
+    const tp=truth.filter(t=>t.matches.some(ci=>gatePass(calls[ci],S,M)));
+    rows=tp.slice(0,CAP).map((t,i)=>{ let bc=null; t.matches.forEach(ci=>{const c=calls[ci];if(gatePass(c,S,M)&&(!bc||sc(c,"somlod")>sc(bc,"somlod")))bc=c;});
+      return `<tr><td>${i+1}</td><td>${t.svtype}</td><td>${igvLink(t.c1,t.p1)}</td><td>${igvLink(t.c2,t.p2)}</td><td>${t.svlen}</td><td>${fmt(bc&&bc.somlod)}</td><td>${fmt(bc&&bc.maxlod)}</td><td>${bc?bc.conf:""}</td></tr>`;});
+    setCount(tp.length);
+  }
+  $("enumTitle").textContent=title;
+  $("enumTbl").innerHTML=head+rows.join("");
+  function setCount(n){$("enumCount").textContent=n>CAP?`showing ${CAP} of ${n}`:`${n} rows`;}
+}
+const fmt=v=>(v==null||v<=NEG)?"·":(+v).toFixed(2);
+
+/* ---- events ---- */
+$("runBtn").onclick=()=>{ if(!ST.truth||!ST.callsFile){alert("Load truth.bedpe and a bps file first.");return;}
+  $("status").textContent="reading calls…"; parseCalls(ST.callsFile,c=>{ST.calls=c;match();}); };
+["tol","passOnly","truthSom","blCalls"].forEach(id=>$(id).addEventListener("change",()=>{if(ST.calls)match();}));
+$("sweepSel").addEventListener("change",()=>{if(ST.m){recurve();render();}});
+["sSlider","mSlider"].forEach(id=>$(id).addEventListener("input",()=>{ if(ST.m){recurve();render();} }));
+document.querySelectorAll(".tabbtn").forEach(b=>b.onclick=()=>renderEnum(b.dataset.set));
+document.querySelectorAll(".op .clk").forEach(el=>el.onclick=()=>renderEnum(el.dataset.set));
+</script>
+</body>
+</html>
