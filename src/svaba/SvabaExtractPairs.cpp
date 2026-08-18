@@ -98,11 +98,13 @@ const struct option kLongOpts[] = {
 void printUsage() {
   std::cerr <<
     "Usage: svaba extract-pairs -i IN.bam -o OUT.bam (-s SEQ ... | -f FILE)\n"
-    "                           [-t THREADS] [--no-rc] [--no-pairs]\n"
-    "                           [--whole-bam] [--pad N] [-v V]\n"
+    "                           [--counts FILE.csv] [-t THREADS] [--no-rc]\n"
+    "                           [--no-pairs] [--whole-bam] [--pad N] [-v V]\n"
     "\n"
     "  Extract all read pairs from IN.bam where either mate's SEQ contains\n"
     "  any of the given query sequences or their reverse complements.\n"
+    "  Queries come from -s, a multi-record FASTA, a plain seq-per-line\n"
+    "  list, or a svaba bps.txt[.gz] (--counts tallies matches per query).\n"
     "  Output is sorted (or input-order-preserved if input is sorted) and\n"
     "  indexed (.bai). Replaces scripts/extract_pairs_by_seq.sh.\n"
     "\n"
@@ -112,25 +114,30 @@ void printUsage() {
     "  distant, unrelated reference site that just happens to share the\n"
     "  20-mer. ALL kmers are searched within that merged window set, so\n"
     "  cross-breakpoint connections are still found. Pass --whole-bam to\n"
-    "  scan every read (the old behavior); required if you used -s or a\n"
-    "  plain seq-list (no breakend coordinates are available then).\n"
+    "  scan every read (the old behavior). Every other query source (-s,\n"
+    "  FASTA, plain seq-list) carries no coordinates, so those always scan\n"
+    "  the whole BAM regardless of this flag.\n"
     "\n"
     "  -i, --input  <bam>   Input BAM (required).\n"
     "  -o, --output <bam>   Output BAM (required).\n"
     "  -s, --seq    <SEQ>   Query sequence; repeatable.\n"
-    "  -f, --seq-file <p>   File of query sequences. Two formats accepted,\n"
+    "  -f, --seq-file <p>   File of query sequences. Three formats accepted,\n"
     "                       auto-detected from the first non-empty line:\n"
+    "                         * a multi-record FASTA ('>name description'),\n"
+    "                           wrapped or single-line; the first token of\n"
+    "                           the header is the record name used by\n"
+    "                           --counts, or\n"
     "                         * one ACGTN sequence per line ('#' and blank\n"
     "                           lines ignored), or\n"
     "                         * a svaba bps.txt[.gz] dump — every row's\n"
     "                           jxn_kmer column (col 53) is used as a query;\n"
     "                           rows with kmer == \".\" are skipped.\n"
-    "                       Plain or gzip is fine for either format.\n"
+    "                       Plain or gzip is fine for any of them.\n"
     "  -t, --threads <n>    BGZF reader+writer threads. [4]\n"
     "      --whole-bam      Scan the entire BAM in pass 1 instead of just\n"
     "                       the breakpoint windows. Old default behavior;\n"
-    "                       also the only option when queries come from -s\n"
-    "                       or a plain seq-list (no coordinates).\n"
+    "                       a no-op for -s / FASTA / plain seq-list queries,\n"
+    "                       which have no coordinates and always scan all.\n"
     "      --pad <N>        Half-width (bp) of the window placed around each\n"
     "                       breakend in region-targeted mode. [1000]\n"
     "      --no-rc          Skip reverse-complement augmentation.\n"
@@ -138,18 +145,22 @@ void printUsage() {
     "                       the pair-mate / supplementary pickup, runs in a\n"
     "                       single BAM pass (~2x faster). Useful when you\n"
     "                       just want to inspect which reads contain a motif.\n"
-    "      --counts <FILE>  Emit a per-bp_id table of reads carrying each\n"
-    "                       bp's junction kmer. Four columns with a header:\n"
-    "                       bp_id<TAB>jxn_kmer<TAB>n_total_hits<TAB>n_unique_reads,\n"
-    "                       sorted by n_total_hits DESC (tiebreak bp_id),\n"
-    "                       so the worst over-matchers are at the top.\n"
+    "      --counts <FILE>  Emit a per-query table of the reads carrying each\n"
+    "                       query sequence. Five columns with a header:\n"
+    "                         seq_name (or bp_id for bps input),\n"
+    "                         sequence (or jxn_kmer),\n"
+    "                         n_total_hits, n_unique_reads, n_unique_qnames\n"
     "                       n_total_hits = every matching alignment (incl.\n"
     "                       dup/secondary/supplementary); n_unique_reads =\n"
-    "                       primary non-dup reads dedup'd by (bp_id, qname,\n"
-    "                       mate). The jxn_kmer column makes low-complexity\n"
-    "                       kmers (poly-A/T, simple repeats) obvious. Only\n"
-    "                       valid when -f is a bps.txt[.gz] file (the source\n"
-    "                       of the bp_id<->kmer mapping); rejected otherwise.\n"
+    "                       primary non-dup reads dedup'd by (query, qname,\n"
+    "                       mate); n_unique_qnames = the same dedup'd by\n"
+    "                       (query, qname), i.e. how many distinct read\n"
+    "                       pairs carry the sequence. Sorted by n_total_hits\n"
+    "                       DESC, so the worst over-matchers are at the top.\n"
+    "                       Written as CSV when FILE ends in .csv, else TSV.\n"
+    "                       FASTA / plain / -s queries get a row each, even\n"
+    "                       with zero matches; bps input lists only bp_ids\n"
+    "                       with >= 1 match. Incompatible with --no-pairs.\n"
     "      --cluster <ID>   Discordant-cluster mode: instead of matching by\n"
     "                       sequence, pull all read pairs whose DC:Z aux tag\n"
     "                       contains the given discordant-cluster id (the\n"
@@ -221,6 +232,34 @@ std::string shQuote(const std::string& s) {
     else out.push_back(c);
   }
   out.push_back('\'');
+  return out;
+}
+
+// Case-insensitive suffix test (used to pick the --counts delimiter from
+// the output filename: .csv → comma, anything else → tab).
+bool endsWithNoCase(const std::string& s, const std::string& suf) {
+  if (s.size() < suf.size()) return false;
+  for (std::size_t i = 0; i < suf.size(); ++i) {
+    const char a = static_cast<char>(
+        std::tolower(static_cast<unsigned char>(s[s.size() - suf.size() + i])));
+    const char b = static_cast<char>(
+        std::tolower(static_cast<unsigned char>(suf[i])));
+    if (a != b) return false;
+  }
+  return true;
+}
+
+// RFC-4180 quoting for a CSV field. FASTA record names are arbitrary text
+// and can legitimately carry a comma or a quote; TSV mode needs no escaping
+// (no emitted field can contain a tab — names are whitespace-delimited).
+std::string csvField(const std::string& v) {
+  if (v.find_first_of(",\"\r\n") == std::string::npos) return v;
+  std::string out(1, '"');
+  for (char c : v) {
+    if (c == '"') out += "\"\"";
+    else out.push_back(c);
+  }
+  out.push_back('"');
   return out;
 }
 
@@ -297,6 +336,17 @@ bool looksLikeBpsFile(const std::vector<std::string>& lines) {
   return false;
 }
 
+// FASTA detection: same content-sniffing idea — the first non-empty line of
+// a FASTA is its first record header. Checked after the bps test (a bps file
+// starts with '#', never '>'), so the two can't be confused.
+bool looksLikeFastaFile(const std::vector<std::string>& lines) {
+  for (const auto& l : lines) {
+    if (l.empty()) continue;
+    return l[0] == '>';
+  }
+  return false;
+}
+
 // What `readSeqsFromFile` returns. For bps inputs we also carry the
 // kmer→bp_id mapping so the counts pass can attribute hits back to the
 // breakpoint they came from. For plain inputs `bp_ids_by_kmer` is empty
@@ -306,13 +356,24 @@ bool looksLikeBpsFile(const std::vector<std::string>& lines) {
 // it appears in col 53 of bps.txt). The caller is responsible for
 // looking up reverse-complement hits under the forward key — equivalent,
 // since fwd and rc both descend from the same bp_id.
+// Where the query list came from. Drives (a) whether region-targeted
+// scanning is possible (bps only — it is the only format carrying breakend
+// coordinates) and (b) the column labels of the --counts table.
+enum class SeqSource { Plain, Bps, Fasta };
+
 struct LoadedSeqs {
   std::vector<std::string> kmers;   // raw, may contain duplicates; caller de-dups
+  // Query id(s) owning each sequence: the bp_id for a bps dump, the record
+  // name for a FASTA, the sequence itself for a plain one-per-line list.
   std::unordered_map<std::string, std::vector<std::string>> bp_ids_by_kmer;
+  // Every query id in input order, so --counts can emit a row for a query
+  // that matched nothing. Deliberately left empty for bps input (millions of
+  // rows there; that table stays restricted to ids with >= 1 hit).
+  std::vector<std::string> ids_in_order;
   // Both breakends (chr name, 1-based pos) of every row that contributed a
-  // kmer. Drives region-targeted scanning. Empty for plain seq-list inputs.
+  // kmer. Drives region-targeted scanning. Empty for non-bps inputs.
   std::vector<std::pair<std::string, int>> breakends;
-  bool from_bps = false;
+  SeqSource source = SeqSource::Plain;
 };
 
 // Locate a named column in a bps header line. Header lines begin with '#'.
@@ -337,7 +398,7 @@ int findBpsCol(const std::string& header_line, const std::string& name) {
 // bp_ids accumulated under one key).
 LoadedSeqs readJxnKmersFromBps(const std::vector<std::string>& lines) {
   LoadedSeqs out;
-  out.from_bps = true;
+  out.source = SeqSource::Bps;
   if (lines.empty()) return out;
 
   // First non-empty line is the header — find the columns we need. Besides
@@ -436,21 +497,89 @@ LoadedSeqs readJxnKmersFromBps(const std::vector<std::string>& lines) {
   return out;
 }
 
-// Public seq-file reader. Auto-detects bps.txt[.gz] vs plain one-per-line
-// list by sniffing the first non-empty line. gzip is handled transparently
-// for both formats.
+// Read a multi-record FASTA. The record id is the first whitespace-delimited
+// token after '>' (the rest of the header line is a free-text description and
+// is dropped); the sequence is every following line concatenated, so wrapped
+// FASTA is fine. Records whose sequence is empty are skipped. Duplicate names
+// are uniquified (`name`, `name.2`, ...) so the --counts table keeps exactly
+// one row per record. Plain or gzip — slurpLines handles both.
+//
+// Two records with an identical sequence collapse to one AC pattern but keep
+// both ids under that key, so a matching read is credited to both — which is
+// what "reads matching this sequence" means for each of them.
+LoadedSeqs readFasta(const std::vector<std::string>& lines) {
+  LoadedSeqs out;
+  out.source = SeqSource::Fasta;
+
+  std::unordered_map<std::string, int> name_seen;
+  std::string name, seq;
+  std::size_t n_empty = 0, n_dup_names = 0;
+  int unnamed = 0;
+
+  // Close out the record currently being accumulated (no-op before the
+  // first header line). `name` doubles as the "record open" sentinel.
+  auto flush = [&]() {
+    if (name.empty()) return;
+    std::string s = normalizeSeq(seq);
+    seq.clear();
+    if (s.empty()) { ++n_empty; name.clear(); return; }
+    const int n = ++name_seen[name];
+    std::string id = (n == 1) ? name : name + "." + std::to_string(n);
+    if (n > 1) ++n_dup_names;
+    out.bp_ids_by_kmer[s].push_back(id);
+    out.ids_in_order.push_back(std::move(id));
+    out.kmers.push_back(std::move(s));
+    name.clear();
+  };
+
+  for (const auto& l : lines) {
+    if (!l.empty() && l[0] == '>') {
+      flush();
+      std::size_t b = 1;
+      while (b < l.size() && std::isspace(static_cast<unsigned char>(l[b]))) ++b;
+      std::size_t e = b;
+      while (e < l.size() && !std::isspace(static_cast<unsigned char>(l[e]))) ++e;
+      name = (e > b) ? l.substr(b, e - b)
+                     : ("seq" + std::to_string(++unnamed));
+    } else if (!name.empty() && !l.empty() && l[0] != ';') {
+      seq += l;  // ';' is a legacy FASTA comment line
+    }
+    // Anything before the first '>' is ignored (well-formed FASTA has none).
+  }
+  flush();
+
+  if (n_empty)
+    std::cerr << "[extract-pairs] WARNING: " << n_empty
+              << " FASTA record(s) had an empty sequence; skipped\n";
+  if (n_dup_names)
+    std::cerr << "[extract-pairs] WARNING: " << n_dup_names
+              << " duplicate FASTA record name(s); uniquified with a "
+                 ".2/.3/... suffix\n";
+  return out;
+}
+
+// Public seq-file reader. Auto-detects bps.txt[.gz] vs FASTA vs a plain
+// one-per-line list by sniffing the first non-empty line. gzip is handled
+// transparently for all three.
 LoadedSeqs readSeqsFromFile(const std::string& path) {
   const auto lines = slurpLines(path);
-  if (looksLikeBpsFile(lines))
-    return readJxnKmersFromBps(lines);
+  if (looksLikeBpsFile(lines))   return readJxnKmersFromBps(lines);
+  if (looksLikeFastaFile(lines)) return readFasta(lines);
 
-  // Plain seq-per-line file (the original behavior).
+  // Plain seq-per-line file (the original behavior). The id of a query here
+  // is the sequence itself — there is no name to attach — which is enough
+  // for --counts to produce a per-query row.
   LoadedSeqs out;
-  out.from_bps = false;
+  out.source = SeqSource::Plain;
   for (const auto& l : lines) {
     if (l.empty() || l[0] == '#') continue;
     std::string s = normalizeSeq(l);
-    if (!s.empty()) out.kmers.push_back(std::move(s));
+    if (s.empty()) continue;
+    if (out.bp_ids_by_kmer.find(s) == out.bp_ids_by_kmer.end()) {
+      out.bp_ids_by_kmer[s].push_back(s);
+      out.ids_in_order.push_back(s);
+    }
+    out.kmers.push_back(std::move(s));
   }
   return out;
 }
@@ -752,14 +881,26 @@ class AhoCorasick {
 // QNAME hash set holds one std::string per matching read pair (plus
 // supplementary/secondary aliases under the same QNAME).
 //
-// In counts mode (caller passes non-null pattern_to_bp_ids), we additionally
-// switch the AC scan to `searchNibblesCollect` to enumerate every pattern_id
-// that matched in this read's SEQ, and attribute each hit to the bp_id(s)
-// that own the kmer. Counts are restricted to primary, non-duplicate,
-// non-secondary, non-supplementary alignments, dedup'd by (bp_id, qname,
-// mate). QNAME collection itself does NOT apply the flag filter — we still
-// want every read whose SEQ matched (including duplicates / supplementaries
-// of a real read pair) to flow into the pair-pickup pass.
+// In counts mode (caller passes non-null pattern_to_ids + tally), we
+// additionally switch the AC scan to `searchNibblesCollect` to enumerate
+// every pattern_id that matched in this read's SEQ, and attribute each hit
+// to the query id(s) that own the pattern. The unique tallies are restricted
+// to primary, non-duplicate, non-secondary, non-supplementary alignments,
+// dedup'd by (id, qname, mate) for `reads` and by (id, qname) for `qnames`.
+// QNAME collection itself does NOT apply the flag filter — we still want
+// every read whose SEQ matched (including duplicates / supplementaries of a
+// real read pair) to flow into the pair-pickup pass.
+
+// Per-query tally for --counts. All three maps are keyed by query id (bp_id
+// for bps input, record name for FASTA, the sequence itself for a plain
+// list). `total` counts alignments, `reads` counts distinct mates, `qnames`
+// counts distinct read pairs (the "how many fragments carry this sequence"
+// number).
+struct CountsTally {
+  std::unordered_map<std::string, std::size_t> total;
+  std::unordered_map<std::string, std::size_t> reads;
+  std::unordered_map<std::string, std::size_t> qnames;
+};
 
 struct Pass1Stats {
   std::size_t reads        = 0;
@@ -775,11 +916,8 @@ Pass1Stats collectQnames(const std::string& in_bam,
                          int verbose,
                          std::unordered_set<std::string>& out_qnames,
                          const std::vector<std::vector<std::string>>*
-                             pattern_to_bp_ids,
-                         std::unordered_map<std::string, std::size_t>*
-                             bp_id_counts,
-                         std::unordered_map<std::string, std::size_t>*
-                             bp_id_total,
+                             pattern_to_ids,
+                         CountsTally* tally,
                          const SeqLib::GRC* regions) {
   using clock = std::chrono::steady_clock;
   Pass1Stats st;
@@ -812,13 +950,13 @@ Pass1Stats collectQnames(const std::string& in_bam,
   int32_t     cur_pos      = -1;
   std::string cur_chr_name = "*";
 
-  const bool counts_mode = (pattern_to_bp_ids != nullptr) &&
-                           (bp_id_counts != nullptr) &&
-                           (bp_id_total != nullptr);
-  // Dedup set for per-bp_id counts. Key is bp_id + '\0' + qname + '\0' + mate.
-  // Lives for the whole pass — bounded by the number of (bp, read) pairs that
-  // actually match a kmer, which is small even on WGS (1e4–1e6 entries).
-  std::unordered_set<std::string> bp_seen;
+  const bool counts_mode = (pattern_to_ids != nullptr) && (tally != nullptr);
+  // Dedup sets for the per-query unique counts. Keys are id + '\0' + qname
+  // (+ '\0' + mate for the per-mate set). They live for the whole pass —
+  // bounded by the number of (query, read) pairs that actually match, which
+  // is small even on WGS (1e4–1e6 entries).
+  std::unordered_set<std::string> bp_seen;       // (id, qname, mate)
+  std::unordered_set<std::string> bp_qname_seen; // (id, qname)
   std::vector<int> hit_ids;        // reused per matching record
 
   while (auto opt = r.Next()) {
@@ -867,46 +1005,49 @@ Pass1Stats collectQnames(const std::string& in_bam,
         out_qnames.insert(rec.Qname());
 
         // RAW total: credit every matching alignment (incl. duplicate,
-        // secondary, supplementary) to each owning bp_id. hit_ids is
-        // already deduplicated per read, so a bp_id is counted at most
-        // once per alignment. This is the magnitude that explains the
-        // "matches" number in the progress log — the right signal for
-        // spotting low-complexity kmers that match far more than expected.
+        // secondary, supplementary) to each owning query id. hit_ids is
+        // already deduplicated per read, so an id is counted at most once
+        // per alignment. This is the magnitude that explains the "matches"
+        // number in the progress log — the right signal for spotting
+        // low-complexity queries that match far more than expected.
         for (int pid : hit_ids) {
-          if (pid < 0 || pid >= static_cast<int>(pattern_to_bp_ids->size()))
+          if (pid < 0 || pid >= static_cast<int>(pattern_to_ids->size()))
             continue;
-          for (const auto& bp_id : (*pattern_to_bp_ids)[pid])
-            ++(*bp_id_total)[bp_id];
+          for (const auto& id : (*pattern_to_ids)[pid])
+            ++tally->total[id];
         }
 
-        // UNIQUE: only primary non-dup non-sec non-sup reads, deduplicated
-        // by (bp_id, qname, mate) — the conservative "real read pairs"
-        // count, unaffected by PCR duplication.
+        // UNIQUE: only primary non-dup non-sec non-sup reads. Two
+        // resolutions, both unaffected by PCR duplication: distinct mates
+        // (id, qname, mate) and distinct read pairs (id, qname).
         const uint16_t flag = b->core.flag;
         const bool primary = (flag & (BAM_FSECONDARY | BAM_FSUPPLEMENTARY
                                        | BAM_FDUP)) == 0;
         if (primary) {
           const char* mate = (flag & BAM_FREAD1) ? "1"
                             : (flag & BAM_FREAD2) ? "2" : "0";
-          // Build dedup key on the stack to avoid per-bp string churn.
+          // Build dedup key on the stack to avoid per-id string churn. The
+          // qname-only key is a prefix of the mate key, so one buffer serves
+          // both (append the mate after testing the qname-level set).
           std::string qn = rec.Qname();
           std::string key;
           key.reserve(48);
           for (int pid : hit_ids) {
             if (pid < 0 ||
-                pid >= static_cast<int>(pattern_to_bp_ids->size()))
+                pid >= static_cast<int>(pattern_to_ids->size()))
               continue;
-            const auto& bps = (*pattern_to_bp_ids)[pid];
-            for (const auto& bp_id : bps) {
+            const auto& ids = (*pattern_to_ids)[pid];
+            for (const auto& id : ids) {
               key.clear();
-              key.append(bp_id);
+              key.append(id);
               key.push_back('\0');
               key.append(qn);
+              if (bp_qname_seen.insert(key).second)
+                ++tally->qnames[id];
               key.push_back('\0');
               key.append(mate);
-              if (bp_seen.insert(key).second) {
-                ++(*bp_id_counts)[bp_id];
-              }
+              if (bp_seen.insert(key).second)
+                ++tally->reads[id];
             }
           }
           ++st.counted_reads;
@@ -1306,12 +1447,14 @@ void runExtractPairs(int argc, char** argv) {
   for (auto& s : seqs) s = normalizeSeq(s);
   std::unordered_map<std::string, std::vector<std::string>> bp_ids_by_kmer;
   std::vector<std::pair<std::string, int>> breakends;  // (chr, 1-based pos)
-  bool seq_file_is_bps = false;
+  std::vector<std::string> ids_in_order;               // for --counts zero rows
+  SeqSource src_kind = SeqSource::Plain;
   if (!o.seq_file.empty()) {
     LoadedSeqs loaded = readSeqsFromFile(o.seq_file);
-    seq_file_is_bps   = loaded.from_bps;
+    src_kind          = loaded.source;
     bp_ids_by_kmer    = std::move(loaded.bp_ids_by_kmer);
     breakends         = std::move(loaded.breakends);
+    ids_in_order      = std::move(loaded.ids_in_order);
     seqs.insert(seqs.end(),
                 std::make_move_iterator(loaded.kmers.begin()),
                 std::make_move_iterator(loaded.kmers.end()));
@@ -1328,20 +1471,11 @@ void runExtractPairs(int argc, char** argv) {
   }
 
   // ---- --counts validity check ----
-  // Counts only make sense when the source of the kmer list is a bps file
-  // (the only place we have the kmer↔bp_id mapping). Reject otherwise so
-  // the user doesn't silently get an empty TSV. Also incompatible with
-  // --no-pairs: the count tally lives on pass 1 of the two-pass path,
-  // and the single-pass writer doesn't carry that state.
+  // Counts work for every query source: the row id is the bp_id (bps), the
+  // record name (FASTA), or the sequence itself (-s / plain list). Only
+  // --no-pairs is incompatible — the tally lives on pass 1 of the two-pass
+  // path and the single-pass writer doesn't carry that state.
   const bool want_counts = !o.counts_file.empty();
-  if (want_counts && !seq_file_is_bps) {
-    std::cerr << "ERROR: --counts requires -f to be a svaba bps.txt[.gz] file; "
-                 "got "
-              << (o.seq_file.empty() ? "no seq-file (only -s)"
-                                     : "a plain seq-per-line file")
-              << "\n";
-    std::exit(EXIT_FAILURE);
-  }
   if (want_counts && !o.include_pairs) {
     std::cerr << "ERROR: --counts is incompatible with --no-pairs (counting "
                  "happens in the two-pass mode's pass 1)\n";
@@ -1371,12 +1505,19 @@ void runExtractPairs(int argc, char** argv) {
         if (ac.add(rc, pid)) { ++added; } else { ++rejected; }
       }
     }
-    // Look the forward kmer up in bp_ids_by_kmer to build pattern_to_bp_ids.
+    // Look the forward sequence up in bp_ids_by_kmer to build the
+    // pattern→id map. A sequence given on the command line with -s has no
+    // entry there; in counts mode it becomes its own id so it still gets a
+    // row (meaningless for bps input, where ids must be bp_ids).
     auto it = bp_ids_by_kmer.find(s);
-    if (it != bp_ids_by_kmer.end())
+    if (it != bp_ids_by_kmer.end()) {
       pattern_to_bp_ids.emplace_back(it->second);
-    else
+    } else if (want_counts && src_kind != SeqSource::Bps) {
+      pattern_to_bp_ids.emplace_back(1, s);
+      ids_in_order.push_back(s);
+    } else {
       pattern_to_bp_ids.emplace_back();
+    }
   }
   ac.build();
 
@@ -1408,7 +1549,7 @@ void runExtractPairs(int argc, char** argv) {
 
       // Region targeting is the default whenever breakend coordinates are
       // available (i.e. -f was a bps.txt) and --whole-bam wasn't requested.
-      if (!o.whole_bam && seq_file_is_bps && !breakends.empty()) {
+      if (!o.whole_bam && src_kind == SeqSource::Bps && !breakends.empty()) {
         std::size_t skipped = 0;
         regions = buildBreakpointRegions(breakends, hdr_only.Header(),
                                          o.pad, skipped);
@@ -1435,7 +1576,7 @@ void runExtractPairs(int argc, char** argv) {
                    "(--whole-bam to scan everything)\n";
     else if (o.whole_bam)
       std::cerr << "[extract-pairs] whole-BAM scan (--whole-bam)\n";
-    else if (!seq_file_is_bps)
+    else if (src_kind != SeqSource::Bps)
       std::cerr << "[extract-pairs] whole-BAM scan (no breakend coordinates; "
                    "pass -f a bps.txt[.gz] to enable region targeting)\n";
   }
@@ -1468,16 +1609,14 @@ void runExtractPairs(int argc, char** argv) {
     if (o.verbose >= 1)
       std::cerr << "[extract-pairs] pass 1/2: scanning " << o.in_bam
                 << " for matching SEQ"
-                << (want_counts ? " (counts mode: tracking per-bp_id support)"
+                << (want_counts ? " (counts mode: tracking per-query support)"
                                 : "")
                 << "...\n";
-    std::unordered_map<std::string, std::size_t> bp_id_counts;  // unique
-    std::unordered_map<std::string, std::size_t> bp_id_total;   // raw hits
+    CountsTally tally;
     const Pass1Stats p1 = collectQnames(
         o.in_bam, ac, o.threads, o.verbose, qnames,
         want_counts ? &pattern_to_bp_ids : nullptr,
-        want_counts ? &bp_id_counts      : nullptr,
-        want_counts ? &bp_id_total       : nullptr,
+        want_counts ? &tally             : nullptr,
         regions_ptr);
     if (o.verbose >= 1) {
       std::cerr << "[extract-pairs] pass 1: "
@@ -1486,29 +1625,73 @@ void runExtractPairs(int argc, char** argv) {
                 << SeqLib::AddCommas(p1.unique_qnames) << " unique qnames";
       if (want_counts)
         std::cerr << ", " << SeqLib::AddCommas(p1.counted_reads)
-                  << " primary non-dup reads counted toward bp_ids";
+                  << " primary non-dup reads counted toward queries";
       std::cerr << " in " << std::fixed << std::setprecision(1)
                 << p1.seconds << "s\n";
     }
 
-    // Emit the counts TSV before any early exit on empty matches — the user
-    // asked for a per-bp_id table; an empty result is still a result.
+    // Emit the counts table before any early exit on empty matches — the
+    // user asked for a per-query table; an empty result is still a result.
     //
-    // Schema (4 cols): bp_id, jxn_kmer, n_total_hits, n_unique_reads.
-    //   - jxn_kmer:       the forward-strand 20-mer (bps col 53) that drove
-    //                     the matches. Low-complexity kmers (poly-A/T, simple
-    //                     repeats) jump out here as the over-match culprits.
-    //   - n_total_hits:   every matching alignment, incl. dup/secondary/supp.
-    //   - n_unique_reads: primary non-dup reads, dedup'd by bp_id+qname+mate.
-    // Rows are sorted by n_total_hits DESC (tiebreak bp_id ASC) so the worst
-    // offenders are at the top — that's what you want when debugging.
+    // Schema (5 cols, header included):
+    //   1. query id      — bp_id (bps input) / record name (FASTA) / the
+    //                      sequence itself (-s or a plain seq list)
+    //   2. sequence      — the forward-strand query that drove the matches.
+    //                      Low-complexity queries (poly-A/T, simple repeats)
+    //                      jump out here as the over-match culprits.
+    //   3. n_total_hits  — every matching alignment, incl. dup/sec/supp.
+    //   4. n_unique_reads   — primary non-dup, dedup'd by (id, qname, mate).
+    //   5. n_unique_qnames  — primary non-dup, dedup'd by (id, qname): the
+    //                      number of distinct read pairs (fragments) that
+    //                      carry the sequence. A pair whose two mates both
+    //                      match counts once here and twice in col 4.
+    //
+    // Delimiter follows the filename: `.csv` → comma (RFC-4180 quoted),
+    // anything else → tab. Rows are sorted by n_total_hits DESC (tiebreak
+    // id ASC) so the worst offenders are at the top. For FASTA / plain
+    // query lists every query gets a row, including ones that matched
+    // nothing; for bps input (which can carry millions of rows) the table
+    // stays restricted to ids with at least one match.
     if (want_counts) {
-      // Invert the pattern→bp_id map to bp_id→kmer (1:1 per bps row; if two
-      // bp_ids share a kmer, each still resolves to that same kmer string).
-      std::unordered_map<std::string, std::string> kmer_by_bp_id;
+      const bool is_bps = (src_kind == SeqSource::Bps);
+
+      // Invert the pattern→id map to id→sequence (1:1 per query; if two ids
+      // share a sequence, each still resolves to that same string).
+      std::unordered_map<std::string, std::string> seq_by_id;
       for (std::size_t i = 0; i < seqs.size(); ++i)
-        for (const auto& bp : pattern_to_bp_ids[i])
-          kmer_by_bp_id.emplace(bp, seqs[i]);
+        for (const auto& id : pattern_to_bp_ids[i])
+          seq_by_id.emplace(id, seqs[i]);
+
+      // Build sortable rows. n_total_hits is a superset of the unique
+      // tallies (every counted read is also a raw hit), so iterating
+      // tally.total covers every id with >= 1 match.
+      struct Row { std::string id; std::size_t total, reads, qnames; };
+      std::vector<Row> rows;
+      rows.reserve(tally.total.size() +
+                   (is_bps ? 0 : ids_in_order.size()));
+      for (const auto& kv : tally.total) {
+        const auto rit = tally.reads.find(kv.first);
+        const auto qit = tally.qnames.find(kv.first);
+        rows.push_back({ kv.first, kv.second,
+                         rit == tally.reads.end()  ? 0 : rit->second,
+                         qit == tally.qnames.end() ? 0 : qit->second });
+      }
+      const std::size_t n_matched = rows.size();
+      if (!is_bps) {
+        for (const auto& id : ids_in_order)
+          if (tally.total.find(id) == tally.total.end())
+            rows.push_back({ id, 0, 0, 0 });
+      }
+      std::sort(rows.begin(), rows.end(), [](const Row& a, const Row& b) {
+        if (a.total != b.total) return a.total > b.total;  // desc
+        return a.id < b.id;                                // tiebreak asc
+      });
+
+      const bool csv = endsWithNoCase(o.counts_file, ".csv");
+      const char d   = csv ? ',' : '\t';
+      auto fld = [csv](const std::string& v) {
+        return csv ? csvField(v) : v;
+      };
 
       std::ofstream f(o.counts_file);
       if (!f) {
@@ -1516,35 +1699,23 @@ void runExtractPairs(int argc, char** argv) {
                   << o.counts_file << "\n";
         std::exit(EXIT_FAILURE);
       }
-      f << "bp_id\tjxn_kmer\tn_total_hits\tn_unique_reads\n";
-
-      // Build sortable rows. n_total_hits is a superset of n_unique_reads
-      // (every counted read is also a raw hit), so iterating bp_id_total
-      // covers every bp_id with >= 1 match.
-      struct Row { const std::string* id; std::size_t total; std::size_t uniq; };
-      std::vector<Row> rows;
-      rows.reserve(bp_id_total.size());
-      for (const auto& kv : bp_id_total) {
-        const auto uit = bp_id_counts.find(kv.first);
-        rows.push_back({ &kv.first, kv.second,
-                         uit == bp_id_counts.end() ? 0 : uit->second });
-      }
-      std::sort(rows.begin(), rows.end(), [](const Row& a, const Row& b) {
-        if (a.total != b.total) return a.total > b.total;  // desc
-        return *a.id < *b.id;                              // tiebreak asc
-      });
-
+      f << (is_bps ? "bp_id" : "seq_name") << d
+        << (is_bps ? "jxn_kmer" : "sequence") << d
+        << "n_total_hits" << d << "n_unique_reads" << d
+        << "n_unique_qnames" << '\n';
       for (const auto& r : rows) {
-        const auto kit = kmer_by_bp_id.find(*r.id);
-        f << *r.id << '\t'
-          << (kit == kmer_by_bp_id.end() ? std::string(".") : kit->second)
-          << '\t' << r.total << '\t' << r.uniq << '\n';
+        const auto sit = seq_by_id.find(r.id);
+        f << fld(r.id) << d
+          << (sit == seq_by_id.end() ? std::string(".") : sit->second) << d
+          << r.total << d << r.reads << d << r.qnames << '\n';
       }
       if (o.verbose >= 1)
         std::cerr << "[extract-pairs] counts: "
+                  << SeqLib::AddCommas(n_matched) << " of "
                   << SeqLib::AddCommas(rows.size())
-                  << " bp_ids with >= 1 matching alignment -> "
-                  << o.counts_file << "\n";
+                  << " quer" << (rows.size() == 1 ? "y" : "ies")
+                  << " with >= 1 matching alignment -> " << o.counts_file
+                  << (csv ? " (CSV)" : " (TSV)") << "\n";
     }
 
     if (qnames.empty()) {

@@ -83,8 +83,12 @@ cmake -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo \
 cmake --build build -j \$(nproc)
 echo "== verify =="
 test -x build/svaba
-./build/svaba --version
 sudo install -m 0755 build/svaba /usr/local/bin/svaba    # workers call bare 'svaba'
+hash -r 2>/dev/null || true
+# the on-PATH svaba (what workers invoke) must be the freshly built one
+echo "checked-out commit: \$(git rev-parse --short HEAD)"
+echo "on-PATH svaba:      \$(command -v svaba) -> \$(svaba --version | head -1)"
+[ "\$(command -v svaba)" = /usr/local/bin/svaba ] || echo "WARNING: 'svaba' on PATH is NOT /usr/local/bin/svaba"
 echo "BUILD_OK commit=\$(git rev-parse --short HEAD)"
 EOF
 )

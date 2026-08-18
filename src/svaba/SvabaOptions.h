@@ -10,6 +10,90 @@
 // these two constants drive the startup banner / `svaba --version` / @PG lines.
 // The build commit is stamped separately (SvabaGitVersion.h).
 //
+// 2.4.0: recurrent 5' soft-clip "tag" detection + auto-trim. An untrimmed 5'
+//   molecular tag (UMI / inline barcode / adapter / library spacer) mismatches
+//   the reference at the read's 5' end on nearly every read; that mismatch sits
+//   at the leading edge of each read's overlap with its neighbor and breaks the
+//   overlap (string-graph) assembly genome-wide (measured: 133->94 calls on a
+//   2 Mb region with a synthetic 5 bp tag). During insert-size learning,
+//   BamReadGroup::addRead now accumulates a 5'-soft-clip-length histogram and
+//   detectTag() flags a sharp short-clip spike (>=20% of reads at the modal
+//   length) as a tag, classifying fixed-seq vs random/UMI. It prints a per-RG
+//   WARNING, records `tag_trim_5p` in the .learn.tsv.gz and the --bam-params
+//   cache (so scatter-gather shards reuse it without re-detecting), and svaba
+//   then auto-trims min(5'-softclip, L) bases off each read's 5' end before
+//   assembly (svabaRead::TrimTag5p, gated on SvabaSharedConfig::tag_trim_5p).
+//   The trim is self-targeting (only clipped/non-genomic bases, up to L; long
+//   split-read clips keep everything past L) and assembly-only (original BAM
+//   record/CIGAR untouched -> r2c/scoring/coords unaffected). Verified: auto-
+//   trim fully recovers the broken assembly (94->133, exact), inert + byte-
+//   identical on clean BAMs (no false positives). Override: --tag-trim N forces
+//   N bp, --no-tag-trim disables (detection/warning still run).
+// 2.3.3: `--max-cov` no longer perturbs the error model of clean reads. The
+//   weird-coverage subsample demotes pileup reads out of fermi assembly
+//   (to_assemble=false) to cut the super-linear assembly cost, but it had ALSO
+//   been excluding them from BFC k-mer training -- so capping a pileup changed
+//   the auto-learned k / k-mer spectrum for the WHOLE assembly window, which
+//   silently re-error-corrected (and sometimes dropped) clean calls elsewhere
+//   in that window. Example: a clean somatic Alu-Alu deletion at chr1:44147919
+//   (somlod 2.14, no breakend reads demoted) vanished only because a pileup ~9kb
+//   away was capped. Fix: demoted reads now carry `svabaRead::cov_demoted` and
+//   stay in the BFC *training* pool (Phase 1) while remaining excluded from the
+//   correction pool and fermi. Training is ~linear/cheap, so the speedup is kept
+//   (measured chr1 give-back ~+27s CPU = ~1.5%); the call returns byte-identical
+//   (scores unchanged, only the contig serial differs). Residual cap-vs-no-cap
+//   churn is now only the unavoidable fermi-graph effect of not assembling a
+//   pileup, confined to the marginal somlod<=3 tier.
+// 2.3.2: DETERMINISM FIX, part 2 -- byte-identical output. With the calls now
+//   deterministic (2.3.1), the only remaining run-to-run variation was the
+//   `bp_id` column (bps col 52) + the line ORDER of equal-key rows in the sorted
+//   bps. (1) bp_id was "bpTTTNNNNNNNN" = worker-thread ID + per-thread counter,
+//   so the SAME variant got a different id depending on which thread/order
+//   processed it (and the bi:Z BAM tag, r2c.db split_bps/disc_bps, and VCF EVENT
+//   join on it). It's now derived from the BP's stable content (cname + both
+//   breakends + contig positions + kind) via FNV-1a -> "bp"+16 hex; the same BP
+//   yields the same id across runs/threads/-p. (2) `svaba postprocess` bps sort
+//   (std::sort, unstable) now has a final total-order tie-break on the raw line
+//   bytes, so equal-key rows can't reorder by thread-emission order. Result: a
+//   plain `diff` of .bps.sorted[.dedup[.pass[.somatic]]].txt.gz is now 0 across
+//   runs. NOTE: bp_id format changed -- tools that treat it opaquely (all of
+//   svaba's own) are unaffected; anything parsing the old thread+counter layout
+//   must adapt.
+// 2.3.1: DETERMINISM FIX (multithreading). svaba was nondeterministic at -p>1:
+//   identical inputs/command produced ~0.3% different calls run-to-run (and ~8%
+//   in the somatic-PASS subset, since somatic classification is a threshold on
+//   the sensitive somlod). Root cause: the BFC error-corrector's auto-learned
+//   k-mer size was cached in the reused per-thread BFC object and frozen from
+//   whichever region a worker processed FIRST; region->thread assignment varies
+//   at -p>1, so the EC k (hence error-correction, assembly, and the call set)
+//   varied between runs. Fix: re-learn k per region in BFC::Train() (SeqLib),
+//   honoring an explicit SetKmer(). Verified: -p8 now byte-matches -p1. NOTE:
+//   output changes slightly vs 2.3.0 for regions whose own k differed from the
+//   frozen one -- this is the corrected, reproducible behavior.
+// 2.3.0: `--max-normal-weird-cov N` (opt-in, 0 = off). Somatic-safe artifact
+//   skip: in any sub-region where the NORMAL weird-read coverage exceeds N, the
+//   reads are dropped from assembly + error-correction + r2c + scoring entirely
+//   (DP coverage + discordant clustering already done, so unaffected). Such
+//   pileups are shared artifacts/repeats — a somatic event needs a CLEAN normal,
+//   so this can never drop a somatic call (keyed on NORMAL only; a tumor-only
+//   pileup, which could be somatic, is never skipped). Targets the few
+//   high-pileup regions that dominate runtime even after --max-cov; demonstrated
+//   ~40%+ region-time cut when it fires. Threshold must sit above germline
+//   weird-coverage (scales with normal depth); ~200 is safe for deep WGS
+//   normals — validate recall on the sim panel for your depth before relying.
+// 2.2.1: `--max-cov` actually works again. It was dead code: the
+//   subSampleToWeirdCoverage() call was commented out in svabaBamWalker::readBam
+//   AND walker->max_cov was never wired to opts.maxCov, so high-weird-coverage
+//   pileups flooded BFC+fermi regardless of the (parsed, logged) cap. Fix: wire
+//   walker->max_cov = opts.maxCov in SvabaRegionProcessor, restore the call
+//   (guarded `if (get_coverage && max_cov > 0)`). Rather than DELETE excess
+//   reads, they are DEMOTED to second-class (to_assemble=false): excluded from
+//   fermi assembly + BFC (the read-count-scaling cost = the speedup) but kept in
+//   `reads` so they're still r2c-aligned, discordant-clustered, and scored. This
+//   preserves support for very-high-coverage real events (amplicons) and never
+//   samples away a normal read that could refute a somatic call. Changes results
+//   only where per-position WEIRD-read coverage exceeds --max-cov (default 100);
+//   deterministic hash-by-qname (mate pairs together), symmetric tumor/normal.
 // 2.2.0: `--bam-params FILE` caches learned per-RG insert-size params (+
 //   `--learn-only` precompute step), so a scatter-gather run learns once and
 //   every shard reuses it instead of re-doing the genome-wide insert sweep —
@@ -25,8 +109,8 @@
 // `--annotation` BED + per-breakend repeat_anno/poly_a (v6 bps schema),
 // DUPREADS via unique split-read starts, hasAdapter 3'-clip fix, and assorted
 // false-somatic / SV-coordinate correctness fixes. See CHANGELOG.md.
-inline constexpr char SVABA_VERSION[] = "2.2.0";
-inline constexpr char SVABA_DATE[]    = "06/2026";
+inline constexpr char SVABA_VERSION[] = "2.5.0";
+inline constexpr char SVABA_DATE[]    = "08/2026";
 
 // from AlignmentFragment.h
 inline constexpr std::size_t MAX_CONTIG_SIZE = 5'000'000;
@@ -261,6 +345,17 @@ class SvabaOptions {
   double lodSomaticDb       = 2.0; // 10.0;
   
   int    maxCov             = 100;
+  // --max-normal-weird-cov N (0 = off): drop reads in sub-regions where the
+  // NORMAL weird-read coverage exceeds N from assembly + r2c entirely. Such
+  // pileups are shared artifacts (somatic needs a clean normal), so this is
+  // somatic-safe and targets the high-pileup regions that dominate runtime.
+  int    maxNormalWeirdCov  = 0;
+
+  // 5' soft-clip tag trimming. -1 = AUTO: use the recurrent-tag length detected
+  // during learning (svaba trims an untrimmed UMI/adapter/spacer off read 5'
+  // ends before assembly). --tag-trim N forces N bp; --no-tag-trim sets 0
+  // (disable). The effective value lands in SvabaSharedConfig::tag_trim_5p.
+  int    tagTrimOverride    = -1;
 
   // SGA / assembly
   int    sgaMinOverlap      = 0;

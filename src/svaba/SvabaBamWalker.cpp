@@ -304,6 +304,11 @@ SeqLib::GRC svabaBamWalker::readBam(svabaThreadUnit& unit) {
     // quality score trim read
     s->QualityTrimRead(); // copies sequence into svabaRead.seq_corrected
 
+    // trim a recurrent 5' soft-clip tag (untrimmed UMI/adapter/spacer) detected
+    // during learning, before this read can poison the overlap assembly
+    if (sc.tag_trim_5p > 0)
+      s->TrimTag5p(sc.tag_trim_5p);
+
     SVABA_READ_TRACE(s->Qname(),
       "AFTER_TRIM corrected_len=" << s->CorrectedSeqLength());
 
@@ -465,9 +470,12 @@ SeqLib::GRC svabaBamWalker::readBam(svabaThreadUnit& unit) {
   train_reads.insert(train_reads.end(), train_buffer.begin(), train_buffer.end());
   train_buffer.clear();
   
-  // subsamples reads if too high of coverage
-  //  if (get_coverage)
-  //  subSampleToWeirdCoverage(max_cov);
+  // Subsample weird reads where local weird-read coverage exceeds --max-cov,
+  // so pathological high-coverage pileups don't flood BFC + fermi + r2c. This
+  // was dead code (call commented out AND max_cov never wired to --max-cov);
+  // re-enabled and wired in SvabaRegionProcessor. max_cov <= 0 disables it.
+  if (get_coverage && max_cov > 0)
+    subSampleToWeirdCoverage(max_cov);
 
   // calculate the mate region
   if (get_mate_regions && 
@@ -499,22 +507,38 @@ void svabaBamWalker::ErrorCorrect() {
 
 
 void svabaBamWalker::subSampleToWeirdCoverage(double max_coverage) {
-  auto keep = [&](const std::shared_ptr<svabaRead>& r) {
+  // Where per-position weird-read coverage exceeds the cap, DEMOTE the excess
+  // reads to "second-class" (to_assemble = false) rather than deleting them:
+  //   - excluded from fermi assembly + BFC error-correction (the costs that
+  //     scale with read count) -> the speedup;
+  //   - but KEPT in `reads`, so they are still r2c-aligned, discordant-clustered,
+  //     and scored. This preserves support for very-high-coverage real events
+  //     (amplicons / double-minutes) and -- critical for somatic safety -- never
+  //     samples away a normal read that could refute a somatic call.
+  // Deterministic hash-by-qname so mate pairs are demoted together and runs are
+  // reproducible. Demotion is symmetric across tumor/normal (set per walker).
+  static const bool DBG = getenv("SVABA_DEBUG_SUBSAMPLE") != nullptr;
+  int n_total = 0, n_demoted = 0; uint32_t maxcov = 0; int maxcov_pos = 0;
+  for (auto& r : reads) {
+    if (!r->to_assemble) continue;   // already demoted elsewhere
+    ++n_total;
     double cov1 = weird_cov.getCoverageAtPosition(r->ChrID(), r->Position());
     double cov2 = weird_cov.getCoverageAtPosition(r->ChrID(), r->PositionEnd());
     double this_cov = std::max(cov1, cov2);
-    
+    if (DBG && this_cov > maxcov) { maxcov = (uint32_t)this_cov; maxcov_pos = r->Position(); }
     if (this_cov <= max_coverage)
-      return true;
-    
-    double sample_rate = 1 - (this_cov - max_coverage) / this_cov;
+      continue;
+    double sample_rate = 1 - (this_cov - max_coverage) / this_cov;  // fraction to KEEP assembling
     uint32_t k = __ac_Wang_hash(__ac_X31_hash_string(r->Qname().c_str()) ^ m_seed);
-    return ((double)(k & 0xffffff) / 0x1000000) <= sample_rate;
-  };
-  
-  reads.erase(std::remove_if(reads.begin(), reads.end(),
-                             [&](const std::shared_ptr<svabaRead>& r) { return !keep(r); }),
-              reads.end());
+    if (((double)(k & 0xffffff) / 0x1000000) > sample_rate) {
+      r->to_assemble = false;        // drop from fermi assembly (the super-linear cost)
+      r->cov_demoted = true;         // but KEEP in BFC k-mer training (preserve the window error model)
+      if (DBG) ++n_demoted;
+    }
+  }
+  if (DBG && n_demoted)
+    fprintf(stderr, "[subsample] demoted %d/%d weird reads from assembly; max weird-cov=%u@%d\n",
+            n_demoted, n_total, maxcov, maxcov_pos);
 }
 
 void svabaBamWalker::calculateMateRegions() {

@@ -36,7 +36,9 @@
 #                         --bam-params (precompute once with: svaba run --learn-only
 #                         --bam-params p.tsv ... ; gsutil cp p.tsv gs://...)
 #   --merge               merge + postprocess after all workers finish
-#   --keep-vms            don't delete worker VMs on completion
+#   --keep-vms            keep worker VMs running after their shard finishes
+#                         (default: each worker self-deletes the moment its
+#                         done-marker is written, to stop billing immediately)
 #   --dry-run             print commands without executing
 #   -h, --help            this message
 #
@@ -284,23 +286,41 @@ create_worker() {
   local i=$1
   local vm="svaba-${GCP_ID}-worker-${i}"
   local SCRIPT_FILE="${SCRIPT_TMPDIR}/startup_${i}.sh"
+  # by default each worker deletes itself once its shard's done-marker is written,
+  # so a finished shard stops billing immediately (no waiting for slow siblings,
+  # and it works even if this orchestrator isn't running). --keep-vms opts out.
+  local SELF_DELETE=""
+  if [[ $KEEP_VMS -eq 0 ]]; then
+    SELF_DELETE="echo 'shard done -- self-deleting to stop billing'; gcloud compute instances delete \$(hostname) --zone=${ZONE} --quiet || sudo shutdown -h now"
+  fi
   cat > "$SCRIPT_FILE" <<STARTUP_EOF
 #!/bin/bash
 exec > /var/log/svaba_startup.log 2>&1
 set -euxo pipefail
 echo "=== svaba worker ${i} starting at \$(date) ==="
 mkdir -p ${MOUNT} /mnt/output
-echo "waiting for data disk..."
-for attempt in \$(seq 1 30); do [[ -b /dev/sdb ]] && break; sleep 2; done
-if [[ ! -b /dev/sdb ]]; then echo "FATAL: /dev/sdb not found"; lsblk; exit 1; fi
-MOUNT_DEV=/dev/sdb; [[ -b /dev/sdb1 ]] && MOUNT_DEV=/dev/sdb1
-mount -o ro,noload \${MOUNT_DEV} ${MOUNT} || mount -o ro \${MOUNT_DEV} ${MOUNT}
+# Mount the data disk by its STABLE device-name (svaba-data, set in --disk), not
+# /dev/sdb: the kernel name varies (sdb/sdc/nvme...) and the filesystem may be on
+# a partition. GCP exposes /dev/disk/by-id/google-<device-name>[-part1].
+echo "waiting for + mounting data disk (device-name svaba-data)..."
+DEVBASE=/dev/disk/by-id/google-svaba-data
+mok=0
+for a in \$(seq 1 60); do
+  for d in "\${DEVBASE}-part1" "\$DEVBASE"; do
+    [ -b "\$d" ] || continue
+    if mount -o ro "\$d" ${MOUNT} 2>/dev/null || mount -o ro,noload "\$d" ${MOUNT} 2>/dev/null; then mok=1; break; fi
+  done
+  [ \$mok -eq 1 ] && break
+  sleep 3
+done
+[ \$mok -eq 1 ] || { echo "FATAL: data disk (device-name svaba-data) not mountable"; lsblk; ls -l /dev/disk/by-id/ || true; exit 1; }
+echo "mounted: \$(mount | grep ${MOUNT})"
 ls ${MOUNT}/
 ${BP_FETCH}
 PART_ID="${ID}_part${i}"
 cd /mnt/output
 echo "=== starting svaba at \$(date) ==="
-svaba run \\
+stdbuf -oL -eL svaba run \\
   ${SVABA_ARGS_STR} ${BP_ARG} \\
   -k ${REGIONS[$((i-1))]} \\
   -a \${PART_ID} \\
@@ -315,18 +335,21 @@ for f in \${PART_ID}.discordant.bam \${PART_ID}.corrected.bam \${PART_ID}.r2c.db
 done
 echo "DONE" | gsutil cp - ${BUCKET}/.done_part${i}
 echo "=== worker ${i} complete ==="
+${SELF_DELETE}
 STARTUP_EOF
   echo "  creating $vm  regions=${REGIONS[$((i-1))]}"
   run_cmd gcloud compute instances create "$vm" \
     --zone="$ZONE" --machine-type="$MACHINE" --image="$IMAGE" \
     --disk="name=${DATA_DISK},mode=ro,device-name=svaba-data" \
-    --boot-disk-size="$BOOT_DISK_SIZE" --scopes=storage-rw \
+    --boot-disk-size="$BOOT_DISK_SIZE" --scopes=storage-rw,compute-rw \
     ${SPOT_ARGS[@]+"${SPOT_ARGS[@]}"} \
     --metadata-from-file=startup-script="$SCRIPT_FILE"
 }
 
 delete_worker() {
-  run_cmd gcloud compute instances delete "svaba-${GCP_ID}-worker-${1}" --zone="$ZONE" --quiet
+  # tolerant: workers self-delete on completion, so this is a fallback that may
+  # find the VM already gone (--keep-vms, a failed shard, or a slow self-delete).
+  run_cmd gcloud compute instances delete "svaba-${GCP_ID}-worker-${1}" --zone="$ZONE" --quiet || true
 }
 
 # wait until ${BUCKET}/.done_part<i> exists for every i in "$@"

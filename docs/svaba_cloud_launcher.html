@@ -4,33 +4,33 @@
 <meta charset="utf-8">
 <title>svaba cloud scatter-gather — launcher, cost & monitor</title>
 <style>
-  :root{--bg:#0f172a;--panel:#1e293b;--panel2:#172033;--border:#334155;--text:#e2e8f0;--text2:#94a3b8;--accent:#6c8cff;--green:#4ade80;--amber:#fbbf24;--red:#ef4444}
+  :root{--bg:#0f1626;--panel:#1a2540;--panel2:#243352;--border:#3b4a6b;--text:#f2f5fb;--text2:#c3cee2;--accent:#86a0ff;--green:#63e08c;--amber:#fdc23a;--red:#fb7185}
   *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--text);font:14px/1.55 -apple-system,Segoe UI,Roboto,sans-serif}
-  header{padding:14px 22px;border-bottom:1px solid var(--border)} header h1{margin:0;font-size:1.15rem}
-  header .sub{color:var(--text2);font-size:.82rem;margin-top:3px}
-  .wrap{max-width:1180px;margin:0 auto;padding:18px 22px}
-  .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:16px}
-  .card h2{margin:0 0 4px;font-size:.95rem} .card h3{margin:14px 0 8px;font-size:.8rem;color:var(--text2);text-transform:uppercase;letter-spacing:.04em}
-  .muted{color:var(--text2)} code{background:#0b1220;padding:1px 5px;border-radius:4px;font-size:.86em}
-  .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 18px} @media(max-width:760px){.grid{grid-template-columns:1fr}}
-  label.f{display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:var(--text2);text-transform:uppercase;letter-spacing:.03em}
-  input,select{background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:6px 8px;font:inherit;font-size:.85rem}
-  input[type=checkbox]{width:auto}
-  .flow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:.8rem;margin:8px 0}
-  .flow .box{background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:8px 12px}
+  body{margin:0;background:var(--bg);color:var(--text);font:13px/1.45 -apple-system,Segoe UI,Roboto,sans-serif}
+  header{padding:9px 16px;border-bottom:1px solid var(--border)} header h1{margin:0;font-size:1.02rem}
+  header .sub{color:var(--text2);font-size:.76rem;margin-top:2px}
+  .wrap{max-width:1180px;margin:0 auto;padding:12px 16px}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:10px}
+  .card h2{margin:0 0 3px;font-size:.9rem} .card h3{margin:9px 0 5px;font-size:.71rem;color:var(--text2);text-transform:uppercase;letter-spacing:.04em;font-weight:700}
+  .muted{color:var(--text2)} code{background:#0b1322;color:#dbe6ff;padding:1px 4px;border-radius:4px;font-size:.86em}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 14px} @media(max-width:760px){.grid{grid-template-columns:1fr}}
+  label.f{display:flex;flex-direction:column;gap:2px;font-size:.66rem;color:var(--text2);text-transform:uppercase;letter-spacing:.03em}
+  input,select,textarea{background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:5px;padding:4px 7px;font:inherit;font-size:.82rem}
+  input[type=checkbox]{width:auto} input:focus,select:focus,textarea:focus{outline:1px solid var(--accent);border-color:var(--accent)}
+  .flow{display:flex;align-items:center;gap:7px;flex-wrap:wrap;font-size:.77rem;margin:6px 0}
+  .flow .box{background:var(--panel2);border:1px solid var(--border);border-radius:7px;padding:6px 9px}
   .flow .arw{color:var(--accent);font-weight:700}
-  pre{background:#0b1220;border:1px solid var(--border);border-radius:8px;padding:12px;overflow:auto;font-size:.78rem;margin:6px 0;white-space:pre-wrap;word-break:break-word}
-  .cmd{position:relative} .cmd button.copy{position:absolute;top:8px;right:8px;font-size:.66rem;padding:3px 8px;background:var(--accent);color:#0b1220;border:none;border-radius:5px;cursor:pointer;font-weight:700}
-  .cost{display:flex;gap:22px;flex-wrap:wrap;align-items:baseline;margin-top:8px}
-  .cost .big{font-size:1.8rem;font-weight:700} .cost .big.on{color:var(--amber)} .cost .big.spot{color:var(--green)}
-  .pill{display:inline-block;font-size:.66rem;padding:2px 7px;border-radius:10px;background:rgba(108,140,255,.15);color:var(--accent);margin-left:6px}
-  .warn{color:var(--amber)} .ok{color:var(--green)}
-  table{border-collapse:collapse;width:100%;font-size:.8rem;margin-top:6px} th,td{padding:4px 8px;border-bottom:1px solid var(--border);text-align:left} th{color:var(--text2)}
-  .bar{height:14px;background:var(--panel2);border-radius:7px;overflow:hidden;border:1px solid var(--border)} .bar > div{height:100%;background:var(--green);width:0}
-  details summary{cursor:pointer;color:var(--accent);font-size:.85rem}
-  .row2{display:grid;grid-template-columns:1fr 1fr;gap:18px} @media(max-width:760px){.row2{grid-template-columns:1fr}}
-  small.hint{color:var(--text2);font-size:.68rem}
+  pre{background:#0b1322;border:1px solid var(--border);border-radius:7px;padding:9px;overflow:auto;font-size:.74rem;line-height:1.4;margin:5px 0;white-space:pre-wrap;word-break:break-word}
+  .cmd{position:relative} .cmd button.copy{position:absolute;top:6px;right:6px;font-size:.64rem;padding:2px 7px;background:var(--accent);color:#0b1322;border:none;border-radius:4px;cursor:pointer;font-weight:700}
+  .cost{display:flex;gap:18px;flex-wrap:wrap;align-items:baseline;margin-top:6px}
+  .cost .big{font-size:1.5rem;font-weight:700} .cost .big.on{color:var(--amber)} .cost .big.spot{color:var(--green)}
+  .pill{display:inline-block;font-size:.64rem;padding:2px 7px;border-radius:10px;background:rgba(134,160,255,.18);color:var(--accent);margin-left:6px}
+  .warn{color:var(--amber)} .ok{color:var(--green)} b{color:#fff}
+  table{border-collapse:collapse;width:100%;font-size:.78rem;margin-top:6px} th,td{padding:3px 7px;border-bottom:1px solid var(--border);text-align:left} th{color:var(--text2)}
+  .bar{height:13px;background:var(--panel2);border-radius:7px;overflow:hidden;border:1px solid var(--border)} .bar > div{height:100%;background:var(--green);width:0}
+  details summary{cursor:pointer;color:var(--accent);font-size:.82rem}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:14px} @media(max-width:760px){.row2{grid-template-columns:1fr}}
+  small.hint{color:var(--text2);font-size:.7rem;line-height:1.4}
 </style>
 </head>
 <body>
@@ -58,13 +58,17 @@
     <div class="grid">
       <label class="f">Project<input id="project" value="osteosarc"></label>
       <label class="f">Zone<input id="zone" value="us-central1-a"></label>
-      <label class="f">Worker image (svaba+ref baked in)<input id="image" list="imgOptions" value="svaba-worker-image"><datalist id="imgOptions"></datalist></label>
+      <label class="f">Worker image <span style="text-transform:none">(pick from list below)</span><select id="image"></select></label>
       <label class="f">BAM data disk name (RO)<input id="datadisk" value="wgs-data-restored"></label>
       <label class="f">Mount point on worker<input id="mount" value="/mnt/wgs"></label>
-      <label class="f">GCS output bucket<input id="bucket" value="gs://osteosarc-svaba/run1"></label>
+      <label class="f" style="grid-column:1/-1">GCS workspace folder — <b>bam-params + ALL run outputs go here</b> (must exist)<input id="workspace" value="gs://bladder_n1/svaba/run1"></label>
     </div>
-    <h3>Available images <span class="muted">— paste <code>gcloud compute images list --filter=name~svaba --format="value(name)"</code> to populate the dropdown</span></h3>
-    <textarea id="imgList" rows="3" style="width:100%;background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:6px;font:inherit;font-size:.8rem">svaba-worker-image
+    <div class="cmd" style="margin-top:4px"><button class="copy" onclick="cp('cmkdir')">copy</button><pre id="cmkdir"></pre></div>
+    <small class="hint">↑ run once for a new workspace (e.g. after changing it to <code>svaba/MYRUN</code>): creates the bucket if missing and drops a 0-byte <code>.keep</code> so the folder appears in the console. GCS has no real folders, so outputs would write fine without it — but the <b>bucket</b> must exist (a missing bucket fails <i>silently</i> inside the worker VM).</small>
+    <h3 id="imgTitle">Worker image list</h3>
+    <small class="hint" id="imgHint"><b>Static mode:</b> run locally <code>gcloud compute images list --filter=name~svaba --format="value(name)"</code> → paste the output below → the <b>Worker image</b> dropdown refreshes. (Run <code>python3 scripts/svaba_cloud_serve.py</code> to skip this entirely — a ↻ button auto-fetches the list.)</small>
+    <textarea id="imgList" rows="3" style="width:100%;background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:6px;font:inherit;font-size:.8rem">svaba-5ce8b9c
+svaba-worker-image
 svaba-worker-image-2-1-2</textarea>
     <h3>Inputs (paths as seen on the worker)</h3>
     <div class="grid">
@@ -73,7 +77,6 @@ svaba-worker-image-2-1-2</textarea>
       <label class="f">Tumor BAM (on mounted disk)<input id="tumor" value="/mnt/wgs/SG.WGS.UCLA.2025.01.tumor.recal.bam"></label>
       <label class="f">Normal BAM (optional)<input id="normal" value="/mnt/wgs/blood.recal.bam"></label>
       <label class="f">Blacklist BED (in image)<input id="bl" value="/home/jeremiahwala/git/svaba/tracks/hg38.combined_blacklist.bed"></label>
-      <label class="f">bam-params GCS cache (gs://…)<input id="bamparams" value="gs://osteosarc-svaba/run1/bam_params.tsv"></label>
     </div>
     <h3>Sharding</h3>
     <div class="grid">
@@ -135,9 +138,9 @@ svaba-worker-image-2-1-2</textarea>
   </div>
 
   <div class="card">
-    <h2>4 · Monitor dashboard</h2>
+    <h2>4 · Monitor dashboard <span id="liveBadge"></span></h2>
     <div class="row2">
-      <div>
+      <div id="doneWrap">
         <h3>paste <code>gsutil ls &lt;bucket&gt;/.done_part*</code></h3>
         <textarea id="doneIn" rows="5" style="width:100%;background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:6px;font:inherit;font-size:.78rem" placeholder="gs://.../.done_part1&#10;gs://.../.done_part3"></textarea>
       </div>
@@ -146,9 +149,27 @@ svaba-worker-image-2-1-2</textarea>
         <div class="bar"><div id="progBar"></div></div>
         <div id="progText" class="muted" style="margin-top:6px;font-size:.85rem">—</div>
         <div id="progList" style="font-size:.8rem;margin-top:6px"></div>
+        <div id="vmList" style="margin-top:8px"></div>
       </div>
     </div>
-    <small class="hint">Static page can't poll GCS live (no backend). Paste the output of the monitor command (or <code>gcloud compute instances list</code>) and it renders progress. Re-paste to refresh.</small>
+    <small class="hint" id="monHint">Static page can't poll GCS live (no backend). Paste the output of the monitor command (or <code>gcloud compute instances list</code>) and it renders progress. Re-paste to refresh. <b>Tip:</b> run via <code>python3 scripts/svaba_cloud_serve.py</code> for a live, auto-polling dashboard.</small>
+  </div>
+
+  <div class="card" id="logCard" style="display:none">
+    <h2>5 · Worker logs <span id="logStatus" class="muted" style="font-size:.78rem"></span></h2>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
+      <select id="logVm" style="min-width:300px"></select>
+      <button id="logBtn" style="font-size:.68rem;padding:4px 10px;background:var(--accent);color:#0b1322;border:none;border-radius:5px;cursor:pointer;font-weight:700">↻ fetch svaba stderr</button>
+      <label style="font-size:.72rem;display:flex;align-items:center;gap:4px;text-transform:none;color:var(--text2)"><input type="checkbox" id="logFollow"> follow (auto 10 s)</label>
+    </div>
+    <pre id="logOut" style="max-height:440px;overflow:auto">(pick a VM and fetch — shows its svaba console output via get-serial-port-output, no SSH)</pre>
+    <small class="hint">Pulls the VM's serial console and keeps the startup-script (svaba) lines. svaba writes progress to <b>stderr</b>, which is captured here. Lags a few seconds behind the live process.</small>
+  </div>
+
+  <div class="card" id="jobPanel" style="display:none">
+    <h2>▶ live job <span id="jobStatus" class="muted" style="font-size:.8rem"></span></h2>
+    <div class="muted" id="jobCmd" style="font-size:.72rem;margin-bottom:4px"></div>
+    <pre id="jobLog" style="max-height:360px;overflow:auto">…</pre>
   </div>
 
 </div>
@@ -210,7 +231,10 @@ function recalc(){
 function genCmds(){
   const v=id=>$(id).value.trim();
   const project=v("project"),zone=v("zone"),image=v("image"),disk=v("datadisk"),mount=v("mount"),
-    bucket=v("bucket"),id=v("id"),ref=v("ref"),tumor=v("tumor"),normal=v("normal"),bl=v("bl"),bp=v("bamparams"),p=v("threads"),m=mach()[0];
+    id=v("id"),ref=v("ref"),tumor=v("tumor"),normal=v("normal"),bl=v("bl"),p=v("threads"),m=mach()[0];
+  // ONE workspace folder drives everything: outputs + the bam-params cache
+  const workspace=v("workspace").replace(/\/+$/,"");
+  const bucket=workspace, bp=workspace+"/bam_params.tsv";
   const gid=id.toLowerCase().replace(/_/g,"-").replace(/[^a-z0-9-]/g,"");
   const mode=$("shardmode").value, parts=v("parts"), chunkmb=v("chunkmb"), maxConc=+$("maxconc").value||0;
   const useParams=$("useparams").checked, spot=$("spot").checked, merge=$("merge").checked, dump=$("dump").checked;
@@ -222,8 +246,11 @@ function genCmds(){
     ? `# one-time: a small VM learns insert size, uploads the cache, deletes itself\n`+
       `cat > /tmp/svaba_learn.sh <<'EOS'\n`+
       `#!/bin/bash\nset -euxo pipefail\nmkdir -p ${mount}\n`+
-      `for a in $(seq 1 30); do [ -b /dev/sdb ] && break; sleep 2; done\n`+
-      `mount -o ro,noload /dev/sdb ${mount} || mount -o ro /dev/sdb ${mount}\n`+
+      `# mount the data disk by its stable device-name (svaba-data), trying a\n`+
+      `# partition then the whole disk (kernel names vary: sdb/nvme/partitioned):\n`+
+      `DEVBASE=/dev/disk/by-id/google-svaba-data; mok=0\n`+
+      `for a in $(seq 1 60); do for d in "$DEVBASE-part1" "$DEVBASE"; do [ -b "$d" ] || continue; if mount -o ro "$d" ${mount} 2>/dev/null || mount -o ro,noload "$d" ${mount} 2>/dev/null; then mok=1; break; fi; done; [ $mok -eq 1 ] && break; sleep 3; done\n`+
+      `[ $mok -eq 1 ] || { echo "FATAL: data disk (device-name svaba-data) not mountable"; lsblk; ls -l /dev/disk/by-id/; exit 1; }\n`+
       `svaba run --learn-only --bam-params /tmp/p.tsv -t ${tumor}${normal?` -n ${normal}`:""} -G ${ref} -p 4\n`+
       `gsutil cp /tmp/p.tsv ${bp}\n`+
       `gcloud compute instances delete $(hostname) --zone=${zone} --quiet\n`+
@@ -233,8 +260,10 @@ function genCmds(){
       `  --disk=name=${disk},mode=ro,device-name=svaba-data \\\n`+
       `  --scopes=storage-rw,compute-rw \\\n`+
       `  --metadata-from-file=startup-script=/tmp/svaba_learn.sh\n`+
-      `# block until the cache appears, then the workers can use it:\n`+
-      `until gsutil -q stat ${bp}; do sleep 20; done; echo "params ready: ${bp}"`
+      `# WATCH IT LIVE — svaba's output streams here (Ctrl-C just stops watching; the VM keeps running):\n`+
+      `gcloud compute instances tail-serial-port-output svaba-${gid}-learn --zone=${zone} --project=${project}\n`+
+      `# ...or wait headlessly for the cache to appear (<=20 min; the bucket must already exist):\n`+
+      `for i in $(seq 1 60); do gsutil -q stat ${bp} && { echo "params ready: ${bp}"; break; }; sleep 20; done`
     : `# (skipped — tick "Use --bam-params" to learn once and save ~5 min/shard)`;
 
   // Step 1
@@ -266,6 +295,13 @@ function genCmds(){
     `gcloud compute instances list --project=${project} --filter="name~svaba-${gid}-worker" --format="value(name)" \\\n`+
     `  | xargs -r -I{} gcloud compute instances delete {} --zone=${zone} --project=${project} --quiet`;
 
+  // Workspace setup: ensure the bucket exists, then make the folder visible
+  const bucketRoot = bucket.replace(/^(gs:\/\/[^/]+).*/,"$1");
+  const region = zone.replace(/-[a-z]$/,"");
+  $("cmkdir").textContent =
+    `gsutil ls ${bucketRoot} >/dev/null 2>&1 || gsutil mb -p ${project} -l ${region} ${bucketRoot}\n`+
+    `printf '' | gsutil cp - ${workspace}/.keep   # create the workspace folder`;
+
   // Step -1 build-image-from-commit
   const buildgit=v("buildgit")||"HEAD";
   const buildimg=v("buildimg")||("svaba-"+buildgit.toLowerCase().replace(/[._/]/g,"-").replace(/[^a-z0-9-]/g,""));
@@ -273,35 +309,120 @@ function genCmds(){
     `scripts/build_svaba_image.sh \\\n  --git ${buildgit} \\\n  --image ${buildimg} \\\n`+
     `  --project ${project} \\\n  --zone ${zone} \\\n  --keep-running`;
 }
-// populate the worker-image dropdown from a pasted 'gcloud images list'
+// populate the worker-image <select> from a pasted 'gcloud images list'
 function populateImages(){
   const names=$("imgList").value.split(/[\s,]+/).map(s=>s.trim()).filter(s=>s && s!=="NAME");
-  $("imgOptions").innerHTML=names.map(n=>`<option value="${n}"></option>`).join("");
+  const cur=$("image").value;
+  $("image").innerHTML=names.map(n=>`<option value="${n}">${n}</option>`).join("");
+  $("image").value = names.includes(cur)?cur:(names[0]||"");
 }
 
 function cp(id){ navigator.clipboard.writeText($(id).textContent); }
 
-// monitor dashboard
+// monitor dashboard (paste fallback + live backend share paintProgress)
+function paintProgress(done,N,live){
+  const pct=N?Math.round(100*done.size/N):0;
+  $("progBar").style.width=pct+"%";
+  $("progBar").style.background = done.size>=N&&N>0 ? "var(--green)":"var(--accent)";
+  $("progText").innerHTML=`<b>${done.size} / ${N}</b> shards complete (${pct}%)`+(live?' <span class="muted">· live</span>':'')+(done.size>=N&&N>0?' <span class="ok">— all done, run gather</span>':'');
+  let cells="";
+  for(let i=1;i<=N;i++) cells+=`<span style="display:inline-block;width:26px;height:22px;line-height:22px;text-align:center;margin:2px;border-radius:4px;font-size:.7rem;background:${done.has(i)?'var(--green)':'var(--panel2)'};color:${done.has(i)?'#0b1322':'var(--text2)'};border:1px solid var(--border)" title="part ${i}">${i}</span>`;
+  $("progList").innerHTML=cells;
+}
 function renderProgress(){
   const N=+$("nshards").value||1;
   const lines=$("doneIn").value.split(/\s+/).filter(x=>/\.done_part/.test(x));
   const done=new Set(lines.map(l=>{const m=l.match(/done_part(\d+)/);return m?+m[1]:null;}).filter(Boolean));
-  const pct=N? Math.round(100*done.size/N):0;
-  $("progBar").style.width=pct+"%";
-  $("progBar").style.background = done.size>=N? "var(--green)":"var(--accent)";
-  $("progText").innerHTML=`<b>${done.size} / ${N}</b> shards complete (${pct}%)`+(done.size>=N?' <span class="ok">— all done, run gather</span>':'');
-  let cells="";
-  for(let i=1;i<=N;i++) cells+=`<span style="display:inline-block;width:26px;height:22px;line-height:22px;text-align:center;margin:2px;border-radius:4px;font-size:.7rem;background:${done.has(i)?'var(--green)':'var(--panel2)'};color:${done.has(i)?'#0b1220':'var(--text2)'};border:1px solid var(--border)" title="part ${i}">${i}</span>`;
-  $("progList").innerHTML=cells;
+  paintProgress(done,N,false);
+}
+
+// ---- live backend (served by scripts/svaba_cloud_serve.py); no-op on file:// ----
+const BE = window.SVABA_BACKEND ? {tok:window.SVABA_TOKEN} : null;
+async function apiParse(r){ const t=await r.text(); try{ return JSON.parse(t); }catch(_){ return {ok:false,err:(r.status===404?"endpoint missing — restart the backend (Ctrl-C, re-run python3 scripts/svaba_cloud_serve.py) to load new code":("non-JSON response: "+t.slice(0,100)))}; } }
+async function apiGet(p){ try{ return await apiParse(await fetch(p)); }catch(e){ return {ok:false,err:String(e)}; } }
+async function apiPost(p,o){ try{ return await apiParse(await fetch(p,{method:"POST",headers:{"X-Svaba-Token":BE.tok,"Content-Type":"application/json"},body:JSON.stringify(o)})); }catch(e){ return {ok:false,err:String(e)}; } }
+let curJob=null, jobTimer=null, lastVms=[], logTimer=null;
+function gidVal(){ return $("id").value.toLowerCase().replace(/_/g,"-").replace(/[^a-z0-9-]/g,""); }
+async function liveImages(){ const d=await apiGet("/api/images?filter=svaba"); if(d.ok&&d.images.length){ $("imgList").value=d.images.join("\n"); populateImages(); recalc(); } }
+async function livePoll(){
+  const ws=$("workspace").value.replace(/\/+$/,""), N=+$("nshards").value||1;
+  const pr=await apiGet("/api/progress?ws="+encodeURIComponent(ws));
+  paintProgress(new Set(pr.done||[]),N,true);
+  const vm=await apiGet("/api/vms?prefix=svaba");        // all svaba VMs (one call)
+  lastVms=vm.vms||[];
+  const wp="svaba-"+gidVal()+"-worker";
+  const workers=lastVms.filter(v=>v.name.startsWith(wp));
+  $("vmList").innerHTML = workers.length
+    ? "<table><tr><th>worker VM</th><th>status</th></tr>"+workers.map(v=>`<tr><td>${v.name}</td><td class="${v.status==='RUNNING'?'ok':'warn'}">${v.status}</td></tr>`).join("")+"</table>"
+    : '<span class="muted" style="font-size:.78rem">no worker VMs running</span>';
+  // worker-log dropdown = every svaba VM (workers, learn, builder)
+  const sel=$("logVm"), cur=sel.value;
+  sel.innerHTML = lastVms.length ? lastVms.map(v=>`<option value="${v.name}">${v.name} · ${v.status}</option>`).join("") : '<option value="">— no svaba VMs —</option>';
+  if(lastVms.some(v=>v.name===cur)) sel.value=cur;
+}
+async function fetchLog(){
+  const vm=$("logVm").value; if(!vm){ $("logOut").textContent="(no VM selected)"; return; }
+  const v=lastVms.find(x=>x.name===vm), zone=v?v.zone:"";
+  $("logStatus").textContent="fetching…";
+  const d=await apiGet("/api/serial?vm="+encodeURIComponent(vm)+"&zone="+encodeURIComponent(zone));
+  if(d.ok){ $("logOut").textContent=d.log||"(no svaba output yet — VM may still be booting / mounting the disk)"; $("logOut").scrollTop=$("logOut").scrollHeight; $("logStatus").innerHTML='<span class="ok">updated</span> <span class="muted">· '+(d.source||'')+'</span>'; }
+  else { $("logStatus").innerHTML='<span class="warn">'+(d.err||"error")+'</span>'; }
+}
+function toggleFollow(){ clearInterval(logTimer); if($("logFollow").checked){ fetchLog(); logTimer=setInterval(fetchLog,10000); } }
+async function runCmd(id){
+  const cmd=$(id).textContent.trim(); if(!cmd) return;
+  if(!confirm("Run this on your machine via the backend?\n\n"+cmd.split("\n")[0]+(cmd.includes("\n")?" …":""))) return;
+  const r=await apiPost("/api/run",{cmd});
+  if(!r.ok){ alert("run failed: "+(r.err||"")); return; }
+  curJob=r.id; $("jobPanel").style.display="block"; $("jobCmd").textContent=cmd;
+  $("jobPanel").scrollIntoView({behavior:"smooth",block:"nearest"}); pollJob();
+}
+async function pollJob(){
+  if(!curJob) return;
+  const d=await apiGet("/api/joblog?id="+curJob);
+  if(d.ok){
+    $("jobLog").textContent=d.log||"(no output yet)"; $("jobLog").scrollTop=$("jobLog").scrollHeight;
+    $("jobStatus").innerHTML=d.running?'<span class="warn">running…</span>':`<span class="ok">finished (exit ${d.rc})</span>`;
+    if(!d.running){ if(/images (create|delete)|build_svaba_image/.test(d.cmd)) liveImages(); if(BE) livePoll(); return; }
+  }
+  clearTimeout(jobTimer); jobTimer=setTimeout(pollJob,2500);
+}
+function initBackend(){
+  if(!BE) return;
+  const b=document.createElement("div");
+  b.style.cssText="background:rgba(99,224,140,.14);border:1px solid var(--green);color:var(--green);padding:6px 10px;border-radius:7px;margin-bottom:10px;font-size:.78rem";
+  b.innerHTML="● <b>backend connected</b> — live image list, auto-polling monitor, and ▶ run buttons are active (using your local gcloud auth).";
+  const w=document.querySelector(".wrap"); w.insertBefore(b,w.firstChild);
+  document.querySelectorAll(".cmd").forEach(div=>{
+    const pre=div.querySelector("pre"); if(!pre||!pre.id) return;
+    const rb=document.createElement("button"); rb.textContent="▶ run"; rb.title="run this command via the backend";
+    rb.style.cssText="position:absolute;top:6px;right:52px;font-size:.64rem;padding:2px 7px;background:var(--green);color:#0b1322;border:none;border-radius:4px;cursor:pointer;font-weight:700";
+    rb.onclick=()=>runCmd(pre.id); div.appendChild(rb);
+  });
+  const rfa=document.createElement("button"); rfa.textContent="↻ refresh image list from GCP";
+  rfa.style.cssText="margin:2px 0 6px;font-size:.7rem;padding:4px 10px;background:var(--accent);color:#0b1322;border:none;border-radius:5px;cursor:pointer;font-weight:700;display:block";
+  rfa.onclick=async()=>{ const t=rfa.textContent; rfa.textContent="↻ refreshing…"; await liveImages(); rfa.textContent=t; };
+  $("imgTitle").after(rfa);
+  $("imgList").style.display="none";   // no pasting when live
+  $("imgHint").innerHTML='Dropdown is <span class="ok">auto-populated from your project</span>. Click ↻ to re-query GCP (the dropdown also auto-refreshes after a Step -1 image build).';
+  $("liveBadge").innerHTML='<span class="ok" style="font-size:.7rem">● LIVE</span>';
+  $("doneWrap").style.display="none";
+  $("monHint").innerHTML='<span class="ok">● live</span> — auto-polling the workspace done-markers + worker VMs every 15 s (backend connected). No pasting needed.';
+  // worker-log panel
+  $("logCard").style.display="block";
+  $("logBtn").onclick=fetchLog;
+  $("logVm").onchange=()=>{ $("logFollow").checked ? toggleFollow() : fetchLog(); };
+  $("logFollow").onchange=toggleFollow;
+  liveImages(); livePoll(); setInterval(livePoll,15000);
 }
 
 fillMachines();
-["project","zone","image","datadisk","mount","bucket","id","ref","tumor","normal","bl","bamparams","shardmode","parts","chunkmb","threads","machine","maxconc","quota","wall","useparams","spot","merge","dump","buildimg"]
+["project","zone","image","datadisk","mount","workspace","id","ref","tumor","normal","bl","shardmode","parts","chunkmb","threads","machine","maxconc","quota","wall","useparams","spot","merge","dump","buildimg"]
   .forEach(k=>{ const e=$(k); e.addEventListener("input",recalc); e.addEventListener("change",recalc); });
 $("buildgit").addEventListener("input",()=>{ $("buildimg").value="svaba-"+$("buildgit").value.toLowerCase().replace(/[._/]/g,"-").replace(/[^a-z0-9-]/g,""); recalc(); });
-$("imgList").addEventListener("input",populateImages);
+$("imgList").addEventListener("input",()=>{ populateImages(); recalc(); });
 $("doneIn").addEventListener("input",renderProgress);
-populateImages(); recalc(); renderProgress();
+populateImages(); recalc(); renderProgress(); initBackend();
 </script>
 </body>
 </html>

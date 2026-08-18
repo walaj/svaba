@@ -157,11 +157,15 @@ a.card:hover{border-color:var(--accent);transform:translateY(-2px)}
       <div class="title">Cloud Launcher <span class="tag tag-runtime">scatter-gather</span></div>
       <div class="desc">
         Front-end for running svaba on GCP scatter-gather (<code>scripts/svaba_cloud.sh</code>).
-        Fill a form (project, disk, BAMs, machine type, partitions) and get the
-        exact commands — precompute <code>--bam-params</code>, launch, monitor,
-        gather, teardown — plus a live <b>cost estimate</b> (VM picker, on-demand
-        vs Spot, memory sanity) and a <b>monitor dashboard</b> (paste the
-        done-marker listing → progress). Client-side only.
+        Fill a form (project, single GCS workspace, disk, BAMs, machine type,
+        chrom- or fixed-Mb sharding) and get the exact commands — build a worker
+        image from a git commit, precompute <code>--bam-params</code>, launch
+        (Spot, bounded concurrency), monitor, gather, teardown — plus a live
+        <b>cost estimate</b> (VM picker, on-demand vs Spot, memory + vCPU-quota
+        sanity). Works client-side; <b>or run <code>python3 scripts/svaba_cloud_serve.py</code></b>
+        for a live backend: auto-populated image dropdown, auto-polling progress +
+        worker-VM table, and ▶ run buttons that execute each step with streaming logs
+        (localhost-only, your gcloud auth).
       </div>
     </a>
 

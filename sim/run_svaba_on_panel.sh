@@ -28,6 +28,9 @@ set -euo pipefail
 : "${BENCHMARK:=1}"             # run sim/benchmark.py after each, write a summary
 : "${BAM_GLOB:=tumor.*x*.bam}"  # which BAMs in the panel to run on (impure + pure)
 : "${DRYRUN:=0}"
+# Extra flags passed verbatim to `svaba run` (e.g. EXTRA_ARGS="--max-cov 100").
+# Recorded in run_meta.json so the cross-commit tool can tell flag-variants apart.
+: "${EXTRA_ARGS:=}"
 
 # Output mode = what we score against truth:
 #   bps  (default) -- svaba2: postprocess -> <tag>.bps.sorted.dedup.txt.gz, scored
@@ -89,6 +92,7 @@ if [ -z "${GITHASH:-}" ]; then
 fi
 SVABA_VER=$("$SVABA" --version 2>&1 | head -1 || true)
 TIMEFORMAT='%R %U %S'              # bash `time` -> "real user sys" (seconds)
+read -r -a EXTRA_ARGS_ARR <<< "$EXTRA_ARGS"   # word-split EXTRA_ARGS into argv
 BATCH_START=$(date +%s)
 
 # mode-dependent setup. --annotation is gated by ANNOTATE + binary support so a
@@ -128,7 +132,7 @@ log "output -> $RUNROOT/"
 
 if [ "$DRYRUN" = "1" ]; then
   for bam in "${BAMS[@]}"; do tag=$(basename "${bam%.bam}")
-    echo "time $SVABA run -t $bam -n $NORMAL -G $REF --blacklist $BLACKLIST -p $THREADS -a $tag $(anno_args)"
+    echo "time $SVABA run -t $bam -n $NORMAL -G $REF --blacklist $BLACKLIST -p $THREADS -a $tag $(anno_args)$EXTRA_ARGS"
   done
   log "DRYRUN=1 (mode=$MODE) -> nothing executed."; exit 0
 fi
@@ -150,6 +154,7 @@ for bam in "${BAMS[@]}"; do
     { time ( cd "$od" && "$SVABA" run -t "$bam" -n "$NORMAL" -G "$REF" \
         --blacklist "$BLACKLIST" -p "$THREADS" -a "$tag" \
         ${ANNO_ARGS[@]+"${ANNO_ARGS[@]}"} \
+        ${EXTRA_ARGS_ARR[@]+"${EXTRA_ARGS_ARR[@]}"} \
         > "$od/$tag.svaba.log" 2>&1 ) ; } 2> "$od/$tag.time.txt" \
       || log "  WARN: svaba run nonzero exit for $tag (see $tag.svaba.log)"
     log "  done ($(cat "$od/$tag.time.txt" 2>/dev/null | awk '{printf "wall %ss cpu %.0fs", $1, $2+$3}'))"
@@ -216,6 +221,7 @@ cat > "$RUNROOT/run_meta.json" <<JSON
   "host": "$(hostname)",
   "panel": "$PANELDIR",
   "normal": "$NORMAL",
+  "extra_args": "$(printf '%s' "$EXTRA_ARGS" | sed 's/\\/\\\\/g; s/"/\\"/g')",
   "threads": $THREADS,
   "n_bams": ${#BAMS[@]},
   "total_svaba_wall_s": $TOT_WALL,

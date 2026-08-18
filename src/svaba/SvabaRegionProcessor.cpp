@@ -7,6 +7,10 @@ extern "C" {
 #include <sstream>  // For std::ostringstream
 #include <chrono>
 #include <cstring>  // For memset
+#include <algorithm>  // std::remove_if (artifact-skip)
+#include <vector>
+#include <cstdint>  // uint64_t (deterministic bp_id)
+#include <cstdio>   // std::snprintf (deterministic bp_id)
 
 #include "SvabaDebug.h"
 #include "SvabaUtils.h"
@@ -365,6 +369,37 @@ static SeqLib::GRC computeDistantRegions(
   return distant;
 }
 
+// Deterministic, content-derived BreakPoint id. The old scheme
+// (svabaThreadUnit::next_bp_id -> "bpTTTNNNNNNNN") baked in the worker-thread ID
+// and a per-thread counter, so the SAME variant received a DIFFERENT id
+// depending on which thread (and in what order) processed its region. That made
+// the bp_id column -- and every join keyed on it (the bi:Z BAM tag, r2c.db
+// split_bps/disc_bps, the VCF EVENT field) -- vary run-to-run even though the
+// calls were byte-identical (see the BFC k-mer determinism fix, v2.3.1). Here
+// the id is derived purely from the BP's stable content via FNV-1a, so the same
+// BP yields the same id across runs, threads, and -p settings. The tuple
+// {cname, both breakends (chr/pos/strand), both contig positions (cpos), kind}
+// uniquely identifies a BP -- two distinct BPs on one contig must differ in a
+// breakend coordinate or a contig position -- so the hash can never merge two
+// different variants onto one id. Format: "bp" + 16 lowercase hex digits.
+static std::string deterministicBpId(const BreakPoint& bp) {
+  uint64_t h = 1469598103934665603ULL;            // FNV-1a 64-bit offset basis
+  auto mix_bytes = [&](const char* p, int n) {
+    for (int i = 0; i < n; ++i) { h ^= (unsigned char)p[i]; h *= 1099511628211ULL; }
+    h ^= 0xFFu; h *= 1099511628211ULL;            // field separator
+  };
+  auto mix_int = [&](long long v) {
+    char b[24]; int n = std::snprintf(b, sizeof(b), "%lld", v); mix_bytes(b, n);
+  };
+  mix_bytes(bp.cname.c_str(), (int)bp.cname.size());
+  mix_int(bp.b1.gr.chr); mix_int(bp.b1.gr.pos1); mix_int((long long)bp.b1.gr.strand); mix_int(bp.b1.cpos);
+  mix_int(bp.b2.gr.chr); mix_int(bp.b2.gr.pos1); mix_int((long long)bp.b2.gr.strand); mix_int(bp.b2.cpos);
+  mix_int(static_cast<int>(bp.svtype));
+  char out[24];
+  std::snprintf(out, sizeof(out), "bp%016llx", (unsigned long long)h);
+  return std::string(out);
+}
+
 
 bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
                                    svabaThreadUnit&             unit,
@@ -450,6 +485,7 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
 
     // reset the walker params
     walker->m_limit = sc.opts.weird_read_limit;
+    walker->max_cov = sc.opts.maxCov;   // wire --max-cov so the weird-coverage subsample is actually applied
     walker->get_coverage = true;
     walker->get_mate_regions = true;
     SeqLib::GRC bad = walker->readBam(unit);
@@ -537,6 +573,44 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
     }
   }
   
+  // --- somatic-safe artifact skip (opt-in: --max-normal-weird-cov N, 0=off) ---
+  // A sub-region with a pathological NORMAL weird-read pileup cannot harbor a
+  // somatic event (somatic requires a clean normal), so drop its reads from the
+  // expensive assembly + error-correction + r2c + scoring path entirely. DP
+  // coverage is already recorded (cov) and discordant clusters already formed
+  // above, so only wasted germline/artifact assembly work is removed. Keyed on
+  // NORMAL (not total) weird coverage so a tumor-only pileup -- which could be
+  // real somatic -- is never skipped. This targets the few high-pileup regions
+  // that dominate runtime even after --max-cov.
+  if (sc.opts.maxNormalWeirdCov > 0) {
+    std::vector<svabaBamWalker*> normals;
+    for (auto& [key, w] : unit.walkers)
+      if (!key.empty() && key[0] == 'n') normals.push_back(w.get());
+    if (!normals.empty()) {
+      const int thr = sc.opts.maxNormalWeirdCov;
+      auto normal_weird_high = [&](int chr, int pos) {
+        for (auto* nw : normals)
+          if (static_cast<int>(nw->weird_cov.getCoverageAtPosition(chr, pos)) > thr)
+            return true;
+        return false;
+      };
+      size_t dropped = 0;
+      for (auto& [key, w] : unit.walkers) {
+        const size_t before = w->reads.size();
+        w->reads.erase(std::remove_if(w->reads.begin(), w->reads.end(),
+          [&](const std::shared_ptr<svabaRead>& r) {
+            return normal_weird_high(r->ChrID(), r->Position()) ||
+                   normal_weird_high(r->ChrID(), r->PositionEnd());
+          }), w->reads.end());
+        dropped += before - w->reads.size();
+      }
+      if (dropped)
+        sc.logger.log(sc.opts.verbose > 1, sc.opts.verbose_log,
+          "...artifact-skip: dropped ", dropped, " reads in normal-weird-cov>",
+          thr, " sub-regions for ", region);
+    }
+  }
+
   // do the discordant read clustering
   sc.logger.log(sc.opts.verbose > 1, false, "...error correcting");
   
@@ -559,12 +633,19 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
 
     BFC& bfc = *unit.pooled_bfc;
 
-    // Phase 1: pool all training reads + weird reads
+    // Phase 1: pool all training reads + weird reads.
+    // NOTE: cov_demoted reads (dropped from fermi assembly by --max-cov because
+    // they sit in a weird-read pileup) ARE included here on purpose. Training is
+    // ~linear and cheap; what matters is that the k-mer spectrum + auto-learned k
+    // match the no-cap run, so reads ELSEWHERE in the same assembly window are
+    // error-corrected identically and clean nearby calls don't vanish when a
+    // distant pileup is capped. They're still excluded from the Phase-2
+    // correction pool and from fermi below (the expensive, super-linear parts).
     for (auto& [_, walker] : unit.walkers) {
       for (const auto& u : walker->train_reads)
         bfc.AddSequence(u.Seq, "", u.Name);
       for (const auto& r : walker->reads) {
-        if (!r->to_assemble) continue;
+        if (!r->to_assemble && !r->cov_demoted) continue;
         bfc.AddSequence(r->CorrectedSeq(), "", r->UniqueName());
       }
     }
@@ -1676,7 +1757,7 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
       // setting id here is immediately visible to printToR2CTsv
       // when it walks getAllBreakPoints() during writeUnit.
       if (i->id.empty())
-        i->id = unit.next_bp_id();
+        i->id = deterministicBpId(*i);   // content-derived, run/thread-stable
 
       // SvABA2.0 (v3): tag every alt-supporting read with this
       // breakpoint's bp_id on the `bi:Z` aux tag. bp_id is a

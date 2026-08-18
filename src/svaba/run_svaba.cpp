@@ -438,13 +438,23 @@ void runsvaba(int argc, char** argv) {
   int globalReadLen = 0;
   int globalMaxMapQ = 0;
   double globalInsertSize = 0;
+  int globalTagTrim = 0;
   for (const auto& [_, learn_bam_param] : sc.bamStats) {
     globalReadLen = std::max(globalReadLen, learn_bam_param.readlen_max);
     globalMaxMapQ = std::max(globalMaxMapQ, learn_bam_param.mapq_max);
-    globalInsertSize = std::max(globalInsertSize, learn_bam_param.isize_max);    
+    globalInsertSize = std::max(globalInsertSize, learn_bam_param.isize_max);
+    globalTagTrim = std::max(globalTagTrim, learn_bam_param.tag_trim_5p);
   }
   sc.readlen = globalReadLen;
   sc.insertsize = globalInsertSize;
+
+  // Effective 5' tag trim: --tag-trim/--no-tag-trim override (>= 0) wins,
+  // otherwise auto-use the recurrent tag length detected during learning.
+  sc.tag_trim_5p = (opts.tagTrimOverride >= 0) ? opts.tagTrimOverride : globalTagTrim;
+  if (sc.tag_trim_5p > 0)
+    logger.log(true, true, "...5' tag trimming ENABLED: trimming up to ",
+               sc.tag_trim_5p, " bp of 5' soft-clip from each read before assembly",
+               (opts.tagTrimOverride >= 0 ? " (forced via --tag-trim)" : " (auto-detected)"));
   
   // --- set the SGA min overlap if user didn't ---
   if (opts.sgaMinOverlap == 0) {

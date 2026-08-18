@@ -216,6 +216,12 @@ void LearnBamParams::learnParams() {
     }
   }
 
+  // detect a recurrent 5' soft-clip "tag" per RG (untrimmed UMI/adapter/spacer).
+  // Done before dumpLearnData so the learn CSV records it, and it's independent
+  // of computeStats (which is isize-only and clears the isize vectors).
+  for (auto& br : bam_read_groups)
+    br.second.detectTag();
+
   // dump raw isize data for R plotting BEFORE computeStats clears the vectors.
   // Use the BAM filename stem in the output name so multiple BAMs don't clobber.
   if (!sc.opts.analysisId.empty()) {
@@ -235,6 +241,7 @@ void LearnBamParams::learnParams() {
     readlen_max = std::max(readlen_max, br.second.readlen_max);
     mapq_max = std::max(mapq_max, br.second.mapq_max);
     isize_max = std::max(isize_max, br.second.isize_median);
+    tag_trim_5p = std::max(tag_trim_5p, br.second.tag_trim_5p);  // per-bam max tag
   }
 
   // Log per-RG insert size stats and the derived discordant cutoff.
@@ -281,6 +288,25 @@ void LearnBamParams::learnParams() {
                     " bp is implausibly large — insert-size distribution may be"
                     " corrupted; discordant reads under this size will be MISSED");
   }
+
+  // Flag any read group with a recurrent 5' soft-clip "tag" (untrimmed
+  // UMI / inline barcode / adapter / library spacer). Such a tag mismatches
+  // the reference at the read's 5' end on essentially every read, which sits
+  // right at the leading edge of each read's overlap with its neighbor and so
+  // breaks the overlap (string-graph) assembly genome-wide. svaba will trim it
+  // off the read 5' ends before assembly (see sc.tag_trim_5p / TrimTag5p).
+  for (const auto& [rg, bp] : bam_read_groups) {
+    if (bp.tag_trim_5p <= 0) continue;
+    sc.logger.log(true, true,
+      "......  WARNING: RG='", rg, "' recurrent ", bp.tag_trim_5p,
+      "-bp 5' soft-clip on ", static_cast<int>(bp.tag_frac * 100 + 0.5),
+      "% of reads (", (bp.tag_seq.empty()
+                         ? std::string("variable bases -> likely UMI")
+                         : ("fixed '" + bp.tag_seq + "' -> adapter/primer/spacer")),
+      ") -- looks like an untrimmed 5' tag. svaba will trim up to ",
+      bp.tag_trim_5p, " bp from read 5' ends before assembly; for best results"
+      " trim it upstream (fastp --trim_front1/2, cutadapt -u/-U, or UMI extraction).");
+  }
 }
 
 void LearnBamParams::dumpLearnData(const std::string& prefix) const {
@@ -293,13 +319,15 @@ void LearnBamParams::dumpLearnData(const std::string& prefix) const {
     return;
   }
 
-  // header
-  out << "bam\trg\tisize\n";
+  // header (tag_trim_5p / tag_frac are per-RG constants repeated per row so the
+  // recurrent-5'-tag finding is recorded in the dumped learning CSV)
+  out << "bam\trg\tisize\ttag_trim_5p\ttag_frac\n";
 
   // one row per isize observation, per RG
   for (const auto& [rg, brg] : bam_read_groups) {
     for (uint32_t is : brg.isize_vec) {
-      out << bam_ << '\t' << rg << '\t' << is << '\n';
+      out << bam_ << '\t' << rg << '\t' << is << '\t'
+          << brg.tag_trim_5p << '\t' << brg.tag_frac << '\n';
     }
   }
 
@@ -315,7 +343,7 @@ void writeBamParams(const SvabaSharedConfig& sc, const std::string& file) {
     return;
   }
   out << "bam\trg\tisize_median\tsd_isize\trg_readlen_max\trg_mapq_max\t"
-         "bam_readlen_max\tbam_mapq_max\tbam_isize_max\treads\tn_isize_pairs\n";
+         "bam_readlen_max\tbam_mapq_max\tbam_isize_max\treads\tn_isize_pairs\ttag_trim_5p\n";
   for (const auto& [prefix, lp] : sc.bamStats) {
     (void)prefix;
     for (const auto& [rg, brg] : lp.bam_read_groups) {
@@ -323,7 +351,7 @@ void writeBamParams(const SvabaSharedConfig& sc, const std::string& file) {
           << brg.isize_median << '\t' << brg.sd_isize << '\t'
           << brg.readlen_max << '\t' << brg.mapq_max << '\t'
           << lp.readlen_max << '\t' << lp.mapq_max << '\t' << lp.isize_max << '\t'
-          << brg.reads << '\t' << brg.n_isize_pairs << '\n';
+          << brg.reads << '\t' << brg.n_isize_pairs << '\t' << brg.tag_trim_5p << '\n';
     }
   }
 }
@@ -343,12 +371,13 @@ bool loadBamParams(SvabaSharedConfig& sc, const std::string& file) {
   while (std::getline(in, line)) {
     if (line.empty() || line[0] == '#') continue;
     std::istringstream ss(line);
-    std::string bam, rg, med, sd, rrl, rmq, brl, bmq, bis, rds, np;
+    std::string bam, rg, med, sd, rrl, rmq, brl, bmq, bis, rds, np, tag;
     if (!std::getline(ss, bam, '\t') || !std::getline(ss, rg, '\t')) continue;
     std::getline(ss, med, '\t'); std::getline(ss, sd, '\t');
     std::getline(ss, rrl, '\t'); std::getline(ss, rmq, '\t');
     std::getline(ss, brl, '\t'); std::getline(ss, bmq, '\t'); std::getline(ss, bis, '\t');
     std::getline(ss, rds, '\t'); std::getline(ss, np, '\t');
+    std::getline(ss, tag, '\t');  // tag_trim_5p (optional; absent in older caches)
     auto pit = path2prefix.find(bam);
     if (pit == path2prefix.end()) continue;   // a BAM not in this run
     const std::string& prefix = pit->second;
@@ -363,9 +392,11 @@ bool loadBamParams(SvabaSharedConfig& sc, const std::string& file) {
       brg.mapq_max     = std::stoi(rmq);
       if (!rds.empty()) brg.reads = std::stoull(rds);
       if (!np.empty())  brg.n_isize_pairs = std::stoull(np);
+      if (!tag.empty()) brg.tag_trim_5p = std::stoi(tag);
       it->second.readlen_max = std::stoi(brl);
       it->second.mapq_max    = std::stoi(bmq);
       it->second.isize_max   = std::stod(bis);
+      it->second.tag_trim_5p = std::max(it->second.tag_trim_5p, brg.tag_trim_5p);
     } catch (const std::exception&) { continue; }
     populated.insert(prefix);
     ++rows;
@@ -409,6 +440,65 @@ void BamReadGroup::addRead(const SeqLib::BamRecord &r)
   // track the read length
   readlen_max = std::max(readlen_max, r.Length());
 
+  // accumulate the 5' soft-clip length distribution (for recurrent-tag
+  // detection). The read's 5' end is the leading clip for forward reads and
+  // the trailing clip for reverse reads (SEQ is stored reference-forward).
+  if (r.MappedFlag()) {
+    SeqLib::Cigar c = r.GetCigar();
+    if (c.size() != 0) {
+      ++clip5_total;
+      const bool rev = r.ReverseFlag();
+      const auto& edge = rev ? c.back() : c.front();
+      if (edge.Type() == 'S') {
+        int clip5 = static_cast<int>(edge.Length());
+        if (clip5 >= 1 && clip5 < static_cast<int>(clip5_hist.size())) {
+          ++clip5_hist[clip5];
+          // sample the clipped bases from FORWARD reads only (leading bases,
+          // no reverse-complement needed) to classify fixed-seq vs random/UMI
+          if (!rev && clip5 <= 8) {
+            std::string seq = r.Sequence();
+            if (static_cast<int>(seq.size()) >= clip5)
+              ++clip5_seq[seq.substr(0, clip5)];
+          }
+        }
+      }
+    }
+  }
+
+}
+
+void BamReadGroup::detectTag() {
+  tag_trim_5p = 0; tag_frac = 0.0; tag_seq.clear();
+  if (clip5_total < 200) return;          // need a reasonable sample to be confident
+
+  // modal 5' soft-clip length
+  int best_len = 0; size_t best_cnt = 0;
+  for (int L = 1; L < static_cast<int>(clip5_hist.size()); ++L)
+    if (clip5_hist[L] > best_cnt) { best_cnt = clip5_hist[L]; best_len = L; }
+  if (best_len == 0) return;
+
+  // fraction of reads at the mode (±1 bp to absorb bwa boundary wobble)
+  size_t cnt = clip5_hist[best_len];
+  if (best_len - 1 >= 1) cnt += clip5_hist[best_len - 1];
+  if (best_len + 1 < static_cast<int>(clip5_hist.size())) cnt += clip5_hist[best_len + 1];
+  double frac = static_cast<double>(cnt) / static_cast<double>(clip5_total);
+
+  constexpr double TAG_FRAC = 0.20;       // a clean BAM's 5' clips are sparse + length-spread
+  if (frac < TAG_FRAC) return;            // no sharp short-clip spike -> no tag
+
+  tag_trim_5p = best_len;
+  tag_frac    = frac;
+
+  // classify fixed-sequence (adapter/spacer) vs variable (UMI): is one clipped
+  // sequence of the modal length dominant among the forward-read samples?
+  size_t dom = 0, len_total = 0; std::string dom_seq;
+  for (const auto& [s, n] : clip5_seq) {
+    if (static_cast<int>(s.size()) != best_len) continue;
+    len_total += n;
+    if (n > dom) { dom = n; dom_seq = s; }
+  }
+  if (len_total > 0 && static_cast<double>(dom) / static_cast<double>(len_total) > 0.5)
+    tag_seq = dom_seq;                    // fixed tag; leave empty => random/UMI
 }
 
  void BamReadGroup::computeStats() {

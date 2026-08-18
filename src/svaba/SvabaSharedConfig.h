@@ -79,6 +79,13 @@ class SvabaSharedConfig {
 
   int readlen = -1;
   double insertsize = -1;
+
+  // Effective 5' soft-clip tag-trim length (bp), set after learning: the max
+  // detected recurrent-tag length across all BAMs/RGs, unless overridden by
+  // --tag-trim / --no-tag-trim. 0 = no trimming. Consumed by the BAM walker
+  // (svabaRead::TrimTag5p) to strip an untrimmed UMI/adapter/spacer from read
+  // 5' ends before assembly. See LearnBamParams::detectTag.
+  int tag_trim_5p = 0;
   
   std::shared_ptr<DBSnpFilter>           dbsnp_filter;
 

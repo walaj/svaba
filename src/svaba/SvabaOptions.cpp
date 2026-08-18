@@ -56,6 +56,14 @@ Discordant clustering:
 
 Filtering:
       --max-cov <N>       Max coverage to assemble, default 100
+      --max-normal-weird-cov <N>
+                          Skip assembly+r2c in sub-regions where NORMAL weird-
+                          read coverage exceeds N (shared artifact pileups can't
+                          be somatic). Somatic-safe speedup. 0=off (default).
+      --tag-trim <N>      Trim N bp of 5' soft-clip from reads before assembly.
+                          Default AUTO: detect a recurrent 5' tag (untrimmed
+                          UMI/adapter/spacer) during learning and trim it.
+      --no-tag-trim       Disable 5' tag trimming even if a tag is detected.
       --mate-min <N>      Min reads to trigger somatic mate lookup, default 3
       --mate-min-count <N>
                           Min reads to form a candidate mate region, default 2
@@ -158,6 +166,9 @@ SvabaOptions SvabaOptions::parse(int argc, char** argv) {
     {"max-mate-chr",    required_argument, nullptr,  1405},
     {"non-human",       no_argument,       nullptr,  1406},
     {"mate-min-count",  required_argument, nullptr,  1407},
+    {"max-normal-weird-cov", required_argument, nullptr, 1409},
+    {"tag-trim", required_argument, nullptr, 1410},
+    {"no-tag-trim", no_argument, nullptr, 1411},
     {"chunk-size", required_argument,      nullptr,  1500},
     {"bw-op",      required_argument,      nullptr,  1600},
     {"bw-ep",      required_argument,      nullptr,  1601},
@@ -218,6 +229,9 @@ SvabaOptions SvabaOptions::parse(int argc, char** argv) {
       case 1405: o.maxMateChrID         = std::stoi(optarg); break;
       case 1406: o.nonHuman             = true; break;
       case 1407: o.mateRegionMinCount   = std::stoi(optarg); break;
+      case 1409: o.maxNormalWeirdCov    = std::stoi(optarg); break;
+      case 1410: o.tagTrimOverride      = std::stoi(optarg); break;  // force N bp
+      case 1411: o.tagTrimOverride      = 0;                 break;  // --no-tag-trim
 
       case 1500: o.chunkSize        = std::stoi(optarg); break;
 

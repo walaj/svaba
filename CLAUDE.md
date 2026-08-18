@@ -44,7 +44,14 @@ Top-level layout:
   `svaba_cloud.sh`, `gcloud_teardown.sh`, `update_svaba_image.sh`,
   `build_svaba_image.sh` (build a worker image from a specific git ref:
   boots the builder VM, checks out the commit, rebuilds svaba+submodules at
-  `-O3 -march=native`, verifies, snapshots to `svaba-<hash>`),
+  `-O3 -march=native`, verifies the on-PATH binary is the new build, snapshots
+  to `svaba-<hash>`),
+  `svaba_cloud_serve.py` (optional local backend for the cloud launcher —
+  stdlib http.server, localhost-only, token-guarded; serves the HTML +
+  `/api/images|progress|vms|serial|run|joblog` shelling to gcloud/gsutil so the
+  page gets a live image dropdown, auto-polling monitor, ▶ run buttons, and a
+  per-worker svaba-log viewer — `/api/serial` SSH-tails the worker's
+  `/var/log/svaba_startup.log`, falling back to the serial console),
   `plot_learn.sh`, `svaba_explore.sh` (one-shot launcher for the bps
   explorer), `svaba_local_function.sh` (sourceable bash helpers, incl.
   `svaba_bps_cols`). Profiling helpers (`memprof*.sh`) live under `opt/`
@@ -81,7 +88,9 @@ change — not pure comments/docs), before finishing:
    version.
 
 The git **commit** is stamped automatically by CMake (`SvabaGitVersion.h`) — do
-not hand-edit that. Current line: **2.1.0 (06/2026)**.
+not hand-edit that. Current line: **2.5.0 (08/2026)** (uncommitted; see
+CHANGELOG for the 2.3.1→2.4.0 determinism + tag-trim work and the 2.5.0
+extract-pairs FASTA/counts work this cycle).
 
 ## Build system
 
@@ -640,7 +649,11 @@ after. If this becomes painful, revisit with htslib's `hts_open` +
 
 BAM-native pair extractor. Pulls every read pair from a BAM where either
 mate's SEQ contains any of the given query sequences (or, by default,
-their reverse complements). Lives in `src/svaba/SvabaExtractPairs.cpp`;
+their reverse complements). Queries come from `-s`, a **multi-record
+FASTA**, a plain one-per-line seq list, or a `bps.txt[.gz]` — `-f`
+auto-detects which by sniffing the first non-empty line (`>` = FASTA,
+`#chr1` + TAB = bps, else plain), plain or gzip in every case.
+Lives in `src/svaba/SvabaExtractPairs.cpp`;
 dispatch wired in `src/svaba/svaba.cpp`. The old
 `scripts/extract_pairs_by_seq.sh` is gone — this subcommand fully
 subsumes it (BAM-native pipeline, no SAM-text round-trip).
@@ -715,8 +728,12 @@ CLI:
 ```
 svaba extract-pairs -i IN.bam -o OUT.bam (-s SEQ ... | -f FILE) [options]
   -s, --seq SEQ           Query sequence; repeatable.
-  -f, --seq-file FILE     File of query sequences. Two formats accepted,
-                          auto-detected by content: a plain one-seq-per-line
+  -f, --seq-file FILE     File of query sequences. Three formats accepted,
+                          auto-detected by content: a multi-record FASTA
+                          (record name = first token of the `>` header;
+                          wrapped lines concatenated; duplicate names
+                          uniquified `name`,`name.2`,...; empty records
+                          skipped with a warning), a plain one-seq-per-line
                           list (# / blank lines ignored), or a svaba
                           bps.txt[.gz] dump (the `jxn_kmer` column,
                           col 53, is used as the query; rows with kmer
@@ -735,23 +752,33 @@ svaba extract-pairs -i IN.bam -o OUT.bam (-s SEQ ... | -f FILE) [options]
                           ~2x faster (one BAM pass instead of two, no
                           QNAME hash set). Use when you just want to
                           inspect which reads contain a motif.
-      --counts FILE       Emit a per-bp_id TSV of reads carrying each bp's
-                          kmer. Header (4 cols):
-                          `bp_id<TAB>jxn_kmer<TAB>n_total_hits<TAB>n_unique_reads`,
-                          sorted by `n_total_hits` DESC (tiebreak bp_id
-                          ASC) so the worst over-matchers are at the top.
-                          `jxn_kmer` is the forward-strand 20-mer (bps col
-                          53) — low-complexity kmers (poly-A/T, simple
-                          repeats) jump out here as the over-match
-                          culprits. `n_total_hits` = every matching
-                          alignment (incl. flag 256 secondary, 2048
-                          supplementary, 1024 duplicate); `n_unique_reads`
-                          = primary non-dup reads dedup'd by (bp_id,
-                          qname, mate). Requires `-f` to be a bps.txt[.gz]
-                          file (the only source of the kmer↔bp_id map);
-                          incompatible with --no-pairs. The counts file is
-                          written even when zero reads matched — you get a
-                          header-only TSV in that case.
+      --counts FILE       Emit a per-query table of reads carrying each
+                          query sequence. Header (5 cols):
+                          `seq_name<D>sequence<D>n_total_hits<D>n_unique_reads<D>n_unique_qnames`
+                          (first two cols are `bp_id`/`jxn_kmer` when `-f`
+                          is a bps file), sorted by `n_total_hits` DESC
+                          (tiebreak id ASC) so the worst over-matchers are
+                          at the top. `<D>` is a **comma when FILE ends in
+                          `.csv`** (RFC-4180 quoted), a TAB otherwise. The
+                          sequence column makes low-complexity queries
+                          (poly-A/T, simple repeats) obvious as the
+                          over-match culprits. `n_total_hits` = every
+                          matching alignment (incl. flag 256 secondary,
+                          2048 supplementary, 1024 duplicate);
+                          `n_unique_reads` = primary non-dup reads dedup'd
+                          by (id, qname, mate); `n_unique_qnames` = the
+                          same dedup'd by (id, qname) — i.e. how many
+                          distinct read **pairs/fragments** carry the
+                          sequence (a pair with both mates matching counts
+                          once here, twice in n_unique_reads). Works for
+                          every query source: id = bp_id (bps) / record
+                          name (FASTA) / the sequence itself (-s, plain
+                          list). FASTA / plain / -s queries get a row each
+                          **including zero-match ones**; bps input lists
+                          only bp_ids with >= 1 match (the file can carry
+                          millions of rows). Incompatible with --no-pairs.
+                          The counts file is written even when zero reads
+                          matched — you get a header-only file in that case.
       --cluster ID        Discordant-cluster mode: match by the `DC:Z` read
                           aux tag (the discordant-cluster id) instead of by
                           sequence. Repeatable. Run on the `discordant.bam`
@@ -782,6 +809,14 @@ Useful jump points:
   `pattern_id` + `output_link` per node so `searchNibblesCollect` can
   enumerate every hit for the per-bp_id counting path):
   `class AhoCorasick` in same file.
+- FASTA reader (record name + concatenated sequence → the same
+  `LoadedSeqs` shape the bps reader returns, with the record name playing
+  the bp_id role): `readFasta` in same file; format dispatch in
+  `readSeqsFromFile` (`looksLikeBpsFile` / `looksLikeFastaFile`).
+- Counts tally struct (`total` / `reads` / `qnames` maps, keyed by query
+  id): `struct CountsTally`, filled in `collectQnames`, written out of
+  `runExtractPairs` (delimiter picked by `endsWithNoCase(file, ".csv")`,
+  fields escaped by `csvField`).
 - bps reader (kmer + bp_id + breakend-coord extraction):
   `readJxnKmersFromBps` in same file. Returns a `LoadedSeqs` with the
   kmer list, the `bp_ids_by_kmer` map, and `breakends` (both ends of
@@ -790,14 +825,14 @@ Useful jump points:
   (breakends + header + pad → merged `SeqLib::GRC`). Region fetch is
   armed in `collectQnames` / `extractMatchedOnly` via
   `BamReader::SetRegions`; `--whole-bam` / empty-breakends skip it.
-- Per-bp_id tally: lives inside `collectQnames` when the
-  `pattern_to_bp_ids` / `bp_id_counts` / `bp_id_total` args are
-  non-null. `bp_id_total` counts every matching alignment (raw
-  magnitude); `bp_id_counts` is the unique-primary tally with dedup
-  key `bp_id + qname + mate`. The 4-col TSV (bp_id, jxn_kmer,
-  n_total_hits, n_unique_reads), sorted by n_total_hits desc, is
-  written out of `runExtractPairs` after pass 1 — `bp_id→kmer` is
-  recovered there by inverting `pattern_to_bp_ids` against `seqs`.
+- Per-query tally: lives inside `collectQnames` when the
+  `pattern_to_ids` / `tally` args are non-null. `tally.total` counts
+  every matching alignment (raw magnitude); `tally.reads` and
+  `tally.qnames` are the unique-primary tallies with dedup keys
+  `id + qname + mate` and `id + qname`. The 5-col table, sorted by
+  n_total_hits desc, is written out of `runExtractPairs` after pass 1 —
+  `id→sequence` is recovered there by inverting `pattern_to_ids`
+  against `seqs`.
 - Coord-sort detection helper: `isCoordinateSorted()` in same file
   (kept local rather than pulling in `SvabaPostprocess.h`).
 
@@ -928,15 +963,37 @@ Readers updated for the v4 schema:
 
 ## BreakPoint IDs (v3 schema)
 
-Every BP gets a unique stable identifier of the form `bpTTTNNNNNNNN`
-where `TTT` is the 3-digit zero-padded worker thread ID and
-`NNNNNNNN` is an 8-digit zero-padded per-thread running counter.
-Generation is lock-free: the counter lives on `svabaThreadUnit` (see
-`next_bp_id()` in `src/svaba/SvabaThreadUnit.h`). Assignment happens
-exactly once per BP in `SvabaRegionProcessor::process()` right before
-the pointer is pushed into `unit.m_bps`. Because `AlignedContig`
-holds BPs via `shared_ptr`, the id mutation is immediately visible
-through every reference (global, multi-map, indel breaks).
+Every BP gets a unique stable identifier of the form `bp` + **16 lowercase
+hex digits** (e.g. `bpa050150e76a38bbe`) — a **content hash** (FNV-1a 64-bit),
+**deterministic** across runs/threads/`-p`. **(v2.3.2 — was `bpTTTNNNNNNNN`,
+3-digit thread ID + 8-digit per-thread counter, until 2.3.1.)** The old
+thread+counter scheme made the *same variant* get a *different* id depending
+on which worker thread (and in what order) processed its region — so the id,
+and every join keyed on it (`bi:Z`, `r2c.db` `split_bps`/`disc_bps`, VCF
+`EVENT`), varied run-to-run even when the calls were byte-identical. The hash
+is computed by `deterministicBpId()` (file-static in
+`src/svaba/SvabaRegionProcessor.cpp`) from the BP's stable content:
+`cname + b1(chr,pos,strand,cpos) + b2(chr,pos,strand,cpos) + svtype`. That
+tuple uniquely identifies a BP (two distinct BPs on one contig must differ in
+a breakend coord or contig position), so the hash can't merge distinct
+variants. Assignment happens exactly once per BP in
+`SvabaRegionProcessor::process()` right before the pointer is pushed into
+`unit.m_bps`. Because `AlignedContig` holds BPs via `shared_ptr`, the id
+mutation is immediately visible through every reference (global, multi-map,
+indel breaks). (`svabaThreadUnit::next_bp_id()` / `bp_id_counter` in
+`SvabaThreadUnit.h` are now **dead** — superseded but left in place.)
+
+**Determinism (v2.3.1 + v2.3.2).** svaba is now **fully deterministic** — a
+plain `diff` of `.bps.sorted.txt.gz` (and the `.dedup`/`.pass`/`.pass.somatic`
+subsets) is `0` across reruns at any `-p`. Two bugs were fixed: (1) the BFC
+error-corrector's auto-learned k-mer size was cached in the reused per-thread
+BFC object and frozen from whichever region a thread processed first
+(`BFC::Train()` now re-learns k per region — see SeqLib `src/BFC.cpp`); (2)
+this content-hash bp_id + a final total-order tie-break (on the raw line
+bytes) in the `svaba postprocess` bps sort (`BpsSortCmp` in
+`SvabaPostprocess.cpp`), so equal-key rows can't reorder by thread-emission
+order. To compare older (pre-2.3.2) outputs that still carry thread-derived
+bp_ids, drop col 52: `cut -f1-51,53-`.
 
 The id lands as the 52nd core column of `bps.txt.gz` (right after
 `flipped`, before per-sample blocks — this is the v3 schema; v2 had
@@ -1486,7 +1543,17 @@ worker-image dropdown populated by pasting `gcloud compute images list`. The
 script supports `--spot`, `--max-concurrent N` (bounded-concurrency waves),
 `--chunk-mb M` (fixed-size shards, e.g. 10 Mb → 322 shards), and
 `--bam-params-gcs` (workers fetch the insert-size cache and `--bam-params` it).
-NB: also right-size memory — the hg38 index needs ~6–7 GB, so
+The launcher is static (file://) by default; running `python3
+scripts/svaba_cloud_serve.py` turns it live — it serves the page + JSON
+endpoints (`/api/images|progress|vms|serial|run|joblog`) that shell to your
+gcloud, giving an auto-populated image dropdown, an auto-polling progress +
+worker-VM dashboard, ▶ run buttons, and a per-worker svaba-log viewer
+(`/api/serial` SSH-tails the worker's `/var/log/svaba_startup.log` — set by the
+`exec >` redirect in svaba_cloud.sh's worker startup — and falls back to the
+serial console; the serial console alone does NOT carry the worker output on the
+newer guest-agent image). The page detects the backend via an injected
+`window.SVABA_BACKEND`/token; localhost-bind + token + same-origin guard the
+`/api/run` exec path. NB: also right-size memory — the hg38 index needs ~6–7 GB, so
 `n2-highcpu-2` (2 GB) OOMs; use ≥8 GB (`n2-standard-*`). And CPU-hours aren't
 portable: an n1/n2 vCPU is ~2–4× slower than an Apple M-series P-core, so cloud
 CPU-h ≫ local CPU-h for the same work — not a bug.
@@ -1811,6 +1878,56 @@ runtime overrides in the `SvabaOptions` class:
 ```
 
 Code: `SvabaBamWalker.cpp::calculateMateRegions()`.
+
+## Recurrent 5′ soft-clip tag detection + auto-trim (v2.4.0)
+
+**Problem.** An untrimmed 5′ molecular tag (UMI / inline barcode / adapter /
+library "diversity spacer") mismatches the reference at the read's 5′ end on
+~every read. In IGV it shows as a short (~4–5 bp) soft-clip on the **left for
+forward reads, right for reverse** (= the read's 5′ end; reverse reads are
+RC-stored). It's mostly benign for split-read scoring (a <10 bp 5′ clip is below
+`MIN_SPLIT_ANCHOR_CLIP`), but it **wrecks overlap assembly**: the tag sits at the
+leading edge of each read's overlap with its neighbour, so every overlap carries
+a mismatch at its boundary → the string graph fragments **genome-wide**. A fixed
+tag is the worst case — at WGS depth the `[tag|genomic@locus]` k-mer recurs
+across the covering reads, so BFC sees it as *solid* and won't trim it. Measured:
+133→94 calls on a 2 Mb region with a synthetic 5 bp `ACGTA` tag.
+
+**Detect (free, during insert-size learning).** `BamReadGroup::addRead`
+(`LearnBamParams.cpp`) accumulates a strand-aware 5′-soft-clip-length histogram
+(`clip5_hist`; leading clip for fwd, trailing for rev) plus the forward-read
+clipped bases (`clip5_seq`). `BamReadGroup::detectTag()` takes the modal length
+`L`, computes `frac` over reads at `L±1`, and flags a tag when `frac ≥ 0.20`
+(min 200 reads). It classifies *fixed* (one clipped seq dominates → adapter/
+spacer; reports it) vs *variable* (→ likely UMI). Sets `tag_trim_5p` / `tag_frac`
+/ `tag_seq`. A clean BAM's 5′ clips are sparse + length-spread → no spike → never
+flags (regression-verified: byte-identical output).
+
+**Warn + record + propagate.** `learnParams` prints a per-RG `WARNING` (length,
+%, fixed-seq-or-UMI, "trim upstream" hint). `tag_trim_5p` is written to the
+`.learn.tsv.gz` (extra cols) and the `--bam-params` cache (extra col; old caches
+without it parse fine), so scatter-gather shards reuse it with no re-detection.
+`run_svaba.cpp` sets the effective `SvabaSharedConfig::tag_trim_5p` =
+`max over all RGs` unless overridden.
+
+**Act (auto, assembly-only).** `readBam` calls `svabaRead::TrimTag5p(sc.tag_trim_5p)`
+right after `QualityTrimRead`. It trims `min(5′-softclip, L)` bases off the read's
+5′ end of the **corrected sequence** (leading for fwd, trailing for rev). Self-
+targeting (only clipped/non-genomic bases up to `L`; a long split-read clip keeps
+everything past `L`, since the tag is always the first `L`) and **assembly-only**:
+the original BAM record/CIGAR is untouched, so r2c / native-realign / scoring /
+coordinates / output are unaffected — only the corrected seq fed to BFC+fermi is
+trimmed. Verified: auto-trim recovers the broken assembly exactly (94→133).
+
+**Flags.** Default AUTO (`opts.tagTrimOverride = -1` → use detected). `--tag-trim N`
+forces N bp; `--no-tag-trim` sets 0 (detection + warning still run, action off).
+Option codes 1410/1411.
+
+**Jump points.** `LearnBamParams.cpp::BamReadGroup::{addRead,detectTag}` (detect)
++ the warning loop in `learnParams`; `dumpLearnData`/`writeBamParams`/
+`loadBamParams` (persist); `run_svaba.cpp` (effective `sc.tag_trim_5p`);
+`svabaRead::TrimTag5p` + the `readBam` call (act). `SVABA_DEBUG_SUBSAMPLE=1`
+is a *different* probe (max-cov demotion), not this.
 
 ## Compile-time read & contig tracing
 

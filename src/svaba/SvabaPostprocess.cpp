@@ -612,6 +612,7 @@ struct BpsSortEntry {
 // Comparator: chr1(V asc), pos1(n asc), strand1(asc), chr2(V asc), pos2(n asc),
 //             strand2(asc), maxlod(desc).
 struct BpsSortCmp {
+  const char* slab = nullptr;   // base of the line slab, for the final tie-break
   bool operator()(const BpsSortEntry& a, const BpsSortEntry& b) const {
     if (a.chr1_key != b.chr1_key) return a.chr1_key < b.chr1_key;
     // Tie-break unknowns lexicographically.
@@ -625,7 +626,20 @@ struct BpsSortCmp {
     if (a.pos2 != b.pos2) return a.pos2 < b.pos2;
     if (a.strand2 != b.strand2) return a.strand2 < b.strand2;
     // maxlod descending (so highest comes first within same breakpoint pair).
-    return a.maxlod > b.maxlod;
+    if (a.maxlod != b.maxlod) return a.maxlod > b.maxlod;
+    // Final total-order tie-break on the raw line bytes. std::sort is unstable,
+    // and equal-key rows arrive in worker-thread-emission order (nondeterministic
+    // at -p>1), so without this two runs could order tied rows differently --
+    // making a plain `diff` of .bps.sorted.txt.gz spuriously differ even though
+    // the call set is identical. Line content is now fully deterministic
+    // (deterministic bp_id + calls), so memcmp gives a stable total order.
+    if (slab) {
+      const uint32_t m = std::min(a.length, b.length);
+      const int c = std::memcmp(slab + a.offset, slab + b.offset, m);
+      if (c != 0) return c < 0;
+      return a.length < b.length;
+    }
+    return false;
   }
 };
 
@@ -811,7 +825,7 @@ size_t sortDedupFilterBps(const std::string& id, int verbose,
   // --- Step 2: sort --------------------------------------------------------
   {
     const auto ts = std::chrono::steady_clock::now();
-    std::sort(index.begin(), index.end(), BpsSortCmp{});
+    std::sort(index.begin(), index.end(), BpsSortCmp{slab.data()});
     const double sort_sec = std::chrono::duration<double>(
         std::chrono::steady_clock::now() - ts).count();
     if (verbose >= 1)

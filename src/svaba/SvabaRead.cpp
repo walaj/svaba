@@ -65,6 +65,36 @@ void svabaRead::QualityTrimRead() {
 
 }
 
+void svabaRead::TrimTag5p(int max_len) {
+  if (max_len <= 0)
+    return;
+
+  SeqLib::Cigar c = GetCigar();
+  if (c.size() == 0)
+    return;
+
+  // the read's 5' end is the leading clip for forward reads, trailing for
+  // reverse (the stored corrected sequence is reference-forward, like SEQ)
+  const bool rev = ReverseFlag();
+  const SeqLib::CigarField& edge = rev ? c.back() : c.front();
+  if (edge.Type() != 'S')
+    return;                                      // no 5' soft-clip -> nothing to trim
+
+  int trim = std::min<int>(static_cast<int>(edge.Length()), max_len);
+  if (trim <= 0)
+    return;
+
+  std::string s = CorrectedSeq();
+  // keep a meaningful remainder; never trim away (almost) the whole read
+  if (static_cast<int>(s.size()) <= trim + 20)
+    return;
+
+  if (!rev)
+    SetCorrectedSeq(s.substr(trim));             // drop leading (5' of forward)
+  else
+    SetCorrectedSeq(s.substr(0, s.size() - trim)); // drop trailing (5' of reverse)
+}
+
 svabaRead::svabaRead(const SeqLib::BamRecord& r, std::string_view prefix)
   : SeqLib::BamRecord()    // base class ctor will init `b` to nullptr
 {
