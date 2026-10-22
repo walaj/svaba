@@ -35,6 +35,18 @@ with a comma-separated list of contributing source tags in col 4.
 See the header comment in `combine_blacklists.sh` for the full flag
 surface.
 
+To reproduce `hg38.combined_blacklist.bed` exactly:
+
+```bash
+./scripts/combine_blacklists.sh --merge --clip tracks/chr \
+    -o tracks/hg38.combined_blacklist.bed \
+    tracks/hg38.manual.blacklist.bed \
+    tracks/hg38.high_runtime.bed \
+    tracks/hg38.rmsk.simple_repeat.min100.bed \
+    tracks/hg38.nonstd_chr.blacklist.bed \
+    tracks/hg38.blacklist.sorted.bed
+```
+
 ## `lowmap{30,50}perc.bed` — low-mappability blacklists
 
 These are blacklists of regions where the vast majority of reads at a
