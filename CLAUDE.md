@@ -965,6 +965,15 @@ Thread-count guidance on this 20 P-core + 8 E-core box:
   full chromosome / WGS expect 85–90%. Tail regions (HLA, centromere,
   high-coverage weird spots) dominate wall clock.
 
+Thread-scaling on a 2-socket Linux Xeon (2×8 cores + HT, 32 vCPU), chr17
+tumor/normal WGS — full data + plots in `opt/thread_scaling/` (harness:
+`opt/thread_scaling.sh` + `opt/thread_scaling_plot.R`):
+- Sweet spot = physical core count (`-p 16`): 83% efficiency vs `-p 4`, CPU
+  only +12%. Beyond that hyperthreads add CPU ~6× faster per thread
+  (`-p 32`: −22% wall, +41% CPU-h).
+- No sharp knee at the socket boundary; NUMA is second-order at this scale.
+- Memory ≈ 5.5 GiB fixed + ~0.55 GiB/thread.
+
 Build flag recommendation for production runs (see "Build system"):
 `-O3 -mcpu=native` on bwa + fermi-lite + (via `CMAKE_CXX_FLAGS_RELWITHDEBINFO`)
 the svaba C++. Measured 5–15% wall-time gain expected on top of the default

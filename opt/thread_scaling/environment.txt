@@ -1,0 +1,16 @@
+date: 2026-11-14T21:27:18Z
+host: instance-20250502-wgs
+svaba: /home/jeremiahwala/git/svaba/build-jemalloc/svaba (80431c2)
+region: chr17
+tumor: /mnt/wgs/SG.wgs.UCLA.2025.01.tumor_cleaned.recal.bam
+normal: /mnt/wgs/blood.ss.cleaned.bam
+allocator: jemalloc via svaba_jemalloc
+CPU(s):                                  32
+Model name:                              Intel(R) Xeon(R) CPU @ 2.80GHz
+Thread(s) per core:                      2
+Core(s) per socket:                      8
+Socket(s):                               2
+L3 cache:                                66 MiB (2 instances)
+NUMA node(s):                            2
+               total        used        free      shared  buff/cache   available
+Mem:              31           2           7           0          22          29
