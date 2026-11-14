@@ -46,8 +46,12 @@ public:
   bool isEmpty() const;
   
   /** Return a string representing the output file header */
-  static std::string header() { 
-    return "chr1\tpos1\tstrand1\tchr2\tpos2\tstrand2\ttcount\tncount\t\tmapq1\tmapq2\tnm1\tnm2\tcname\tid";
+  static std::string header() {
+    // NB: the `id` column equals the bps.txt contig column (for DSCRD rows) and
+    // the discordant.bam `DC:Z` read tag — one identifier across all three.
+    // `valid` is the geometric-validity flag (0 = overlapping intrachrom
+    // regions); every cluster is now emitted regardless so it can be joined.
+    return "chr1\tpos1\tstrand1\tchr2\tpos2\tstrand2\ttcount\tncount\tmapq1\tmapq2\tnm1\tnm2\tcname\tid\tvalid";
   }
   
   bool hasAssociatedAssemblyContig() const { return m_contig.length(); }

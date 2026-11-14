@@ -258,7 +258,11 @@ void SvabaOutputWriter::writeUnit(svabaThreadUnit& unit,
   // one-line startup warning when --dump-reads was parsed.)
   if (opts.dump_alignments && unit.r2c_db_) {
     for (const auto& alc : unit.master_alc) {
-      if (alc.hasVariant()) {
+      // --r2c-min-somlod gate: keep r2c.db small by writing only contigs whose
+      // max breakpoint somlod (LO_s) is strictly above the threshold. Default
+      // -1e9 => everything passes (LO_s defaults to 0). `--r2c-min-somlod 0`
+      // keeps only somlod>0 (~somatic) events.
+      if (alc.hasVariant() && alc.maxSomlod() > opts.r2cMinSomlod) {
         // writeToR2cDb binds values directly into prepared statements
         // on the per-thread R2CDatabase — no string formatting, no
         // intermediate gzip buffer.
@@ -273,11 +277,13 @@ void SvabaOutputWriter::writeUnit(svabaThreadUnit& unit,
   unit.processed_since_memory_dump = 0;
 
   // discordant clusters
-  // hardcoding "false" for readtracking for simplicity
+  // hardcoding "false" for readtracking for simplicity.
+  // Emit EVERY cluster (not just valid() ones) so any cluster whose id lands
+  // in the bps.txt contig column can always be found here for debugging; the
+  // geometric-validity flag is now the trailing `valid` column.
   for (const auto& kv : unit.m_disc) {
     const auto& dc = kv.second;
-    if (dc.valid())
-      os_discordant_ << dc.toFileString(bam_header_, false) << "\n";
+    os_discordant_ << dc.toFileString(bam_header_, false) << "\n";
   }
 
   // write contig alignments to BAM

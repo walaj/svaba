@@ -53,8 +53,8 @@ constexpr int BAD_REGION_PAD = 200;
 // FORMAT column strings — must stay in sync with BreakPoint::SampleInfo::
 // toFileString (see BreakPoint.cpp ~line 1710) and with the ##FORMAT lines
 // we emit below.
-const std::string kSvFormat    = "GT:AD:DP:SR:DR:GQ:PL:LO:LO_n";
-const std::string kIndelFormat = "GT:AD:DP:SR:CR:GQ:PL:LO:LO_n";
+const std::string kSvFormat    = "GT:AD:DP:SR:DR:GQ:PL:LO:LO_n:KC";
+const std::string kIndelFormat = "GT:AD:DP:SR:CR:GQ:PL:LO:LO_n:KC";
 
 // INFO fields that were declared `Type=Flag` in the header — flags are
 // printed without an `=value` tail.
@@ -201,7 +201,19 @@ void VCFHeader::addContigField(std::string id, int len) {
 // ===========================================================================
 
 std::string VCFEntry::getRefString() const {
-  std::string p = (bp->svtype == SVType::INDEL || id_num == 1) ? bp->ref : bp->alt;
+  std::string p;
+  if (symbolic_rep) {
+    // A symbolic SV is a single record whose POS = min(b1,b2) (see
+    // toFileString). The REF column must be the reference base AT that POS.
+    // bp->ref is the reference base at b1, bp->alt the base at b2 (verified vs
+    // bps.txt cols 7/8). Using bp->ref unconditionally (as the BND/indel path
+    // does) put b1's base on every symbolic record — wrong whenever b2 is the
+    // min breakend (POS=b2), making REF mismatch reference[POS]. Pick the base
+    // belonging to the min breakend.
+    p = (bp->b1.gr.pos1 <= bp->b2.gr.pos1) ? bp->ref : bp->alt;
+  } else {
+    p = (bp->svtype == SVType::INDEL || id_num == 1) ? bp->ref : bp->alt;
+  }
   if (p.empty()) {
     std::cerr << "WARNING: Empty ref/alt field for bp\n";
     return "N";
@@ -230,11 +242,13 @@ std::string VCFEntry::getAltString(const SeqLib::BamHeader& header) const {
   // SV breakends get the BND-style `N]chr:pos]` mate notation.
   const std::string ref = getRefString();
 
+  // +1: positions are 0-based internally (htslib); the mate locus in BND
+  // notation is 1-based per the VCF spec, matching POS in toFileString.
   std::stringstream ptag;
   if (id_num == 1) {
-    ptag << bp->b2.gr.ChrName(header) << ':' << bp->b2.gr.pos1;
+    ptag << bp->b2.gr.ChrName(header) << ':' << (bp->b2.gr.pos1 + 1);
   } else {
-    ptag << bp->b1.gr.ChrName(header) << ':' << bp->b1.gr.pos1;
+    ptag << bp->b1.gr.ChrName(header) << ':' << (bp->b1.gr.pos1 + 1);
   }
 
   std::stringstream alt;
@@ -284,6 +298,23 @@ std::unordered_map<std::string, std::string> VCFEntry::fillInfoFields() const {
 
   if (!bp->id.empty())
     info["EVENT"] = bp->id; // v3 bp_id (col 52 of bps.txt)
+
+  // v5: discordant-cluster id (bps.txt col 54). Present for DSCRD and ASDIS
+  // events; joins to discordant.txt.gz `id` and the discordant.bam DC:Z tag.
+  if (!bp->disc_cluster.empty())
+    info["DSCRD_CLUSTER"] = bp->disc_cluster;
+
+  // v6: per-breakend annotation-track overlap (bps.txt col 55, "b1|b2") and
+  // the poly-A/T MEI run length (col 56). Non-filtering, informational.
+  if (!bp->repeat_anno.empty()) {
+    // a comma is ambiguous in a Number=1 VCF INFO value; join multiple labels
+    // with '&' (snpEff-style) for the VCF. bps.txt keeps the commas (TSV-safe).
+    std::string ra = bp->repeat_anno;
+    std::replace(ra.begin(), ra.end(), ',', '&');
+    info["REPEAT_ANNO"] = ra;
+  }
+  if (bp->poly_a_len > 0)
+    info["POLYA"] = std::to_string(bp->poly_a_len);
 
   {
     std::stringstream ss; ss << std::setprecision(4) << bp->max_lod;
@@ -435,17 +466,20 @@ std::string VCFEntry::toFileString(const SeqLib::BamHeader& header,
   // positions (the event's 5' anchor); the INFO/END field carries the
   // other boundary. For BND records, POS is just the breakend this
   // entry represents (legacy behavior).
+  // +1: breakend positions are stored 0-based internally (htslib
+  // convention); VCF POS is 1-based. This mirrors BreakPoint::toFileString
+  // (bps.txt.gz) and the END INFO field below, both of which add +1.
   int pos;
   std::string chr_name;
   if (symbolic_rep) {
-    const int p1 = bp->b1.gr.pos1;
-    const int p2 = bp->b2.gr.pos1;
+    const int p1 = bp->b1.gr.pos1 + 1;
+    const int p2 = bp->b2.gr.pos1 + 1;
     pos      = std::min(p1, p2);
     // Both breakends live on the same chrom when symbolic; use b1's.
     chr_name = bp->b1.gr.ChrName(header);
   } else {
     const BreakEnd* be = (id_num == 1) ? &bp->b1 : &bp->b2;
-    pos      = be->gr.pos1;
+    pos      = be->gr.pos1 + 1;
     chr_name = be->gr.ChrName(header);
   }
 
@@ -578,6 +612,9 @@ void populate_sv_header(VCFHeader& h) {
   h.addInfoField("MATEMAPQ",  "1", "Integer", "Mapping quality of the partner fragment of the contig");
   h.addInfoField("MATEID",    "1", "String",  "ID of mate breakends");
   h.addInfoField("SUBN",      "1", "Integer", "Number of secondary alignments associated with this contig fragment");
+  h.addInfoField("DSCRD_CLUSTER", "1", "String", "Discordant-cluster id for this event (DSCRD/ASDIS); joins discordant.txt.gz id and the discordant.bam DC:Z tag");
+  h.addInfoField("REPEAT_ANNO", "1", "String", "Per-breakend overlap of the --annotation track as 'b1labels|b2labels' (e.g. AluY|L1HS). Non-filtering/informational");
+  h.addInfoField("POLYA",       "1", "Integer", "Longest poly-A/T homopolymer run (bp) in the inserted sequence; a long run signals retrotransposition/MEI");
   h.addInfoField("NUMPARTS",  "1", "Integer", "If detected with assembly, number of parts the contig maps to. Otherwise 0");
   h.addInfoField("EVDNC",     "1", "String",  "Evidence for variant. ASSMB assembly only, ASDIS assembly+discordant. DSCRD discordant only, TSI_L templated-sequence insertion (local, e.g. AB or BC of an ABC), TSI_G global (e.g. AC of ABC)");
   h.addInfoField("SCTG",      "1", "String",  "Identifier for the contig assembled by svaba to make the SV call");
@@ -604,6 +641,7 @@ void populate_sv_header(VCFHeader& h) {
   h.addFormatField("DR",   "1", "Integer", "Number of discordant-supported reads for this variant");
   h.addFormatField("LO",   "1", "Float",   "Log-odds that this variant is real vs artifact");
   h.addFormatField("LO_n", "1", "Float",   "Log-odds that this variant is AF=0 vs AF>=0.5");
+  h.addFormatField("KC",   "1", "Integer", "Kmer-spanning reads: unique reads carrying the breakend junction kmer (>=19/20bp, either strand) that were excluded from assembly/r2c (adapter read-through, blacklist); folded into the normal alt count for somatic scoring");
 }
 
 void populate_indel_header(VCFHeader& h) {
@@ -637,6 +675,8 @@ void populate_indel_header(VCFHeader& h) {
   h.addInfoField("SVLEN",    "1", "Integer", "Length of the indel (negative for deletions)");
   h.addInfoField("MAXLOD",   "1", "Float",   "Maximum per-sample log-odds (variant vs error) across samples");
   h.addInfoField("SOMLOD",   "1", "Float",   "Somatic log-odds (LLR of somatic vs non-somatic)");
+  h.addInfoField("REPEAT_ANNO", "1", "String", "Per-breakend overlap of the --annotation track as 'b1labels|b2labels'. Non-filtering/informational");
+  h.addInfoField("POLYA",    "1", "Integer", "Longest poly-A/T homopolymer run (bp) in the inserted sequence; a long run signals retrotransposition/MEI");
 
   // FORMATs (indel)
   h.addFormatField("GT",   "1", "String",  "Most likely genotype");
@@ -648,6 +688,7 @@ void populate_indel_header(VCFHeader& h) {
   h.addFormatField("CR",   "1", "Integer", "Number of cigar-supported reads for this variant");
   h.addFormatField("LO",   "1", "Float",   "Log-odds that this variant is real vs artifact");
   h.addFormatField("LO_n", "1", "Float",   "Log-odds that this variant is AF=0 vs AF>=0.5");
+  h.addFormatField("KC",   "1", "Integer", "Kmer-spanning reads: unique reads carrying the breakend junction kmer (>=19/20bp, either strand) that were excluded from assembly/r2c (adapter read-through, blacklist); folded into the normal alt count for somatic scoring");
 }
 
 } // namespace

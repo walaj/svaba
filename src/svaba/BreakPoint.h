@@ -157,7 +157,7 @@ public:
 		       "somatic\tsomlod\tmaxlod\tdbsnp\tcontig_conf1\tcontig_conf2\t"
 		       "cpos1\tcpos2\tlmatch\trmatch\tscov1\tscov2\t"
 		       "local1\tlocal2\tctglen\tflipped\t"
-		       "bp_id\tjxn_kmer"
+		       "bp_id\tjxn_kmer\tdisc_cluster\trepeat_anno\tpoly_a"
 		       );
   }
   
@@ -173,6 +173,29 @@ public:
   // emitter wrote, so we keep it here and let toFileString prefer it on
   // re-emission. Empty (== "") means "not parsed; compute from seq".
   std::string jxn_kmer;
+
+  // SvABA2.0 v5: discordant-cluster id (DiscordantCluster::ID()) associated
+  // with this BreakPoint, or "" / "." when none. Emitted as its own bps.txt
+  // column (after jxn_kmer) so ASDIS events expose the cluster id alongside
+  // the contig name — joins to discordant.txt.gz `id` and the discordant.bam
+  // `DC:Z` tag. For DSCRD-only events the contig column also holds this id.
+  // Like jxn_kmer this is a parsed-from-file cache: when hydrated from a row
+  // (refilter/tovcf) the live `dc` is gone, so toFileString prefers this.
+  std::string disc_cluster;
+
+  // SvABA2 v6: per-breakend annotation-track overlap (--annotation BED), as
+  // "b1labels|b2labels" (comma-joined labels per end; either side may be empty;
+  // whole field "" / "." when no track or no overlap). Non-filtering, purely
+  // informational (e.g. AluY|L1HS, SegDup|, ...). Computed in
+  // setSequenceAnnotations() when a track is loaded; otherwise carries the
+  // parsed-from-file cache so it round-trips through refilter/tovcf.
+  std::string repeat_anno;
+
+  // SvABA2 v6: longest poly-A / poly-T homopolymer run (bp) in the inserted
+  // novel sequence at the junction. A long run (>= ~6-10 bp) is the signature
+  // of retrotransposition / processed-pseudogene insertion (MEI). 0 when no
+  // insertion. Derived from `insertion`, so it round-trips for free.
+  int poly_a_len = 0;
 
   // SvABA2.0: unique stable identifier for this BreakPoint, assigned
   // exactly once per BP in SvabaRegionProcessor::process() via
@@ -244,6 +267,15 @@ public:
   // first is left-most position on contig that has a read aligned to it
   // second is right-most
   std::pair<int,int> split_cov_bounds;
+
+  // SvABA2: number of UNIQUE genomic start positions among split-supporting
+  // reads (set in splitCoverage). The duplicate-read signature is "many split
+  // reads but ~one source fragment" -> few unique starts. Used by the DUPREADS
+  // gate INSTEAD of the old contig-footprint-span proxy, so it doesn't misfire
+  // on short contigs / low coverage / dup-free simulated data. -1 = not
+  // computed (e.g. refilter without a live splitCoverage), which disables the
+  // gate. Not emitted to bps.txt (live-only), so no schema change.
+  int nsplit_starts = -1;
 
   GenomicRegion BreakEndAsGenomicRegionLeft() const;
   
@@ -359,7 +391,14 @@ public:
    * positionally without parsing the contig sequence themselves.
    */
   std::string junctionKmer(int window = 20) const;
-  
+
+  /** SvABA2 v6: populate `repeat_anno` (per-breakend overlap of the
+   * --annotation track, "b1labels|b2labels") and `poly_a_len` (longest
+   * poly-A/T run in the insertion, an MEI signal). Non-filtering. repeat_anno
+   * is only recomputed when sc->annotation is loaded, so a refilter/tovcf run
+   * without --annotation preserves the parsed-from-file value. */
+  void setSequenceAnnotations();
+
   bool hasDiscordant() const;
   
   //bool operator==(const BreakPoint& bp) const;
@@ -407,10 +446,20 @@ public:
 
     int split = 0;
     int cigar = 0;
-    int cigar_near = 0; // cigar matches close (but not same) 
+    int cigar_near = 0; // cigar matches close (but not same)
     int alt = 0;
     int cov = 0;
     int disc = 0;
+    // SvABA2 somatic-safety net: count of UNIQUE reads that carry this BP's
+    // junction kmer (>=19/20 bp, either strand) but were EXCLUDED from
+    // assembly/r2c (adapter read-through, blacklist-self) -- i.e. reads the
+    // normal sample carries that would otherwise be invisible to scoring.
+    // Folded into the normal alt count feeding SomaticLOD (score_somatic) so
+    // a junction-spanning normal read can never be silently lost. Disjoint
+    // from `alt` (those reads were never r2c-counted), so adding is net-new.
+    // Emitted as the trailing FORMAT subfield (KC). See SvabaRegionProcessor
+    // kmer scan and svabaBamWalker::excluded_reads.
+    int kmer_alt = 0;
     
     // genotype info
     //NB: PL (the Phred-scaled -10*log_10(GL - max(GL))

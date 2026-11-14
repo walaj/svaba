@@ -50,6 +50,8 @@
 #include "SeqLib/BamReader.h"
 #include "SeqLib/BamRecord.h"
 #include "SeqLib/BamWriter.h"
+#include "SeqLib/GenomicRegion.h"
+#include "SeqLib/GenomicRegionCollection.h"
 #include "SeqLib/SeqLibUtils.h"  // AddCommas
 
 #include "SvabaOptions.h"  // SVABA_VERSION
@@ -64,13 +66,16 @@ struct Opts {
   std::vector<std::string> seqs;
   std::string seq_file;
   std::string counts_file;   // optional; only meaningful when seq_file is a bps
+  std::vector<std::string> clusters;  // --cluster: match by DC:Z discordant id
   int  threads  = 4;
   int  verbose  = 1;
   bool include_rc    = true;
   bool include_pairs = true;  // false → single-pass; emit only matched records
+  bool whole_bam     = false; // true → scan entire BAM (skip breakpoint windows)
+  int  pad           = 1000;  // breakend window half-width (bp) for region mode
 };
 
-enum { OPT_NO_RC = 1000, OPT_NO_PAIRS, OPT_COUNTS };
+enum { OPT_NO_RC = 1000, OPT_NO_PAIRS, OPT_COUNTS, OPT_WHOLE_BAM, OPT_PAD, OPT_CLUSTER };
 
 const char* kShortOpts = "hi:o:s:f:t:v:";
 const struct option kLongOpts[] = {
@@ -81,52 +86,92 @@ const struct option kLongOpts[] = {
   { "seq-file", required_argument, nullptr, 'f' },
   { "threads",  required_argument, nullptr, 't' },
   { "verbose",  required_argument, nullptr, 'v' },
-  { "no-rc",    no_argument,       nullptr, OPT_NO_RC },
-  { "no-pairs", no_argument,       nullptr, OPT_NO_PAIRS },
-  { "counts",   required_argument, nullptr, OPT_COUNTS  },
+  { "no-rc",     no_argument,       nullptr, OPT_NO_RC },
+  { "no-pairs",  no_argument,       nullptr, OPT_NO_PAIRS },
+  { "counts",    required_argument, nullptr, OPT_COUNTS  },
+  { "whole-bam", no_argument,       nullptr, OPT_WHOLE_BAM },
+  { "pad",       required_argument, nullptr, OPT_PAD },
+  { "cluster",   required_argument, nullptr, OPT_CLUSTER },
   { nullptr, 0, nullptr, 0 }
 };
 
 void printUsage() {
   std::cerr <<
     "Usage: svaba extract-pairs -i IN.bam -o OUT.bam (-s SEQ ... | -f FILE)\n"
-    "                           [-t THREADS] [--no-rc] [--no-pairs] [-v V]\n"
+    "                           [--counts FILE.csv] [-t THREADS] [--no-rc]\n"
+    "                           [--no-pairs] [--whole-bam] [--pad N] [-v V]\n"
     "\n"
     "  Extract all read pairs from IN.bam where either mate's SEQ contains\n"
     "  any of the given query sequences or their reverse complements.\n"
+    "  Queries come from -s, a multi-record FASTA, a plain seq-per-line\n"
+    "  list, or a svaba bps.txt[.gz] (--counts tallies matches per query).\n"
     "  Output is sorted (or input-order-preserved if input is sorted) and\n"
     "  indexed (.bai). Replaces scripts/extract_pairs_by_seq.sh.\n"
+    "\n"
+    "  Region targeting (default when -f is a bps.txt[.gz]): the kmer scan\n"
+    "  (pass 1) is restricted to reads within +/-PAD bp of any breakend in\n"
+    "  the bps file, using the BAM index. This avoids matching a kmer at a\n"
+    "  distant, unrelated reference site that just happens to share the\n"
+    "  20-mer. ALL kmers are searched within that merged window set, so\n"
+    "  cross-breakpoint connections are still found. Pass --whole-bam to\n"
+    "  scan every read (the old behavior). Every other query source (-s,\n"
+    "  FASTA, plain seq-list) carries no coordinates, so those always scan\n"
+    "  the whole BAM regardless of this flag.\n"
     "\n"
     "  -i, --input  <bam>   Input BAM (required).\n"
     "  -o, --output <bam>   Output BAM (required).\n"
     "  -s, --seq    <SEQ>   Query sequence; repeatable.\n"
-    "  -f, --seq-file <p>   File of query sequences. Two formats accepted,\n"
+    "  -f, --seq-file <p>   File of query sequences. Three formats accepted,\n"
     "                       auto-detected from the first non-empty line:\n"
+    "                         * a multi-record FASTA ('>name description'),\n"
+    "                           wrapped or single-line; the first token of\n"
+    "                           the header is the record name used by\n"
+    "                           --counts, or\n"
     "                         * one ACGTN sequence per line ('#' and blank\n"
     "                           lines ignored), or\n"
     "                         * a svaba bps.txt[.gz] dump — every row's\n"
     "                           jxn_kmer column (col 53) is used as a query;\n"
     "                           rows with kmer == \".\" are skipped.\n"
-    "                       Plain or gzip is fine for either format.\n"
+    "                       Plain or gzip is fine for any of them.\n"
     "  -t, --threads <n>    BGZF reader+writer threads. [4]\n"
+    "      --whole-bam      Scan the entire BAM in pass 1 instead of just\n"
+    "                       the breakpoint windows. Old default behavior;\n"
+    "                       a no-op for -s / FASTA / plain seq-list queries,\n"
+    "                       which have no coordinates and always scan all.\n"
+    "      --pad <N>        Half-width (bp) of the window placed around each\n"
+    "                       breakend in region-targeted mode. [1000]\n"
     "      --no-rc          Skip reverse-complement augmentation.\n"
     "      --no-pairs       Emit only records whose own SEQ matched. Skips\n"
     "                       the pair-mate / supplementary pickup, runs in a\n"
     "                       single BAM pass (~2x faster). Useful when you\n"
     "                       just want to inspect which reads contain a motif.\n"
-    "      --counts <FILE>  Emit a per-bp_id table of the number of unique\n"
-    "                       non-duplicate reads carrying each bp's junction\n"
-    "                       kmer. Two columns: bp_id<TAB>n_unique_reads,\n"
-    "                       sorted by bp_id, with a header row. \"Unique\"\n"
-    "                       = primary alignments only (excludes SAM flag\n"
-    "                       256 secondary, 2048 supplementary, 1024 dup)\n"
-    "                       dedup'd by (bp_id, qname, mate). Only valid\n"
-    "                       when -f is a bps.txt[.gz] file (the source of\n"
-    "                       the bp_id↔kmer mapping); rejected otherwise.\n"
+    "      --counts <FILE>  Emit a per-query table of the reads carrying each\n"
+    "                       query sequence. Five columns with a header:\n"
+    "                         seq_name (or bp_id for bps input),\n"
+    "                         sequence (or jxn_kmer),\n"
+    "                         n_total_hits, n_unique_reads, n_unique_qnames\n"
+    "                       n_total_hits = every matching alignment (incl.\n"
+    "                       dup/secondary/supplementary); n_unique_reads =\n"
+    "                       primary non-dup reads dedup'd by (query, qname,\n"
+    "                       mate); n_unique_qnames = the same dedup'd by\n"
+    "                       (query, qname), i.e. how many distinct read\n"
+    "                       pairs carry the sequence. Sorted by n_total_hits\n"
+    "                       DESC, so the worst over-matchers are at the top.\n"
+    "                       Written as CSV when FILE ends in .csv, else TSV.\n"
+    "                       FASTA / plain / -s queries get a row each, even\n"
+    "                       with zero matches; bps input lists only bp_ids\n"
+    "                       with >= 1 match. Incompatible with --no-pairs.\n"
+    "      --cluster <ID>   Discordant-cluster mode: instead of matching by\n"
+    "                       sequence, pull all read pairs whose DC:Z aux tag\n"
+    "                       contains the given discordant-cluster id (the\n"
+    "                       value in the bps.txt contig column for a DSCRD row,\n"
+    "                       and the `id` column of discordant.txt.gz).\n"
+    "                       Repeatable. Run on the discordant.bam from\n"
+    "                       --dump-reads. Whole-BAM scan; -s/-f are ignored.\n"
     "  -v, --verbose <0-3>  Verbosity. [1]\n"
     "  -h, --help           This message.\n"
     "\n"
-    "  At least one query sequence must be supplied (via -s or -f).\n"
+    "  At least one query must be supplied (via -s, -f, or --cluster).\n"
     "  Match alphabet is ACGTN (case-insensitive); other IUPAC bases are\n"
     "  treated as mismatches.\n";
 }
@@ -145,9 +190,12 @@ Opts parseOpts(int argc, char** argv) {
       case 'f': arg >> o.seq_file; break;
       case 't': arg >> o.threads;  break;
       case 'v': arg >> o.verbose;  break;
-      case OPT_NO_RC:    o.include_rc    = false; break;
-      case OPT_NO_PAIRS: o.include_pairs = false; break;
-      case OPT_COUNTS:   arg >> o.counts_file;    break;
+      case OPT_NO_RC:     o.include_rc    = false; break;
+      case OPT_NO_PAIRS:  o.include_pairs = false; break;
+      case OPT_COUNTS:    arg >> o.counts_file;    break;
+      case OPT_WHOLE_BAM: o.whole_bam     = true;  break;
+      case OPT_PAD:       arg >> o.pad;            break;
+      case OPT_CLUSTER:   o.clusters.emplace_back(optarg ? optarg : ""); break;
       default: printUsage(); std::exit(EXIT_FAILURE);
     }
   }
@@ -157,12 +205,13 @@ Opts parseOpts(int argc, char** argv) {
     printUsage();
     std::exit(EXIT_FAILURE);
   }
-  if (o.seqs.empty() && o.seq_file.empty()) {
-    std::cerr << "ERROR: at least one of --seq or --seq-file must be given\n";
+  if (o.seqs.empty() && o.seq_file.empty() && o.clusters.empty()) {
+    std::cerr << "ERROR: at least one of --seq, --seq-file, or --cluster must be given\n";
     printUsage();
     std::exit(EXIT_FAILURE);
   }
   if (o.threads < 1) o.threads = 1;
+  if (o.pad < 0)     o.pad = 0;
   return o;
 }
 
@@ -183,6 +232,34 @@ std::string shQuote(const std::string& s) {
     else out.push_back(c);
   }
   out.push_back('\'');
+  return out;
+}
+
+// Case-insensitive suffix test (used to pick the --counts delimiter from
+// the output filename: .csv → comma, anything else → tab).
+bool endsWithNoCase(const std::string& s, const std::string& suf) {
+  if (s.size() < suf.size()) return false;
+  for (std::size_t i = 0; i < suf.size(); ++i) {
+    const char a = static_cast<char>(
+        std::tolower(static_cast<unsigned char>(s[s.size() - suf.size() + i])));
+    const char b = static_cast<char>(
+        std::tolower(static_cast<unsigned char>(suf[i])));
+    if (a != b) return false;
+  }
+  return true;
+}
+
+// RFC-4180 quoting for a CSV field. FASTA record names are arbitrary text
+// and can legitimately carry a comma or a quote; TSV mode needs no escaping
+// (no emitted field can contain a tab — names are whitespace-delimited).
+std::string csvField(const std::string& v) {
+  if (v.find_first_of(",\"\r\n") == std::string::npos) return v;
+  std::string out(1, '"');
+  for (char c : v) {
+    if (c == '"') out += "\"\"";
+    else out.push_back(c);
+  }
+  out.push_back('"');
   return out;
 }
 
@@ -259,6 +336,17 @@ bool looksLikeBpsFile(const std::vector<std::string>& lines) {
   return false;
 }
 
+// FASTA detection: same content-sniffing idea — the first non-empty line of
+// a FASTA is its first record header. Checked after the bps test (a bps file
+// starts with '#', never '>'), so the two can't be confused.
+bool looksLikeFastaFile(const std::vector<std::string>& lines) {
+  for (const auto& l : lines) {
+    if (l.empty()) continue;
+    return l[0] == '>';
+  }
+  return false;
+}
+
 // What `readSeqsFromFile` returns. For bps inputs we also carry the
 // kmer→bp_id mapping so the counts pass can attribute hits back to the
 // breakpoint they came from. For plain inputs `bp_ids_by_kmer` is empty
@@ -268,10 +356,24 @@ bool looksLikeBpsFile(const std::vector<std::string>& lines) {
 // it appears in col 53 of bps.txt). The caller is responsible for
 // looking up reverse-complement hits under the forward key — equivalent,
 // since fwd and rc both descend from the same bp_id.
+// Where the query list came from. Drives (a) whether region-targeted
+// scanning is possible (bps only — it is the only format carrying breakend
+// coordinates) and (b) the column labels of the --counts table.
+enum class SeqSource { Plain, Bps, Fasta };
+
 struct LoadedSeqs {
   std::vector<std::string> kmers;   // raw, may contain duplicates; caller de-dups
+  // Query id(s) owning each sequence: the bp_id for a bps dump, the record
+  // name for a FASTA, the sequence itself for a plain one-per-line list.
   std::unordered_map<std::string, std::vector<std::string>> bp_ids_by_kmer;
-  bool from_bps = false;
+  // Every query id in input order, so --counts can emit a row for a query
+  // that matched nothing. Deliberately left empty for bps input (millions of
+  // rows there; that table stays restricted to ids with >= 1 hit).
+  std::vector<std::string> ids_in_order;
+  // Both breakends (chr name, 1-based pos) of every row that contributed a
+  // kmer. Drives region-targeted scanning. Empty for non-bps inputs.
+  std::vector<std::pair<std::string, int>> breakends;
+  SeqSource source = SeqSource::Plain;
 };
 
 // Locate a named column in a bps header line. Header lines begin with '#'.
@@ -296,18 +398,25 @@ int findBpsCol(const std::string& header_line, const std::string& name) {
 // bp_ids accumulated under one key).
 LoadedSeqs readJxnKmersFromBps(const std::vector<std::string>& lines) {
   LoadedSeqs out;
-  out.from_bps = true;
+  out.source = SeqSource::Bps;
   if (lines.empty()) return out;
 
-  // First non-empty line is the header — find jxn_kmer + bp_id positions.
+  // First non-empty line is the header — find the columns we need. Besides
+  // jxn_kmer + bp_id we also pull both breakend coordinates (chr1/pos1 and
+  // chr2/pos2) so the caller can target the BAM scan to breakpoint windows.
   int kmer_col = -1;
   int bp_col   = -1;
+  int chr1_col = -1, pos1_col = -1, chr2_col = -1, pos2_col = -1;
   std::string header;
   for (const auto& l : lines) {
     if (l.empty()) continue;
     header   = l;
     kmer_col = findBpsCol(l, "jxn_kmer");
     bp_col   = findBpsCol(l, "bp_id");
+    chr1_col = findBpsCol(l, "chr1");
+    pos1_col = findBpsCol(l, "pos1");
+    chr2_col = findBpsCol(l, "chr2");
+    pos2_col = findBpsCol(l, "pos2");
     break;
   }
   if (kmer_col < 0) {
@@ -318,14 +427,22 @@ LoadedSeqs readJxnKmersFromBps(const std::vector<std::string>& lines) {
   }
   // bp_col may be -1 on a very early v4 dump that lacked bp_id; that's
   // fine — kmers still work, only the counts attribution will be empty.
+  // chr/pos cols are standard (cols 0/1/3/4); if any are missing we simply
+  // emit no breakends and the caller falls back to a whole-BAM scan.
+  const bool have_coords =
+      chr1_col >= 0 && pos1_col >= 0 && chr2_col >= 0 && pos2_col >= 0;
 
-  // Walk data rows, splitting on tabs to grab both columns in one pass.
-  // We need at most max(kmer_col, bp_col)+1 fields per row.
-  const int last_col = std::max(kmer_col, bp_col);
+  // Walk data rows, splitting on tabs to grab all needed columns in one pass.
+  int last_col = std::max(kmer_col, bp_col);
+  if (have_coords)
+    last_col = std::max(last_col,
+                        std::max(std::max(chr1_col, pos1_col),
+                                 std::max(chr2_col, pos2_col)));
   for (const auto& l : lines) {
     if (l.empty() || l[0] == '#') continue;
     std::string kmer_norm;
     std::string bp_id_val;
+    std::string chr1_v, pos1_v, chr2_v, pos2_v;
     int col = 0;
     std::size_t s = 0;
     while (s <= l.size()) {
@@ -338,6 +455,14 @@ LoadedSeqs readJxnKmersFromBps(const std::vector<std::string>& lines) {
         }
       } else if (col == bp_col) {
         if (!tok.empty() && tok != ".") bp_id_val.assign(tok.data(), tok.size());
+      } else if (have_coords && col == chr1_col) {
+        chr1_v.assign(tok.data(), tok.size());
+      } else if (have_coords && col == pos1_col) {
+        pos1_v.assign(tok.data(), tok.size());
+      } else if (have_coords && col == chr2_col) {
+        chr2_v.assign(tok.data(), tok.size());
+      } else if (have_coords && col == pos2_col) {
+        pos2_v.assign(tok.data(), tok.size());
       }
       if (e == std::string::npos || col >= last_col) break;
       s = e + 1;
@@ -347,6 +472,20 @@ LoadedSeqs readJxnKmersFromBps(const std::vector<std::string>& lines) {
     out.kmers.push_back(kmer_norm);
     if (!bp_id_val.empty())
       out.bp_ids_by_kmer[kmer_norm].push_back(std::move(bp_id_val));
+
+    // Record both breakends of this (kmer-bearing) row for region targeting.
+    if (have_coords) {
+      auto add_be = [&](const std::string& chr, const std::string& pos) {
+        if (chr.empty() || chr == "." || pos.empty() || pos == ".") return;
+        errno = 0;
+        char* endp = nullptr;
+        const long p = std::strtol(pos.c_str(), &endp, 10);
+        if (endp == pos.c_str() || errno != 0 || p <= 0) return;
+        out.breakends.emplace_back(chr, static_cast<int>(p));
+      };
+      add_be(chr1_v, pos1_v);
+      add_be(chr2_v, pos2_v);
+    }
   }
   // Dedup the bp_id list per kmer — same bp_id might legitimately appear
   // twice across rows (shouldn't, but defensive). Cheap and bounded.
@@ -358,21 +497,89 @@ LoadedSeqs readJxnKmersFromBps(const std::vector<std::string>& lines) {
   return out;
 }
 
-// Public seq-file reader. Auto-detects bps.txt[.gz] vs plain one-per-line
-// list by sniffing the first non-empty line. gzip is handled transparently
-// for both formats.
+// Read a multi-record FASTA. The record id is the first whitespace-delimited
+// token after '>' (the rest of the header line is a free-text description and
+// is dropped); the sequence is every following line concatenated, so wrapped
+// FASTA is fine. Records whose sequence is empty are skipped. Duplicate names
+// are uniquified (`name`, `name.2`, ...) so the --counts table keeps exactly
+// one row per record. Plain or gzip — slurpLines handles both.
+//
+// Two records with an identical sequence collapse to one AC pattern but keep
+// both ids under that key, so a matching read is credited to both — which is
+// what "reads matching this sequence" means for each of them.
+LoadedSeqs readFasta(const std::vector<std::string>& lines) {
+  LoadedSeqs out;
+  out.source = SeqSource::Fasta;
+
+  std::unordered_map<std::string, int> name_seen;
+  std::string name, seq;
+  std::size_t n_empty = 0, n_dup_names = 0;
+  int unnamed = 0;
+
+  // Close out the record currently being accumulated (no-op before the
+  // first header line). `name` doubles as the "record open" sentinel.
+  auto flush = [&]() {
+    if (name.empty()) return;
+    std::string s = normalizeSeq(seq);
+    seq.clear();
+    if (s.empty()) { ++n_empty; name.clear(); return; }
+    const int n = ++name_seen[name];
+    std::string id = (n == 1) ? name : name + "." + std::to_string(n);
+    if (n > 1) ++n_dup_names;
+    out.bp_ids_by_kmer[s].push_back(id);
+    out.ids_in_order.push_back(std::move(id));
+    out.kmers.push_back(std::move(s));
+    name.clear();
+  };
+
+  for (const auto& l : lines) {
+    if (!l.empty() && l[0] == '>') {
+      flush();
+      std::size_t b = 1;
+      while (b < l.size() && std::isspace(static_cast<unsigned char>(l[b]))) ++b;
+      std::size_t e = b;
+      while (e < l.size() && !std::isspace(static_cast<unsigned char>(l[e]))) ++e;
+      name = (e > b) ? l.substr(b, e - b)
+                     : ("seq" + std::to_string(++unnamed));
+    } else if (!name.empty() && !l.empty() && l[0] != ';') {
+      seq += l;  // ';' is a legacy FASTA comment line
+    }
+    // Anything before the first '>' is ignored (well-formed FASTA has none).
+  }
+  flush();
+
+  if (n_empty)
+    std::cerr << "[extract-pairs] WARNING: " << n_empty
+              << " FASTA record(s) had an empty sequence; skipped\n";
+  if (n_dup_names)
+    std::cerr << "[extract-pairs] WARNING: " << n_dup_names
+              << " duplicate FASTA record name(s); uniquified with a "
+                 ".2/.3/... suffix\n";
+  return out;
+}
+
+// Public seq-file reader. Auto-detects bps.txt[.gz] vs FASTA vs a plain
+// one-per-line list by sniffing the first non-empty line. gzip is handled
+// transparently for all three.
 LoadedSeqs readSeqsFromFile(const std::string& path) {
   const auto lines = slurpLines(path);
-  if (looksLikeBpsFile(lines))
-    return readJxnKmersFromBps(lines);
+  if (looksLikeBpsFile(lines))   return readJxnKmersFromBps(lines);
+  if (looksLikeFastaFile(lines)) return readFasta(lines);
 
-  // Plain seq-per-line file (the original behavior).
+  // Plain seq-per-line file (the original behavior). The id of a query here
+  // is the sequence itself — there is no name to attach — which is enough
+  // for --counts to produce a per-query row.
   LoadedSeqs out;
-  out.from_bps = false;
+  out.source = SeqSource::Plain;
   for (const auto& l : lines) {
     if (l.empty() || l[0] == '#') continue;
     std::string s = normalizeSeq(l);
-    if (!s.empty()) out.kmers.push_back(std::move(s));
+    if (s.empty()) continue;
+    if (out.bp_ids_by_kmer.find(s) == out.bp_ids_by_kmer.end()) {
+      out.bp_ids_by_kmer[s].push_back(s);
+      out.ids_in_order.push_back(s);
+    }
+    out.kmers.push_back(std::move(s));
   }
   return out;
 }
@@ -390,6 +597,38 @@ bool isCoordinateSorted(const SeqLib::BamHeader& h) {
     if (!line.empty() && line[0] == '@') break;  // @HD must be first
   }
   return false;
+}
+
+// Build the merged set of breakpoint windows to restrict pass-1 scanning to.
+// Each breakend (chr name, 1-based pos) becomes a [pos-pad, pos+pad] window
+// (0-based, clipped to the contig). Names absent from the BAM header are
+// skipped (counted in n_skipped). Overlapping/touching windows are merged so
+// the sequential region iterator in BamReader::SetRegions doesn't return the
+// same read from two windows (a residual cross-window duplicate is still
+// possible for a read spanning a sub-read-length gap; the scan path guards
+// against that separately).
+SeqLib::GRC buildBreakpointRegions(
+    const std::vector<std::pair<std::string, int>>& breakends,
+    const SeqLib::BamHeader& hdr, int pad, std::size_t& n_skipped) {
+  SeqLib::GRC grc;
+  n_skipped = 0;
+  for (const auto& be : breakends) {
+    const int tid = hdr.Name2ID(be.first);
+    if (tid < 0) { ++n_skipped; continue; }
+    const int seqlen = hdr.GetSequenceLength(tid);   // -1 if unknown
+    const int pos0   = be.second - 1;                // bps pos is 1-based
+    int start = pos0 - pad; if (start < 0) start = 0;
+    int end   = pos0 + pad;
+    if (seqlen > 0 && end > seqlen - 1) end = seqlen - 1;
+    if (end < start) end = start;
+    grc.add(SeqLib::GenomicRegion(tid, start, end));
+  }
+  // Guard: MergeOverlappingIntervals walks a std::list and increments past
+  // begin() unconditionally, which is UB on an empty list. Only merge when
+  // we actually added windows (all-skipped → empty GRC → whole-BAM fallback).
+  if (grc.size())
+    grc.MergeOverlappingIntervals();  // sorts + collapses overlapping/touching
+  return grc;
 }
 
 // ---------- @PG stamp ----------
@@ -642,14 +881,26 @@ class AhoCorasick {
 // QNAME hash set holds one std::string per matching read pair (plus
 // supplementary/secondary aliases under the same QNAME).
 //
-// In counts mode (caller passes non-null pattern_to_bp_ids), we additionally
-// switch the AC scan to `searchNibblesCollect` to enumerate every pattern_id
-// that matched in this read's SEQ, and attribute each hit to the bp_id(s)
-// that own the kmer. Counts are restricted to primary, non-duplicate,
-// non-secondary, non-supplementary alignments, dedup'd by (bp_id, qname,
-// mate). QNAME collection itself does NOT apply the flag filter — we still
-// want every read whose SEQ matched (including duplicates / supplementaries
-// of a real read pair) to flow into the pair-pickup pass.
+// In counts mode (caller passes non-null pattern_to_ids + tally), we
+// additionally switch the AC scan to `searchNibblesCollect` to enumerate
+// every pattern_id that matched in this read's SEQ, and attribute each hit
+// to the query id(s) that own the pattern. The unique tallies are restricted
+// to primary, non-duplicate, non-secondary, non-supplementary alignments,
+// dedup'd by (id, qname, mate) for `reads` and by (id, qname) for `qnames`.
+// QNAME collection itself does NOT apply the flag filter — we still want
+// every read whose SEQ matched (including duplicates / supplementaries of a
+// real read pair) to flow into the pair-pickup pass.
+
+// Per-query tally for --counts. All three maps are keyed by query id (bp_id
+// for bps input, record name for FASTA, the sequence itself for a plain
+// list). `total` counts alignments, `reads` counts distinct mates, `qnames`
+// counts distinct read pairs (the "how many fragments carry this sequence"
+// number).
+struct CountsTally {
+  std::unordered_map<std::string, std::size_t> total;
+  std::unordered_map<std::string, std::size_t> reads;
+  std::unordered_map<std::string, std::size_t> qnames;
+};
 
 struct Pass1Stats {
   std::size_t reads        = 0;
@@ -665,9 +916,9 @@ Pass1Stats collectQnames(const std::string& in_bam,
                          int verbose,
                          std::unordered_set<std::string>& out_qnames,
                          const std::vector<std::vector<std::string>>*
-                             pattern_to_bp_ids,
-                         std::unordered_map<std::string, std::size_t>*
-                             bp_id_counts) {
+                             pattern_to_ids,
+                         CountsTally* tally,
+                         const SeqLib::GRC* regions) {
   using clock = std::chrono::steady_clock;
   Pass1Stats st;
   const auto t0 = clock::now();
@@ -677,6 +928,21 @@ Pass1Stats collectQnames(const std::string& in_bam,
     throw std::runtime_error("pass1: cannot open " + in_bam);
   r.SetThreads(std::max(1, threads));
 
+  // Region targeting: restrict the iterator to the breakpoint windows. If the
+  // BAM has no index, SetRegions fails — fall back to a whole-BAM scan rather
+  // than aborting, so the command still produces a (less targeted) result.
+  bool region_dedup_active = false;
+  if (regions && regions->size()) {
+    if (r.SetRegions(*regions)) {
+      region_dedup_active = true;
+    } else {
+      std::cerr << "[pass1] WARNING: could not restrict to breakpoint regions "
+                   "(missing .bai?); scanning the whole BAM instead\n";
+    }
+  }
+  // Collapses a read returned by two adjacent windows (see is_region_dup).
+  std::unordered_set<std::string> region_seen;
+
   // Cached chr name for the progress line. ChrName() hits the header every
   // call, so we resolve it only on (rare) chromosome change, not per record.
   // Sentinel -2 won't match any valid tid (-1 = unmapped, 0..N-1 = mapped).
@@ -684,12 +950,13 @@ Pass1Stats collectQnames(const std::string& in_bam,
   int32_t     cur_pos      = -1;
   std::string cur_chr_name = "*";
 
-  const bool counts_mode = (pattern_to_bp_ids != nullptr) &&
-                           (bp_id_counts != nullptr);
-  // Dedup set for per-bp_id counts. Key is bp_id + '\0' + qname + '\0' + mate.
-  // Lives for the whole pass — bounded by the number of (bp, read) pairs that
-  // actually match a kmer, which is small even on WGS (1e4–1e6 entries).
-  std::unordered_set<std::string> bp_seen;
+  const bool counts_mode = (pattern_to_ids != nullptr) && (tally != nullptr);
+  // Dedup sets for the per-query unique counts. Keys are id + '\0' + qname
+  // (+ '\0' + mate for the per-mate set). They live for the whole pass —
+  // bounded by the number of (query, read) pairs that actually match, which
+  // is small even on WGS (1e4–1e6 entries).
+  std::unordered_set<std::string> bp_seen;       // (id, qname, mate)
+  std::unordered_set<std::string> bp_qname_seen; // (id, qname)
   std::vector<int> hit_ids;        // reused per matching record
 
   while (auto opt = r.Next()) {
@@ -714,44 +981,80 @@ Pass1Stats collectQnames(const std::string& in_bam,
     if (qlen <= 0) continue;
     const uint8_t* seq4 = bam_get_seq(b);
 
+    // In region mode, the sequential per-window iterator can hand back a read
+    // that straddles the gap between two adjacent (post-merge) windows twice.
+    // Collapse those by (tid, pos, qname, flag) so matches aren't double-
+    // counted and (single-pass) output isn't duplicated. Only matched reads
+    // ever enter the set, so it stays small.
+    auto is_region_dup = [&]() -> bool {
+      if (!region_dedup_active) return false;
+      std::string key;
+      key.reserve(64);
+      key.append(std::to_string(b->core.tid)); key.push_back(':');
+      key.append(std::to_string(b->core.pos)); key.push_back(':');
+      key.append(rec.Qname());                 key.push_back(':');
+      key.append(std::to_string(b->core.flag));
+      return !region_seen.insert(std::move(key)).second;
+    };
+
     if (counts_mode) {
       ac.searchNibblesCollect(seq4, qlen, hit_ids);
       if (!hit_ids.empty()) {
+        if (is_region_dup()) continue;
         ++st.matched_reads;
         out_qnames.insert(rec.Qname());
 
-        // Tally per-bp_id only for primary non-dup non-sec non-sup reads.
+        // RAW total: credit every matching alignment (incl. duplicate,
+        // secondary, supplementary) to each owning query id. hit_ids is
+        // already deduplicated per read, so an id is counted at most once
+        // per alignment. This is the magnitude that explains the "matches"
+        // number in the progress log — the right signal for spotting
+        // low-complexity queries that match far more than expected.
+        for (int pid : hit_ids) {
+          if (pid < 0 || pid >= static_cast<int>(pattern_to_ids->size()))
+            continue;
+          for (const auto& id : (*pattern_to_ids)[pid])
+            ++tally->total[id];
+        }
+
+        // UNIQUE: only primary non-dup non-sec non-sup reads. Two
+        // resolutions, both unaffected by PCR duplication: distinct mates
+        // (id, qname, mate) and distinct read pairs (id, qname).
         const uint16_t flag = b->core.flag;
         const bool primary = (flag & (BAM_FSECONDARY | BAM_FSUPPLEMENTARY
                                        | BAM_FDUP)) == 0;
         if (primary) {
           const char* mate = (flag & BAM_FREAD1) ? "1"
                             : (flag & BAM_FREAD2) ? "2" : "0";
-          // Build dedup key on the stack to avoid per-bp string churn.
+          // Build dedup key on the stack to avoid per-id string churn. The
+          // qname-only key is a prefix of the mate key, so one buffer serves
+          // both (append the mate after testing the qname-level set).
           std::string qn = rec.Qname();
           std::string key;
           key.reserve(48);
           for (int pid : hit_ids) {
             if (pid < 0 ||
-                pid >= static_cast<int>(pattern_to_bp_ids->size()))
+                pid >= static_cast<int>(pattern_to_ids->size()))
               continue;
-            const auto& bps = (*pattern_to_bp_ids)[pid];
-            for (const auto& bp_id : bps) {
+            const auto& ids = (*pattern_to_ids)[pid];
+            for (const auto& id : ids) {
               key.clear();
-              key.append(bp_id);
+              key.append(id);
               key.push_back('\0');
               key.append(qn);
+              if (bp_qname_seen.insert(key).second)
+                ++tally->qnames[id];
               key.push_back('\0');
               key.append(mate);
-              if (bp_seen.insert(key).second) {
-                ++(*bp_id_counts)[bp_id];
-              }
+              if (bp_seen.insert(key).second)
+                ++tally->reads[id];
             }
           }
           ++st.counted_reads;
         }
       }
     } else if (ac.searchNibbles(seq4, qlen)) {
+      if (is_region_dup()) continue;
       ++st.matched_reads;
       out_qnames.insert(rec.Qname());
     }
@@ -773,6 +1076,55 @@ Pass1Stats collectQnames(const std::string& in_bam,
     }
   }
 
+  st.unique_qnames = out_qnames.size();
+  st.seconds = std::chrono::duration<double>(clock::now() - t0).count();
+  return st;
+}
+
+// ---------- pass 1 (cluster mode): collect QNAMEs by DC:Z tag ----------
+//
+// For `--cluster`. Match reads whose DC:Z aux tag (the "d"-joined list of
+// discordant-cluster ids stamped by DiscordantCluster::labelReads) CONTAINS any
+// requested id. We use substring match rather than tokenizing on "d" because a
+// cluster id can itself contain 'd' (e.g. a "*_decoy" contig name); the "___"
+// inside every id makes spurious prefix hits unlikely. Whole-BAM scan — the
+// intended input is the (small) discordant.bam from --dump-reads.
+Pass1Stats collectQnamesByCluster(const std::string& in_bam,
+                                  const std::vector<std::string>& clusters,
+                                  int threads, int verbose,
+                                  std::unordered_set<std::string>& out_qnames) {
+  using clock = std::chrono::steady_clock;
+  Pass1Stats st;
+  const auto t0 = clock::now();
+
+  SeqLib::BamReader r;
+  if (!r.Open(in_bam))
+    throw std::runtime_error("cluster pass1: cannot open " + in_bam);
+  r.SetThreads(std::max(1, threads));
+
+  std::string dc;
+  bool warned_no_dc = false;
+  std::size_t reads_with_dc = 0;
+  while (auto opt = r.Next()) {
+    SeqLib::BamRecord& rec = *opt;
+    ++st.reads;
+    dc.clear();
+    rec.GetZTag("DC", dc);
+    if (dc.empty()) continue;
+    ++reads_with_dc;
+    bool hit = false;
+    for (const auto& c : clusters)
+      if (!c.empty() && dc.find(c) != std::string::npos) { hit = true; break; }
+    if (!hit) continue;
+    ++st.matched_reads;
+    out_qnames.insert(rec.Qname());
+  }
+  if (verbose >= 1 && reads_with_dc == 0 && !warned_no_dc) {
+    std::cerr << "[extract-pairs] WARNING: no reads in " << in_bam
+              << " carry a DC:Z tag. Is this the discordant.bam from "
+                 "--dump-reads?\n";
+    warned_no_dc = true;
+  }
   st.unique_qnames = out_qnames.size();
   st.seconds = std::chrono::duration<double>(clock::now() - t0).count();
   return st;
@@ -889,7 +1241,8 @@ SinglePassStats extractMatchedOnly(const std::string& in_bam,
                                    const AhoCorasick& ac,
                                    int threads,
                                    int verbose,
-                                   const std::string& cl) {
+                                   const std::string& cl,
+                                   const SeqLib::GRC* regions) {
   using clock = std::chrono::steady_clock;
   SinglePassStats st;
   const auto t0 = clock::now();
@@ -898,6 +1251,19 @@ SinglePassStats extractMatchedOnly(const std::string& in_bam,
   if (!r.Open(in_bam))
     throw std::runtime_error("single-pass: cannot open " + in_bam);
   r.SetThreads(std::max(1, threads));
+
+  // Region targeting (see collectQnames). Fall back to whole-BAM if the
+  // index is missing so the command still works.
+  bool region_dedup_active = false;
+  if (regions && regions->size()) {
+    if (r.SetRegions(*regions)) {
+      region_dedup_active = true;
+    } else {
+      std::cerr << "[single-pass] WARNING: could not restrict to breakpoint "
+                   "regions (missing .bai?); scanning the whole BAM instead\n";
+    }
+  }
+  std::unordered_set<std::string> region_seen;
 
   // Stamped output header (same shape as the two-pass mode's pass-2 header).
   const SeqLib::BamHeader src_hdr = r.Header();
@@ -935,6 +1301,16 @@ SinglePassStats extractMatchedOnly(const std::string& in_bam,
     const uint8_t* seq4 = bam_get_seq(b);
 
     if (ac.searchNibbles(seq4, qlen)) {
+      // Drop a read handed back by two adjacent windows (region mode only).
+      if (region_dedup_active) {
+        std::string key;
+        key.reserve(64);
+        key.append(std::to_string(b->core.tid)); key.push_back(':');
+        key.append(std::to_string(b->core.pos)); key.push_back(':');
+        key.append(rec.Qname());                 key.push_back(':');
+        key.append(std::to_string(b->core.flag));
+        if (!region_seen.insert(std::move(key)).second) continue;
+      }
       if (!w.WriteRecord(rec))
         throw std::runtime_error("single-pass: WriteRecord failed on " + out_bam);
       ++st.reads_out;
@@ -1003,6 +1379,66 @@ void runExtractPairs(int argc, char** argv) {
     std::exit(EXIT_FAILURE);
   }
 
+  // ---- discordant-cluster mode (--cluster) ----
+  // Self-contained: match by DC:Z tag, not by sequence/AC. Two-pass so both
+  // mates of every supporting pair come along for IGV. Bypasses all the
+  // seq/kmer machinery below.
+  if (!o.clusters.empty()) {
+    if (!o.seqs.empty() || !o.seq_file.empty())
+      std::cerr << "[extract-pairs] note: --cluster given; ignoring -s / -f "
+                   "sequence queries\n";
+    const std::string cl = buildCommandLine(argc, argv);
+
+    bool input_sorted = false;
+    { SeqLib::BamReader h; if (h.Open(o.in_bam)) input_sorted = isCoordinateSorted(h.Header()); }
+
+    if (o.verbose >= 1)
+      std::cerr << "[extract-pairs] cluster mode: " << o.clusters.size()
+                << " cluster id(s); scanning " << o.in_bam << " for DC:Z...\n";
+
+    std::unordered_set<std::string> qnames;
+    qnames.reserve(1 << 12);
+    const Pass1Stats p1 =
+        collectQnamesByCluster(o.in_bam, o.clusters, o.threads, o.verbose, qnames);
+    if (o.verbose >= 1)
+      std::cerr << "[extract-pairs] cluster pass 1: "
+                << SeqLib::AddCommas(p1.reads) << " reads, "
+                << SeqLib::AddCommas(p1.matched_reads) << " tagged, "
+                << SeqLib::AddCommas(p1.unique_qnames) << " unique qnames in "
+                << std::fixed << std::setprecision(1) << p1.seconds << "s\n";
+
+    if (qnames.empty()) {
+      std::cerr << "[extract-pairs] no reads carry DC:Z for the requested "
+                   "cluster(s); output not created\n";
+      std::exit(EXIT_SUCCESS);
+    }
+
+    const Pass2Stats p2 =
+        extractByQname(o.in_bam, o.out_bam, qnames, o.threads, o.verbose, cl);
+    if (o.verbose >= 1)
+      std::cerr << "[extract-pairs] cluster pass 2: "
+                << SeqLib::AddCommas(p2.reads_in) << " in, "
+                << SeqLib::AddCommas(p2.reads_out) << " written in "
+                << std::fixed << std::setprecision(1) << p2.seconds << "s\n";
+
+    if (!input_sorted) {
+      if (sortInPlace(o.out_bam, o.threads, o.verbose) != 0)
+        std::exit(EXIT_FAILURE);
+    }
+    const int idx_rc = sam_index_build(o.out_bam.c_str(), 0);
+    if (idx_rc < 0) {
+      std::cerr << "ERROR: sam_index_build failed (rc=" << idx_rc << ") on "
+                << o.out_bam << "\n";
+      std::exit(EXIT_FAILURE);
+    }
+    if (o.verbose >= 1)
+      std::cerr << "[extract-pairs] done.\n"
+                << "  Matching qnames:  " << SeqLib::AddCommas(qnames.size()) << "\n"
+                << "  Output records:   " << SeqLib::AddCommas(p2.reads_out) << "\n"
+                << "  Output:           " << o.out_bam << " (+ " << o.out_bam << ".bai)\n";
+    return;
+  }
+
   // ---- gather + normalize patterns ----
   // bp_ids_by_kmer is populated only when a bps.txt was the input. It maps
   // forward-strand kmer string → list of bp_ids that emitted it. We carry
@@ -1010,11 +1446,15 @@ void runExtractPairs(int argc, char** argv) {
   std::vector<std::string> seqs = o.seqs;
   for (auto& s : seqs) s = normalizeSeq(s);
   std::unordered_map<std::string, std::vector<std::string>> bp_ids_by_kmer;
-  bool seq_file_is_bps = false;
+  std::vector<std::pair<std::string, int>> breakends;  // (chr, 1-based pos)
+  std::vector<std::string> ids_in_order;               // for --counts zero rows
+  SeqSource src_kind = SeqSource::Plain;
   if (!o.seq_file.empty()) {
     LoadedSeqs loaded = readSeqsFromFile(o.seq_file);
-    seq_file_is_bps   = loaded.from_bps;
+    src_kind          = loaded.source;
     bp_ids_by_kmer    = std::move(loaded.bp_ids_by_kmer);
+    breakends         = std::move(loaded.breakends);
+    ids_in_order      = std::move(loaded.ids_in_order);
     seqs.insert(seqs.end(),
                 std::make_move_iterator(loaded.kmers.begin()),
                 std::make_move_iterator(loaded.kmers.end()));
@@ -1031,20 +1471,11 @@ void runExtractPairs(int argc, char** argv) {
   }
 
   // ---- --counts validity check ----
-  // Counts only make sense when the source of the kmer list is a bps file
-  // (the only place we have the kmer↔bp_id mapping). Reject otherwise so
-  // the user doesn't silently get an empty TSV. Also incompatible with
-  // --no-pairs: the count tally lives on pass 1 of the two-pass path,
-  // and the single-pass writer doesn't carry that state.
+  // Counts work for every query source: the row id is the bp_id (bps), the
+  // record name (FASTA), or the sequence itself (-s / plain list). Only
+  // --no-pairs is incompatible — the tally lives on pass 1 of the two-pass
+  // path and the single-pass writer doesn't carry that state.
   const bool want_counts = !o.counts_file.empty();
-  if (want_counts && !seq_file_is_bps) {
-    std::cerr << "ERROR: --counts requires -f to be a svaba bps.txt[.gz] file; "
-                 "got "
-              << (o.seq_file.empty() ? "no seq-file (only -s)"
-                                     : "a plain seq-per-line file")
-              << "\n";
-    std::exit(EXIT_FAILURE);
-  }
   if (want_counts && !o.include_pairs) {
     std::cerr << "ERROR: --counts is incompatible with --no-pairs (counting "
                  "happens in the two-pass mode's pass 1)\n";
@@ -1074,12 +1505,19 @@ void runExtractPairs(int argc, char** argv) {
         if (ac.add(rc, pid)) { ++added; } else { ++rejected; }
       }
     }
-    // Look the forward kmer up in bp_ids_by_kmer to build pattern_to_bp_ids.
+    // Look the forward sequence up in bp_ids_by_kmer to build the
+    // pattern→id map. A sequence given on the command line with -s has no
+    // entry there; in counts mode it becomes its own id so it still gets a
+    // row (meaningless for bps input, where ids must be bp_ids).
     auto it = bp_ids_by_kmer.find(s);
-    if (it != bp_ids_by_kmer.end())
+    if (it != bp_ids_by_kmer.end()) {
       pattern_to_bp_ids.emplace_back(it->second);
-    else
+    } else if (want_counts && src_kind != SeqSource::Bps) {
+      pattern_to_bp_ids.emplace_back(1, s);
+      ids_in_order.push_back(s);
+    } else {
       pattern_to_bp_ids.emplace_back();
+    }
   }
   ac.build();
 
@@ -1099,20 +1537,49 @@ void runExtractPairs(int argc, char** argv) {
 
   const std::string cl = buildCommandLine(argc, argv);
 
-  // ---- detect input sort order (cheap; just header inspection) ----
-  // Done up-front so both modes (two-pass and single-pass) report it
-  // consistently before they start the heavy work.
+  // ---- detect input sort order + build breakpoint regions ----
+  // One header open serves both: the sort check (cheap) and resolving
+  // breakend chrom names to tids for the region windows.
   bool input_sorted = false;
+  SeqLib::GRC regions;       // breakpoint windows; empty => whole-BAM scan
   {
     SeqLib::BamReader hdr_only;
-    if (hdr_only.Open(o.in_bam))
+    if (hdr_only.Open(o.in_bam)) {
       input_sorted = isCoordinateSorted(hdr_only.Header());
+
+      // Region targeting is the default whenever breakend coordinates are
+      // available (i.e. -f was a bps.txt) and --whole-bam wasn't requested.
+      if (!o.whole_bam && src_kind == SeqSource::Bps && !breakends.empty()) {
+        std::size_t skipped = 0;
+        regions = buildBreakpointRegions(breakends, hdr_only.Header(),
+                                         o.pad, skipped);
+        if (o.verbose >= 1 && skipped)
+          std::cerr << "[extract-pairs] " << SeqLib::AddCommas(skipped)
+                    << " breakend(s) skipped (chrom not in BAM header)\n";
+      }
+    }
   }
-  if (o.verbose >= 1)
+  const bool use_regions = regions.size() > 0;
+  const SeqLib::GRC* regions_ptr = use_regions ? &regions : nullptr;
+
+  if (o.verbose >= 1) {
     std::cerr << "[extract-pairs] input is "
               << (input_sorted ? "coord-sorted (sort step will be skipped)"
                                : "not coord-sorted (samtools sort will run)")
               << "\n";
+    if (use_regions)
+      std::cerr << "[extract-pairs] region-targeted scan: "
+                << SeqLib::AddCommas(regions.size())
+                << " merged windows (+/-" << o.pad << " bp around "
+                << SeqLib::AddCommas(breakends.size())
+                << " breakends); pass 1 reads only these regions "
+                   "(--whole-bam to scan everything)\n";
+    else if (o.whole_bam)
+      std::cerr << "[extract-pairs] whole-BAM scan (--whole-bam)\n";
+    else if (src_kind != SeqSource::Bps)
+      std::cerr << "[extract-pairs] whole-BAM scan (no breakend coordinates; "
+                   "pass -f a bps.txt[.gz] to enable region targeting)\n";
+  }
 
   std::size_t out_records = 0;
   std::size_t qname_count = 0;  // unused in single-pass mode
@@ -1123,7 +1590,7 @@ void runExtractPairs(int argc, char** argv) {
       std::cerr << "[extract-pairs] single-pass mode (--no-pairs): emitting "
                    "only records whose own SEQ matched\n";
     const SinglePassStats sp = extractMatchedOnly(
-        o.in_bam, o.out_bam, ac, o.threads, o.verbose, cl);
+        o.in_bam, o.out_bam, ac, o.threads, o.verbose, cl, regions_ptr);
     if (o.verbose >= 1)
       std::cerr << "[extract-pairs] single-pass: "
                 << SeqLib::AddCommas(sp.reads_in) << " reads scanned, "
@@ -1142,14 +1609,15 @@ void runExtractPairs(int argc, char** argv) {
     if (o.verbose >= 1)
       std::cerr << "[extract-pairs] pass 1/2: scanning " << o.in_bam
                 << " for matching SEQ"
-                << (want_counts ? " (counts mode: tracking per-bp_id support)"
+                << (want_counts ? " (counts mode: tracking per-query support)"
                                 : "")
                 << "...\n";
-    std::unordered_map<std::string, std::size_t> bp_id_counts;
+    CountsTally tally;
     const Pass1Stats p1 = collectQnames(
         o.in_bam, ac, o.threads, o.verbose, qnames,
         want_counts ? &pattern_to_bp_ids : nullptr,
-        want_counts ? &bp_id_counts      : nullptr);
+        want_counts ? &tally             : nullptr,
+        regions_ptr);
     if (o.verbose >= 1) {
       std::cerr << "[extract-pairs] pass 1: "
                 << SeqLib::AddCommas(p1.reads) << " reads, "
@@ -1157,32 +1625,97 @@ void runExtractPairs(int argc, char** argv) {
                 << SeqLib::AddCommas(p1.unique_qnames) << " unique qnames";
       if (want_counts)
         std::cerr << ", " << SeqLib::AddCommas(p1.counted_reads)
-                  << " primary non-dup reads counted toward bp_ids";
+                  << " primary non-dup reads counted toward queries";
       std::cerr << " in " << std::fixed << std::setprecision(1)
                 << p1.seconds << "s\n";
     }
 
-    // Emit the counts TSV before any early exit on empty matches — the user
-    // asked for a per-bp_id table; an empty result is still a result.
+    // Emit the counts table before any early exit on empty matches — the
+    // user asked for a per-query table; an empty result is still a result.
+    //
+    // Schema (5 cols, header included):
+    //   1. query id      — bp_id (bps input) / record name (FASTA) / the
+    //                      sequence itself (-s or a plain seq list)
+    //   2. sequence      — the forward-strand query that drove the matches.
+    //                      Low-complexity queries (poly-A/T, simple repeats)
+    //                      jump out here as the over-match culprits.
+    //   3. n_total_hits  — every matching alignment, incl. dup/sec/supp.
+    //   4. n_unique_reads   — primary non-dup, dedup'd by (id, qname, mate).
+    //   5. n_unique_qnames  — primary non-dup, dedup'd by (id, qname): the
+    //                      number of distinct read pairs (fragments) that
+    //                      carry the sequence. A pair whose two mates both
+    //                      match counts once here and twice in col 4.
+    //
+    // Delimiter follows the filename: `.csv` → comma (RFC-4180 quoted),
+    // anything else → tab. Rows are sorted by n_total_hits DESC (tiebreak
+    // id ASC) so the worst offenders are at the top. For FASTA / plain
+    // query lists every query gets a row, including ones that matched
+    // nothing; for bps input (which can carry millions of rows) the table
+    // stays restricted to ids with at least one match.
     if (want_counts) {
+      const bool is_bps = (src_kind == SeqSource::Bps);
+
+      // Invert the pattern→id map to id→sequence (1:1 per query; if two ids
+      // share a sequence, each still resolves to that same string).
+      std::unordered_map<std::string, std::string> seq_by_id;
+      for (std::size_t i = 0; i < seqs.size(); ++i)
+        for (const auto& id : pattern_to_bp_ids[i])
+          seq_by_id.emplace(id, seqs[i]);
+
+      // Build sortable rows. n_total_hits is a superset of the unique
+      // tallies (every counted read is also a raw hit), so iterating
+      // tally.total covers every id with >= 1 match.
+      struct Row { std::string id; std::size_t total, reads, qnames; };
+      std::vector<Row> rows;
+      rows.reserve(tally.total.size() +
+                   (is_bps ? 0 : ids_in_order.size()));
+      for (const auto& kv : tally.total) {
+        const auto rit = tally.reads.find(kv.first);
+        const auto qit = tally.qnames.find(kv.first);
+        rows.push_back({ kv.first, kv.second,
+                         rit == tally.reads.end()  ? 0 : rit->second,
+                         qit == tally.qnames.end() ? 0 : qit->second });
+      }
+      const std::size_t n_matched = rows.size();
+      if (!is_bps) {
+        for (const auto& id : ids_in_order)
+          if (tally.total.find(id) == tally.total.end())
+            rows.push_back({ id, 0, 0, 0 });
+      }
+      std::sort(rows.begin(), rows.end(), [](const Row& a, const Row& b) {
+        if (a.total != b.total) return a.total > b.total;  // desc
+        return a.id < b.id;                                // tiebreak asc
+      });
+
+      const bool csv = endsWithNoCase(o.counts_file, ".csv");
+      const char d   = csv ? ',' : '\t';
+      auto fld = [csv](const std::string& v) {
+        return csv ? csvField(v) : v;
+      };
+
       std::ofstream f(o.counts_file);
       if (!f) {
         std::cerr << "ERROR: cannot open --counts file for write: "
                   << o.counts_file << "\n";
         std::exit(EXIT_FAILURE);
       }
-      f << "bp_id\tn_unique_reads\n";
-      std::vector<std::string> bp_ids_sorted;
-      bp_ids_sorted.reserve(bp_id_counts.size());
-      for (const auto& kv : bp_id_counts) bp_ids_sorted.push_back(kv.first);
-      std::sort(bp_ids_sorted.begin(), bp_ids_sorted.end());
-      for (const auto& id : bp_ids_sorted)
-        f << id << '\t' << bp_id_counts[id] << '\n';
+      f << (is_bps ? "bp_id" : "seq_name") << d
+        << (is_bps ? "jxn_kmer" : "sequence") << d
+        << "n_total_hits" << d << "n_unique_reads" << d
+        << "n_unique_qnames" << '\n';
+      for (const auto& r : rows) {
+        const auto sit = seq_by_id.find(r.id);
+        f << fld(r.id) << d
+          << (sit == seq_by_id.end() ? std::string(".") : sit->second) << d
+          << r.total << d << r.reads << d << r.qnames << '\n';
+      }
       if (o.verbose >= 1)
         std::cerr << "[extract-pairs] counts: "
-                  << SeqLib::AddCommas(bp_ids_sorted.size())
-                  << " bp_ids with >= 1 unique non-dup read -> "
-                  << o.counts_file << "\n";
+                  << SeqLib::AddCommas(n_matched) << " of "
+                  << SeqLib::AddCommas(rows.size())
+                  << " quer" << (rows.size() == 1 ? "y" : "ies")
+                  << " with >= 1 matching alignment -> " << o.counts_file
+                  << (csv ? " (CSV)" : " (TSV)") << "\n";
     }
 
     if (qnames.empty()) {

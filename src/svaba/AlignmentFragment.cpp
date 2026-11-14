@@ -75,13 +75,24 @@ AlignmentFragment::AlignmentFragment(BamRecordPtr &talign,
       break2 = currlen;
   }
   
-  // assign the genomic coordinates of the break
+  // Assign the genomic coordinates of the break — 0-based, to match the htslib
+  // convention used everywhere else (indels store gr.pos1 0-based, and both
+  // BreakPoint::toFileString and tovcf add +1 on emission).
+  //
+  // OFF-BY-ONE FIX: these used Position()+1 (1-based first aligned base) and
+  // PositionEnd() (= bam_endpos, the 0-based coord ONE PAST the last aligned
+  // base, i.e. the 1-based last aligned base). Both were effectively 1-based,
+  // so the downstream +1 made every SV breakend read one too high (a
+  // right-clipped breakend reported X+1 instead of X, the last reference base
+  // before the clip; verified via the jxn_kmer vs the reference). The true
+  // 0-based breakend bases are Position() (first aligned) and PositionEnd()-1
+  // (last aligned). Indels are unaffected (separate ctor, no gbreak).
   if (m_align->ReverseFlag()) {
-    gbreak2 = m_align->Position() + 1;
-    gbreak1 = m_align->PositionEnd();
+    gbreak2 = m_align->Position();
+    gbreak1 = m_align->PositionEnd() - 1;
   } else {
-    gbreak1 = m_align->Position() + 1;
-    gbreak2 = m_align->PositionEnd();
+    gbreak1 = m_align->Position();
+    gbreak2 = m_align->PositionEnd() - 1;
   }
   
   // shouldn't hit either of the next two conditions

@@ -44,9 +44,20 @@
 //   * No third pass for `samtools sort` when the input is already
 //     coord-sorted — dropped on the basis of the @HD SO: tag.
 //
+// Query sources (-f auto-detects by content, plain or gzip):
+//   * multi-record FASTA — the first token of each '>' header names the
+//     record; wrapped sequence lines are concatenated.
+//   * one sequence per line ('#' comments allowed).
+//   * a svaba bps.txt[.gz] — the jxn_kmer column drives the queries and the
+//     breakend coordinates enable region-targeted scanning.
+//
+// --counts FILE writes a per-query table (id, sequence, n_total_hits,
+// n_unique_reads, n_unique_qnames) tallied during pass 1; CSV if FILE ends
+// in .csv, else TSV.
+//
 // CLI:
 //   svaba extract-pairs -i IN.bam -o OUT.bam (-s SEQ ... | -f FILE) [-t N]
-//                                            [--no-rc] [-v V]
+//                                            [--counts FILE] [--no-rc] [-v V]
 //
 // See SvabaExtractPairs.cpp for the implementation.
 void runExtractPairs(int argc, char** argv);

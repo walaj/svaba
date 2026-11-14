@@ -49,6 +49,23 @@ class AlignedContig {
 
   // Debug accessors for compile-time trace (SvabaDebug.h)
   size_t getFragCount() const { return m_frag_v.size(); }
+
+  // SvABA2.0 v5: genomic loci of every primary aligned fragment (each
+  // fragment's contig->reference BWA alignment, m_align). Used by
+  // SvabaRegionProcessor distant-read recovery: a multi-fragment contig with a
+  // far-away fragment is a large-SV candidate whose distant-end reads may never
+  // have been collected (no discordant reads → no mate-region lookup).
+  std::vector<SeqLib::GenomicRegion> getFragmentGenomicRegions() const {
+    std::vector<SeqLib::GenomicRegion> v;
+    v.reserve(m_frag_v.size());
+    for (const auto& f : m_frag_v) {
+      if (!f.m_align) continue;
+      SeqLib::GenomicRegion gr = f.m_align->AsGenomicRegion();
+      if (!gr.IsEmpty()) v.push_back(gr);
+    }
+    return v;
+  }
+
   bool hasGlobalBP() const { return m_global_bp != nullptr; }
   size_t getLocalBreakCount() const { return m_local_breaks.size(); }
   size_t getIndelBreakCount() const {
@@ -113,6 +130,16 @@ class AlignedContig {
 
   // Retrieves all of the breakpoints by combining indels with global mutli-map break
   BreakPointPtrVector getAllBreakPoints() const;
+
+  // Max somatic LOD (BreakPoint::LO_s) across this contig's breakpoints, or a
+  // large negative if there are none. Used to gate r2c.db writes by
+  // --r2c-min-somlod (LO_s defaults to 0, so the gate uses strict `>`).
+  double maxSomlod() const {
+    double m = -1e18;
+    for (const auto& bp : getAllBreakPoints())
+      if (bp && bp->LO_s > m) m = bp->LO_s;
+    return m;
+  }
 
   //std::vector<BreakPoint> getAllBreakPointsSecondary() const;
 

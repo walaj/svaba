@@ -13,6 +13,7 @@
 #include <map>
 #include <vector>
 #include <cassert>
+#include <zlib.h>   // labeled --annotation BED parsing (plain + gz)
 
 #include "SeqLib/GenomicRegion.h"
 #include "SeqLib/UnalignedSequence.h"
@@ -286,7 +287,47 @@ void runsvaba(int argc, char** argv) {
   logger.log(true, true, "...loaded ", SeqLib::AddCommas(sc.blacklist.size()),
 	     " blacklist regions across ", SeqLib::AddCommas(sc.opts.blacklistFile.size()),
 	     " files");
-  
+
+  // open optional annotation track(s) (--annotation): labeled BED, parsed with
+  // labels (col 4) preserved. Non-filtering — each breakend is overlap-tagged
+  // into the bps `repeat_anno` column. NOT merged: per-interval labels are kept
+  // (merging would fuse distinct families). zlib reads plain + gz transparently.
+  for (const auto& path : sc.opts.annotationFile) {
+    gzFile fp = gzopen(path.c_str(), "rb");
+    if (!fp) {
+      logger.log(true, true, "ERROR: cannot open --annotation file '", path, "'");
+      throw std::runtime_error("cannot open annotation BED: " + path);
+    }
+    char buf[1 << 16];
+    size_t n_added = 0;
+    while (gzgets(fp, buf, sizeof(buf))) {
+      std::string line(buf);
+      if (line.empty() || line[0] == '#') continue;
+      if (line.compare(0, 5, "track") == 0 || line.compare(0, 7, "browser") == 0)
+        continue;
+      std::vector<std::string> f;
+      { std::stringstream ss(line); std::string t;
+        while (std::getline(ss, t, '\t')) f.push_back(t); }
+      if (f.size() < 3) continue;
+      int cid = sc.header.Name2ID(f[0]);
+      if (cid < 0) continue;                       // chrom not in this reference
+      int start = 0, end = 0;
+      try { start = std::stoi(f[1]); end = std::stoi(f[2]); } catch (...) { continue; }
+      std::string label = (f.size() >= 4 && !f[3].empty()) ? f[3] : std::string("1");
+      while (!label.empty() && (label.back() == '\n' || label.back() == '\r'))
+        label.pop_back();
+      // protect the bps colon-test and the b1|b2 separator
+      for (char& c : label) if (c == ':' || c == '|' || c == '\t') c = '_';
+      sc.annotation.add(AnnoRegion(cid, start, end, '*', label));
+      ++n_added;
+    }
+    gzclose(fp);
+    logger.log(true, true, "...loaded ", SeqLib::AddCommas(n_added),
+               " annotation intervals from '", path, "'");
+  }
+  if (sc.annotation.size())
+    sc.annotation.CreateTreeMap();
+
   // open the germline sv database
   loader.loadBedRegions(sc.opts.germlineSvFile, sc.germline_svs);
   
@@ -355,14 +396,36 @@ void runsvaba(int argc, char** argv) {
     regionsToRun.add(GenomicRegion(2,89000000,91500000));
   */
   
-  // --- learn the insert-sizes ---
-  logger.log(true, true,"...learning insert size distribution across all BAMs; this may take a while");
-  
-  // learn from the BAM files
-  for (const auto& b : opts.bams) {
-    auto [it, inserted] = sc.bamStats.emplace(b.first, LearnBamParams(sc, b.second));
-    logger.log(true,true,"......learning BAM: ", b.second);
-    it->second.learnParams();
+  // --- learn the insert-sizes (or load a cached --bam-params file) ---
+  bool params_loaded = false;
+  if (!opts.bamParamsFile.empty() && !opts.learnOnly) {
+    params_loaded = loadBamParams(sc, opts.bamParamsFile);
+    if (params_loaded)
+      logger.log(true, true, "...loaded cached insert-size params from ",
+                 opts.bamParamsFile, "; skipping the genome-wide insert-size sweep");
+  }
+  if (!params_loaded) {
+    sc.bamStats.clear();   // drop any partial load before a fresh learn
+    logger.log(true, true,"...learning insert size distribution across all BAMs; this may take a while");
+    for (const auto& b : opts.bams) {
+      auto [it, inserted] = sc.bamStats.emplace(b.first, LearnBamParams(sc, b.second));
+      logger.log(true,true,"......learning BAM: ", b.second);
+      it->second.learnParams();
+    }
+    if (!opts.bamParamsFile.empty()) {
+      writeBamParams(sc, opts.bamParamsFile);
+      logger.log(true, true, "...wrote insert-size params to ", opts.bamParamsFile);
+    }
+  }
+
+  if (opts.learnOnly) {
+    if (!opts.bamParamsFile.empty())
+      logger.log(true, true, "--learn-only: wrote params to ", opts.bamParamsFile,
+                 "; exiting before region processing");
+    else
+      logger.log(true, true, "--learn-only: learning done but no --bam-params FILE "
+                 "was given, so nothing was written. Exiting.");
+    return;
   }
 
   // --- report what we learned ---
@@ -375,13 +438,23 @@ void runsvaba(int argc, char** argv) {
   int globalReadLen = 0;
   int globalMaxMapQ = 0;
   double globalInsertSize = 0;
+  int globalTagTrim = 0;
   for (const auto& [_, learn_bam_param] : sc.bamStats) {
     globalReadLen = std::max(globalReadLen, learn_bam_param.readlen_max);
     globalMaxMapQ = std::max(globalMaxMapQ, learn_bam_param.mapq_max);
-    globalInsertSize = std::max(globalInsertSize, learn_bam_param.isize_max);    
+    globalInsertSize = std::max(globalInsertSize, learn_bam_param.isize_max);
+    globalTagTrim = std::max(globalTagTrim, learn_bam_param.tag_trim_5p);
   }
   sc.readlen = globalReadLen;
   sc.insertsize = globalInsertSize;
+
+  // Effective 5' tag trim: --tag-trim/--no-tag-trim override (>= 0) wins,
+  // otherwise auto-use the recurrent tag length detected during learning.
+  sc.tag_trim_5p = (opts.tagTrimOverride >= 0) ? opts.tagTrimOverride : globalTagTrim;
+  if (sc.tag_trim_5p > 0)
+    logger.log(true, true, "...5' tag trimming ENABLED: trimming up to ",
+               sc.tag_trim_5p, " bp of 5' soft-clip from each read before assembly",
+               (opts.tagTrimOverride >= 0 ? " (forced via --tag-trim)" : " (auto-detected)"));
   
   // --- set the SGA min overlap if user didn't ---
   if (opts.sgaMinOverlap == 0) {

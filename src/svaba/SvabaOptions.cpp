@@ -56,6 +56,14 @@ Discordant clustering:
 
 Filtering:
       --max-cov <N>       Max coverage to assemble, default 100
+      --max-normal-weird-cov <N>
+                          Skip assembly+r2c in sub-regions where NORMAL weird-
+                          read coverage exceeds N (shared artifact pileups can't
+                          be somatic). Somatic-safe speedup. 0=off (default).
+      --tag-trim <N>      Trim N bp of 5' soft-clip from reads before assembly.
+                          Default AUTO: detect a recurrent 5' tag (untrimmed
+                          UMI/adapter/spacer) during learning and trim it.
+      --no-tag-trim       Disable 5' tag trimming even if a tag is detected.
       --mate-min <N>      Min reads to trigger somatic mate lookup, default 3
       --mate-min-count <N>
                           Min reads to form a candidate mate region, default 2
@@ -86,6 +94,9 @@ BWA-MEM tuning:
 
 Output & DBs:
       --blacklist <FILE>  BED of blacklisted regions
+      --annotation <FILE> labeled BED (RepeatMasker/SegDup/custom); each
+                         breakend is overlap-annotated into the bps
+                         repeat_anno column. Repeatable. Non-filtering.
       --germline-sv <FILE>
                          BED of known germline SVs
       --dbsnp <VCF>       DBSNP VCF of known variants
@@ -108,6 +119,21 @@ Output & DBs:
                           reuse the input BAM's CIGAR/NM (valid when the
                           BAM was aligned with BWA). Use this flag when
                           the input was aligned with a non-BWA aligner.
+      --r2c-min-somlod N  With --dump-reads, only write a contig's r2c reads
+                          to ${ID}.r2c.db if its max breakpoint SOMLOD is
+                          strictly > N. Shrinks the r2c.db dramatically on
+                          deep samples. Default: write all. Use 0 to keep
+                          only somlod>0 (~somatic) events.
+      --bam-params FILE   Cache learned per-read-group insert-size params.
+                          If FILE exists and covers every input BAM, svaba
+                          loads it and SKIPS the genome-wide insert-size
+                          sweep (big win for scatter-gather: learn once,
+                          reuse per shard); otherwise it learns and WRITES
+                          FILE. Match is by BAM path, so all shards must use
+                          the same -t/-n BAMs.
+      --learn-only        Learn insert-size params, write --bam-params FILE,
+                          and exit before any region processing. The
+                          precompute step for a scatter run.
 )" << "\n";
 }
 
@@ -140,6 +166,9 @@ SvabaOptions SvabaOptions::parse(int argc, char** argv) {
     {"max-mate-chr",    required_argument, nullptr,  1405},
     {"non-human",       no_argument,       nullptr,  1406},
     {"mate-min-count",  required_argument, nullptr,  1407},
+    {"max-normal-weird-cov", required_argument, nullptr, 1409},
+    {"tag-trim", required_argument, nullptr, 1410},
+    {"no-tag-trim", no_argument, nullptr, 1411},
     {"chunk-size", required_argument,      nullptr,  1500},
     {"bw-op",      required_argument,      nullptr,  1600},
     {"bw-ep",      required_argument,      nullptr,  1601},
@@ -153,11 +182,15 @@ SvabaOptions SvabaOptions::parse(int argc, char** argv) {
     {"blacklist",  required_argument,      nullptr,  1700},
     {"germline-sv",required_argument,      nullptr,  1701},
     {"dbsnp",      required_argument,      nullptr,  1702},
+    {"annotation", required_argument,      nullptr,  1703},
     // --dump-reads: runtime opt-in for corrected + discordant-reads BAMs.
     // Single flag, both side effects — see comment in SvabaOptions.h.
     // Weird-reads BAM is deliberately not on this flag (compile-time only).
     {"dump-reads", no_argument,            nullptr,  1800},
     {"always-realign-corrected", no_argument, nullptr, 1801},
+    {"r2c-min-somlod", required_argument,   nullptr,  1802},
+    {"bam-params", required_argument,       nullptr,  1810},
+    {"learn-only", no_argument,             nullptr,  1811},
     {nullptr,0,nullptr,0}
   };
 
@@ -196,6 +229,9 @@ SvabaOptions SvabaOptions::parse(int argc, char** argv) {
       case 1405: o.maxMateChrID         = std::stoi(optarg); break;
       case 1406: o.nonHuman             = true; break;
       case 1407: o.mateRegionMinCount   = std::stoi(optarg); break;
+      case 1409: o.maxNormalWeirdCov    = std::stoi(optarg); break;
+      case 1410: o.tagTrimOverride      = std::stoi(optarg); break;  // force N bp
+      case 1411: o.tagTrimOverride      = 0;                 break;  // --no-tag-trim
 
       case 1500: o.chunkSize        = std::stoi(optarg); break;
 
@@ -212,6 +248,7 @@ SvabaOptions SvabaOptions::parse(int argc, char** argv) {
       case 1700: o.blacklistFile.push_back(optarg); break;
       case 1701: o.germlineSvFile = optarg; break;
       case 1702: o.dbsnpVcf       = optarg; break;
+      case 1703: o.annotationFile.push_back(optarg); break;
 
       // --dump-reads is the single runtime knob for all per-read detail
       // outputs. Flip all three flags together here; any call-site
@@ -243,6 +280,18 @@ SvabaOptions SvabaOptions::parse(int argc, char** argv) {
 
       case 1801:
         o.alwaysRealignCorrected = true;
+        break;
+
+      case 1802:
+        o.r2cMinSomlod = std::stod(optarg);
+        break;
+
+      case 1810:
+        o.bamParamsFile = optarg;
+        break;
+
+      case 1811:
+        o.learnOnly = true;
         break;
 
       case '?':

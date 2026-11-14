@@ -101,6 +101,15 @@ class svabaRead : public SeqLib::BamRecord {
   /// Trim the read based on quality score and store seq in char
   void QualityTrimRead();
 
+  /// Trim a recurrent 5' soft-clip "tag" (untrimmed UMI/adapter/spacer) off the
+  /// corrected sequence before assembly. Removes min(5'_softclip_len, max_len)
+  /// bases from the read's 5' end (leading bases for forward reads, trailing for
+  /// reverse, since the stored seq is reference-forward). Only the soft-clipped
+  /// (non-genomic) portion is touched, so aligned positions are unaffected; a
+  /// long split-read clip keeps everything past max_len. No-op when max_len<=0
+  /// or there is no 5' soft-clip. See SvabaSharedConfig::tag_trim_5p.
+  void TrimTag5p(int max_len);
+
   int CorrectedSeqLength() const;
 
   // discordant read status
@@ -128,6 +137,17 @@ class svabaRead : public SeqLib::BamRecord {
   friend class svabaBamWalker;
 
   bool to_assemble = true;
+
+  // Set by svabaBamWalker::subSampleToWeirdCoverage when a read sits in a
+  // weird-read pileup above --max-cov. Such a read is dropped from fermi
+  // assembly (to_assemble=false) to cut the super-linear assembly cost, but is
+  // STILL fed into BFC k-mer *training* (not correction) so the error model /
+  // auto-learned k of the window is identical to the no-cap run -- otherwise
+  // demoting a distant pileup silently changes the error-correction of clean
+  // reads elsewhere in the same assembly window and drops real calls. See the
+  // BFC Phase-1 pool in SvabaRegionProcessor::process and the chr1:44147919
+  // Alu-Alu case that motivated it.
+  bool cov_demoted = false;
   
  private:
 

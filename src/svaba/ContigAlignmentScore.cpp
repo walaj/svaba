@@ -137,6 +137,21 @@ ContigAlignScore scoreContigAlignment(const SeqLib::BamRecord& r) {
     if (s.reason.empty() && s.as_per_bp < 0.60) s.reason = "low_AS_density";
   }
 
+  // Rule E: alignment non-uniqueness. BWA's XS is the best suboptimal score; when
+  // XS approaches AS, BWA found another placement nearly as good, so this breakend
+  // locus is ambiguous (repeat / paralog / segdup) -- the classic case where the
+  // contig BLATs to dozens of near-equal sites. This is the multi-mapping signal
+  // the confidence previously ignored (as_xs_gap was computed but unused). Only
+  // fires when both AS and XS are present (single-placement contigs have XS=-1).
+  //   xs_ratio = XS/AS:  0.80 -> 0, 0.90 -> 0.5, 1.00 (dead tie) -> 1.0
+  if (s.AS > 0 && s.XS >= 0) {
+    const double xs_ratio = static_cast<double>(s.XS) / static_cast<double>(s.AS);
+    if (xs_ratio > 0.80) {
+      pen += (xs_ratio - 0.80) / 0.20;
+      if (s.reason.empty() && xs_ratio > 0.90) s.reason = "ambiguous_xs";
+    }
+  }
+
   s.confidence = clip_range(1.0 - pen, 0.0, 1.0);
   return s;
 }

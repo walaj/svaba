@@ -1,0 +1,5 @@
+{
+ "version": "svaba_truth_v1",
+ "_note": "svaba ground-truth labels for the shared open-access test BAM. Auto-saved by docs/truth_store.js (link this file via the viewer's 'auto-save to file' button). Keyed by breakend coords + coarse type; orientation/strand-agnostic. Commit this file to share the truth set.",
+ "labels": {}
+}

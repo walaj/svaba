@@ -381,6 +381,39 @@ if (USE_JEMALLOC AND JEMALLOC_LIB)
     target_compile_definitions(svaba PRIVATE SVABA_USE_JEMALLOC=1)
 endif()
 
+# ---------------------------------------------------------------------------
+# Build-time version stamp.
+#
+# Generates ${build}/generated/SvabaGitVersion.h carrying the git commit the
+# binary was built from, so `svaba --version` and the run banner can report
+# exact provenance even after .git is deleted (as the Docker images do). The
+# human-edited semantic version stays in src/svaba/SvabaOptions.h
+# (SVABA_VERSION / SVABA_DATE); this only adds the commit hash/describe/dirty.
+#
+# The generator runs (a) once at configure time so the header exists before
+# the first compile, and (b) as a build-time custom target so incremental
+# local builds pick up new commits. It writes copy-if-different, so an
+# unchanged commit never retriggers a recompile of the files that include it.
+# ---------------------------------------------------------------------------
+set(SVABA_GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
+file(MAKE_DIRECTORY "${SVABA_GENERATED_DIR}")
+set(SVABA_GITVER_HEADER "${SVABA_GENERATED_DIR}/SvabaGitVersion.h")
+set(SVABA_GITVER_ARGS
+    -DSVABA_SRC_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+    -DSVABA_IN=${CMAKE_CURRENT_SOURCE_DIR}/cmake/SvabaGitVersion.h.in
+    -DSVABA_OUT=${SVABA_GITVER_HEADER})
+
+execute_process(COMMAND ${CMAKE_COMMAND} ${SVABA_GITVER_ARGS}
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gen_git_version.cmake)
+
+add_custom_target(svaba_gitversion
+    BYPRODUCTS ${SVABA_GITVER_HEADER}
+    COMMAND ${CMAKE_COMMAND} ${SVABA_GITVER_ARGS}
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gen_git_version.cmake
+    COMMENT "Stamping svaba git version")
+add_dependencies(svaba svaba_gitversion)
+target_include_directories(svaba PRIVATE ${SVABA_GENERATED_DIR})
+
 # Linking
 target_link_libraries(svaba
     seqlib

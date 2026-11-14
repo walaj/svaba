@@ -16,6 +16,19 @@ class SvabaOptions;
 class SvabaOutputWriter;
 class DBSnpFilter;
 
+// Labeled annotation interval (e.g. a RepeatMasker / SegDup / custom BED row).
+// Carries the BED col-4 label INLINE because GRC::CreateTreeMap CoordinateSorts
+// m_grv, so a parallel label vector would desync from FindOverlappedIntervals
+// indices — keeping the label in the element (like MateRegion does) is the
+// robust pattern. Used for non-filtering per-breakend annotation (the
+// `repeat_anno` bps column); see BreakPoint::setSequenceAnnotations().
+struct AnnoRegion : public SeqLib::GenomicRegion {
+  AnnoRegion() = default;
+  AnnoRegion(int32_t c, uint32_t p1, uint32_t p2, char s, std::string lab)
+    : SeqLib::GenomicRegion(c, p1, p2, s), label(std::move(lab)) {}
+  std::string label;
+};
+
 class SvabaSharedConfig {
   
  public:
@@ -55,12 +68,24 @@ class SvabaSharedConfig {
 
   SeqLib::GRC           blacklist;
 
-  SeqLib::GRC           file_regions;  
+  // optional non-filtering annotation track(s) (--annotation BED), queried
+  // per-breakend to populate the bps `repeat_anno` column. Labels live in the
+  // AnnoRegion elements. Empty unless --annotation was given.
+  SeqLib::GenomicRegionCollection<AnnoRegion> annotation;
+
+  SeqLib::GRC           file_regions;
 
   SeqLib::GRC           germline_svs;
 
   int readlen = -1;
   double insertsize = -1;
+
+  // Effective 5' soft-clip tag-trim length (bp), set after learning: the max
+  // detected recurrent-tag length across all BAMs/RGs, unless overridden by
+  // --tag-trim / --no-tag-trim. 0 = no trimming. Consumed by the BAM walker
+  // (svabaRead::TrimTag5p) to strip an untrimmed UMI/adapter/spacer from read
+  // 5' ends before assembly. See LearnBamParams::detectTag.
+  int tag_trim_5p = 0;
   
   std::shared_ptr<DBSnpFilter>           dbsnp_filter;
 

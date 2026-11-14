@@ -49,7 +49,8 @@ class svabaBamWalker: public SeqLib::BamReader {
     
     mate_regions.clear();
     reads.clear();
-    
+    excluded_reads.clear();
+
     get_coverage = true;
     get_mate_regions = true;
     
@@ -93,6 +94,17 @@ class svabaBamWalker: public SeqLib::BamReader {
 
   // place to store reads when we get them
   svabaReadPtrVector reads; //c
+
+  // SvABA2 somatic-safety net: reads EXCLUDED from assembly/r2c (adapter
+  // read-through, blacklist-self) but which may still carry a breakpoint
+  // junction kmer. Stored as (qname, raw seq) and scanned post-assembly
+  // against each BP's jxn_kmer so normal junction evidence can never be
+  // silently lost (a missed normal read => false somatic). Cleared per
+  // region in clear(). Bounded by MAX_EXCLUDED_POOL to cap memory in
+  // dense regions.
+  static constexpr size_t MAX_EXCLUDED_POOL = 100000;
+  std::vector<std::pair<std::string, std::string>> excluded_reads;
+  void stashExcluded(const svabaRead& r);
 
   // cov is the all-read coverage tracker
   // weird-cov just tracks coverage of accepted (clip, disc, etc reads)

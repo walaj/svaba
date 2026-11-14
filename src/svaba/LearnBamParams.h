@@ -8,6 +8,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <memory>
+#include <array>
 
 class SvabaSharedConfig;
 namespace SeqLib {
@@ -32,6 +33,11 @@ class BamReadGroup {
 
   void computeStats();
 
+  /// Detect a recurrent 5' soft-clip "tag" (untrimmed UMI / inline barcode /
+  /// adapter or library spacer) from the accumulated clip5 histogram. Sets
+  /// tag_trim_5p / tag_frac / tag_seq. Cheap; uses only the clip5_* counters.
+  void detectTag();
+
   friend std::ostream& operator<<(std::ostream& os, const BamReadGroup& bg);
 
   // count number of reads
@@ -50,6 +56,16 @@ class BamReadGroup {
   size_t n_isize_pairs = 0;  // number of FR pairs used (after 98% trim)
   double isize_median = 0;
   double sd_isize = 0;      // SD computed around the median
+
+  // --- 5' soft-clip tag detection (set by addRead + detectTag) ---
+  // Histogram of 5' soft-clip length (read's 5' end: leading clip for forward
+  // reads, trailing clip for reverse, since SEQ is stored reference-forward).
+  std::array<size_t, 16> clip5_hist{};
+  size_t clip5_total = 0;    // mapped reads with a CIGAR considered (frac denom)
+  std::unordered_map<std::string, size_t> clip5_seq;  // forward-read clipped bases (fixed vs random)
+  int    tag_trim_5p = 0;    // detected tag length, bp (0 = none); the trim cutoff
+  double tag_frac    = 0.0;  // fraction of reads carrying the modal 5' clip
+  std::string tag_seq;       // dominant clipped sequence if fixed; "" if variable (UMI)
 
 };
 
@@ -91,11 +107,15 @@ public:
   int readlen_max = 0;
   int mapq_max = 0;
   double isize_max = 0;
+  int tag_trim_5p = 0;  // max detected 5' tag length across this BAM's RGs (0 = none)
 
   /// Write per-RG isize distributions to a TSV for R plotting.
   /// Called after learnParams() and before computeStats() clears the vectors.
   /// Output: ${prefix}.learn.tsv.gz with columns: bam, rg, isize
   void dumpLearnData(const std::string& prefix) const;
+
+  /// Path of the BAM this object learned from.
+  const std::string& bamPath() const { return bam_; }
 
 private:
 
@@ -111,3 +131,12 @@ private:
  std::shared_ptr<SeqLib::BamReader> reader_;
 
 };
+
+// --- insert-size param cache (cloud scatter: learn once, reuse per shard) ------
+// writeBamParams: dump every learned BAM's per-RG isize_median/sd_isize (+ the
+//   per-bam readlen/mapq/isize maxima) to a small TSV.
+// loadBamParams: restore them into sc.bamStats, matched to the current run's BAMs
+//   by PATH (so the prefix scheme can differ), letting svaba skip the genome-wide
+//   insert-size sweep. Returns true only if EVERY BAM in the current run is covered.
+void writeBamParams(const SvabaSharedConfig& sc, const std::string& file);
+bool loadBamParams(SvabaSharedConfig& sc, const std::string& file);

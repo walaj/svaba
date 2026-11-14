@@ -7,6 +7,10 @@ extern "C" {
 #include <sstream>  // For std::ostringstream
 #include <chrono>
 #include <cstring>  // For memset
+#include <algorithm>  // std::remove_if (artifact-skip)
+#include <vector>
+#include <cstdint>  // uint64_t (deterministic bp_id)
+#include <cstdio>   // std::snprintf (deterministic bp_id)
 
 #include "SvabaDebug.h"
 #include "SvabaUtils.h"
@@ -41,6 +45,65 @@ using std::unordered_set;
 using std::string;
 
 #include "SvabaAssemblerConfig.h"
+
+namespace {
+
+// ---- SvABA2 somatic-safety net: junction-kmer scan over excluded reads ----
+// Reads excluded from assembly/r2c (adapter read-through, blacklist-self) are
+// scanned for each BP's junction kmer so junction-spanning normal evidence
+// can never be silently lost (a missed normal read => false somatic). These
+// helpers do an alignment-free >=19/20 (<=1 mismatch), both-strand match.
+
+// local reverse-complement (avoids pulling a SeqLib seq-util dependency here)
+std::string revcompStr(const std::string& s) {
+  std::string r(s.size(), 'N');
+  for (size_t i = 0; i < s.size(); ++i) {
+    switch (s[s.size() - 1 - i]) {
+      case 'A': case 'a': r[i] = 'T'; break;
+      case 'T': case 't': r[i] = 'A'; break;
+      case 'C': case 'c': r[i] = 'G'; break;
+      case 'G': case 'g': r[i] = 'C'; break;
+      default:            r[i] = 'N'; break;
+    }
+  }
+  return r;
+}
+
+// Hamming distance <= 1 between k and s[start, start+|k|)? Early-exits at 2.
+inline bool hammingLE1(const std::string& s, int start, const std::string& k) {
+  int mm = 0;
+  const int K = static_cast<int>(k.size());
+  for (int i = 0; i < K; ++i)
+    if (s[start + i] != k[i] && ++mm > 1)
+      return false;
+  return true;
+}
+
+// Does s contain k with <= 1 mismatch (>= 19/20 for a 20-mer)? Pigeonhole:
+// a <=1-mismatch hit leaves at least one half of k exact (the single mismatch
+// can fall in only one half), so anchor on exact half-matches via find() then
+// verify the full window. Far cheaper than a full sliding Hamming scan.
+bool seqHasKmerFuzzy(const std::string& s, const std::string& k) {
+  const int K = static_cast<int>(k.size());
+  if (static_cast<int>(s.size()) < K) return false;
+  const int h = K / 2;
+  const std::string h1 = k.substr(0, h);
+  const std::string h2 = k.substr(h);
+  for (size_t p = s.find(h1); p != std::string::npos; p = s.find(h1, p + 1)) {
+    const int start = static_cast<int>(p);
+    if (start + K <= static_cast<int>(s.size()) && hammingLE1(s, start, k))
+      return true;
+  }
+  for (size_t p = s.find(h2); p != std::string::npos; p = s.find(h2, p + 1)) {
+    const int start = static_cast<int>(p) - h;
+    if (start >= 0 && start + K <= static_cast<int>(s.size()) &&
+        hammingLE1(s, start, k))
+      return true;
+  }
+  return false;
+}
+
+} // namespace
 
 // ---------------------------------------------------------------------------
 // Alt-contig demotion: after BWA aligns a contig, prefer standard-chromosome
@@ -256,6 +319,87 @@ GRC SvabaRegionProcessor::runMateCollectionLoop(const GenomicRegion& region,
   return somatic_mate_region_collection;
 }
 
+// SvABA2.0 v5: distant-read recovery. When a contig maps to two (or more)
+// well-separated genomic loci (a large SV / translocation) but no discordant
+// reads triggered the mate-region lookup, the reads sitting at the DISTANT
+// breakend are never collected — so split support there (often the normal/
+// blood) is invisible and the call looks falsely somatic off region A alone.
+// This returns the distant fragment windows so process() can fetch + r2c those
+// reads. Gated (per design): multi-fragment contigs only; the fragment must lie
+// outside region A (padded ~2 insert sizes) and outside the already-walked
+// discordant mate regions; blacklist + max-mate-chr honored; capped.
+static SeqLib::GRC computeDistantRegions(
+    const SeqLib::GenomicRegion& region,
+    const std::unordered_map<std::string, AlignedContig>& acs,
+    const SeqLib::GRC& already_walked,
+    const SvabaSharedConfig& sc) {
+
+  const int isz = (sc.insertsize > 0) ? static_cast<int>(sc.insertsize) : 1000;
+  const int rl  = (sc.readlen   > 0) ? sc.readlen                       : 200;
+  const size_t kMaxWindows = 6;
+
+  // "local" zone we do NOT treat as distant: region A padded by ~2 insert sizes.
+  SeqLib::GenomicRegion localPad = region;
+  localPad.Pad(2 * isz);
+
+  SeqLib::GRC walked = already_walked;   // discordant somatic mate regions
+  walked.add(localPad);
+  walked.MergeOverlappingIntervals();
+  walked.CreateTreeMap();
+
+  SeqLib::GRC distant;
+  for (const auto& kv : acs) {
+    const AlignedContig& ac = kv.second;
+    if (ac.getFragCount() < 2) continue;            // single-part contig = indel, not an SV
+    for (SeqLib::GenomicRegion fr : ac.getFragmentGenomicRegions()) {
+      if (fr.IsEmpty() || fr.chr < 0) continue;
+      if (sc.opts.maxMateChrID >= 0 && fr.chr > sc.opts.maxMateChrID) continue;
+      if (walked.CountOverlaps(fr) > 0) continue;    // local or already walked
+      if (!sc.blacklist.empty() && sc.blacklist.CountOverlaps(fr) > 0) continue;
+      fr.Pad(rl);                                    // catch reads clipped at the breakend
+      distant.add(fr);
+      if (distant.size() >= kMaxWindows) break;
+    }
+    if (distant.size() >= kMaxWindows) break;
+  }
+  if (distant.size()) {
+    distant.MergeOverlappingIntervals();
+    distant.CreateTreeMap();
+  }
+  return distant;
+}
+
+// Deterministic, content-derived BreakPoint id. The old scheme
+// (svabaThreadUnit::next_bp_id -> "bpTTTNNNNNNNN") baked in the worker-thread ID
+// and a per-thread counter, so the SAME variant received a DIFFERENT id
+// depending on which thread (and in what order) processed its region. That made
+// the bp_id column -- and every join keyed on it (the bi:Z BAM tag, r2c.db
+// split_bps/disc_bps, the VCF EVENT field) -- vary run-to-run even though the
+// calls were byte-identical (see the BFC k-mer determinism fix, v2.3.1). Here
+// the id is derived purely from the BP's stable content via FNV-1a, so the same
+// BP yields the same id across runs, threads, and -p settings. The tuple
+// {cname, both breakends (chr/pos/strand), both contig positions (cpos), kind}
+// uniquely identifies a BP -- two distinct BPs on one contig must differ in a
+// breakend coordinate or a contig position -- so the hash can never merge two
+// different variants onto one id. Format: "bp" + 16 lowercase hex digits.
+static std::string deterministicBpId(const BreakPoint& bp) {
+  uint64_t h = 1469598103934665603ULL;            // FNV-1a 64-bit offset basis
+  auto mix_bytes = [&](const char* p, int n) {
+    for (int i = 0; i < n; ++i) { h ^= (unsigned char)p[i]; h *= 1099511628211ULL; }
+    h ^= 0xFFu; h *= 1099511628211ULL;            // field separator
+  };
+  auto mix_int = [&](long long v) {
+    char b[24]; int n = std::snprintf(b, sizeof(b), "%lld", v); mix_bytes(b, n);
+  };
+  mix_bytes(bp.cname.c_str(), (int)bp.cname.size());
+  mix_int(bp.b1.gr.chr); mix_int(bp.b1.gr.pos1); mix_int((long long)bp.b1.gr.strand); mix_int(bp.b1.cpos);
+  mix_int(bp.b2.gr.chr); mix_int(bp.b2.gr.pos1); mix_int((long long)bp.b2.gr.strand); mix_int(bp.b2.cpos);
+  mix_int(static_cast<int>(bp.svtype));
+  char out[24];
+  std::snprintf(out, sizeof(out), "bp%016llx", (unsigned long long)h);
+  return std::string(out);
+}
+
 
 bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
                                    svabaThreadUnit&             unit,
@@ -341,6 +485,7 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
 
     // reset the walker params
     walker->m_limit = sc.opts.weird_read_limit;
+    walker->max_cov = sc.opts.maxCov;   // wire --max-cov so the weird-coverage subsample is actually applied
     walker->get_coverage = true;
     walker->get_mate_regions = true;
     SeqLib::GRC bad = walker->readBam(unit);
@@ -394,6 +539,10 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
   for (auto& [_, walker] : unit.walkers) {
     //walker->RealignDiscordants(unit);
     for (auto& r : walker->reads) {
+      SVABA_READ_TRACE(r->Qname(),
+        "DISC_COLLECT walker_prefix=" << r->Prefix()
+        << " dd=" << r->dd
+        << (r->dd > 0 ? " => INTO clustering" : " => SKIPPED (dd<=0)"));
       if (r->dd > 0)
 	all_discordant_reads.push_back(r);
     }
@@ -424,6 +573,44 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
     }
   }
   
+  // --- somatic-safe artifact skip (opt-in: --max-normal-weird-cov N, 0=off) ---
+  // A sub-region with a pathological NORMAL weird-read pileup cannot harbor a
+  // somatic event (somatic requires a clean normal), so drop its reads from the
+  // expensive assembly + error-correction + r2c + scoring path entirely. DP
+  // coverage is already recorded (cov) and discordant clusters already formed
+  // above, so only wasted germline/artifact assembly work is removed. Keyed on
+  // NORMAL (not total) weird coverage so a tumor-only pileup -- which could be
+  // real somatic -- is never skipped. This targets the few high-pileup regions
+  // that dominate runtime even after --max-cov.
+  if (sc.opts.maxNormalWeirdCov > 0) {
+    std::vector<svabaBamWalker*> normals;
+    for (auto& [key, w] : unit.walkers)
+      if (!key.empty() && key[0] == 'n') normals.push_back(w.get());
+    if (!normals.empty()) {
+      const int thr = sc.opts.maxNormalWeirdCov;
+      auto normal_weird_high = [&](int chr, int pos) {
+        for (auto* nw : normals)
+          if (static_cast<int>(nw->weird_cov.getCoverageAtPosition(chr, pos)) > thr)
+            return true;
+        return false;
+      };
+      size_t dropped = 0;
+      for (auto& [key, w] : unit.walkers) {
+        const size_t before = w->reads.size();
+        w->reads.erase(std::remove_if(w->reads.begin(), w->reads.end(),
+          [&](const std::shared_ptr<svabaRead>& r) {
+            return normal_weird_high(r->ChrID(), r->Position()) ||
+                   normal_weird_high(r->ChrID(), r->PositionEnd());
+          }), w->reads.end());
+        dropped += before - w->reads.size();
+      }
+      if (dropped)
+        sc.logger.log(sc.opts.verbose > 1, sc.opts.verbose_log,
+          "...artifact-skip: dropped ", dropped, " reads in normal-weird-cov>",
+          thr, " sub-regions for ", region);
+    }
+  }
+
   // do the discordant read clustering
   sc.logger.log(sc.opts.verbose > 1, false, "...error correcting");
   
@@ -446,12 +633,19 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
 
     BFC& bfc = *unit.pooled_bfc;
 
-    // Phase 1: pool all training reads + weird reads
+    // Phase 1: pool all training reads + weird reads.
+    // NOTE: cov_demoted reads (dropped from fermi assembly by --max-cov because
+    // they sit in a weird-read pileup) ARE included here on purpose. Training is
+    // ~linear and cheap; what matters is that the k-mer spectrum + auto-learned k
+    // match the no-cap run, so reads ELSEWHERE in the same assembly window are
+    // error-corrected identically and clean nearby calls don't vanish when a
+    // distant pileup is capped. They're still excluded from the Phase-2
+    // correction pool and from fermi below (the expensive, super-linear parts).
     for (auto& [_, walker] : unit.walkers) {
       for (const auto& u : walker->train_reads)
         bfc.AddSequence(u.Seq, "", u.Name);
       for (const auto& r : walker->reads) {
-        if (!r->to_assemble) continue;
+        if (!r->to_assemble && !r->cov_demoted) continue;
         bfc.AddSequence(r->CorrectedSeq(), "", r->UniqueName());
       }
     }
@@ -872,6 +1066,37 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
     return true;
   }
 
+  // SvABA2.0 v5: distant-read recovery (see computeDistantRegions). For a
+  // multi-fragment contig (large-SV candidate) whose distant breakend was NOT
+  // already walked by the discordant mate-lookup, fetch that region's reads for
+  // EVERY sample and append them to walker->reads BEFORE the r2c loop below.
+  // The r2c loop, the deferred native realignment (keyed on HasR2C), and
+  // splitCoverage then count them automatically — so the normal/blood support
+  // at the distant end is finally seen and the call isn't spuriously somatic.
+  // Fetched with coverage on, so the distant breakend's depth (DP) is also
+  // populated (feeds BreakPoint::addCovs). `distant_regions_collected` is kept
+  // for the native-realignment local index further down.
+  SeqLib::GRC distant_regions_collected =
+      computeDistantRegions(region, all_AlignedContigs_this_region,
+                            mate_regions_for_native, sc);
+  if (distant_regions_collected.size()) {
+    sc.logger.log(sc.opts.verbose > 1, sc.opts.verbose_log,
+                  "...recovering reads from ", distant_regions_collected.size(),
+                  " distant contig-alignment region(s) for r2c");
+    for (auto& [key, walker] : unit.walkers) {
+      walker->m_limit = sc.opts.mate_region_lookup_limit;
+      if (!walker->SetRegions(distant_regions_collected)) {
+        walker->m_limit = sc.opts.weird_read_limit;
+        continue;
+      }
+      walker->get_coverage     = true;   // populate cov at the distant end → fixes DP there
+      walker->get_mate_regions = false;  // no recursion into further mate lookups
+      walker->readBam(unit);             // appends to walker->reads
+      walker->m_limit          = sc.opts.weird_read_limit;
+      walker->get_mate_regions = true;
+    }
+  }
+
   // Make a BWA mapper of the contigs themselves
   BWAIndexPtr contig_bwa_index = std::make_shared<BWAIndex>();
   contig_bwa_index->ConstructIndex(all_unaligned_contigs_this_region);
@@ -1117,6 +1342,29 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
           }
         } catch (...) { /* skip this mate region */ }
       }
+
+      // v5: distant contig-alignment regions recovered above — their reads are
+      // in the walkers now, so the local native index must cover them too, or a
+      // distant read's native alignment would be missing (falling back to the
+      // original BAM record, which is usually right but not guaranteed if BFC/
+      // trimming changed the seq).
+      for (size_t i = 0; i < distant_regions_collected.size(); ++i) {
+        const auto& dr = distant_regions_collected[i];
+        const int32_t dr_start = std::max(0, dr.pos1 - pad);
+        const int32_t dr_end   = dr.pos2 + pad;
+        try {
+          std::string seq = unit.ref_genome->QueryRegion(
+              sc.header.IDtoName(dr.chr), dr_start, dr_end);
+          if (!seq.empty()) {
+            local_usv.push_back({
+              sc.header.IDtoName(dr.chr) + ":" +
+                std::to_string(dr_start) + "-" +
+                std::to_string(dr_end),
+              std::move(seq), std::string()
+            });
+          }
+        } catch (...) { /* skip this distant region */ }
+      }
     }
 
     // Build the local index. If it fails (e.g. empty ref), fall back
@@ -1347,10 +1595,59 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
   for (auto& i : bp_glob) {
     i->indelCigarCheck(cigmap);
   }
-  
+
+  // SvABA2 somatic-safety net: scan reads EXCLUDED from assembly/r2c
+  // (adapter read-through, blacklist-self -- see svabaBamWalker::excluded_reads)
+  // for each BP's junction kmer. A unique excluded read carrying the kmer
+  // (>=19/20 bp, either strand) is junction-spanning evidence that the r2c
+  // path never saw. The per-sample unique-read count is stamped onto
+  // allele[prefix].kmer_alt and folded into the normal alt count by
+  // score_somatic, guaranteeing a junction-spanning NORMAL read can never be
+  // invisible to the somatic decision (a missed normal read => false somatic).
+  // Must run BEFORE scoreBreakpoint() so operator+ aggregates kmer_alt into n.
+  for (auto& i : bp_glob) {
+    const std::string kmer = i->junctionKmer(20);
+    if (kmer.size() != 20) continue;           // "." sentinel / no clean window
+    const std::string rckmer = revcompStr(kmer);
+
+    for (auto& [key, walker] : unit.walkers) {
+      if (walker->excluded_reads.empty()) continue;
+
+      const std::string akey = key.substr(0, std::min<size_t>(4, key.size()));
+      auto ait = i->allele.find(akey);
+      if (ait == i->allele.end()) continue;    // sample has no allele slot
+
+      // Don't double-count reads already credited via r2c/split/disc. A read
+      // pair's mate can land in excluded_reads (e.g. the 3' adapter-clipped
+      // mate of a recovered 5'-clipped split read) sharing the qname of a read
+      // already in supporting_reads -- counting it again would inflate n.alt.
+      // supporting_reads stores UniqueName = "prefix_idx_qname"; extract the
+      // bare qname the same way UpdateAltCounts does.
+      std::unordered_set<std::string> already;
+      for (const auto& un : ait->second.supporting_reads) {
+        size_t p = un.find('_', 5);
+        if (p != std::string::npos) already.insert(un.substr(p + 1));
+      }
+
+      // count UNIQUE excluded reads (by qname) carrying the kmer either strand
+      std::unordered_set<std::string> hits;
+      for (const auto& [qname, seq] : walker->excluded_reads) {
+        if (already.count(qname) || hits.count(qname)) continue;
+        if (seqHasKmerFuzzy(seq, kmer) || seqHasKmerFuzzy(seq, rckmer))
+          hits.insert(qname);
+      }
+      if (!hits.empty()) {
+        ait->second.kmer_alt = static_cast<int>(hits.size());
+        SVABA_TRACE(i->cname, "KMER_SCAN " << akey << " kmer=" << kmer
+                    << " excluded_pool=" << walker->excluded_reads.size()
+                    << " unique_kmer_reads=" << hits.size());
+      }
+    }
+  }
+
   // score the breakpoints
   for (auto& i : bp_glob) {
-    i->scoreBreakpoint(); 
+    i->scoreBreakpoint();
   }
   
   // label somatic breakpoints that intersect directly with normal as NOT somatic
@@ -1460,7 +1757,7 @@ bool SvabaRegionProcessor::process(const SeqLib::GenomicRegion& region,
       // setting id here is immediately visible to printToR2CTsv
       // when it walks getAllBreakPoints() during writeUnit.
       if (i->id.empty())
-        i->id = unit.next_bp_id();
+        i->id = deterministicBpId(*i);   // content-derived, run/thread-stable
 
       // SvABA2.0 (v3): tag every alt-supporting read with this
       // breakpoint's bp_id on the `bi:Z` aux tag. bp_id is a
