@@ -1082,21 +1082,27 @@ namespace {
 // BND records. Conservative:
 //   - both breakends must live on the same chromosome
 //   - INDEL records keep their existing REF/ALT shape (not this path)
-//   - strand pattern determines the symbolic kind:
-//       +/+  or  -/-  -> <DEL>
-//       -/+            -> <DUP>
-//       +/-            -> <INV>
+//   - strand pattern, read with the LOWER-coordinate breakend first,
+//     determines the symbolic kind. svaba strand convention (set in
+//     BreakEnd::transferContigAlignmentData): '+' = the retained sequence
+//     lies to the LEFT of the break, '-' = it lies to the RIGHT.
+//       +/-            -> <DEL>  left piece ends at lo, right piece resumes at hi
+//       -/+            -> <DUP>  hi end joined back onto lo (tandem dup)
+//       +/+  or  -/-   -> <INV>  two same-facing ends joined: one piece flipped
+//   - b1/b2 are NOT guaranteed to be in coordinate order (the dedup can keep
+//     the reciprocal row), so swap the strands when b1 is the higher end;
+//     otherwise a deletion stored hi-first reads -/+ and is mislabeled DUP.
 //   - anything ambiguous / inter-chrom falls through to BND.
 // Returns empty string when the pair should stay as paired BND.
 std::string classify_symbolic_kind(const BreakPoint& bp) {
   if (bp.svtype == SVType::INDEL)        return "";
   if (bp.b1.gr.chr != bp.b2.gr.chr)      return "";
-  const char s1 = bp.b1.gr.strand;
-  const char s2 = bp.b2.gr.strand;
-  if (s1 == '+' && s2 == '+')            return "DEL";
-  if (s1 == '-' && s2 == '-')            return "DEL";
-  if (s1 == '-' && s2 == '+')            return "DUP";
-  if (s1 == '+' && s2 == '-')            return "INV";
+  const bool b1_is_lo = bp.b1.gr.pos1 <= bp.b2.gr.pos1;
+  const char s_lo = b1_is_lo ? bp.b1.gr.strand : bp.b2.gr.strand;
+  const char s_hi = b1_is_lo ? bp.b2.gr.strand : bp.b1.gr.strand;
+  if (s_lo == '+' && s_hi == '-')        return "DEL";
+  if (s_lo == '-' && s_hi == '+')        return "DUP";
+  if (s_lo == s_hi && (s_lo == '+' || s_lo == '-')) return "INV";
   return "";
 }
 
